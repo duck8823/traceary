@@ -7,6 +7,8 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 
 ## [Unreleased]
 
+## [v0.42.0] - 2026-08-17
+
 ### Fixed
 - **`memory inbox list` が候補プール件数を出す (#2064)** — テキストはページの後に `showing N of M candidates (source split)` を出す。`--source` 未指定なら `extracted-hidden` も含む。JSON は既存の item 配列のまま。
 - **抽出がオーケストレーション進捗のナレーションを hidden にする (#2063)** — sprint/wave 状況、markdown の status 表、scratch パス、`ephemeralMessage` 包みを `extracted-hidden`（`transient_status`）へ。always/never/must の durable 事実は表示されたまま。
