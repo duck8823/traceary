@@ -470,7 +470,7 @@ func (u *SearchProjectionUsecase) CatchUp(ctx context.Context, b apptypes.Search
 		out.Action = "skipped"
 		out.GenerationID = status.GenerationID
 		out.SkippedReason = "budget does not match generation configuration; run '" +
-			apptypes.SearchProjectionStartCommand + "' to replace the generation"
+			apptypes.SearchProjectionRecoveryCommand + "' to replace the generation"
 		return out, nil
 	}
 	// A failed generation is parked, not retried. Every failure class this store
@@ -487,7 +487,7 @@ func (u *SearchProjectionUsecase) CatchUp(ctx context.Context, b apptypes.Search
 		// this state. Resume rejects a failed generation, and abort leaves the
 		// row failed with class abandoned. Only an explicit start replaces it.
 		out.SkippedReason = "parked after generation failure " + failureClassOrUnknown(status.FailureClass) +
-			"; run 'traceary store search-projection start' to replace the generation"
+			"; run '" + apptypes.SearchProjectionRecoveryCommand + "' to replace the generation"
 		return out, nil
 	}
 	switch {
@@ -530,7 +530,7 @@ func (u *SearchProjectionUsecase) CatchUp(ctx context.Context, b apptypes.Search
 		if parked {
 			out.Action = "skipped"
 			out.SkippedReason = "parked after generation failure " + apptypes.SearchProjectionFailureCleanupNoProgress +
-				"; run 'traceary store search-projection start' to replace the generation"
+				"; run '" + apptypes.SearchProjectionRecoveryCommand + "' to replace the generation"
 			return u.refreshCatchUpPosition(ctx, out), nil
 		}
 		return out, resumeErr

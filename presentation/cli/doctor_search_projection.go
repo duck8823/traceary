@@ -6,6 +6,54 @@ import (
 	apptypes "github.com/duck8823/traceary/application/types"
 )
 
+func (c *RootCLI) inspectSearchProjectionParked(ctx context.Context) doctorCheck {
+	if c.searchProjection == nil {
+		return doctorCheck{
+			Name:    "search-projection-parked",
+			Status:  doctorStatusSkip,
+			Message: Localize("search projection usecase is not configured", "search projection usecase が設定されていません"),
+		}
+	}
+	status, err := c.searchProjection.ControlStatus(ctx)
+	return searchProjectionParkedDoctorCheck(status, err)
+}
+
+func searchProjectionParkedDoctorCheck(status apptypes.SearchProjectionControlStatus, err error) doctorCheck {
+	const name = "search-projection-parked"
+	if err != nil {
+		return doctorCheck{
+			Name:    name,
+			Status:  doctorStatusWarn,
+			Message: localizef("failed to inspect search-projection parked state: %v", "search-projection の parked 状態を確認できません: %v", err),
+		}
+	}
+	notice := apptypes.SearchProjectionStatus{
+		State:        status.State,
+		Phase:        status.Phase,
+		ConfigHash:   status.ConfigHash,
+		FailureClass: status.FailureClass,
+		Origin:       status.Origin,
+	}
+	notice.ApplyParkedNotice(apptypes.DefaultSearchProjectionBudget().ConfigHash())
+	if notice.ParkedReason == "" {
+		return doctorCheck{
+			Name:    name,
+			Status:  doctorStatusSkip,
+			Message: Localize("search projection is not parked", "search projection は parked ではありません"),
+		}
+	}
+	hint := notice.RecoveryCommand
+	if hint == "" {
+		hint = apptypes.SearchProjectionRecoveryCommand
+	}
+	return doctorCheck{
+		Name:    name,
+		Status:  doctorStatusWarn,
+		Message: notice.ParkedReason,
+		Hint:    hint,
+	}
+}
+
 func (c *RootCLI) inspectSearchProjectionBudget(ctx context.Context) doctorCheck {
 	if c.searchProjection == nil {
 		return doctorCheck{

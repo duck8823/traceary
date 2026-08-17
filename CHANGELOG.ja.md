@@ -7,6 +7,9 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 
 ## [Unreleased]
 
+### Fixed
+- **parked な search-projection が毎コマンド WARN しない (#2058)** — skip WARN は store あたり 24 時間に 1 回。`doctor` と `store search-projection status` は毎回 parked 理由を出す。復旧文言は `start` のあと `resume --until-complete`。
+
 ### Removed
 - **`traceary sessions` を削除 (#2061)** — `--snapshot` / `--snapshot --json` を含む。呼び出しは unknown command（非ゼロ、`DEPRECATED` なし）。`list` / `search` / `context` / `report` / `session handoff` を使います。hook の workspace 正規化向け List は残します。
 - **`traceary session latest` と `traceary session list` を削除 (#2057)** — どちらも unknown subcommand（非ゼロ、`DEPRECATED` なし）。hook の `[Traceary] Session <id>`、`list` / `search` / `context`、`report` を使います。handoff / hooks / context 向けの内部 Active/Latest/List クエリは残します。

@@ -216,7 +216,7 @@ func TestLogSearchProjectionCatchUp_RepeatIncompleteIsDebug(t *testing.T) {
 	slog.SetDefault(slog.New(handler))
 	t.Cleanup(func() { slog.SetDefault(previous) })
 
-	logSearchProjectionCatchUp(apptypes.SearchProjectionCatchUpResult{
+	logSearchProjectionCatchUp("", apptypes.SearchProjectionCatchUpResult{
 		Action: "resume", State: "rebuilding", Phase: "cleanup",
 	}, context.DeadlineExceeded)
 

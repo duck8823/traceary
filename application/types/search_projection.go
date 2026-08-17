@@ -71,6 +71,11 @@ const (
 	SearchProjectionOriginAutomatic = "automatic"
 	SearchProjectionOriginOperator  = "operator"
 	SearchProjectionStartCommand    = "traceary store search-projection start"
+	// SearchProjectionRecoveryCommand is the practical parked-generation
+	// remedy: start replaces the generation (no row work), then resume
+	// --until-complete walks batches. Repeated resume continues from the
+	// last durable checkpoint.
+	SearchProjectionRecoveryCommand = "traceary store search-projection start then resume --until-complete"
 	// SearchProjectionFailureCleanupNoProgress is recorded when automatic
 	// catch-up spends N consecutive cleanup attempts without committing a row.
 	SearchProjectionFailureCleanupNoProgress = "cleanup_no_progress"
@@ -443,7 +448,7 @@ func (s *SearchProjectionStatus) ApplyParkedNotice(defaultConfigHash string) {
 			class = "(unclassified)"
 		}
 		s.ParkedReason = "parked after generation failure " + class
-		s.RecoveryCommand = SearchProjectionStartCommand
+		s.RecoveryCommand = SearchProjectionRecoveryCommand
 	case (s.State == "rebuilding" || (s.State == "drifted" && s.Phase == "cleanup")) &&
 		s.ConfigHash != "" && s.ConfigHash != defaultConfigHash:
 		if s.Origin == SearchProjectionOriginAutomatic {
@@ -451,7 +456,7 @@ func (s *SearchProjectionStatus) ApplyParkedNotice(defaultConfigHash string) {
 			return
 		}
 		s.ParkedReason = "budget does not match generation configuration"
-		s.RecoveryCommand = SearchProjectionStartCommand
+		s.RecoveryCommand = SearchProjectionRecoveryCommand
 	}
 }
 

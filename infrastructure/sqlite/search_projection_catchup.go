@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"log/slog"
+	"os"
+	"strings"
 	"time"
 
 	"golang.org/x/xerrors"
@@ -12,6 +14,10 @@ import (
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
 )
+
+const searchProjectionParkWarnInterval = 24 * time.Hour
+
+var searchProjectionParkWarnNow = time.Now
 
 // defaultSearchProjectionCatchUpBudget is the automatic generation budget used
 // on every store open. One Resume per open keeps the unit of work bounded;
@@ -133,8 +139,37 @@ func (d *Database) SearchProjectionHasSourceWork(ctx context.Context) (bool, err
 	return requiresInventory != 0, nil
 }
 
+func searchProjectionParkWarnStatePath(storePath string) string {
+	return storePath + ".projection-park-warn"
+}
+
+func shouldEmitSearchProjectionParkWarn(storePath string, now time.Time) bool {
+	if storePath == "" {
+		return true
+	}
+	raw, err := os.ReadFile(searchProjectionParkWarnStatePath(storePath))
+	if err != nil {
+		return true
+	}
+	last, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(string(raw)))
+	if err != nil {
+		return true
+	}
+	return !last.After(now) && now.Sub(last) >= searchProjectionParkWarnInterval
+}
+
+func recordSearchProjectionParkWarn(storePath string, now time.Time) {
+	if storePath == "" {
+		return
+	}
+	_ = os.WriteFile(searchProjectionParkWarnStatePath(storePath), []byte(now.UTC().Format(time.RFC3339Nano)+"\n"), 0o600)
+}
+
 // logSearchProjectionCatchUp emits structured progress without failing Initialize.
-func logSearchProjectionCatchUp(result apptypes.SearchProjectionCatchUpResult, err error) {
+// storePath rate-limits parked/skipped WARNs to once per 24h per store so hooks
+// and every CLI open do not nag. doctor and search-projection status stay
+// always-on through their own JSON. An empty path (unit tests) always emits.
+func logSearchProjectionCatchUp(storePath string, result apptypes.SearchProjectionCatchUpResult, err error) {
 	if err != nil {
 		var noProgress *apptypes.SearchProjectionNoProgressError
 		if errors.As(err, &noProgress) && noProgress.Code == apptypes.SearchProjectionNoProgressSingleRowLockDurationCap {
@@ -209,6 +244,10 @@ func logSearchProjectionCatchUp(result apptypes.SearchProjectionCatchUpResult, e
 		return
 	}
 	if result.Action == "skipped" {
+		now := searchProjectionParkWarnNow()
+		if !shouldEmitSearchProjectionParkWarn(storePath, now) {
+			return
+		}
 		slog.Warn("search projection catch-up skipped; the generation will not advance on its own until the reason is addressed",
 			"action", result.Action,
 			"state", result.State,
@@ -216,6 +255,7 @@ func logSearchProjectionCatchUp(result apptypes.SearchProjectionCatchUpResult, e
 			"generation_id", result.GenerationID,
 			"reason", result.SkippedReason,
 		)
+		recordSearchProjectionParkWarn(storePath, now)
 		return
 	}
 	attrs := []any{

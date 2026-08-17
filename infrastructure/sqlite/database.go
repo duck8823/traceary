@@ -491,7 +491,7 @@ func (d *Database) initializeAt(ctx context.Context, snapshot string, allowOffli
 	// Path(), so skip when SetPath raced against the migrate snapshot.
 	if snapshot == d.Path() {
 		projectionCatchUp, projectionCatchUpErr := catchUpSearchProjection(ctx, d)
-		logSearchProjectionCatchUp(projectionCatchUp, projectionCatchUpErr)
+		logSearchProjectionCatchUp(snapshot, projectionCatchUp, projectionCatchUpErr)
 	}
 	usageRepairResult, usageRepairErr := catchUpEpochZeroHookUsage(ctx, db, epochZeroHookUsageRepairBatchSize)
 	logEpochZeroHookUsageRepair(usageRepairResult, usageRepairErr)
