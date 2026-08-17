@@ -127,7 +127,7 @@ Search events by text and structured filters.
 
 Session rows mean the trail contains a match. A session is selected by its start instant for `--from` / `--to` — the same rule session-summary queries use — and `--failures` is satisfied by any failed command in the session. Filters on session rows apply to the session, not to a single event: a session can appear when the query, the time range and `--failures` are each satisfied by different activity within it. The event tier is the one where every filter narrows to a single row.
 
-A completed generation is a snapshot, so events recorded after it are read directly from `events` and merged into the same result — search never goes stale between rebuilds. Before a generation completes, `search` still answers literal matches correctly by decoding candidates directly; it is slower, and the SESSIONS group is empty because the session tier is refused until then (#1844). The stderr notice points to `traceary store search-projection status`: `docs/search-projection-rebuild.md` lists what each state needs; if readiness cannot be determined, the same status command explains the ambiguous empty group. When the walk exhausts its candidate budget it does not return a partial page — it reports `index_incomplete`. Completing the projection restores the fingerprint pre-filter and the session tier; which command gets a given state there is in `docs/search-projection-rebuild.md`, because `start` is refused while a generation is already rebuilding.
+A completed generation is a snapshot, so events recorded after it are read directly from `events` and merged into the same result — search never goes stale between rebuilds. Before a generation completes, `search` still answers literal matches correctly by decoding candidates directly; it is slower, and the SESSIONS group is empty because the session tier is refused until then (#1844). The stderr notice points to `traceary doctor`: `docs/search-projection-rebuild.md` lists what each state needs; if readiness cannot be determined, the same doctor check explains the ambiguous empty group. When the walk exhausts its candidate budget it does not return a partial page — it reports `index_incomplete`. Completing the projection restores the fingerprint pre-filter and the session tier; which command gets a given state there is in `docs/search-projection-rebuild.md`, because `start` is refused while a generation is already rebuilding.
 
 The full-corpus migration-032 index that used to back this command is retired in v0.34. It is no longer read or maintained, and `traceary store compact` drops it during the rewrite — see [search retirement](../operations/search-retirement.md).
 
@@ -852,7 +852,7 @@ Useful flags:
 
 Rewrite the store file. Running the command is the consent: Traceary copies the store, filters the copy, vacuums into a new file, and atomically exchanges it. The old inode stays as the rollback file.
 
-While copying, compact drops non-canonical duplicate hook bodies, discards covered bodies past `--keep-days` (default 90), encodes remaining bodies, and does not copy the retired search-index family. `traceary store search-projection` stays as its own command.
+While copying, compact drops non-canonical duplicate hook bodies, discards covered bodies past `--keep-days` (default 90), encodes remaining bodies, and does not copy the retired search-index family. Search-projection lifecycle is `doctor --fix` / `store compact --projection-rebuild` / `--projection-abort`.
 
 If every discardable-age session is still unrefined, compact refuses and names `traceary-session-refine`. Partial folds proceed and reclaim what those sessions authorize. `--force` writes mechanical summaries first; the agent's reasoning (why) is not recovered.
 
@@ -877,9 +877,9 @@ Export GC-eligible rows to a versioned archive package, verify a package, or res
 
 Plan or apply file-retention actions for host-side archive and backup artifacts. `--retention-apply` requires `--plan` and `--confirm-plan-id`. These flags absorb the former `store retention files plan|apply` leaves. Apply is operator-consented and is not part of the default hook path.
 
-### `traceary store search-projection start|resume|status|abort|probe`
+### `traceary store compact --projection-rebuild` / `--projection-abort`
 
-Manage the search-projection rebuild. `status` is the safe read; `start` / `resume` / `abort` change rebuild state. Catch-up on large stores is paged and may park when it cannot advance.
+Start a new search-projection generation (or resume one that is already rebuilding) with the former start budget flags, or abandon an incomplete generation. Parked recovery is `traceary doctor --fix`. Lifecycle and budget inspection stay on `traceary doctor` (`search-projection-parked` / `search-projection-budget`). Catch-up on large stores is paged and may park when it cannot advance.
 
 ### `traceary session gc`
 

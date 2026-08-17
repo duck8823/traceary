@@ -38,7 +38,7 @@ const DefaultSearchProjectionLockTime = 250 * time.Millisecond
 // DefaultSearchProjectionBudget is the bounded search projection budget used
 // by both the CLI flag defaults and the automatic catch-up path, which must
 // agree: five of these fields feed ConfigHash, so an operator running
-// `store search-projection resume` with default flags is refused the
+// `store compact --projection-rebuild` with default flags is refused the
 // generation automatic catch-up started as soon as one of them drifts. The
 // refusal reports only "budget does not match generation configuration" — the
 // operator cannot see that two defaults disagree, because both look like the
@@ -70,12 +70,13 @@ const SearchProjectionCapacitySemanticsVersion = 2
 const (
 	SearchProjectionOriginAutomatic = "automatic"
 	SearchProjectionOriginOperator  = "operator"
-	SearchProjectionStartCommand    = "traceary store search-projection start"
+	SearchProjectionStartCommand    = "traceary store compact --projection-rebuild"
 	// SearchProjectionRecoveryCommand is the practical parked-generation
-	// remedy: start replaces the generation (no row work), then resume
-	// --until-complete walks batches. Repeated resume continues from the
-	// last durable checkpoint.
-	SearchProjectionRecoveryCommand = "traceary store search-projection start then resume --until-complete"
+	// remedy after #2077: doctor --fix starts a replacement when needed
+	// and resumes bounded batches. compact --projection-rebuild starts a
+	// new generation with optional budget flags; compact --projection-abort
+	// abandons one.
+	SearchProjectionRecoveryCommand = "traceary doctor --fix"
 	// SearchProjectionFailureCleanupNoProgress is recorded when automatic
 	// catch-up spends N consecutive cleanup attempts without committing a row.
 	SearchProjectionFailureCleanupNoProgress = "cleanup_no_progress"
@@ -438,7 +439,7 @@ type SearchProjectionStatus struct {
 }
 
 // ApplyParkedNotice fills ParkedReason and RecoveryCommand from persisted
-// state so `store search-projection status` can answer why catch-up is stuck.
+// state so doctor can answer why catch-up is stuck.
 // defaultConfigHash is the current DefaultSearchProjectionBudget hash.
 func (s *SearchProjectionStatus) ApplyParkedNotice(defaultConfigHash string) {
 	switch {

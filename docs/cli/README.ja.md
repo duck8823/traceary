@@ -127,7 +127,7 @@ subcommand なしの `traceary` は TTY / 非 TTY とも常に help を表示し
 
 セッション行は、その trail のどこかに検索条件に一致する活動があることを示します。`--from` / `--to` では session summary クエリと同じくセッションの開始時刻で選び、`--failures` はそのセッション内に失敗したコマンドが1つでもあれば満たします。セッション行に対する filter は単一の event ではなくセッション全体に適用されるため、query、期間、`--failures` がそれぞれセッション内の別の活動によって満たされても、そのセッションは表示されます。すべての filter が1行の event だけを絞り込むのは event 階層です。
 
-complete な世代はスナップショットなので、その後に記録された event は `events` から直接読み、同じ結果に統合します。再構築の合間に検索結果が古くなることはありません。世代が complete になる前も、候補を直接復号して本文一致は正しく返します。速度は落ち、また session tier はそれまで参照を拒否されるため SESSIONS グループは空になります（#1844）。stderr の通知は `traceary store search-projection status` を案内します。state ごとに必要な操作は `docs/search-projection-rebuild.ja.md` にまとめています。準備状態を確認できない場合も、同じ status command で空のグループの意味を確認できます。候補予算を使い切った場合は部分的な結果を返さず `index_incomplete` を報告します。projection が complete になると fingerprint pre-filter と session tier が利用可能になります。どの state にどのコマンドが必要かは `docs/search-projection-rebuild.ja.md` を参照してください。世代が rebuilding の間、`start` は拒否されます。
+complete な世代はスナップショットなので、その後に記録された event は `events` から直接読み、同じ結果に統合します。再構築の合間に検索結果が古くなることはありません。世代が complete になる前も、候補を直接復号して本文一致は正しく返します。速度は落ち、また session tier はそれまで参照を拒否されるため SESSIONS グループは空になります（#1844）。stderr の通知は `traceary doctor` を案内します。state ごとに必要な操作は `docs/search-projection-rebuild.ja.md` にまとめています。準備状態を確認できない場合も、同じ status command で空のグループの意味を確認できます。候補予算を使い切った場合は部分的な結果を返さず `index_incomplete` を報告します。projection が complete になると fingerprint pre-filter と session tier が利用可能になります。どの state にどのコマンドが必要かは `docs/search-projection-rebuild.ja.md` を参照してください。世代が rebuilding の間、`start` は拒否されます。
 
 この command をかつて支えていた全文コーパス版 migration-032 索引は v0.34 で退役しました。読み書きはされず、`traceary store compact` が書き換え時に落とします。詳細は [検索インデックスの退役](../operations/search-retirement.ja.md) を参照してください。
 
@@ -843,7 +843,7 @@ store 管理コマンドは `store` namespace に集約されています。旧 
 
 ストアファイルを書き換えます。実行した瞬間が同意です。Traceary はストアをコピーし、そのコピーを filter し、新しいファイルへ VACUUM INTO したあと atomic exchange します。旧 inode は rollback ファイルとして残ります。
 
-コピー中に、非 canonical な hook 重複本文、`--keep-days`（既定 90）を過ぎた covered 本文、退役済み search index family を落とします。残った本文は encode します。`traceary store search-projection` は別コマンドのままです。
+コピー中に、非 canonical な hook 重複本文、`--keep-days`（既定 90）を過ぎた covered 本文、退役済み search index family を落とします。残った本文は encode します。search-projection の世代操作は `doctor --fix` / `store compact --projection-rebuild` / `--projection-abort` です。
 
 破棄対象の session がすべて未 refine なら compact は拒否し、`traceary-session-refine` を案内します。部分 fold は進み、その session が許可した分だけ回収します。`--force` は先に機械要約を書きます。エージェントの判断理由（なぜ）は復元しません。
 
@@ -868,9 +868,9 @@ GC 適格行を版付き archive package に export するか、package を検�
 
 ホスト側 archive / backup artifact の file-retention を計画または適用します。`--retention-apply` には `--plan` と `--confirm-plan-id` が必要です。旧 `store retention files plan|apply` を吸収します。apply は operator 同意が必要で、既定 hook 経路には入りません。
 
-### `traceary store search-projection start|resume|status|abort|probe`
+### `traceary store compact --projection-rebuild` / `--projection-abort`
 
-search-projection rebuild を管理します。`status` は読み取り専用、`start` / `resume` / `abort` が状態を変えます。大きいストアの catch-up は page され、進まないときは park します。
+新しい search-projection 世代を開始する（または既に rebuilding なら resume する）か、未完了世代を破棄します。parked 復旧は `traceary doctor --fix`。lifecycle と予算判定は `traceary doctor`（`search-projection-parked` / `search-projection-budget`）のままです。大きいストアの catch-up は page され、進まないときは park します。
 
 ### `traceary session gc`
 

@@ -43,4 +43,4 @@ Corpus: **maintainer store 2026-08-11 uncompressed #1620**.
 
 ## Rebuild
 
-In operator-facing text, **rebuild** means rebuilding the **search-index family** (`traceary store search-projection …`). It is not a compile step and not a whole-store rebuild. See [search projection rebuild](../search-projection-rebuild.md).
+In operator-facing text, **rebuild** means rebuilding the **search-index family** (`traceary store compact --projection-rebuild` / `traceary doctor --fix`). It is not a compile step and not a whole-store rebuild. See [search projection rebuild](../search-projection-rebuild.md).

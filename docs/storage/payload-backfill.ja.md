@@ -45,9 +45,8 @@ traceary store compact
 検索 projection が drifted なら:
 
 ```sh
-traceary store search-projection start
-traceary store search-projection resume --until-complete
-traceary store search-projection status
+traceary store compact --projection-rebuild
+traceary doctor --fix
 ```
 
 ## オペレータが知るべき意味論

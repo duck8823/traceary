@@ -46,9 +46,8 @@ traceary store compact
 If the search projection is drifted afterwards:
 
 ```sh
-traceary store search-projection start
-traceary store search-projection resume --until-complete
-traceary store search-projection status
+traceary store compact --projection-rebuild
+traceary doctor --fix
 ```
 
 ## Semantics operators should know

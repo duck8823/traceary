@@ -71,8 +71,8 @@ func warnSearchSessionsProjectionNotReady(warnWriter io.Writer) {
 		return
 	}
 	_, _ = fmt.Fprint(warnWriter, Localize(
-		"traceary: the session tier was not consulted because the search projection is not in the `complete` state, so sessions that match only their summary or keywords are not listed. Run `traceary store search-projection status` for the current state, and see docs/search-projection-rebuild.md for what that state needs.\n",
-		"traceary: search projection が `complete` 状態でないため、session tier は参照されませんでした。要約やキーワードだけが一致する session は一覧に出ません。現在の state は `traceary store search-projection status` で確認し、その state に必要な操作は docs/search-projection-rebuild.ja.md を参照してください。\n",
+		"traceary: the session tier was not consulted because the search projection is not in the `complete` state, so sessions that match only their summary or keywords are not listed. Run `traceary doctor` for the current state, and see docs/search-projection-rebuild.md for what that state needs.\n",
+		"traceary: search projection が `complete` 状態でないため、session tier は参照されませんでした。要約やキーワードだけが一致する session は一覧に出ません。現在の state は `traceary doctor` で確認し、その state に必要な操作は docs/search-projection-rebuild.ja.md を参照してください。\n",
 	))
 }
 
@@ -86,8 +86,8 @@ func warnSearchSessionsProjectionReadinessUnknown(warnWriter io.Writer) {
 		return
 	}
 	_, _ = fmt.Fprint(warnWriter, Localize(
-		"traceary: could not determine whether the search projection is ready, so the empty SESSIONS group may be ambiguous. Run `traceary store search-projection status` to inspect it.\n",
-		"traceary: search projection の準備状態を確認できなかったため、空の SESSIONS グループの意味を判定できません。`traceary store search-projection status` で状態を確認してください。\n",
+		"traceary: could not determine whether the search projection is ready, so the empty SESSIONS group may be ambiguous. Run `traceary doctor` to inspect it.\n",
+		"traceary: search projection の準備状態を確認できなかったため、空の SESSIONS グループの意味を判定できません。`traceary doctor` で状態を確認してください。\n",
 	))
 }
 

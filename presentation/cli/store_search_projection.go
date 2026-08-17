@@ -1,112 +1,99 @@
+//nolint:wrapcheck // CLI helpers preserve typed usecase errors for cobra RunE.
 package cli
 
 import (
+	"context"
 	"encoding/json"
+	"io"
 	"time"
 
-	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
 	apptypes "github.com/duck8823/traceary/application/types"
 )
 
-//nolint:wrapcheck // Cobra boundary intentionally preserves typed usecase errors.
-func (c *RootCLI) newStoreSearchProjectionCommand() *cobra.Command {
-	group := &cobra.Command{Use: "search-projection", Short: Localize("Manage the derived search projection's fingerprint prefilter and session tier", "派生 search projection の fingerprint prefilter と session tier を管理する")}
-	group.AddCommand(c.newStoreSearchProjectionRunCommand("start", true), c.newStoreSearchProjectionRunCommand("resume", false))
-	group.AddCommand(&cobra.Command{Use: "abort", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
-		if c.searchProjection == nil {
-			return xerrors.New("search projection usecase is not configured")
-		}
-		got, err := c.searchProjection.Abandon(cmd.Context(), time.Now())
-		if err != nil {
-			return err
-		}
-		return json.NewEncoder(cmd.OutOrStdout()).Encode(got)
-	}})
-	group.AddCommand(&cobra.Command{Use: "status", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
-		if c.searchProjection == nil {
-			return xerrors.New("search projection usecase is not configured")
-		}
-		status, err := c.searchProjection.Inspect(cmd.Context())
-		if err != nil {
-			return err
-		}
-		return json.NewEncoder(cmd.OutOrStdout()).Encode(status)
-	}})
-	group.AddCommand(&cobra.Command{Use: "probe", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
-		if c.searchProjection == nil {
-			return xerrors.New("search projection usecase is not configured")
-		}
-		started := time.Now()
-		status, err := c.searchProjection.Inspect(cmd.Context())
-		if err != nil {
-			return err
-		}
-		return json.NewEncoder(cmd.OutOrStdout()).Encode(struct {
-			SchemaVersion          string `json:"schema_version"`
-			FTSDesign              string `json:"fts_design"`
-			InspectionMilliseconds int64  `json:"inspection_milliseconds"`
-			MatchProbeMilliseconds int64  `json:"match_probe_milliseconds"`
-			Authoritative          bool   `json:"authoritative"`
-		}{"traceary.search-projection-probe/v1", status.FTSDesign, time.Since(started).Milliseconds(), status.MatchProbeMilliseconds, false})
-	}})
-	return group
+func (c *RootCLI) runStoreSearchProjectionStart(ctx context.Context, output io.Writer, budget apptypes.SearchProjectionBudget) error {
+	if c.searchProjection == nil {
+		return xerrors.New("search projection usecase is not configured")
+	}
+	got, err := c.searchProjection.StartGeneration(ctx, budget, time.Now())
+	if err != nil {
+		return err
+	}
+	return json.NewEncoder(output).Encode(got)
 }
 
-//nolint:wrapcheck // Cobra boundary intentionally preserves typed usecase errors.
-func (c *RootCLI) newStoreSearchProjectionRunCommand(name string, start bool) *cobra.Command {
-	var rows int
-	var wall, lock, timeAge time.Duration
-	var stored, decoded, written, recent int64
-	var untilComplete bool
-	var maxBatches int
-	var totalWall time.Duration
-	cmd := &cobra.Command{Use: name, Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
-		if c.searchProjection == nil {
-			return xerrors.New("search projection usecase is not configured")
-		}
-		b := apptypes.SearchProjectionBudget{Rows: rows, WallTime: wall, LockTime: lock, StoredBytes: stored, DecodedBytes: decoded, WriteBytes: written, RecentAge: timeAge, IndexFamilyBytes: recent}
-		enc := json.NewEncoder(cmd.OutOrStdout())
-		if start {
-			got, err := c.searchProjection.StartGeneration(cmd.Context(), b, time.Now())
-			if err != nil {
-				return err
-			}
-			return enc.Encode(got)
-		}
-		if untilComplete {
-			got, err := c.searchProjection.ResumeUntil(cmd.Context(), b, apptypes.SearchProjectionRunOptions{MaxBatches: maxBatches, TotalWallTime: totalWall}, time.Now())
-			if err != nil {
-				return err
-			}
-			return enc.Encode(got)
-		}
-		got, err := c.searchProjection.Resume(cmd.Context(), b, time.Now())
-		if err != nil {
-			return err
-		}
-		return enc.Encode(got)
-	}}
-	defaults := apptypes.DefaultSearchProjectionBudget()
-	cmd.Flags().IntVar(&rows, "rows", defaults.Rows, "maximum source rows")
-	cmd.Flags().DurationVar(&wall, "wall-time", defaults.WallTime, "maximum total batch duration")
-	cmd.Flags().DurationVar(&lock, "lock-time", defaults.LockTime, "maximum write-lock duration")
-	cmd.Flags().Int64Var(&stored, "stored-bytes", defaults.StoredBytes, "maximum stored source bytes")
-	cmd.Flags().Int64Var(&decoded, "decoded-bytes", defaults.DecodedBytes, "maximum decoded source bytes")
-	cmd.Flags().Int64Var(&written, "write-bytes", defaults.WriteBytes, "maximum logical write bytes")
-	cmd.Flags().DurationVar(&timeAge, "recent-age", defaults.RecentAge, "recent projection age")
-	// Index-family budget: physical bytes of documents, trigram index, session
-	// tier and literal fingerprints (active b-tree allocation), not source text.
-	// It is a target, not a cap. The corpus-proportional tiers are subtracted
-	// from it as a reserve and the remainder becomes the recent tier's evictable
-	// ceiling; only that remainder is enforced. The family total is re-measured
-	// at completion and reported through index_family_within_budget.
-	cmd.Flags().Int64Var(&recent, "index-family-bytes", defaults.IndexFamilyBytes, "steady-state physical byte target for one completed search-index family after cleanup; not a rebuild-peak cap (two generations plus FTS delete postings can exceed it)")
-	if !start {
-		cmd.Flags().BoolVar(&untilComplete, "until-complete", false, "resume bounded batches until complete or a command bound is reached")
-		cmd.Flags().IntVar(&maxBatches, "max-batches", 100, "maximum durable batches in one command")
-		cmd.Flags().DurationVar(&totalWall, "total-wall-time", 10*time.Minute, "maximum total multi-batch command duration")
+func (c *RootCLI) runStoreSearchProjectionResumeUntil(ctx context.Context, output io.Writer, budget apptypes.SearchProjectionBudget, opts apptypes.SearchProjectionRunOptions) error {
+	if c.searchProjection == nil {
+		return xerrors.New("search projection usecase is not configured")
 	}
-	return cmd
+	got, err := c.searchProjection.ResumeUntil(ctx, budget, opts, time.Now())
+	if err != nil {
+		return err
+	}
+	return json.NewEncoder(output).Encode(got)
+}
+
+func (c *RootCLI) runStoreSearchProjectionAbort(ctx context.Context, output io.Writer) error {
+	if c.searchProjection == nil {
+		return xerrors.New("search projection usecase is not configured")
+	}
+	got, err := c.searchProjection.Abandon(ctx, time.Now())
+	if err != nil {
+		return err
+	}
+	return json.NewEncoder(output).Encode(got)
+}
+
+func (c *RootCLI) runStoreSearchProjectionInspect(ctx context.Context, output io.Writer) error {
+	if c.searchProjection == nil {
+		return xerrors.New("search projection usecase is not configured")
+	}
+	status, err := c.searchProjection.Inspect(ctx)
+	if err != nil {
+		return err
+	}
+	return json.NewEncoder(output).Encode(status)
+}
+
+func defaultProjectionRunOptions() apptypes.SearchProjectionRunOptions {
+	return apptypes.SearchProjectionRunOptions{MaxBatches: 100, TotalWallTime: 10 * time.Minute}
+}
+
+type storeProjectionBudgetInput struct {
+	rows             int
+	wall             time.Duration
+	lock             time.Duration
+	stored           int64
+	decoded          int64
+	written          int64
+	recentAge        time.Duration
+	indexFamilyBytes int64
+}
+
+func defaultStoreProjectionBudgetInput() storeProjectionBudgetInput {
+	defaults := apptypes.DefaultSearchProjectionBudget()
+	return storeProjectionBudgetInput{
+		rows:             defaults.Rows,
+		wall:             defaults.WallTime,
+		lock:             defaults.LockTime,
+		stored:           defaults.StoredBytes,
+		decoded:          defaults.DecodedBytes,
+		written:          defaults.WriteBytes,
+		recentAge:        defaults.RecentAge,
+		indexFamilyBytes: defaults.IndexFamilyBytes,
+	}
+}
+
+func (in storeProjectionBudgetInput) budget() apptypes.SearchProjectionBudget {
+	return apptypes.SearchProjectionBudget{
+		Rows:             in.rows,
+		WallTime:         in.wall,
+		LockTime:         in.lock,
+		StoredBytes:      in.stored,
+		DecodedBytes:     in.decoded,
+		WriteBytes:       in.written,
+		RecentAge:        in.recentAge,
+		IndexFamilyBytes: in.indexFamilyBytes,
+	}
 }

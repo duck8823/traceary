@@ -140,6 +140,44 @@ func TestRootCLI_StoreArchiveAndRetentionAreUnknownSubcommands(t *testing.T) {
 	}
 }
 
+func TestRootCLI_StoreSearchProjectionIsUnknownSubcommand(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+	tests := []struct {
+		name       string
+		args       []string
+		wantErrHas string
+	}{
+		{name: "bare group", args: []string{"store", "search-projection"}, wantErrHas: `unknown subcommand "search-projection"`},
+		{name: "start", args: []string{"store", "search-projection", "start"}, wantErrHas: `unknown subcommand "search-projection"`},
+		{name: "resume", args: []string{"store", "search-projection", "resume"}, wantErrHas: `unknown subcommand "search-projection"`},
+		{name: "status", args: []string{"store", "search-projection", "status"}, wantErrHas: `unknown subcommand "search-projection"`},
+		{name: "abort", args: []string{"store", "search-projection", "abort"}, wantErrHas: `unknown subcommand "search-projection"`},
+		{name: "probe", args: []string{"store", "search-projection", "probe"}, wantErrHas: `unknown subcommand "search-projection"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stdout := &bytes.Buffer{}
+			stderr := &bytes.Buffer{}
+			root := cli.NewRootCLI(
+				cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			).Command()
+			root.SetOut(stdout)
+			root.SetErr(stderr)
+			root.SetArgs(tt.args)
+			err := root.Execute()
+			if err == nil {
+				t.Fatalf("Execute(%v) error = nil, want %q", tt.args, tt.wantErrHas)
+			}
+			if !strings.Contains(err.Error(), tt.wantErrHas) {
+				t.Fatalf("Execute(%v) error = %q, want substring %q", tt.args, err.Error(), tt.wantErrHas)
+			}
+			if strings.Contains(err.Error(), "DEPRECATED:") || strings.Contains(stderr.String(), "DEPRECATED:") || strings.Contains(stdout.String(), "DEPRECATED:") {
+				t.Errorf("unexpected deprecation notice:\nerr=%v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
+			}
+		})
+	}
+}
+
 func TestRootCLI_StoreInitIsUnknownSubcommand(t *testing.T) {
 	t.Setenv("TRACEARY_LANG", "en")
 	tests := []struct {
