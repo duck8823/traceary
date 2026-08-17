@@ -80,7 +80,6 @@ var pillarInventory = []pillarInventoryEntry{
 	{Path: "memory admin supersede", Pillar: pillarMemory, Reason: "replace an accepted memory"},
 	{Path: "memory admin expire", Pillar: pillarMemory, Reason: "expire an accepted memory"},
 	{Path: "memory admin set-validity", Pillar: pillarMemory, Reason: "set a memory validity window"},
-	{Path: "store init", Pillar: pillarKeep, Reason: "create the SQLite store; prerequisite"},
 	{Path: "store backup create", Pillar: pillarKeep, Reason: "operator safety copy"},
 	{Path: "store backup restore", Pillar: pillarKeep, Reason: "restore a safety copy"},
 	{Path: "store compact", Pillar: pillarRecord, Reason: "compress, drop retired index, discard covered bodies, vacuum; --archive absorbs store archive; --retention-plan/--retention-apply absorb store retention files"},

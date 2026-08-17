@@ -8,11 +8,14 @@
 
 **Issue:** #1852
 
+**上書き:** 認可済み適用経路は v0.42.0（#2076）で `traceary store init` から
+`traceary doctor --fix` へ移りました。暗黙拒否は変わりません。
+
 ## 決定
 
-`migrate()` が `MigrationExecutionClass` を読む。ストアに source event があるとき、`data_dependent_offline` は暗黙の open では適用しない。エラーは保留中の version と `traceary store init` を出す。拒否した migration ではストアを変えない。
+`migrate()` が `MigrationExecutionClass` を読む。ストアに source event があるとき、`data_dependent_offline` は暗黙の open では適用しない。エラーは保留中の version と `traceary doctor --fix` を出す。拒否した migration ではストアを変えない。
 
-適用は `traceary store init` だけ。新しいコマンドは足さない。空の新規ストアは暗黙の open だけで現行 schema に届く。
+適用は `traceary doctor --fix` だけ。新しいコマンドは足さない。空の新規ストアは暗黙の open だけで現行 schema に届く。
 
 041 / 042 は `constant_in_place`（projection の帳簿コピーであり `events` ではない）。035 / 045 は offline のまま（既存データへの `CREATE INDEX`）。
 
@@ -27,7 +30,7 @@
 ## 結果
 
 - v0.33.1 形 + events: 暗黙 open は失敗し、ledger は 34 のまま。
-- 同じストア + `store init`: 現行 version に届く。
+- 同じストア + `doctor --fix`: 現行 version に届く。
 - 空ストア: 暗黙 open で現行 version に届く。
 - 041/042 再分類後、暗黙 open はそれらを適用し 045 で止まる。
 - 045 が中断: ledger は 44。次の暗黙 open はすぐ失敗する。

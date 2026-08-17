@@ -793,8 +793,10 @@ type storeManagementUsecaseStub struct {
 	staleMu           sync.Mutex
 	staleDelay        time.Duration
 	initCalled        bool
+	authorizedCalled  bool
 	initErr           error
 	previewOffline    []int64
+	previewCalls      int
 	createBackupErr   error
 	createBackupPath  string
 	createBackupCalls int
@@ -838,10 +840,17 @@ func (s *storeManagementUsecaseStub) Initialize(_ context.Context) error {
 	return s.initErr
 }
 func (s *storeManagementUsecaseStub) InitializeAuthorized(ctx context.Context) error {
+	s.staleMu.Lock()
+	s.authorizedCalled = true
+	s.staleMu.Unlock()
 	return s.Initialize(ctx)
 }
 func (s *storeManagementUsecaseStub) PreviewOfflineMigrations(context.Context) ([]int64, error) {
-	return s.previewOffline, nil
+	s.staleMu.Lock()
+	s.previewCalls++
+	pending := s.previewOffline
+	s.staleMu.Unlock()
+	return pending, nil
 }
 func (s *storeManagementUsecaseStub) CreateBackup(_ context.Context, path string, _ bool) error {
 	s.createBackupCalls++

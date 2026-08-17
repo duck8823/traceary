@@ -12,7 +12,7 @@ This guide explains what gets written there, how the schema is organized today, 
 - file permissions: Traceary creates the parent directory with `0700` and the DB file with `0600`
 - no hidden remote service: the CLI and hooks read and write the same local SQLite file
 
-`traceary store init` is optional. Any command that needs the store will create the DB and apply migrations on demand.
+The store is created on demand. Any command that needs the store will create the DB and apply implicit migrations. Data-dependent offline migrations require `traceary doctor --fix`.
 
 ## Current schema
 
@@ -151,8 +151,9 @@ Current non-goals:
 ## Migrations and compatibility
 
 - migrations are embedded in the binary from `schema/sqlite/migrations`
-- store initialization runs before normal command execution, so upgrades apply migrations automatically
-- backup restore copies the SQLite file first and then reruns store initialization so newer migrations can be applied
+- store initialization runs before normal command execution, so upgrades apply non-offline migrations automatically
+- data-dependent offline migrations (035, 045) are not applied implicitly; run `traceary doctor --fix`
+- backup restore copies the SQLite file first and then reruns store initialization so newer non-offline migrations can be applied
 - migration `000028` adds immutable `run_lineages` and `usage_observation_runs` tables without rewriting v27 usage rows; missing attribution remains unknown
 
 Traceary does not promise backward compatibility for arbitrary manual schema edits.

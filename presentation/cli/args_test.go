@@ -32,9 +32,9 @@ func TestRootCLI_ArgumentErrorsDefaultToEnglish(t *testing.T) {
 			wantErr: "expected at most 1 positional argument(s) (received: 2)",
 		},
 		{
-			name:    "store init の余分な引数は英語",
-			args:    []string{"store", "init", "extra"},
-			wantErr: "this command does not accept positional arguments (received: 1)",
+			name:    "store backup の余分な引数は英語",
+			args:    []string{"store", "backup", "extra"},
+			wantErr: `unknown subcommand "extra"`,
 		},
 	}
 

@@ -791,6 +791,7 @@ Each check has a severity: `PASS`, `WARN`, or `FAIL`. `WARN` means Traceary foun
 Additional doctor checks:
 
 - `store-capacity` reports the metadata-only capacity breakdown (database / free / WAL / top objects) from the same bounded InspectCapacity path as the former `store capacity` command. On stores ≥2 GiB the default doctor stays filesystem-metadata-only and this check is `skip` (no SQLite open, no dbstat walk).
+- `offline-migrations` reports pending data-dependent migrations (035, 045). Empty stores still auto-init on first write or `doctor`. Apply pending versions with `doctor --fix` (can take minutes). On stores ≥2 GiB the default doctor skips this check without opening SQLite.
 - `path` confirms `traceary` resolves on `PATH` and reports the directory. Missing is `FAIL`; multiple matches are `WARN`.
 - `<client>-plugin-version` compares detected installed plugin manifests/caches with the running binary version and suggests reinstalling/updating the plugin when they drift.
 - `claude-hook-cancellations` separates actionable SessionEnd cancellation markers from markers whose referenced session has subsequently ended. `doctor --fix --dry-run` previews removal of resolved markers; `doctor --fix` removes only those proven resolved and leaves active, missing-session, or unreadable evidence untouched.
@@ -841,11 +842,7 @@ Useful flags:
 
 ## Store administration (`traceary store ...`)
 
-Store administration commands live under the `store` namespace. The old top-level `traceary init`, `traceary backup`, and `traceary gc` aliases were removed in v0.14.0; running them now returns Cobra's unknown-command error (use `traceary store init`, `traceary store backup ...`, `traceary store compact`). The aliases shipped a deprecation notice from v0.9.0 through v0.13.x. See [CLI stability and deprecation policy](../cli-stability.md).
-
-### `traceary store init`
-
-Explicitly create the DB and apply migrations up front. Optional because normal commands initialize the store on demand.
+Store administration commands live under the `store` namespace. The old top-level `traceary init`, `traceary backup`, and `traceary gc` aliases were removed in v0.14.0; `traceary store init` was removed in v0.42.0. Use `traceary doctor` / first write for implicit init, and `traceary doctor --fix` for data-dependent offline migrations. See [CLI stability and deprecation policy](../cli-stability.md).
 
 ### `traceary store backup create`
 

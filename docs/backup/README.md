@@ -21,7 +21,7 @@ Useful flags:
 - `--db-path` to back up a non-default DB
 - `--force` to overwrite an existing backup file
 
-`store backup create` expects the source DB to exist already. If you have never recorded anything yet, create the DB intentionally first (for example with `traceary store init` or your normal logging flow).
+`store backup create` expects the source DB to exist already. If you have never recorded anything yet, create the DB first with a normal logging flow or `traceary doctor`.
 
 ## Restore a backup
 
@@ -35,7 +35,7 @@ Useful flags:
 - `--force` to overwrite an existing destination DB
 - `--yes` to skip the interactive confirmation prompt when you intentionally overwrite an existing destination DB from a TTY
 
-Restore copies the backup file into the destination path, then runs the normal store initialization flow so newer migrations are applied automatically.
+Restore copies the backup file into the destination path, then runs the normal store initialization flow so newer non-offline migrations are applied automatically. Data-dependent offline migrations still need `traceary doctor --fix`.
 When you use `--force`, treat restore as a destructive replacement of the destination DB and take a fresh backup first if that data still matters.
 On an interactive terminal, Traceary asks for confirmation before the overwrite unless you also pass `--yes`.
 
