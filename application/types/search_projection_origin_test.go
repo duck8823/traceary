@@ -43,7 +43,7 @@ func TestSearchProjectionStatusApplyParkedNotice(t *testing.T) {
 				State:           "failed",
 				FailureClass:    "decoded_bytes",
 				ParkedReason:    "parked after generation failure decoded_bytes",
-				RecoveryCommand: SearchProjectionStartCommand,
+				RecoveryCommand: SearchProjectionRecoveryCommand,
 			},
 		},
 		{
@@ -60,7 +60,7 @@ func TestSearchProjectionStatusApplyParkedNotice(t *testing.T) {
 				Origin:          SearchProjectionOriginOperator,
 				ConfigHash:      "v4:1:1:1:1:1",
 				ParkedReason:    "budget does not match generation configuration",
-				RecoveryCommand: SearchProjectionStartCommand,
+				RecoveryCommand: SearchProjectionRecoveryCommand,
 			},
 		},
 		{

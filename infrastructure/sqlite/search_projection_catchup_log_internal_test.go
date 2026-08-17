@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"golang.org/x/xerrors"
@@ -68,7 +69,7 @@ func TestLogSearchProjectionCatchUp_SingleRowLockCapSeparatesFromTheTransientMes
 				Reason: "single row exceeded lock cap",
 			})
 
-			logSearchProjectionCatchUp(result, err)
+			logSearchProjectionCatchUp("", result, err)
 
 			if diff := cmp.Diff(1, len(handler.records)); diff != "" {
 				t.Fatalf("unexpected record count (-want +got):\n%s", diff)
@@ -125,7 +126,7 @@ func TestLogSearchProjectionCatchUp_DiskFullSeparatesFromTheTransientMessage(t *
 	}
 	err := xerrors.Errorf("search projection catch-up: %w", forceSQLiteFull(t))
 
-	logSearchProjectionCatchUp(result, err)
+	logSearchProjectionCatchUp("", result, err)
 
 	if diff := cmp.Diff(1, len(handler.records)); diff != "" {
 		t.Fatalf("unexpected record count (-want +got):\n%s", diff)
@@ -157,7 +158,7 @@ func TestLogSearchProjectionCatchUp_OtherErrorsKeepTheGenericLine(t *testing.T) 
 	slog.SetDefault(slog.New(handler))
 	t.Cleanup(func() { slog.SetDefault(previous) })
 
-	logSearchProjectionCatchUp(apptypes.SearchProjectionCatchUpResult{Action: "resume", State: "rebuilding"}, xerrors.New("wall time exceeded"))
+	logSearchProjectionCatchUp("", apptypes.SearchProjectionCatchUpResult{Action: "resume", State: "rebuilding"}, xerrors.New("wall time exceeded"))
 
 	if diff := cmp.Diff(1, len(handler.records)); diff != "" {
 		t.Fatalf("unexpected record count (-want +got):\n%s", diff)
@@ -261,7 +262,7 @@ func TestLogSearchProjectionCatchUp_LogsSkipsButNotQuietStates(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			buf.Reset()
-			logSearchProjectionCatchUp(tt.result, nil)
+			logSearchProjectionCatchUp("", tt.result, nil)
 			got := buf.String()
 			if tt.wantLog {
 				if got == "" {
@@ -284,5 +285,48 @@ func TestLogSearchProjectionCatchUp_LogsSkipsButNotQuietStates(t *testing.T) {
 				t.Fatalf("quiet state logged unexpectedly (-want +got):\n%s\nlog=%q", diff, got)
 			}
 		})
+	}
+}
+
+func TestLogSearchProjectionCatchUp_RateLimitsSkippedWarnPerStore(t *testing.T) {
+	storePath := filepath.Join(t.TempDir(), "traceary.db")
+	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	searchProjectionParkWarnNow = func() time.Time { return now }
+	t.Cleanup(func() { searchProjectionParkWarnNow = time.Now })
+
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	skipped := apptypes.SearchProjectionCatchUpResult{
+		Action:        "skipped",
+		State:         "failed",
+		Phase:         "complete",
+		GenerationID:  "gen-parked",
+		SkippedReason: "parked after generation failure cleanup_no_progress; run '" + apptypes.SearchProjectionRecoveryCommand + "' to replace the generation",
+	}
+
+	logSearchProjectionCatchUp(storePath, skipped, nil)
+	first := buf.String()
+	if !strings.Contains(first, "search projection catch-up skipped") {
+		t.Fatalf("first emit missing warn: %s", first)
+	}
+	if !strings.Contains(first, "resume --until-complete") {
+		t.Fatalf("first emit missing practical recovery: %s", first)
+	}
+
+	buf.Reset()
+	logSearchProjectionCatchUp(storePath, skipped, nil)
+	if got := buf.String(); got != "" {
+		t.Fatalf("second emit inside 24h = %q, want silence", got)
+	}
+
+	now = now.Add(searchProjectionParkWarnInterval)
+	searchProjectionParkWarnNow = func() time.Time { return now }
+	buf.Reset()
+	logSearchProjectionCatchUp(storePath, skipped, nil)
+	if !strings.Contains(buf.String(), "search projection catch-up skipped") {
+		t.Fatalf("emit after 24h missing warn: %s", buf.String())
 	}
 }
