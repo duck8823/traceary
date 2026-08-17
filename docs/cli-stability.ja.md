@@ -36,7 +36,7 @@ v0.15 以降に追加された互換 alias も含む現在の公開コマンド�
 - **イベント記録** — `traceary log`、`traceary audit`
 - **読み取り / 観察** — `traceary list`（`--follow` と `--blocks` を含む）、`traceary search`、`traceary show`、`traceary context`
 - **セッション** — `traceary session start`、`traceary session end`、`traceary session run`、`traceary session handoff`（`--compact-only` を含む）、`traceary session refine`
-- **durable memory 日常 read** — `traceary memory list`、`traceary memory search`、`traceary memory show`
+- **durable memory 日常 read** — `traceary memory search`（`--all` を含む）、`traceary memory show`
 - **durable memory inbox** — `traceary memory inbox list`、`traceary memory inbox show`、`traceary memory inbox accept`、`traceary memory inbox reject`、`traceary memory inbox attach`、`traceary memory inbox cleanup`、`traceary memory inbox restore`、`traceary memory inbox review`（TTY のみ）
 - **durable memory store** — `traceary memory store propose`、`traceary memory store distill`
 - **durable memory decay** — `traceary memory decay`
@@ -89,10 +89,11 @@ v0.35 時点の admin コマンド：
 
 #1692 は可視の public / admin leaf を 2 本の柱（記録 = 捕捉 / 要約 / 圧縮 / 破棄、記憶 = 統合して自動供給）に突き合わせました。hidden な hook 入口は plumbing のままです（後述）。出荷テーブルは `presentation/cli/pillar_inventory.go` で、可視 action を行なしで追加するとテストが失敗します。
 
-削除根拠は空の backing、重複、柱なしだけです。usage 件数は理由にしません。#1870 の 97→29 keep-list に残っているグループは v0.34 の非推奨 registry に無いので、v0.35 では削除しません。予定している吸収（`memory search --all`）は、その flag ができるまで通知しません。`list --follow` は v0.42.0（#2068）で入りました。`list --blocks` は v0.42.0（#2069）で入りました。`hooks install --dry-run` は v0.42.0（#2070）で入りました。`replay` は単一ファイル HTML export だけで、#1870 も usage を弱い削除根拠だと書いています。
+削除根拠は空の backing、重複、柱なしだけです。usage 件数は理由にしません。#1870 の 97→29 keep-list に残っているグループは v0.34 の非推奨 registry に無いので、v0.35 では削除しません。`list --follow` は v0.42.0（#2068）で入りました。`list --blocks` は v0.42.0（#2069）で入りました。`hooks install --dry-run` は v0.42.0（#2070）で入りました。`memory search --all` は v0.42.0（#2071）で入りました。`replay` は単一ファイル HTML export だけで、#1870 も usage を弱い削除根拠だと書いています。
 
 過去の削除履歴：
 
+- v0.42.0 で削除（#2071）: `traceary memory list`。呼び出しは unknown subcommand として非ゼロ終了し、`DEPRECATED` 通知は出しません。one-minor deprecation window の明示的なポリシー例外です（owner 決定 2026-08-17）。代わりに `traceary memory search --all` を使います（同じ List バックエンド、filter、既定 workspace scope、並び順、`--json`）。`--all` は query と同時に使えません。
 - v0.42.0 で削除（#2070）: `traceary hooks print`。呼び出しは unknown subcommand として非ゼロ終了し、`DEPRECATED` 通知は出しません。one-minor deprecation window の明示的なポリシー例外です（owner 決定 2026-08-17）。代わりに `traceary hooks install --dry-run` を使います（同じ生成 config バイト列。`--client` / `--traceary-bin` / `--matcher`）。
 - v0.42.0 で削除（#2069）: `traceary timeline`。呼び出しは unknown command として非ゼロ終了し、`DEPRECATED` 通知は出しません。one-minor deprecation window の明示的なポリシー例外です（owner 決定 2026-08-17）。代わりに `traceary list --blocks` を使います（同じギャップ検出ブロック、#2033 scan-cap 開示、`workspace_breakdown` JSON。`--gap` は `list` に移しました）。
 - v0.42.0 で削除（#2068）: `traceary tail`。呼び出しは unknown command として非ゼロ終了し、`DEPRECATED` 通知は出しません。one-minor deprecation window の明示的なポリシー例外です（owner 決定 2026-08-17）。代わりに `traceary list --follow` を使います（同じストリーム・フィルタ・描画。`--follow-session` は `list` に移しました）。

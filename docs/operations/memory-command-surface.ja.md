@@ -90,6 +90,8 @@ memory
 
 ただし、後続の sub-issue で実装するときに具体的な阻害要因（たとえば `memory list` のフラグが `memory inbox list` のグループ化と衝突する等）が出れば、そのときに据え置きを再検討して本ドキュメントを更新する想定です。
 
+v0.42.0（#2071）で `memory list` は `memory search --all` に吸収されました（同じ List バックエンドと既定 workspace scope）。`memory list` は unknown subcommand です。
+
 ## マッピング表
 
 | 旧パス | 新しい canonical パス | v0.14 での扱い |

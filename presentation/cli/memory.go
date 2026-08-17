@@ -18,8 +18,7 @@ func (c *RootCLI) newMemoryCommand() *cobra.Command {
 		Use:   "memory",
 		Short: Localize("Manage durable memories", "durable memory を管理する"),
 	}
-	// Daily read path (top-level, unchanged).
-	memoryCmd.AddCommand(c.newMemoryListCommand())
+	// Daily read path (top-level). Enumeration is `memory search --all`.
 	memoryCmd.AddCommand(c.newMemorySearchCommand())
 	memoryCmd.AddCommand(c.newMemoryShowCommand())
 	// Grouped namespaces by operator intent (#922).
@@ -30,38 +29,11 @@ func (c *RootCLI) newMemoryCommand() *cobra.Command {
 	return memoryCmd
 }
 
-func (c *RootCLI) newMemoryListCommand() *cobra.Command {
-	input := memoryListCommandInput{}
-	cmd := &cobra.Command{
-		Use:   "list",
-		Short: Localize("List durable memories", "durable memory を一覧表示する"),
-		Args:  noArgsLocalized(),
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return c.runMemoryList(cmd.Context(), cmd.OutOrStdout(), input)
-		},
-	}
-	cmd.Flags().StringVar(&input.dbPath, "db-path", "", dbPathFlagUsage())
-	cmd.Flags().StringVar(&input.workspace, "workspace", "", Localize("filter by workspace scope (defaults to env/detected workspace when no other scope filter is set)", "workspace scope で絞り込む (他の scope filter がない場合は env/検出 workspace を使用)"))
-	cmd.Flags().StringVar(&input.agent, "agent", "", Localize("filter by agent scope", "agent scope で絞り込む"))
-	cmd.Flags().StringVar(&input.sessionFamily, "session-family", "", Localize("filter by session-family scope", "session-family scope で絞り込む"))
-	cmd.Flags().StringSliceVar(&input.statuses, "status", nil, Localize("filter by memory lifecycle status", "memory の lifecycle status で絞り込む"))
-	cmd.Flags().StringSliceVar(&input.memoryTypes, "type", nil, Localize("filter by memory type", "memory type で絞り込む"))
-	cmd.Flags().StringSliceVar(&input.sources, "source", nil, Localize("filter by memory source (manual / extracted / extracted-hidden / remember-intent / compact-summary / imported)", "memory source (manual / extracted / extracted-hidden / remember-intent / compact-summary / imported) で絞り込む"))
-	cmd.Flags().BoolVar(&input.includeHidden, "include-hidden", false, Localize("include extracted-hidden memory candidates (low-quality auto-extractions kept for audit)", "extracted-hidden のメモリ候補も含める (audit 用に保存された低品質自動抽出)"))
-	cmd.Flags().IntVar(&input.limit, "limit", 20, Localize("maximum number of memories to return", "表示件数"))
-	cmd.Flags().IntVar(&input.offset, "offset", 0, Localize("number of memories to skip before listing", "一覧表示前にスキップする件数"))
-	cmd.Flags().StringVar(&input.asOf, "as-of", "", Localize("evaluate memory validity as of this timestamp (`YYYY-MM-DD` or RFC3339, defaults to now)", "この時点の validity で評価する (`YYYY-MM-DD` または RFC3339、既定は now)"))
-	cmd.Flags().BoolVar(&input.includeExpired, "include-expired", false, Localize("include memories whose validTo is in the past (bypass the default validity-window filter)", "validTo が過去の memory も含める (既定の validity-window filter をバイパス)"))
-	cmd.Flags().StringVar(&input.preset, "preset", "", Localize("apply a built-in retrieval preset (resume | review | incident); explicit filters still override preset defaults", "built-in の retrieval preset を適用する (resume | review | incident)。明示的な filter は preset を上書きする"))
-	cmd.Flags().BoolVar(&input.asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
-	return cmd
-}
-
 func (c *RootCLI) newMemorySearchCommand() *cobra.Command {
 	input := memorySearchCommandInput{}
 	cmd := &cobra.Command{
 		Use:   "search [query]",
-		Short: Localize("Search durable memories", "durable memory を検索する"),
+		Short: Localize("Search durable memories (use --all to list)", "durable memory を検索する（一覧は --all）"),
 		Args:  maximumNArgsLocalized(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			input.query = ""
@@ -72,7 +44,8 @@ func (c *RootCLI) newMemorySearchCommand() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&input.dbPath, "db-path", "", dbPathFlagUsage())
-	cmd.Flags().StringVar(&input.workspace, "workspace", "", Localize("filter by workspace scope", "workspace scope で絞り込む"))
+	cmd.Flags().BoolVar(&input.all, "all", false, Localize("list durable memories without a query (same filters, default workspace scope, and ordering as the former memory list)", "query なしで durable memory を一覧する（旧 memory list と同じ filter・既定 workspace scope・並び順）"))
+	cmd.Flags().StringVar(&input.workspace, "workspace", "", Localize("filter by workspace scope (with --all, defaults to env/detected workspace when no other scope filter is set)", "workspace scope で絞り込む（--all 時、他の scope filter がなければ env/検出 workspace を使用）"))
 	cmd.Flags().StringVar(&input.agent, "agent", "", Localize("filter by agent scope", "agent scope で絞り込む"))
 	cmd.Flags().StringVar(&input.sessionFamily, "session-family", "", Localize("filter by session-family scope", "session-family scope で絞り込む"))
 	cmd.Flags().StringSliceVar(&input.statuses, "status", nil, Localize("filter by memory lifecycle status", "memory の lifecycle status で絞り込む"))
@@ -327,6 +300,12 @@ func (c *RootCLI) runMemoryList(ctx context.Context, output io.Writer, input mem
 }
 
 func (c *RootCLI) runMemorySearch(ctx context.Context, output io.Writer, input memorySearchCommandInput) error {
+	if input.all && strings.TrimSpace(input.query) != "" {
+		return xerrors.New(Localize("--all cannot be combined with a query term", "--all は query と同時に使えません"))
+	}
+	if input.all {
+		return c.runMemoryList(ctx, output, memoryListInputFromSearch(input))
+	}
 	if c.storeManagement == nil {
 		return xerrors.New(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
@@ -909,6 +888,25 @@ func parseOptionalExpiryTime(value string) (domtypes.Optional[time.Time], error)
 		return domtypes.None[time.Time](), xerrors.Errorf("%s: %w", Localize("failed to resolve expiry time", "expiry time の解決に失敗しました"), err)
 	}
 	return domtypes.Some(resolved), nil
+}
+
+func memoryListInputFromSearch(input memorySearchCommandInput) memoryListCommandInput {
+	return memoryListCommandInput{
+		dbPath:         input.dbPath,
+		workspace:      input.workspace,
+		agent:          input.agent,
+		sessionFamily:  input.sessionFamily,
+		statuses:       input.statuses,
+		memoryTypes:    input.memoryTypes,
+		sources:        input.sources,
+		includeHidden:  input.includeHidden,
+		limit:          input.limit,
+		offset:         input.offset,
+		asOf:           input.asOf,
+		includeExpired: input.includeExpired,
+		preset:         input.preset,
+		asJSON:         input.asJSON,
+	}
 }
 
 func hasMemorySearchInputConstraint(input memorySearchCommandInput) bool {

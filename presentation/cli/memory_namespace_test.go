@@ -32,7 +32,7 @@ func TestRootCLI_MemoryHelp_HidesDeprecatedFlatVerbs(t *testing.T) {
 
 	available := extractAvailableCommandsBlock(stdout.String())
 
-	for _, want := range []string{"inbox", "store", "admin", "search", "show", "list"} {
+	for _, want := range []string{"inbox", "store", "admin", "search", "show"} {
 		if !strings.Contains(available, "  "+want+" ") && !strings.Contains(available, "  "+want+"\n") {
 			t.Errorf("memory --help missing grouped/daily-read entry %q in:\n%s", want, available)
 		}
@@ -174,7 +174,7 @@ func TestRootCLI_MemoryRemovedFlatVerbs_NotRegistered(t *testing.T) {
 		"remember": true, "propose": true, "distill": true, "extract": true,
 		"accept": true, "reject": true, "supersede": true, "expire": true,
 		"set-validity": true, "import": true, "export": true, "activate": true,
-		"hygiene": true, "graph": true,
+		"hygiene": true, "graph": true, "list": true,
 	}
 	for _, sub := range memoryCmd.Commands() {
 		if removed[sub.Name()] {

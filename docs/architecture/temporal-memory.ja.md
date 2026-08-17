@@ -6,7 +6,7 @@
 
 ## 背景
 
-v0.8 (#565) で、すべての accepted memory に半開区間 `[valid_from, valid_to)` が付きました。`traceary memory list --as-of <date>` で時間をさかのぼれ、`memory admin hygiene scan` の `validity_overlap_supersede` 検出も同じ窓を使って置換チェーンを提案します。
+v0.8 (#565) で、すべての accepted memory に半開区間 `[valid_from, valid_to)` が付きました。`traceary memory search --all --as-of <date>` で時間をさかのぼれ、`memory admin hygiene scan` の `validity_overlap_supersede` 検出も同じ窓を使って置換チェーンを提案します。
 
 しかし、窓だけでは「時点 T で X について何を信じていたか」には答えられますが、**なぜ X が supersede されたか**、**X が隣接する事実とどう関係するか**は記録できません。Zep / Letta / Graphiti のような 2026 年の temporal memory システムは、memory をノード、関係を型付き edge としてモデル化し、次のようなクエリを実現します:
 

@@ -150,7 +150,7 @@ traceary session handoff --workspace github.com/duck8823/traceary
 
 ### 5. durable memory inbox をレビューする
 
-`traceary memory ...` は intent 別に namespace を分けています。`memory inbox` は candidate review 専用、`memory store` は deliberate write (`propose` / `distill`) 用、`memory admin` は extraction / host 連携 (`import` / `export` / `activate`) / maintenance (`hygiene` / `graph`) / lifecycle (`supersede` / `expire` / `set-validity`) 用です。日常 read 用途の `memory search` / `memory show` / `memory list` はこれまで通り top-level に置いています。以前の flat な verb (`memory remember` / `memory accept` 等) は v0.14 の互換期間を経て v0.15.0 で削除されました。`memory store remember` は v0.36.0 で削除されました。上記の canonical な grouped path を使ってください。
+`traceary memory ...` は intent 別に namespace を分けています。`memory inbox` は candidate review 専用、`memory store` は deliberate write (`propose` / `distill`) 用、`memory admin` は extraction / host 連携 (`import` / `export` / `activate`) / maintenance (`hygiene` / `graph`) / lifecycle (`supersede` / `expire` / `set-validity`) 用です。日常 read 用途の `memory search` / `memory show` はこれまで通り top-level に置いています。一覧は `memory search --all` です。以前の flat な verb (`memory remember` / `memory accept` 等) は v0.14 の互換期間を経て v0.15.0 で削除されました。`memory store remember` は v0.36.0 で削除されました。上記の canonical な grouped path を使ってください。
 
 ターミナルから対話的にメモリ候補を捌くときは:
 
