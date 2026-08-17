@@ -111,9 +111,10 @@ b-tree 割当であり、ソーステキストではありません。デフォ�
 `0`（超過）、`-1`（測定不能）を記録します。
 
 `-1` は**不明**を意味します。「予算以下」を意味することは決してありません。
-split の `dbstat` が期限切れでもファミリ合計（`physical_bytes`）が取れるときは、
-`store search-projection status` がその合計に対する粗い `0` / `1` を出します
-（persist はしません）。cutover も同じ fallback なので、complete 世代には
+新しい `store capacity` の dbstat cache があるとき、`store search-projection status`
+はその cache したファミリ合計（`physical_bytes`、`physical_evidence.status=cached`）
+に対する粗い `0` / `1` を出します（persist はしません）。status 自身は dbstat を歩きません。
+cache miss は即座に `unavailable` です。cutover は完了時に測定するので、complete 世代には
 persist された判定が残ります。合計も取れないときだけ `-1` のまま、
 `physical_evidence.reason` が理由を出します
 （[#1835](https://github.com/duck8823/traceary/issues/1835)）。

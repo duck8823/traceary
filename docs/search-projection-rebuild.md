@@ -152,12 +152,14 @@ guaranteed in advance: when a generation completes, the family is re-measured an
 `index_family_within_budget` records `1` (within), `0` (over) or `-1` (not
 measurable).
 
-`-1` means **unknown**. It never means "within budget". When the split `dbstat`
-walk times out but the family **total** (`physical_bytes`) is available,
-`store search-projection status` publishes a coarse `0`/`1` against that total
-and does not persist it. Cutover uses the same fallback so a complete generation
-still records a persisted verdict. If the total is also unavailable the field
-stays `-1` and `physical_evidence.reason` names why
+`-1` means **unknown**. It never means "within budget". When a fresh
+`store capacity` dbstat cache is present, `store search-projection status`
+publishes a coarse `0`/`1` against the cached family **total**
+(`physical_bytes`, `physical_evidence.status=cached`) and does not persist it.
+Status does not walk dbstat itself; a cache miss is immediately `unavailable`.
+Cutover still measures at completion so a complete generation records a
+persisted verdict. If the total is also unavailable the field stays `-1` and
+`physical_evidence.reason` names why
 ([#1835](https://github.com/duck8823/traceary/issues/1835)).
 
 A generation recorded over budget stays that way. Nothing corrects it in place —

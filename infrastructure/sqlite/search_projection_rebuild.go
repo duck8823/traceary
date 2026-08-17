@@ -1430,25 +1430,20 @@ func (d *Database) SearchProjectionStatus(ctx context.Context) (s apptypes.Searc
 			s.PhysicalBytes = searchProjectionFamilyBytesFromObjects(cached.Objects)
 			s.PhysicalEvidence = apptypes.CapacityEvidence{Status: "cached", Method: "dbstat", Reason: "dbstat cache hit for unchanged store file"}
 		} else {
-			budgetCtx, cancel := context.WithTimeout(ctx, dbstatInspectBudget)
-			scanErr := db.QueryRowContext(budgetCtx, selectSearchProjectionFamilyTotalSQL).Scan(&s.PhysicalBytes)
-			deadlineExceeded := errors.Is(budgetCtx.Err(), context.DeadlineExceeded)
-			cancel()
-			if scanErr == nil {
-				s.PhysicalEvidence = apptypes.CapacityEvidence{Status: "complete", Method: "dbstat"}
-			} else if deadlineExceeded {
-				s.PhysicalEvidence = apptypes.CapacityEvidence{Status: "bounded", Method: "dbstat", Reason: "dbstat wall budget exceeded"}
-				e = nil
-			} else {
-				s.PhysicalEvidence = apptypes.CapacityEvidence{Status: "unavailable", Method: "pragma", Reason: "dbstat unavailable"}
-				e = nil
+			// Status never walks dbstat (#2059). store capacity refreshes the
+			// sidecar cache; a miss is immediately unavailable so parked
+			// lifecycle inspection stays in the low-second range.
+			s.PhysicalEvidence = apptypes.CapacityEvidence{
+				Status: "unavailable",
+				Method: "dbstat",
+				Reason: "dbstat cache miss; run traceary store capacity to refresh",
 			}
 		}
 	}
 	applySearchProjectionBudgetVerdict(&s)
 	s.InspectionMilliseconds = time.Since(started).Milliseconds()
 	s.ApplyParkedNotice(apptypes.DefaultSearchProjectionBudget().ConfigHash())
-	return s, e
+	return s, nil
 }
 
 // searchProjectionFamilyTotalUnavailableForTest skips the family-total dbstat
@@ -1464,7 +1459,7 @@ func applySearchProjectionBudgetVerdict(s *apptypes.SearchProjectionStatus) {
 		return
 	}
 	s.IndexFamilyWithinBudget = -1
-	if s.IndexFamilyByteLimit > 0 && s.PhysicalEvidence.Status == "complete" {
+	if s.IndexFamilyByteLimit > 0 && (s.PhysicalEvidence.Status == "complete" || s.PhysicalEvidence.Status == "cached") {
 		if s.PhysicalBytes <= s.IndexFamilyByteLimit {
 			s.IndexFamilyWithinBudget = 1
 		} else {
