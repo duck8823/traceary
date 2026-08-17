@@ -67,6 +67,16 @@ func TestSearchProjectionParkedDoctorCheck(t *testing.T) {
 			hint:   apptypes.SearchProjectionRecoveryCommand,
 		},
 		{
+			name: "automatic stale hash is not an operator park",
+			status: apptypes.SearchProjectionControlStatus{
+				State:      "rebuilding",
+				Phase:      "source",
+				Origin:     apptypes.SearchProjectionOriginAutomatic,
+				ConfigHash: "v4:1:1:1:1:1",
+			},
+			want: doctorStatusSkip,
+		},
+		{
 			name:   "complete generation is not parked",
 			status: apptypes.SearchProjectionControlStatus{State: "complete"},
 			want:   doctorStatusSkip,

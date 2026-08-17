@@ -42,15 +42,20 @@ func searchProjectionParkedDoctorCheck(status apptypes.SearchProjectionControlSt
 			Message: Localize("search projection is not parked", "search projection は parked ではありません"),
 		}
 	}
-	hint := notice.RecoveryCommand
-	if hint == "" {
-		hint = apptypes.SearchProjectionRecoveryCommand
+	// Automatic stale-hash generations are not operator-parked: the next
+	// store open replaces them (#1861). Do not advertise start/resume.
+	if notice.RecoveryCommand == "" {
+		return doctorCheck{
+			Name:    name,
+			Status:  doctorStatusSkip,
+			Message: notice.ParkedReason,
+		}
 	}
 	return doctorCheck{
 		Name:    name,
 		Status:  doctorStatusWarn,
 		Message: notice.ParkedReason,
-		Hint:    hint,
+		Hint:    notice.RecoveryCommand,
 	}
 }
 
