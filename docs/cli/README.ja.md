@@ -125,7 +125,7 @@ subcommand なしの `traceary` は TTY / 非 TTY とも常に help を表示し
 
 > コンパクト表示の session ID (`sess=<先頭8文字>`) は人間が目視する前提の短縮形です。機械処理には `--wide --utc` または `--json` を利用してください。
 
-`--fields ts,kind,message` でコンパクトカラムの順序を上書きできます (優先順位: `--fields` > preset fields > config.json の `read.fields` > 組み込み既定値)。`--fields` は `--wide` と併用できません。利用可能フィールドは `traceary list` の説明を参照してください。`--preset <name>` で保存済みビューを適用できます（built-in: `failures` / `prompts-only` / `compact-summaries`、user-defined は `read.presets`）。`--follow-session <prefix>`（8 文字以上）で 1 つの session に tail を絞れます。`traceary session list` の出力から session id の先頭を貼り付ければそのまま使えます。
+`--fields ts,kind,message` でコンパクトカラムの順序を上書きできます (優先順位: `--fields` > preset fields > config.json の `read.fields` > 組み込み既定値)。`--fields` は `--wide` と併用できません。利用可能フィールドは `traceary list` の説明を参照してください。`--preset <name>` で保存済みビューを適用できます（built-in: `failures` / `prompts-only` / `compact-summaries`、user-defined は `read.presets`）。`--follow-session <prefix>`（8 文字以上）で 1 つの session に tail を絞れます。`traceary sessions --snapshot` の出力から session id の先頭を貼り付ければそのまま使えます。
 
 主な flag:
 
@@ -150,7 +150,7 @@ subcommand なしの `traceary` は TTY / 非 TTY とも常に help を表示し
 
 `search` は `events` を新しい順に走査し、上限付きの候補を復号して本文一致を判定します。世代が complete になると、その literal fingerprint による pre-filter で一致しない候補の復号を省略でき、session tier によって別グループ **SESSIONS** も利用できます。SESSIONS 行は要約またはキーワードの本文が query に一致した session です。古い event のグループでも、一致した event 行でもありません。
 
-セッション行は、その trail のどこかに検索条件に一致する活動があることを示します。`--from` / `--to` では `traceary session list` と同じくセッションの開始時刻で選び、`--failures` はそのセッション内に失敗したコマンドが1つでもあれば満たします。セッション行に対する filter は単一の event ではなくセッション全体に適用されるため、query、期間、`--failures` がそれぞれセッション内の別の活動によって満たされても、そのセッションは表示されます。すべての filter が1行の event だけを絞り込むのは event 階層です。
+セッション行は、その trail のどこかに検索条件に一致する活動があることを示します。`--from` / `--to` では session summary クエリと同じくセッションの開始時刻で選び、`--failures` はそのセッション内に失敗したコマンドが1つでもあれば満たします。セッション行に対する filter は単一の event ではなくセッション全体に適用されるため、query、期間、`--failures` がそれぞれセッション内の別の活動によって満たされても、そのセッションは表示されます。すべての filter が1行の event だけを絞り込むのは event 階層です。
 
 complete な世代はスナップショットなので、その後に記録された event は `events` から直接読み、同じ結果に統合します。再構築の合間に検索結果が古くなることはありません。世代が complete になる前も、候補を直接復号して本文一致は正しく返します。速度は落ち、また session tier はそれまで参照を拒否されるため SESSIONS グループは空になります（#1844）。stderr の通知は `traceary store search-projection status` を案内します。state ごとに必要な操作は `docs/search-projection-rebuild.ja.md` にまとめています。準備状態を確認できない場合も、同じ status command で空のグループの意味を確認できます。候補予算を使い切った場合は部分的な結果を返さず `index_incomplete` を報告します。projection が complete になると fingerprint pre-filter と session tier が利用可能になります。どの state にどのコマンドが必要かは `docs/search-projection-rebuild.ja.md` を参照してください。世代が rebuilding の間、`start` は拒否されます。
 
@@ -851,22 +851,6 @@ active session の列:
 - `--snapshot --json` — sessions 専用 snapshot contract で `sessions` / `failures` / `recent_commands` / `candidates` (`{ count, remember_intent_count, items }`) / `stale_memories` (`{ count, items }`) / `reliability` の envelope を一回限り出力します。各 session node には標準の session フィールドに加えて `latest_event_kind` / `latest_event_message` / `latest_event_id` / `latest_event_at` が含まれます。`latest_event_message` は共有の 500 rune body cap で truncate され（noisy な command/tool payload を次の agent context に再増幅させないため）、cut された場合は `latest_event_message_truncated` / `latest_event_message_length` / `latest_event_message_bytes` が追加されます。full body は `traceary show <latest_event_id>` で明示的に取得します。`reliability.large_payloads` には bounded な `samples` 配列が加わり、各 sample は body-safe な metadata（`event_id` / `kind` / `source` / `message_length` / `message_bytes` / `first_line` / `retrieval_hint`）のみで full body は含みません。failures と recent_commands は標準 event JSON（同じく body cap 済み）、memory candidates は durable memory summary JSON と同じ shape を再利用します。stale memories は durable memory summary に `reason` を加えた shape です
 - `--limit`
 
-### `traceary session list`
-
-session の一覧サマリーを表示します。
-
-`session list` では、status / duration / 集計件数に加えて、`summary`、`parent_session_id` も確認できます。session label サーフェス（`session label`、`--label`、`LABEL` 列、`label` JSON フィールド）は v0.34 の非推奨を経て v0.35.0 で削除されました（#1691）。スタンドアロンの `session tree` / `session lineage` も v0.35.0 で削除されました（#1869）。active な parent/child view には `traceary sessions --snapshot` を使ってください。
-
-主な flag:
-
-- `--workspace`
-- `--agent`
-- `--from`
-- `--to`
-- `--limit`
-- `--offset`
-- `--json`
-
 ### `traceary session refine <session-id>`
 
 エージェントが書いたセッション要約（L2 refinement）を保存します。
@@ -887,27 +871,9 @@ Traceary は要約テキストを合成しません。渡された内容を保�
 - `--json` — 機械可読な outcome（`created` / `superseded` / `unchanged`）と generation / coverage
 - `--db-path`
 
-### `traceary session latest`
-
-条件に一致する最新 session ID を表示します。
-
-ここでの「最新」は、一致した session のうち最新の lifecycle boundary (`session start` または `session end`) が最も新しいものです。
-
-`--active` を付けると未終了の session だけを返します。24 時間を超える active session は `--allow-stale` がないと stale です。`--stale-after` と `--allow-stale` は `--active` が必要です。
-
-主な flag:
-
-- `--client`
-- `--agent`
-- `--workspace`
-- `--active`
-- `--stale-after`
-- `--allow-stale`
-- `--json`
-
 ### Session status の値
 
-`session list` と `sessions --snapshot` の JSON `status` フィールドは以下のいずれかを表示します。
+`sessions --snapshot` の JSON `status` フィールドは以下のいずれかを表示します。
 
 | Status | 意味 |
 |--------|------|
@@ -916,7 +882,7 @@ Traceary は要約テキストを合成しません。渡された内容を保�
 | `ended` | end marker があり、その後にイベントがない。 |
 | `ended_with_late_events` | end marker があるが、同じ session で後続イベントが到着した。end marker は `session_ended` イベント由来、または `session gc` が `ended_at` を直接書き込んだものの場合がある。 |
 
-active-only snapshot は `active` / `ended_with_late_events` と（`--allow-stale` 指定時の）`stale` を残します。`ended_with_late_events` は、session が既に close されているのに workspace の直近イベントが存在するとき `sessions --snapshot` が 0 件を返さないようにするための値です（例: Codex のような host が session を早期に close したが会話は継続していた場合）。`session list` と `sessions --snapshot` は同じルールを適用するため、end marker 後にイベントがある session はどちらの CLI 読み取りでも surface されます。
+active-only snapshot は `active` / `ended_with_late_events` と（`--allow-stale` 指定時の）`stale` を残します。`ended_with_late_events` は、session が既に close されているのに workspace の直近イベントが存在するとき `sessions --snapshot` が 0 件を返さないようにするための値です（例: Codex のような host が session を早期に close したが会話は継続していた場合）。
 
 ## Hooks と診断
 

@@ -1800,7 +1800,7 @@ func TestRootCLI_HookSessionCommand_CodexMultiTurnSessionStaysActive(t *testing.
 
 	// Active-session reads must include the ongoing session: the
 	// row-based snapshot (sessions --snapshot) and the event-based
-	// active read (session latest --active) have to agree (#1170 acceptance).
+	// Active query (used by hooks / context / handoff) have to agree.
 	snapshotOut := &bytes.Buffer{}
 	snapshotCmd := newTestRootCLI(
 		cli.WithStoreManagement(storeUC),
@@ -1817,20 +1817,15 @@ func TestRootCLI_HookSessionCommand_CodexMultiTurnSessionStaysActive(t *testing.
 		t.Fatalf("sessions --snapshot should include the ongoing codex session, got: %s", snapshotOut.String())
 	}
 
-	activeOut := &bytes.Buffer{}
-	activeCmd := newTestRootCLI(
-		cli.WithStoreManagement(storeUC),
-		cli.WithSession(sessionUC),
-		cli.WithDatabasePathSetter(db.SetPath),
-	).Command()
-	activeCmd.SetOut(activeOut)
-	activeCmd.SetErr(&bytes.Buffer{})
-	activeCmd.SetArgs([]string{"session", "latest", "--active", "--json", "--db-path", dbPath, "--workspace", "github.com/duck8823/traceary"})
-	if err := activeCmd.Execute(); err != nil {
-		t.Fatalf("Execute(session latest --active --json) error = %v", err)
+	active, err := sessionUC.Active(context.Background(), apptypes.NewSessionLookupCriteriaBuilder().
+		Workspace(types.Workspace("github.com/duck8823/traceary")).
+		Build())
+	if err != nil {
+		t.Fatalf("Active() error = %v", err)
 	}
-	if !strings.Contains(activeOut.String(), "codex-multi-turn") {
-		t.Fatalf("session latest --active should return the ongoing codex session, got: %s", activeOut.String())
+	activeEvent, ok := active.Value()
+	if !ok || activeEvent == nil || activeEvent.SessionID().String() != "codex-multi-turn" {
+		t.Fatalf("Active() should return the ongoing codex session, got: %#v", active)
 	}
 }
 

@@ -137,7 +137,7 @@ exceeding that budget produces `spool_projection_partial`, never a successful
 absence claim.
 
 If a local path alias returns no session or events, rerun the CLI read with the
-`workspace=` value printed by `codex-capture`. `session list`,
+`workspace=` value printed by `codex-capture`. `sessions --snapshot`,
 `list`, the usage aggregate, and this diagnostic all use that canonical
 workspace identity.
 

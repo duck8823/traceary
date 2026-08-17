@@ -6,13 +6,13 @@ import (
 )
 
 func TestFindLatestSelectsCandidatesWithoutEventBodies(t *testing.T) {
-	normalized := strings.Join(strings.Fields(strings.ToLower(findLatestSessionQuery)), " ")
-	selectedAt := strings.Index(normalized, "), selected as (")
+	normalized := strings.Join(strings.Fields(strings.ToLower(findLatestSessionBoundaryQuery)), " ")
+	selectedAt := strings.Index(normalized, ") select e.id")
 	if selectedAt < 0 {
 		t.Fatalf("FindLatest query has no bounded selection phase: %s", normalized)
 	}
 	candidatePhase := normalized[:selectedAt]
-	if !strings.Contains(candidatePhase, "from event_metadata_projection started") {
+	if !strings.Contains(candidatePhase, "from event_metadata_projection boundary") {
 		t.Fatalf("candidate selection does not use the body-free projection: %s", candidatePhase)
 	}
 	if strings.Contains(candidatePhase, " from events ") || strings.Contains(candidatePhase, " join events ") || strings.Contains(candidatePhase, ".body") {

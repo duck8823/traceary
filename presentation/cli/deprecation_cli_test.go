@@ -26,7 +26,10 @@ func TestRootCLI_RemovedV034NoReplacementSurfaces(t *testing.T) {
 		{name: "graph list", args: []string{"memory", "admin", "graph", "list"}, wantErrHas: `unknown subcommand "graph"`},
 		{name: "graph parent", args: []string{"memory", "admin", "graph"}, wantErrHas: `unknown subcommand "graph"`},
 		{name: "session label", args: []string{"session", "label"}, wantErrHas: `unknown subcommand "label"`},
+		{name: "session list", args: []string{"session", "list"}, wantErrHas: `unknown subcommand "list"`},
 		{name: "session list with label", args: []string{"session", "list", "--label", "foo"}, wantErrHas: "unknown flag: --label"},
+		{name: "session latest", args: []string{"session", "latest"}, wantErrHas: `unknown subcommand "latest"`},
+		{name: "session latest --active", args: []string{"session", "latest", "--active"}, wantErrHas: "unknown flag: --active"},
 	}
 
 	for _, tt := range tests {

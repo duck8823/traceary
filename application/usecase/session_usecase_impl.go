@@ -349,7 +349,7 @@ func (u *sessionUsecase) End(ctx context.Context, client types.Client, agent typ
 	}
 	// Best-effort: a parent session ending should not leave its open
 	// descendant sub-sessions dangling with ended_at IS NULL, since
-	// `session latest --active` would keep preferring a leaked child for
+	// Active() would keep preferring a leaked child for
 	// up to the gc stale window. `session gc` remains the backstop for
 	// anything this misses.
 	u.endOpenDescendants(ctx, resolvedSessionID, event.CreatedAt())

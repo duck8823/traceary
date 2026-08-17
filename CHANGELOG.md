@@ -7,6 +7,9 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ## [Unreleased]
 
+### Removed
+- **`traceary session latest` and `traceary session list` (#2057)** — both fail as unknown subcommands (non-zero, no `DEPRECATED` notice). Use hook `[Traceary] Session <id>`, `list` / `search` / `context`, `report`, and `sessions --snapshot`. Internal Active/Latest/List queries stay for handoff, hooks, and snapshot.
+
 ## [v0.41.0] - 2026-08-17
 
 ### Added
