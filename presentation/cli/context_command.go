@@ -140,6 +140,12 @@ func validateContextModeFlags(cmd *cobra.Command, handoff bool, compactOnly bool
 			"--limit は --handoff / --compact-only と同時に使えません",
 		))
 	}
+	if cmd.Flags().Changed("client") || cmd.Flags().Changed("agent") {
+		return xerrors.New(Localize(
+			"--client/--agent cannot be combined with --handoff or --compact-only",
+			"--client/--agent は --handoff / --compact-only と同時に使えません",
+		))
+	}
 	return nil
 }
 
