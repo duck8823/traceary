@@ -46,7 +46,6 @@ var pillarInventory = []pillarInventoryEntry{
 	{Path: "session repair-one-shot", Pillar: pillarRecord, Reason: "repair one-shot classification of recorded sessions"},
 	{Path: "hooks install", Pillar: pillarRecord, Reason: "enable automatic capture; --dry-run absorbs the former hooks print preview"},
 	{Path: "hooks guide", Pillar: pillarKeep, Reason: "operator documentation for hook setup; not itself capture or memory"},
-	{Path: "replay", Pillar: pillarKeep, Reason: "only single-file HTML export of recorded sessions; #1870 called usage a weak removal basis and there is no replacement"},
 	{Path: "report", Pillar: pillarRecord, Reason: "period digest of recorded work"},
 	{Path: "report workspace-identity", Pillar: pillarKeep, Reason: "workspace-attribution diagnostics; doctor --alias-* absorbs only the reviewed-alias write/list surface"},
 	{Path: "bundle export", Pillar: pillarKeep, Reason: "export the store (both pillars' data) for transfer"},

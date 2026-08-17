@@ -39,7 +39,6 @@ type RootCLI struct {
 	grokHeadlessUsage          application.GrokHeadlessUsageStreamFactory
 	kimiUsage                  usecase.KimiUsageCaptureUsecase
 	context                    usecase.ContextUsecase
-	replay                     usecase.ReplayUsecase
 	storeManagement            usecase.StoreManagementUsecase
 	capacityInspector          application.CapacityInspector
 	operatorCostInspector      application.OperatorCostInspector
@@ -211,13 +210,6 @@ func WithKimiUsage(usage usecase.KimiUsageCaptureUsecase) RootCLIOption {
 // WithContext injects the ContextUsecase used by structured handoff commands.
 func WithContext(contextUsecase usecase.ContextUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.context = contextUsecase }
-}
-
-// WithReplay injects the ReplayUsecase used by the replay HTML export
-// command. WithReplay is required: the CLI returns a configuration
-// error at runtime if `traceary replay` is invoked without it.
-func WithReplay(replay usecase.ReplayUsecase) RootCLIOption {
-	return func(c *RootCLI) { c.replay = replay }
 }
 
 // WithStoreManagement injects the StoreManagementUsecase used by init,
@@ -445,7 +437,6 @@ func (c *RootCLI) Command() *cobra.Command {
 	rootCmd.AddCommand(c.newCompletionCommand(rootCmd))
 	rootCmd.AddCommand(c.newHooksCommand())
 	rootCmd.AddCommand(c.newDoctorCommand())
-	rootCmd.AddCommand(c.newReplayCommand())
 	rootCmd.AddCommand(c.newReportCommand())
 	rootCmd.AddCommand(c.newBundleCommand())
 

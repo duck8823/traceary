@@ -197,7 +197,6 @@ func run() error {
 		filesystem.NewAntigravityUsageSource(), usageObservationDatasource,
 	)
 	contextUsecase := usecase.NewContextUsecase(sessionDatasource, eventDatasource, memoryDatasource)
-	replayUsecase := usecase.NewReplayUsecase(sessionDatasource, eventDatasource, memoryDatasource)
 	storeManagementUsecase := usecase.NewStoreManagementUsecase(storeManagementDatasource)
 	fileRetentionDatasource := filesystem.NewFileRetentionDatasource()
 	fileRetentionUsecase := usecase.NewFileRetentionUsecase(fileRetentionDatasource, fileRetentionDatasource)
@@ -241,7 +240,6 @@ func run() error {
 		cli.WithGrokHeadlessUsage(filesystem.NewGrokHeadlessUsageStreamFactory()),
 		cli.WithKimiUsage(kimiUsageUsecase),
 		cli.WithContext(contextUsecase),
-		cli.WithReplay(replayUsecase),
 		cli.WithStoreManagement(storeManagementUsecase),
 		cli.WithCapacityInspector(sqlite.NewCapacityInspector(db)),
 		cli.WithOperatorCostInspector(sqlite.NewOperatorCostInspector(db)),

@@ -154,23 +154,6 @@ complete な世代はスナップショットなので、その後に記録さ�
 - `--preset`
 - `--color`
 
-### `traceary replay`
-
-最近のセッション・イベント・durable memory を single-file HTML で書き出します。外部スクリプト・フォント・CDN に依存しない自己完結ファイルなので、オフラインでも閲覧可能です。インシデントレビュー・週次 retrospective・CLI を持たないチームメンバーへの共有に使います。
-
-主な flag:
-
-- `--out` (必須) — 書き出す HTML のパス
-- `--sessions` (既定 10) — 含める直近セッション数
-- `--events-per-session` (既定 20) — 1 セッションに含めるイベント数
-- `--memories` (既定 20) — 含める accepted memory 数
-- `--timeline-blocks` (既定 20) — timeline パネルに描画するブロック数。0 以下でパネル自体を省く
-- `--hotspots` (既定 10) — failure hotspot パネルに描画するクラスタ数。0 以下でパネル自体を省く
-
-replay HTML は sessions / timeline blocks / failure hotspots / durable memories の 4 パネル + generated-at footer の構成です。timeline と hotspot パネルは `traceary list --blocks` / `traceary list --failures` と同一意味を持つので、両方の描画を相互参照できます。
-
-例: `traceary replay --out /tmp/replay.html`
-
 ### `traceary show <event-id>`
 
 1 件の event を詳細表示します。
