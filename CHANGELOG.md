@@ -15,6 +15,7 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 - **Parked search-projection catch-up no longer warns on every command (#2058)** — the skip WARN is rate-limited to once per 24h per store. `doctor` and `store search-projection status` still always show the parked reason. Recovery text names `start` then `resume --until-complete`.
 
 ### Removed
+- **`traceary memory list` (#2071)** — invocations fail as an unknown subcommand (non-zero, no `DEPRECATED` notice). Use `traceary memory search --all` (same List backend, filters, default workspace scope, ordering, and `--json`). `--all` cannot be combined with a query term.
 - **`traceary hooks print` (#2070)** — invocations fail as an unknown subcommand (non-zero, no `DEPRECATED` notice). Use `traceary hooks install --dry-run` (same generated config bytes; `--client` / `--traceary-bin` / `--matcher`).
 - **`traceary timeline` (#2069)** — invocations fail as an unknown command (non-zero, no `DEPRECATED` notice). Use `traceary list --blocks` (same gap-detected blocks, scan-cap disclosure, and `workspace_breakdown` JSON). `--gap` moved onto `list`.
 - **`traceary tail` (#2068)** — invocations fail as an unknown command (non-zero, no `DEPRECATED` notice). Use `traceary list --follow` (same stream, filters, and rendering). `--follow-session` moved onto `list`.

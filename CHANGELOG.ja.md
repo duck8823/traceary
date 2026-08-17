@@ -15,6 +15,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 - **parked な search-projection が毎コマンド WARN しない (#2058)** — skip WARN は store あたり 24 時間に 1 回。`doctor` と `store search-projection status` は毎回 parked 理由を出す。復旧文言は `start` のあと `resume --until-complete`。
 
 ### Removed
+- **`traceary memory list` を削除 (#2071)** — 呼び出しは unknown subcommand（非ゼロ、`DEPRECATED` なし）。`traceary memory search --all` を使う（同じ List バックエンド、filter、既定 workspace scope、並び順、`--json`）。`--all` は query と同時に使えない。
 - **`traceary hooks print` を削除 (#2070)** — 呼び出しは unknown subcommand（非ゼロ、`DEPRECATED` なし）。`traceary hooks install --dry-run` を使う（同じ生成 config バイト列。`--client` / `--traceary-bin` / `--matcher`）。
 - **`traceary timeline` を削除 (#2069)** — 呼び出しは unknown command（非ゼロ、`DEPRECATED` なし）。`traceary list --blocks` を使う（同じギャップ検出ブロック・scan-cap 開示・`workspace_breakdown` JSON）。`--gap` は `list` に移した。
 - **`traceary tail` を削除 (#2068)** — 呼び出しは unknown command（非ゼロ、`DEPRECATED` なし）。`traceary list --follow` を使う（同じストリーム・フィルタ・描画）。`--follow-session` は `list` に移した。
