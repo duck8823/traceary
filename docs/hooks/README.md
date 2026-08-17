@@ -150,7 +150,7 @@ Default destinations:
 
 For the Claude client, `hooks install` and `hooks print` accept `--matcher <preset>` to control which tool categories `PostToolUse` / `PostToolUseFailure` watch:
 
-- `minimal` — `Bash` + `mcp__.*` only. Same set Traceary shipped before v0.8-6. Pick this when built-in tool captures generate too much `list --follow` / `timeline` volume for the current project.
+- `minimal` — `Bash` + `mcp__.*` only. Same set Traceary shipped before v0.8-6. Pick this when built-in tool captures generate too much `list --follow` / `list --blocks` volume for the current project.
 - `default` (or omit `--matcher`) — Adds the v0.8-6b built-in tool list (`Read`, `NotebookRead`, `Edit`, `MultiEdit`, `Write`, `NotebookEdit`, `Grep`, `Glob`, `Agent`, `Task`, `TodoWrite`, `WebFetch`, `WebSearch`, `ExitPlanMode`). This is what packaged installs use.
 - `all` — Replaces the built-in list with `.*` so every tool kind is captured. Intentional opt-in; this will include plugin- and project-specific tools that the default excludes.
 

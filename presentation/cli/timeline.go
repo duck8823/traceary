@@ -8,7 +8,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
 	apptypes "github.com/duck8823/traceary/application/types"
@@ -19,54 +18,6 @@ const (
 	defaultGapMinutes      = 15
 	timelineSummaryMaxRune = 72
 )
-
-func (c *RootCLI) newTimelineCommand() *cobra.Command {
-	var (
-		dbPath    string
-		workspace string
-		from      string
-		since     string
-		to        string
-		until     string
-		gap       int
-		limit     int
-		asJSON    bool
-		utc       bool
-	)
-
-	cmd := &cobra.Command{
-		Use:   "timeline",
-		Short: Localize("Show work timeline with gap-based block detection", "ギャップ検出による作業タイムラインを表示する"),
-		Args:  noArgsLocalized(),
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return c.runTimeline(cmd.Context(), cmd.OutOrStdout(), timelineCommandInput{
-				dbPath:    dbPath,
-				workspace: workspace,
-				from:      from,
-				since:     since,
-				to:        to,
-				until:     until,
-				gap:       gap,
-				limit:     limit,
-				asJSON:    asJSON,
-				utc:       utc,
-			})
-		},
-	}
-
-	cmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
-	cmd.Flags().StringVar(&workspace, "workspace", "", Localize("filter by workspace", "ワークスペースでフィルタ"))
-	cmd.Flags().StringVar(&from, "from", "", Localize("start date (YYYY-MM-DD or RFC3339; alias: --since)", "開始日 (YYYY-MM-DD または RFC3339; 別名: --since)"))
-	cmd.Flags().StringVar(&since, "since", "", Localize("start date (alias for --from)", "開始日 (--from の別名)"))
-	cmd.Flags().StringVar(&to, "to", "", Localize("end date (YYYY-MM-DD or RFC3339; alias: --until)", "終了日 (YYYY-MM-DD または RFC3339; 別名: --until)"))
-	cmd.Flags().StringVar(&until, "until", "", Localize("end date (alias for --to)", "終了日 (--to の別名)"))
-	cmd.Flags().IntVar(&gap, "gap", defaultGapMinutes, Localize("idle gap threshold in minutes", "アイドル判定の閾値（分）"))
-	cmd.Flags().IntVar(&limit, "limit", 20, Localize("maximum number of blocks to display", "表示するブロック数の上限"))
-	cmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
-	cmd.Flags().BoolVar(&utc, "utc", false, Localize("print text timestamps in UTC instead of local time", "テキスト出力のタイムスタンプを現地時刻ではなく UTC で出力する"))
-
-	return cmd
-}
 
 func (c *RootCLI) runTimeline(ctx context.Context, output io.Writer, input timelineCommandInput) error {
 	if c.event == nil {

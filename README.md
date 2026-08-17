@@ -172,7 +172,7 @@ Traceary ships complementary inspection views so you can switch between "what's 
 |---|---|---|
 | Discovering the command surface | `traceary` / `traceary --help` | print help (TTY and non-TTY) |
 | Following what is happening now | `traceary list --follow` | confirm hooks are firing, watch failures in real time |
-| Understanding what happened across a span | `traceary timeline` | see gap-separated work blocks with a per-workspace activity summary |
+| Understanding what happened across a span | `traceary list --blocks` | see gap-separated work blocks with a per-workspace activity summary |
 | Inspecting raw events directly | `traceary list` / `traceary search` | jump to an exact kind / session / query |
 | Resuming with assembled working memory | `traceary session handoff` | start a follow-up session with curated context |
 
@@ -187,10 +187,10 @@ $ traceary list --follow --limit 3
 
 Compact single-line rows (local time by default) fit inside ~100 columns. Add `--wide --utc` to restore the pre-v0.6.1 tab-separated seven-column layout byte-for-byte, or `--json` for NDJSON when piping into tooling.
 
-### `traceary timeline`
+### `traceary list --blocks`
 
 ```text
-$ traceary timeline --limit 2
+$ traceary list --blocks --limit 2
 2026-04-15 06:37 - 07:06 (29m21s) total events: 165
   github.com/duck8823/traceary (153) — 自律的に進めてください。
   github.com/duck8823/dotfiles  ( 12) — rust インストールしました

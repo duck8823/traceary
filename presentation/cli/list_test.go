@@ -468,3 +468,36 @@ func TestRootCLI_ListFollowLimitZeroUsesShippedFollowPath(t *testing.T) {
 		t.Fatalf("list --follow --limit 0 error = %v, want nil (cancelled follow loop)", err)
 	}
 }
+
+func TestRootCLI_ListBlocksRejectsIncompatibleFlags(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+	tests := []struct {
+		name       string
+		args       []string
+		wantErrHas string
+	}{
+		{name: "offset", args: []string{"list", "--blocks", "--offset", "1"}, wantErrHas: "--blocks cannot be combined with --offset"},
+		{name: "kind", args: []string{"list", "--blocks", "--kind", "note"}, wantErrHas: "--blocks cannot be combined with --kind"},
+		{name: "follow", args: []string{"list", "--blocks", "--follow"}, wantErrHas: "--follow cannot be combined with --blocks"},
+		{name: "gap without blocks", args: []string{"list", "--gap", "10"}, wantErrHas: "--gap requires --blocks"},
+		{name: "timezone", args: []string{"list", "--blocks", "--timezone", "UTC"}, wantErrHas: "--blocks cannot be combined with --timezone"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rootCmd := cli.NewRootCLI(
+				cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+				cli.WithEvent(&eventUsecaseStub{}),
+			).Command()
+			rootCmd.SetOut(&bytes.Buffer{})
+			rootCmd.SetErr(&bytes.Buffer{})
+			rootCmd.SetArgs(append(tt.args, "--db-path", t.TempDir()+"/t.db"))
+			err := rootCmd.Execute()
+			if err == nil {
+				t.Fatalf("Execute() error = nil, want %q", tt.wantErrHas)
+			}
+			if !strings.Contains(err.Error(), tt.wantErrHas) {
+				t.Fatalf("Execute() error = %q, want substring %q", err.Error(), tt.wantErrHas)
+			}
+		})
+	}
+}

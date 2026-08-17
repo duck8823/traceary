@@ -169,7 +169,7 @@ Traceary は補完的なビューを用意していて、「いま何が起き�
 |---|---|---|
 | command surface を確認する | `traceary` / `traceary --help` | help を表示（TTY / 非 TTY とも） |
 | いま動いているものを追う | `traceary list --follow` | hook が発火しているか / 失敗がリアルタイムで見えているかを確認 |
-| ある期間の流れを俯瞰する | `traceary timeline` | アイドルギャップ区切りの作業ブロックを workspace 別のアクティビティ要約付きで表示 |
+| ある期間の流れを俯瞰する | `traceary list --blocks` | アイドルギャップ区切りの作業ブロックを workspace 別のアクティビティ要約付きで表示 |
 | 生 event を直接掘る | `traceary list` / `traceary search` | kind / session / query をピンポイントで指定 |
 | 引き継ぎコンテキストで再開する | `traceary session handoff` | 整形済みの working memory を次のセッションへ |
 
@@ -184,10 +184,10 @@ $ traceary list --follow --limit 3
 
 デフォルトは 1 行コンパクト形式（現地時刻）で約 100 カラムに収まります。`--wide --utc` で v0.6.1 以前の tab 区切り 7 カラムをバイト単位で再現でき、`--json` を使えば NDJSON でパイプに流せます。
 
-### `traceary timeline`
+### `traceary list --blocks`
 
 ```text
-$ traceary timeline --limit 2
+$ traceary list --blocks --limit 2
 2026-04-15 06:37 - 07:06 (29m21s) total events: 165
   github.com/duck8823/traceary (153) — 自律的に進めてください。
   github.com/duck8823/dotfiles  ( 12) — rust インストールしました

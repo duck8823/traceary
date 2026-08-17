@@ -518,7 +518,7 @@ func TestTimeline_JSON_Golden(t *testing.T) {
 	).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
-	rootCmd.SetArgs([]string{"timeline", "--db-path", "/tmp/test-traceary.db", "--json"})
+	rootCmd.SetArgs([]string{"list", "--blocks", "--db-path", "/tmp/test-traceary.db", "--json"})
 
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)

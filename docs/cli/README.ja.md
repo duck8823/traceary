@@ -116,6 +116,8 @@ subcommand なしの `traceary` は TTY / 非 TTY とも常に help を表示し
 - `--failures` — この 記録 フィルタは残す。`command_audits.failed = 1` または取得済みの非ゼロ `exit_code` に一致する。現行の書き込みは構造化された host のツール失敗を `unknown` ではなく `host_error` として保存する。分類器以前の `unknown`+`failed=1` はフラグ側で一致する。意味は [failed-flag の意味](../research/failed-flag-meaning.ja.md) を見てください。
 - `--follow` — 新しい一致イベントを追跡表示する（旧 `traceary tail`）。`--limit 0` は新規のみ。`--json` はスナップショット配列ではなく NDJSON。`--offset`、`--from`/`--since`/`--to`/`--until`、`--sensitive`、`--source-hook` とは同時に使えない。
 - `--follow-session <prefix>` — `--follow` 時に 1 つの session へ先頭一致（最低 8 文字）。
+- `--blocks` — ギャップ検出した作業ブロックを表示する（旧 `traceary timeline`）。`--limit` はブロック数上限。`--json` は `workspace_breakdown` 付きブロック配列で、スナップショットの event 配列ではない。`--follow`、`--offset`、イベントフィルタ（`--kind` / `--client` / `--agent` / `--session-id` / `--failures` / `--sensitive` / `--source-hook`）、`--wide` / `--fields` / `--preset` / `--color`、`--timezone` とは同時に使えない。
+- `--gap` — `--blocks` 時のアイドル判定閾値（分、既定 15）。
 
 ### `traceary search [<query>]`
 
@@ -152,22 +154,6 @@ complete な世代はスナップショットなので、その後に記録さ�
 - `--preset`
 - `--color`
 
-### `traceary timeline`
-
-ギャップ検出による作業タイムラインを、ワークスペース単位のアクティビティ要約付きで表示します。
-
-`timeline` は直近のイベントをアイドルギャップ（デフォルト 15 分）で区切って連続する作業ブロックに分け、各ブロック内で workspace ごとに整列された 1 行を表示します。ワークスペース単位のアクティビティ要約は **`compact_summary` → 最初の `prompt` → kind counts** のフォールバック順で選ばれ、そのブロック内でそのワークスペースに存在するシグナルが 1 行に展開されます。デフォルトのテキスト出力は現地時刻 (local time) で、`--utc` で UTC に切り替えられます。`--json` は UTC RFC3339Nano の `start` / `end`、数値の `duration_sec`、および `workspace_breakdown` 配列 (`{workspace, event_count, kind_counts, agents, summary, summary_source}`) を出力します。
-
-主な flag:
-
-- `--workspace`
-- `--from`
-- `--to`
-- `--gap` (アイドルギャップ閾値/分)
-- `--limit`
-- `--json`
-- `--utc`
-
 ### `traceary replay`
 
 最近のセッション・イベント・durable memory を single-file HTML で書き出します。外部スクリプト・フォント・CDN に依存しない自己完結ファイルなので、オフラインでも閲覧可能です。インシデントレビュー・週次 retrospective・CLI を持たないチームメンバーへの共有に使います。
@@ -181,7 +167,7 @@ complete な世代はスナップショットなので、その後に記録さ�
 - `--timeline-blocks` (既定 20) — timeline パネルに描画するブロック数。0 以下でパネル自体を省く
 - `--hotspots` (既定 10) — failure hotspot パネルに描画するクラスタ数。0 以下でパネル自体を省く
 
-replay HTML は sessions / timeline blocks / failure hotspots / durable memories の 4 パネル + generated-at footer の構成です。timeline と hotspot パネルは `traceary timeline` / `traceary list --failures-only` と同一意味を持つので、両方の描画を相互参照できます。
+replay HTML は sessions / timeline blocks / failure hotspots / durable memories の 4 パネル + generated-at footer の構成です。timeline と hotspot パネルは `traceary list --blocks` / `traceary list --failures` と同一意味を持つので、両方の描画を相互参照できます。
 
 例: `traceary replay --out /tmp/replay.html`
 

@@ -30,7 +30,7 @@
 
 ### `prompt`
 
-- ユーザの指示を redact 後そのまま記録。`traceary timeline` / `traceary search` / `traceary context` の本体に出る。
+- ユーザの指示を redact 後そのまま記録。`traceary list --blocks` / `traceary search` / `traceary context` の本体に出る。
 - Claude Code (`UserPromptSubmit`), Codex CLI (`UserPromptSubmit`), Gemini CLI (`BeforeAgent`) すべてが発行（[host-coverage.ja.md](./host-coverage.ja.md) 参照）。
 - Body marker なし（生テキスト）。アシスタント側は `transcript` と区別する。
 
