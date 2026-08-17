@@ -42,7 +42,7 @@ func TestRootCLI_SurfacesWithoutV036Notice(t *testing.T) {
 		{name: "list follow", args: []string{"list", "--follow", "--help"}},
 		{name: "list blocks", args: []string{"list", "--blocks", "--help"}},
 		{name: "handoff", args: []string{"session", "handoff", "--help"}},
-		{name: "hooks print", args: []string{"hooks", "print", "--help"}},
+		{name: "hooks install dry-run", args: []string{"hooks", "install", "--dry-run", "--help"}},
 		{name: "replay", args: []string{"replay", "--help"}},
 	}
 	for _, tt := range tests {

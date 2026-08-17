@@ -40,7 +40,7 @@ Current public commands, including compatibility aliases introduced after v0.15,
 - **Durable memory inbox** — `traceary memory inbox list`, `traceary memory inbox show`, `traceary memory inbox accept`, `traceary memory inbox reject`, `traceary memory inbox attach`, `traceary memory inbox cleanup`, `traceary memory inbox restore`, `traceary memory inbox review` (TTY-only)
 - **Durable memory store** — `traceary memory store propose`, `traceary memory store distill`
 - **Durable memory decay** — `traceary memory decay`
-- **Hooks** — `traceary hooks print`, `traceary hooks install`, `traceary hooks guide`, `traceary completion` (`bash` / `zsh` / `fish` / `powershell`)
+- **Hooks** — `traceary hooks install` (including `--dry-run`), `traceary hooks guide`, `traceary completion` (`bash` / `zsh` / `fish` / `powershell`)
 - **Diagnostics** — `traceary doctor` (alias `traceary status`), `traceary report`
 - **Replay / archive** — `traceary replay`
 - **Bundle import / export** — `traceary bundle export`, `traceary bundle import`
@@ -71,15 +71,15 @@ These commands are hidden from `traceary --help`. In v0.15 the hidden surface ha
 
 Hidden runtime entrypoints called by packaged Traceary hook scripts (registered with `Hidden: true`, no stderr deprecation notice):
 
-- `traceary hook session`, `traceary hook audit`, `traceary hook compact`, `traceary hook subagent-start`, `traceary hook subagent-stop`, `traceary hook prompt`, `traceary hook transcript` — invoked from hook scripts written out by `traceary hooks print` / `traceary hooks install`.
+- `traceary hook session`, `traceary hook audit`, `traceary hook compact`, `traceary hook subagent-start`, `traceary hook subagent-stop`, `traceary hook prompt`, `traceary hook transcript` — invoked from hook scripts written out by `traceary hooks install`.
 - `traceary hooks helper json-get`, `traceary hooks helper build-failure-output`, `traceary hooks helper normalize-git-remote` — internal helpers used by the same packaged hook scripts.
 
 Stability and deprecation expectations for these runtime entrypoints:
 
-- They are an internal contract between the Traceary binary and the hook configs it generates. Operators and external scripts should not invoke them directly; the canonical operator-facing entrypoint is `traceary hooks print` / `traceary hooks install`, and reinstalling regenerates hook configs that match the installed Traceary version.
+- They are an internal contract between the Traceary binary and the hook configs it generates. Operators and external scripts should not invoke them directly; the canonical operator-facing entrypoint is `traceary hooks install` (use `--dry-run` to preview), and reinstalling regenerates hook configs that match the installed Traceary version.
 - The command path and argument shape stay stable across patch releases (`v0.N.x`).
 - Across minor boundaries (`v0.N.0` → `v0.(N+1).0`) and across `v1.x` minors once v1.0 ships, they may be renamed, removed, or have their argument shape changed without going through the public stderr deprecation flow, provided the new minor's `traceary hooks install` regenerates compatible scripts and the changelog calls out that hooks must be reinstalled to upgrade.
-- Adding a new hidden runtime entrypoint follows the same rule: it is allowed at any minor boundary as long as it is paired with a same-version `traceary hooks print` / `traceary hooks install` update.
+- Adding a new hidden runtime entrypoint follows the same rule: it is allowed at any minor boundary as long as it is paired with a same-version `traceary hooks install` update.
 
 Currently deprecated:
 
@@ -89,10 +89,11 @@ Currently deprecated:
 
 #1692 walked every visible public/admin leaf against the two pillars (記録 = capture / summarise / compress / evict; 記憶 = consolidate and supply automatically). Hidden hook entrypoints stay plumbing (see below). The shipped table is `presentation/cli/pillar_inventory.go`; a test fails if a visible action is added without a row.
 
-A command is removed only for empty backing data, duplication, or serving no pillar. Usage counts are not grounds. Remaining groups from the #1870 97→29 keep-list were never in the v0.34 deprecation registry, so v0.35 does not delete them. Planned absorbs (`hooks install --dry-run`, `memory search --all`) are not noticed until those flags exist. `list --follow` landed in v0.42.0 (#2068). `list --blocks` landed in v0.42.0 (#2069). `replay` stays: it is the only single-file HTML export, and #1870 called usage a weak removal basis.
+A command is removed only for empty backing data, duplication, or serving no pillar. Usage counts are not grounds. Remaining groups from the #1870 97→29 keep-list were never in the v0.34 deprecation registry, so v0.35 does not delete them. Planned absorbs (`memory search --all`) are not noticed until those flags exist. `list --follow` landed in v0.42.0 (#2068). `list --blocks` landed in v0.42.0 (#2069). `hooks install --dry-run` landed in v0.42.0 (#2070). `replay` stays: it is the only single-file HTML export, and #1870 called usage a weak removal basis.
 
 Historical removal log:
 
+- Removed in v0.42.0 (#2070): `traceary hooks print`. Invocations fail as an unknown subcommand with a non-zero exit and no `DEPRECATED` notice. This is an explicit policy exception to the one-minor deprecation window (owner decision 2026-08-17). Use `traceary hooks install --dry-run` (same generated config bytes; `--client` / `--traceary-bin` / `--matcher`).
 - Removed in v0.42.0 (#2069): `traceary timeline`. Invocations fail as an unknown command with a non-zero exit and no `DEPRECATED` notice. This is an explicit policy exception to the one-minor deprecation window (owner decision 2026-08-17). Use `traceary list --blocks` (same gap-detected blocks, #2033 scan-cap disclosure, and `workspace_breakdown` JSON; `--gap` moved onto `list`).
 - Removed in v0.42.0 (#2068): `traceary tail`. Invocations fail as an unknown command with a non-zero exit and no `DEPRECATED` notice. This is an explicit policy exception to the one-minor deprecation window (owner decision 2026-08-17). Use `traceary list --follow` (same stream, filters, and rendering; `--follow-session` moved onto `list`).
 - Removed in v0.42.0 (#2061): `traceary sessions` (including `--snapshot` / `--snapshot --json`). Invocations fail as an unknown command with a non-zero exit and no `DEPRECATED` notice. This is an explicit policy exception to the one-minor deprecation window (owner decision 2026-08-17). Use `list` / `search` / `context` / `report` / `session handoff`. Internal `Session.List` remains for hook workspace canonicalization; `list_sessions.sql` is kept for that caller.

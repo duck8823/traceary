@@ -105,7 +105,7 @@ traceary doctor --client kimi
 plugin をインストールしたくない場合は、生成された TOML rule を `~/.kimi-code/config.toml` に自分で追記できます。
 
 ```sh
-traceary hooks print --client kimi
+traceary hooks install --dry-run --client kimi
 ```
 
 `traceary hooks install --client kimi` は意図的に fail-closed です。Traceary はユーザーの設定に TOML をマージしません。

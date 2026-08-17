@@ -82,7 +82,8 @@ type doctorCommandInput struct {
 	coverageThreshold float64
 }
 
-// hooksPrintCommandInput is the resolved input to `traceary hooks print`.
+// hooksPrintCommandInput is the resolved input to
+// `traceary hooks install --dry-run` (the former `hooks print` preview).
 type hooksPrintCommandInput struct {
 	client      string
 	tracearyBin string
@@ -99,6 +100,7 @@ type hooksInstallCommandInput struct {
 	force       bool
 	upgrade     bool
 	matcher     string
+	dryRun      bool
 }
 
 // hooksGuideCommandInput is the resolved input to `traceary hooks guide`.

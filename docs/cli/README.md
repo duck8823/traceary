@@ -781,21 +781,11 @@ The former public `sessions --snapshot` view of these values was removed in v0.4
 
 Generate shell completion scripts for interactive use.
 
-### `traceary hooks print`
-
-Print generated hook configuration for a supported client.
-
-Supported clients: `claude`, `codex`, `gemini`
-Aliases: `claude-code`, `codex-cli`, `gemini-cli`
-
-Useful flags:
-
-- `--client`
-- `--traceary-bin`
-
 ### `traceary hooks install`
 
 Install generated hook configuration into the standard client config path.
+
+`--dry-run` prints the generated config without writing any file (the former `hooks print` bytes). It is incompatible with `--force`, `--upgrade`, `--output`, `--project-dir`, and `--global`.
 
 Useful flags:
 
@@ -805,6 +795,7 @@ Useful flags:
 - `--output`
 - `--global` (write to the user-level config; mutually exclusive with `--output`)
 - `--force`
+- `--dry-run`
 
 ### `traceary hooks guide`
 

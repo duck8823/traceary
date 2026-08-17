@@ -139,7 +139,7 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 		stdout := &bytes.Buffer{}
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"hooks", "print", "--client", "antigravity", "--traceary-bin", tracearyBin})
+		rootCmd.SetArgs([]string{"hooks", "install", "--dry-run", "--client", "antigravity", "--traceary-bin", tracearyBin})
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
 		}
@@ -167,7 +167,7 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 		stdout := &bytes.Buffer{}
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"hooks", "print", "--client", "agy", "--traceary-bin", tracearyBin})
+		rootCmd.SetArgs([]string{"hooks", "install", "--dry-run", "--client", "agy", "--traceary-bin", tracearyBin})
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
 		}
@@ -186,7 +186,7 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 			stdout := &bytes.Buffer{}
 			rootCmd.SetOut(stdout)
 			rootCmd.SetErr(&bytes.Buffer{})
-			rootCmd.SetArgs([]string{"hooks", "print", "--client", client, "--traceary-bin", tracearyBin})
+			rootCmd.SetArgs([]string{"hooks", "install", "--dry-run", "--client", client, "--traceary-bin", tracearyBin})
 			if err := rootCmd.Execute(); err != nil {
 				t.Fatalf("Execute() error = %v", err)
 			}
@@ -228,7 +228,7 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 			stdout := &bytes.Buffer{}
 			rootCmd.SetOut(stdout)
 			rootCmd.SetErr(&bytes.Buffer{})
-			rootCmd.SetArgs([]string{"hooks", "print", "--client", client, "--traceary-bin", tracearyBin})
+			rootCmd.SetArgs([]string{"hooks", "install", "--dry-run", "--client", client, "--traceary-bin", tracearyBin})
 			if err := rootCmd.Execute(); err != nil {
 				t.Fatalf("Execute() error = %v", err)
 			}
@@ -260,7 +260,8 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{
 			"hooks",
-			"print",
+			"install",
+			"--dry-run",
 			"--client", "unknown",
 			"--traceary-bin", tracearyBin,
 		})
@@ -278,7 +279,7 @@ func TestRootCLI_HooksPrintCommand(t *testing.T) {
 		rootCmd := newTestRootCLI().Command()
 		rootCmd.SetOut(&bytes.Buffer{})
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"hooks", "print"})
+		rootCmd.SetArgs([]string{"hooks", "install", "--dry-run"})
 
 		err := rootCmd.Execute()
 		if err == nil {
@@ -608,7 +609,7 @@ func TestRootCLI_HooksPrintCommand_MatcherPreset(t *testing.T) {
 		stdout := &bytes.Buffer{}
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"hooks", "print", "--client", "claude", "--traceary-bin", tracearyBin, "--matcher", "minimal"})
+		rootCmd.SetArgs([]string{"hooks", "install", "--dry-run", "--client", "claude", "--traceary-bin", tracearyBin, "--matcher", "minimal"})
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
 		}
@@ -627,7 +628,7 @@ func TestRootCLI_HooksPrintCommand_MatcherPreset(t *testing.T) {
 		stdout := &bytes.Buffer{}
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"hooks", "print", "--client", "claude", "--traceary-bin", tracearyBin, "--matcher", "all"})
+		rootCmd.SetArgs([]string{"hooks", "install", "--dry-run", "--client", "claude", "--traceary-bin", tracearyBin, "--matcher", "all"})
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
 		}
@@ -649,7 +650,7 @@ func TestRootCLI_HooksPrintCommand_MatcherPreset(t *testing.T) {
 		rootCmd := newTestRootCLI().Command()
 		rootCmd.SetOut(&bytes.Buffer{})
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"hooks", "print", "--client", "claude", "--traceary-bin", tracearyBin, "--matcher", "lol"})
+		rootCmd.SetArgs([]string{"hooks", "install", "--dry-run", "--client", "claude", "--traceary-bin", tracearyBin, "--matcher", "lol"})
 		err := rootCmd.Execute()
 		if err == nil {
 			t.Fatalf("Execute() error = nil, want validation error")
@@ -664,7 +665,7 @@ func TestRootCLI_HooksPrintCommand_MatcherPreset(t *testing.T) {
 		stdout := &bytes.Buffer{}
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"hooks", "print", "--client", "codex", "--traceary-bin", tracearyBin, "--matcher", "minimal"})
+		rootCmd.SetArgs([]string{"hooks", "install", "--dry-run", "--client", "codex", "--traceary-bin", tracearyBin, "--matcher", "minimal"})
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
 		}
@@ -688,7 +689,8 @@ func executeHooksPrint(
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
 		"hooks",
-		"print",
+		"install",
+		"--dry-run",
 		"--client", client,
 		"--traceary-bin", tracearyBin,
 	})
@@ -717,7 +719,8 @@ func executeHooksPrintWithoutTracearyBin(
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{
 		"hooks",
-		"print",
+		"install",
+		"--dry-run",
 		"--client", client,
 	})
 
@@ -731,4 +734,34 @@ func executeHooksPrintWithoutTracearyBin(
 	}
 
 	return &settings
+}
+
+func TestRootCLI_HooksInstallDryRunRejectsWriteFlags(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+	tests := []struct {
+		name       string
+		args       []string
+		wantErrHas string
+	}{
+		{name: "force", args: []string{"hooks", "install", "--dry-run", "--client", "claude", "--force"}, wantErrHas: "--dry-run cannot be combined with --force"},
+		{name: "upgrade", args: []string{"hooks", "install", "--dry-run", "--client", "claude", "--upgrade"}, wantErrHas: "--dry-run cannot be combined with --upgrade"},
+		{name: "global", args: []string{"hooks", "install", "--dry-run", "--client", "claude", "--global"}, wantErrHas: "--dry-run cannot be combined with --global"},
+		{name: "output", args: []string{"hooks", "install", "--dry-run", "--client", "claude", "--output", "/tmp/hooks.json"}, wantErrHas: "--dry-run cannot be combined with --output"},
+		{name: "project-dir", args: []string{"hooks", "install", "--dry-run", "--client", "claude", "--project-dir", "."}, wantErrHas: "--dry-run cannot be combined with --project-dir"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rootCmd := newTestRootCLI().Command()
+			rootCmd.SetOut(&bytes.Buffer{})
+			rootCmd.SetErr(&bytes.Buffer{})
+			rootCmd.SetArgs(tt.args)
+			err := rootCmd.Execute()
+			if err == nil {
+				t.Fatalf("Execute() error = nil, want %q", tt.wantErrHas)
+			}
+			if !strings.Contains(err.Error(), tt.wantErrHas) {
+				t.Fatalf("Execute() error = %q, want substring %q", err.Error(), tt.wantErrHas)
+			}
+		})
+	}
 }
