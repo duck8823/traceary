@@ -8,6 +8,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 ## [Unreleased]
 
 ### Fixed
+- **`store search-projection status` が dbstat を歩かない (#2059)** — 物理バイトは `store capacity` の sidecar cache（`physical_evidence.status=cached`）か、即座の `unavailable`。lifecycle 欄は control snapshot のまま。大きい store でも数秒で答えるのが目標。
 - **parked な search-projection が毎コマンド WARN しない (#2058)** — skip WARN は store あたり 24 時間に 1 回。`doctor` と `store search-projection status` は毎回 parked 理由を出す。復旧文言は `start` のあと `resume --until-complete`。
 
 ### Removed
