@@ -18,6 +18,7 @@ const (
 	extractionNoiseWorkDeclaration      = "work_declaration"
 	extractionNoiseTransientPRRound     = "transient_pr_round"
 	extractionNoiseReviewFixInstruction = "review_fix_instruction"
+	extractionNoiseTransientStatus      = "transient_status"
 )
 
 var (
@@ -202,6 +203,9 @@ func classifyExtractionNoise(fact string) []string {
 	}
 	if isTransientPRRound(lower) {
 		reasons = append(reasons, extractionNoiseTransientPRRound)
+	}
+	if isTransientStatus(trimmed) {
+		reasons = append(reasons, extractionNoiseTransientStatus)
 	}
 	if len(reasons) == 0 {
 		return nil

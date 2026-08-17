@@ -8,6 +8,7 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 ## [Unreleased]
 
 ### Fixed
+- **Extraction hides orchestration progress narration (#2063)** — sprint/wave status, markdown status-table rows, scratch-path lines, and `ephemeralMessage` envelopes are routed to `extracted-hidden` (`transient_status`). Durable always/never/must facts stay visible.
 - **Unreviewed extracted memory candidates now carry a 30-day TTL (#2062)** — `expires_at` is stamped at propose time and backfilled on `memory decay --apply`. Decay clocks `created_at` (not `updated_at`). `remember-intent` / `manual` / `compact-summary` stay exempt. Dry-run counts include `backfilled=`.
 - **`store search-projection status` no longer walks dbstat (#2059)** — physical bytes come from the `store capacity` sidecar cache (`physical_evidence.status=cached`) or are immediately `unavailable`. Lifecycle fields stay on the control snapshot. Target is low-second answers on large stores.
 - **Parked search-projection catch-up no longer warns on every command (#2058)** — the skip WARN is rate-limited to once per 24h per store. `doctor` and `store search-projection status` still always show the parked reason. Recovery text names `start` then `resume --until-complete`.
