@@ -457,7 +457,7 @@ func (s *SearchProjectionStatus) ApplyParkedNotice(defaultConfigHash string) {
 			return
 		}
 		s.ParkedReason = "budget does not match generation configuration"
-		s.RecoveryCommand = SearchProjectionRecoveryCommand
+		s.RecoveryCommand = SearchProjectionStartCommand
 	}
 }
 

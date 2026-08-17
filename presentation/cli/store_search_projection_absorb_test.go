@@ -25,7 +25,7 @@ func TestStoreCompactProjectionRebuildStartsGeneration(t *testing.T) {
 	}
 
 	root := NewRootCLI(WithSearchProjection(usecase.NewSearchProjectionUsecase(database))).Command()
-	root.SetArgs([]string{"store", "compact", "--projection-rebuild", "--db-path", path})
+	root.SetArgs([]string{"store", "compact", "--projection-rebuild"})
 	var stdout strings.Builder
 	root.SetOut(&stdout)
 	if err := root.Execute(); err != nil {
@@ -41,7 +41,7 @@ func TestStoreCompactProjectionRebuildStartsGeneration(t *testing.T) {
 
 	stdout.Reset()
 	root = NewRootCLI(WithSearchProjection(usecase.NewSearchProjectionUsecase(database))).Command()
-	root.SetArgs([]string{"store", "compact", "--projection-abort", "--db-path", path})
+	root.SetArgs([]string{"store", "compact", "--projection-abort"})
 	root.SetOut(&stdout)
 	if err := root.Execute(); err != nil {
 		t.Fatal(err)
@@ -54,6 +54,19 @@ func TestStoreCompactProjectionRebuildStartsGeneration(t *testing.T) {
 		if got, _ := payload["failure_class"].(string); got != "abandoned" && payload["state"] != "failed" {
 			t.Fatalf("abort payload=%s", stdout.String())
 		}
+	}
+}
+
+func TestStoreCompactProjectionFlagsRejectDBPath(t *testing.T) {
+	t.Parallel()
+	root := NewRootCLI().Command()
+	root.SetArgs([]string{"store", "compact", "--projection-rebuild", "--db-path", "other.db"})
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("expected --db-path with --projection-rebuild to fail")
+	}
+	if !strings.Contains(err.Error(), "--db-path") {
+		t.Fatalf("error=%q, want --db-path rejected", err.Error())
 	}
 }
 

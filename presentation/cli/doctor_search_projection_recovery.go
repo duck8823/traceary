@@ -29,6 +29,11 @@ func (c *RootCLI) applySearchProjectionRecovery(ctx context.Context, input docto
 	}
 	notice.ApplyParkedNotice(apptypes.DefaultSearchProjectionBudget().ConfigHash())
 	rebuilding := status.State == "rebuilding" || (status.State == "drifted" && status.Phase == "cleanup")
+	// Operator-owned hash mismatch is compact --projection-rebuild, not
+	// doctor --fix with the default budget (ResumeUntil would refuse).
+	if notice.RecoveryCommand == apptypes.SearchProjectionStartCommand {
+		return log, false
+	}
 	needsStart := notice.RecoveryCommand != "" && !rebuilding
 	if !needsStart && !rebuilding {
 		return log, false

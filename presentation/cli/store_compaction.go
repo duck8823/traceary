@@ -215,6 +215,14 @@ func (c *RootCLI) runStoreCompact(cmd *cobra.Command, input storeCompactInput) e
 			confirmedPlanID: input.confirmPlanID,
 		})
 	}
+	if input.projectionRebuild || input.projectionAbort {
+		if cmd.Flags().Changed("db-path") {
+			return xerrors.New(Localize(
+				"--db-path cannot be combined with --projection-rebuild/--projection-abort; those flags use the process default store",
+				"--db-path は --projection-rebuild / --projection-abort と同時に使えません。これらの flag はプロセス既定ストアを対象にします",
+			))
+		}
+	}
 	if input.projectionRebuild {
 		err := c.runStoreSearchProjectionStart(cmd.Context(), cmd.OutOrStdout(), input.projectionBudget.budget())
 		if err != nil && strings.Contains(err.Error(), "already rebuilding") {

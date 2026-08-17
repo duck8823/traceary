@@ -60,7 +60,7 @@ func TestSearchProjectionStatusApplyParkedNotice(t *testing.T) {
 				Origin:          SearchProjectionOriginOperator,
 				ConfigHash:      "v4:1:1:1:1:1",
 				ParkedReason:    "budget does not match generation configuration",
-				RecoveryCommand: SearchProjectionRecoveryCommand,
+				RecoveryCommand: SearchProjectionStartCommand,
 			},
 		},
 		{
