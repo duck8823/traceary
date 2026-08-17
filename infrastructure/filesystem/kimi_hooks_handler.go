@@ -20,7 +20,7 @@ const kimiHookTimeoutSeconds = 10
 // Kimi Code reads hooks from [[hooks]] rules in ~/.kimi-code/config.toml
 // (TOML), which is incompatible with the shared {"hooks": {...}} JSON
 // document, so this handler renders its own TOML document via the
-// rawHookDocumentHandler interface for `hooks print`. Installation stays
+// rawHookDocumentHandler interface for `hooks install --dry-run`. Installation stays
 // fail-closed: the Traceary Kimi plugin (kimi.plugin.json, which declares
 // hooks in JSON) is the distribution path, and `hooks install` does not
 // merge TOML into the user's config.toml.
@@ -53,7 +53,7 @@ func (h *KimiHooksHandler) validateInstall() error {
 }
 
 func kimiInstallUnavailableError() error {
-	return xerrors.Errorf("kimi hook installation is not available: the Traceary Kimi plugin (kimi.plugin.json) is the distribution path, or append `traceary hooks print --client kimi` output to ~/.kimi-code/config.toml manually")
+	return xerrors.Errorf("kimi hook installation is not available: the Traceary Kimi plugin (kimi.plugin.json) is the distribution path, or append `traceary hooks install --dry-run --client kimi` output to ~/.kimi-code/config.toml manually")
 }
 
 // kimiHookRule is one [[hooks]] rule in the rendered TOML document. matcher

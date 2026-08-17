@@ -774,21 +774,11 @@ Traceary は要約テキストを合成しません。渡された内容を保�
 
 interactive 利用向けの shell completion script を生成します。
 
-### `traceary hooks print`
-
-対応クライアント向けの生成済み hook 設定を出力します。
-
-対応 client: `claude`, `codex`, `gemini`
-alias: `claude-code`, `codex-cli`, `gemini-cli`
-
-主な flag:
-
-- `--client`
-- `--traceary-bin`
-
 ### `traceary hooks install`
 
 対応クライアントの標準設定パスに生成済み hook 設定を書き出します。
+
+`--dry-run` はファイルを書かずに生成 config を出力します（旧 `hooks print` と同じバイト列）。`--force` / `--upgrade` / `--output` / `--project-dir` / `--global` とは同時に使えません。
 
 主な flag:
 
@@ -798,6 +788,7 @@ alias: `claude-code`, `codex-cli`, `gemini-cli`
 - `--output`
 - `--global` (user-level 設定へ書き込む。`--output` とは排他)
 - `--force`
+- `--dry-run`
 
 ### `traceary hooks guide`
 

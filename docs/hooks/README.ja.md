@@ -116,15 +116,15 @@ payload の `prompt` フィールドをそのまま記録し、redaction は適�
 
 ### CLI で設定を出力する
 
-`traceary hooks print --client <claude|codex|gemini>` は、貼り付け用の config を出力します。`claude-code`, `codex-cli`, `gemini-cli` も alias として使えます。
+`traceary hooks install --dry-run --client <claude|codex|gemini>` は、貼り付け用の config を出力します。`claude-code`, `codex-cli`, `gemini-cli` も alias として使えます。
 
 まず install / check / verify の流れだけ確認したい場合は、`traceary hooks guide --client <claude|codex|gemini>` を使ってください。
 
 例:
 
-- `traceary hooks print --client claude > .claude/settings.json`
-- `traceary hooks print --client codex > ~/.codex/hooks.json`
-- `traceary hooks print --client gemini > .gemini/settings.json`
+- `traceary hooks install --dry-run --client claude > .claude/settings.json`
+- `traceary hooks install --dry-run --client codex > ~/.codex/hooks.json`
+- `traceary hooks install --dry-run --client gemini > .gemini/settings.json`
 
 既定では生成コマンドが `'traceary' 'hook' ...` を呼ぶため、hook は `PATH` 上の安定した `traceary` コマンドを参照します。
 
@@ -148,7 +148,7 @@ payload の `prompt` フィールドをそのまま記録し、redaction は適�
 
 ### Claude の PostToolUse matcher preset (`--matcher`)
 
-Claude client に限り、`hooks install` / `hooks print` で `--matcher <preset>` が使えます。`PostToolUse` / `PostToolUseFailure` の対象を切り替えます。
+Claude client に限り、`hooks install`（`--dry-run` を含む）で `--matcher <preset>` が使えます。`PostToolUse` / `PostToolUseFailure` の対象を切り替えます。
 
 - `minimal` — `Bash` + `mcp__.*` のみ。v0.8-6 以前の Traceary と同じセットです。built-in tool の監査が `list --follow` / `list --blocks` のノイズになり過ぎるときに選びます。
 - `default`（`--matcher` を省略したとき） — v0.8-6b で導入した built-in tool 列 (`Read`, `NotebookRead`, `Edit`, `MultiEdit`, `Write`, `NotebookEdit`, `Grep`, `Glob`, `Agent`, `Task`, `TodoWrite`, `WebFetch`, `WebSearch`, `ExitPlanMode`) を含みます。配布 plugin も同じセットです。

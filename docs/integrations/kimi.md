@@ -123,7 +123,7 @@ If you prefer not to install the plugin, append the generated TOML rules to
 `~/.kimi-code/config.toml` yourself:
 
 ```sh
-traceary hooks print --client kimi
+traceary hooks install --dry-run --client kimi
 ```
 
 `traceary hooks install --client kimi` intentionally stays fail-closed:

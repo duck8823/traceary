@@ -40,7 +40,7 @@ v0.15 以降に追加された互換 alias も含む現在の公開コマンド�
 - **durable memory inbox** — `traceary memory inbox list`、`traceary memory inbox show`、`traceary memory inbox accept`、`traceary memory inbox reject`、`traceary memory inbox attach`、`traceary memory inbox cleanup`、`traceary memory inbox restore`、`traceary memory inbox review`（TTY のみ）
 - **durable memory store** — `traceary memory store propose`、`traceary memory store distill`
 - **durable memory decay** — `traceary memory decay`
-- **hooks** — `traceary hooks print`、`traceary hooks install`、`traceary hooks guide`、`traceary completion`（`bash` / `zsh` / `fish` / `powershell`）
+- **hooks** — `traceary hooks install`（`--dry-run` を含む）、`traceary hooks guide`、`traceary completion`（`bash` / `zsh` / `fish` / `powershell`）
 - **診断** — `traceary doctor`（alias `traceary status`）、`traceary report`
 - **replay / archive** — `traceary replay`
 - **bundle import / export** — `traceary bundle export`、`traceary bundle import`
@@ -71,15 +71,15 @@ v0.35 時点の admin コマンド：
 
 同梱の Traceary hook スクリプトから呼び出される hidden ランタイム入口（`Hidden: true` で登録、stderr 非推奨通知は出さない）：
 
-- `traceary hook session`、`traceary hook audit`、`traceary hook compact`、`traceary hook subagent-start`、`traceary hook subagent-stop`、`traceary hook prompt`、`traceary hook transcript` — `traceary hooks print` / `traceary hooks install` が出力する hook スクリプトから呼び出される。
+- `traceary hook session`、`traceary hook audit`、`traceary hook compact`、`traceary hook subagent-start`、`traceary hook subagent-stop`、`traceary hook prompt`、`traceary hook transcript` — `traceary hooks install` が出力する hook スクリプトから呼び出される。
 - `traceary hooks helper json-get`、`traceary hooks helper build-failure-output`、`traceary hooks helper normalize-git-remote` — 同じ同梱 hook スクリプトが使う内部ヘルパー。
 
 これら runtime 入口の安定性 / 非推奨ポリシー：
 
-- これらは Traceary バイナリと、そのバイナリが生成する hook 設定との間の内部契約として扱う。運用者や外部スクリプトが直接呼び出す対象ではなく、canonical な運用者入口は `traceary hooks print` / `traceary hooks install` で、再インストールするとインストール済みバージョンに合った hook 設定が再生成される。
+- これらは Traceary バイナリと、そのバイナリが生成する hook 設定との間の内部契約として扱う。運用者や外部スクリプトが直接呼び出す対象ではなく、canonical な運用者入口は `traceary hooks install`（プレビューは `--dry-run`）で、再インストールするとインストール済みバージョンに合った hook 設定が再生成される。
 - コマンドパスと引数形状は patch リリース (`v0.N.x`) では安定。
 - マイナー境界 (`v0.N.0` → `v0.(N+1).0`)、および v1.0 以降の `v1.x` マイナー間でも、新マイナーの `traceary hooks install` が互換 script を再生成し、CHANGELOG で「hook を再インストールする必要がある」旨を案内することを前提に、改名・削除・引数形状変更を公開の stderr 非推奨フローを通さずに行ってよい。
-- 新しい hidden ランタイム入口の追加も同じルール。マイナー境界で追加してよく、同じバージョンの `traceary hooks print` / `traceary hooks install` 更新と組で出荷する。
+- 新しい hidden ランタイム入口の追加も同じルール。マイナー境界で追加してよく、同じバージョンの `traceary hooks install` 更新と組で出荷する。
 
 現在非推奨：
 
@@ -89,10 +89,11 @@ v0.35 時点の admin コマンド：
 
 #1692 は可視の public / admin leaf を 2 本の柱（記録 = 捕捉 / 要約 / 圧縮 / 破棄、記憶 = 統合して自動供給）に突き合わせました。hidden な hook 入口は plumbing のままです（後述）。出荷テーブルは `presentation/cli/pillar_inventory.go` で、可視 action を行なしで追加するとテストが失敗します。
 
-削除根拠は空の backing、重複、柱なしだけです。usage 件数は理由にしません。#1870 の 97→29 keep-list に残っているグループは v0.34 の非推奨 registry に無いので、v0.35 では削除しません。予定している吸収（`hooks install --dry-run`、`memory search --all`）は、その flag ができるまで通知しません。`list --follow` は v0.42.0（#2068）で入りました。`list --blocks` は v0.42.0（#2069）で入りました。`replay` は単一ファイル HTML export だけで、#1870 も usage を弱い削除根拠だと書いています。
+削除根拠は空の backing、重複、柱なしだけです。usage 件数は理由にしません。#1870 の 97→29 keep-list に残っているグループは v0.34 の非推奨 registry に無いので、v0.35 では削除しません。予定している吸収（`memory search --all`）は、その flag ができるまで通知しません。`list --follow` は v0.42.0（#2068）で入りました。`list --blocks` は v0.42.0（#2069）で入りました。`hooks install --dry-run` は v0.42.0（#2070）で入りました。`replay` は単一ファイル HTML export だけで、#1870 も usage を弱い削除根拠だと書いています。
 
 過去の削除履歴：
 
+- v0.42.0 で削除（#2070）: `traceary hooks print`。呼び出しは unknown subcommand として非ゼロ終了し、`DEPRECATED` 通知は出しません。one-minor deprecation window の明示的なポリシー例外です（owner 決定 2026-08-17）。代わりに `traceary hooks install --dry-run` を使います（同じ生成 config バイト列。`--client` / `--traceary-bin` / `--matcher`）。
 - v0.42.0 で削除（#2069）: `traceary timeline`。呼び出しは unknown command として非ゼロ終了し、`DEPRECATED` 通知は出しません。one-minor deprecation window の明示的なポリシー例外です（owner 決定 2026-08-17）。代わりに `traceary list --blocks` を使います（同じギャップ検出ブロック、#2033 scan-cap 開示、`workspace_breakdown` JSON。`--gap` は `list` に移しました）。
 - v0.42.0 で削除（#2068）: `traceary tail`。呼び出しは unknown command として非ゼロ終了し、`DEPRECATED` 通知は出しません。one-minor deprecation window の明示的なポリシー例外です（owner 決定 2026-08-17）。代わりに `traceary list --follow` を使います（同じストリーム・フィルタ・描画。`--follow-session` は `list` に移しました）。
 - v0.42.0 で削除（#2061）: `traceary sessions`（`--snapshot` / `--snapshot --json` を含む）。呼び出しは unknown command として非ゼロ終了し、`DEPRECATED` 通知は出しません。one-minor deprecation window の明示的なポリシー例外です（owner 決定 2026-08-17）。代わりに `list` / `search` / `context` / `report` / `session handoff` を使います。hook の workspace 正規化向け `Session.List` と `list_sessions.sql` は残します。

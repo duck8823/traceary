@@ -116,15 +116,15 @@ The hook exits successfully without recording anything when:
 
 ### Generate config from CLI
 
-Use `traceary hooks print --client <claude|codex|gemini>` when you want a ready-to-paste config. `claude-code`, `codex-cli`, and `gemini-cli` are accepted aliases.
+Use `traceary hooks install --dry-run --client <claude|codex|gemini>` when you want a ready-to-paste config. `claude-code`, `codex-cli`, and `gemini-cli` are accepted aliases.
 
 If you want the install/check/verify flow first, run `traceary hooks guide --client <claude|codex|gemini>`.
 
 Examples:
 
-- `traceary hooks print --client claude > .claude/settings.json`
-- `traceary hooks print --client codex > ~/.codex/hooks.json`
-- `traceary hooks print --client gemini > .gemini/settings.json`
+- `traceary hooks install --dry-run --client claude > .claude/settings.json`
+- `traceary hooks install --dry-run --client codex > ~/.codex/hooks.json`
+- `traceary hooks install --dry-run --client gemini > .gemini/settings.json`
 
 By default the generated commands call `'traceary' 'hook' ...`, so the hook keeps following whichever stable `traceary` command is available in `PATH`.
 
@@ -148,7 +148,7 @@ Default destinations:
 
 ### Claude PostToolUse matcher preset (`--matcher`)
 
-For the Claude client, `hooks install` and `hooks print` accept `--matcher <preset>` to control which tool categories `PostToolUse` / `PostToolUseFailure` watch:
+For the Claude client, `hooks install` (including `--dry-run`) accepts `--matcher <preset>` to control which tool categories `PostToolUse` / `PostToolUseFailure` watch:
 
 - `minimal` — `Bash` + `mcp__.*` only. Same set Traceary shipped before v0.8-6. Pick this when built-in tool captures generate too much `list --follow` / `list --blocks` volume for the current project.
 - `default` (or omit `--matcher`) — Adds the v0.8-6b built-in tool list (`Read`, `NotebookRead`, `Edit`, `MultiEdit`, `Write`, `NotebookEdit`, `Grep`, `Glob`, `Agent`, `Task`, `TodoWrite`, `WebFetch`, `WebSearch`, `ExitPlanMode`). This is what packaged installs use.
