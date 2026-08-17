@@ -48,7 +48,7 @@ var pillarInventory = []pillarInventoryEntry{
 	{Path: "hooks guide", Pillar: pillarKeep, Reason: "operator documentation for hook setup; not itself capture or memory"},
 	{Path: "replay", Pillar: pillarKeep, Reason: "only single-file HTML export of recorded sessions; #1870 called usage a weak removal basis and there is no replacement"},
 	{Path: "report", Pillar: pillarRecord, Reason: "period digest of recorded work"},
-	{Path: "report workspace-identity", Pillar: pillarKeep, Reason: "workspace-attribution diagnostics; doctor does not absorb this report"},
+	{Path: "report workspace-identity", Pillar: pillarKeep, Reason: "workspace-attribution diagnostics; doctor --alias-* absorbs only the reviewed-alias write/list surface"},
 	{Path: "bundle export", Pillar: pillarKeep, Reason: "export the store (both pillars' data) for transfer"},
 	{Path: "bundle import", Pillar: pillarKeep, Reason: "import a transferred store"},
 	{Path: "completion", Pillar: pillarKeep, Reason: "shell-completion parent; not a product pillar"},
@@ -90,9 +90,6 @@ var pillarInventory = []pillarInventoryEntry{
 	{Path: "store search-projection status", Pillar: pillarRecord, Reason: "inspect search-projection progress"},
 	{Path: "store search-projection abort", Pillar: pillarRecord, Reason: "park a search-projection generation"},
 	{Path: "store search-projection probe", Pillar: pillarRecord, Reason: "probe search-projection capacity without starting a generation"},
-	{Path: "store workspace-alias add", Pillar: pillarKeep, Reason: "live alias mechanism; Wave 4 of #1693 found 147 distinct conflict pairs, not empty backing"},
-	{Path: "store workspace-alias list", Pillar: pillarKeep, Reason: "list workspace aliases"},
-	{Path: "store workspace-alias remove", Pillar: pillarKeep, Reason: "remove a workspace alias"},
 }
 
 func applyInventoryDeprecations(root *cobra.Command) {

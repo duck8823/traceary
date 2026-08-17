@@ -2,7 +2,7 @@
 
 [日本語](./workspace-conflict-meaning.ja.md)
 
-**Status:** decided. Keep `store workspace-alias`. Count actionable pairs.
+**Status:** decided. Keep the reviewed-alias mechanism (CLI: `doctor --alias-*` since v0.42.0 #2075). Count actionable pairs.
 
 **Date:** 2026-08-15
 
@@ -12,7 +12,7 @@
 
 A workspace `conflict` is an operator-reviewable pair `(session_id, effective workspace)` whose effective value is known, differs from the session canonical workspace, and is not `exact`, `descendant`, `ancestor`, or a reviewed `explicit_alias`.
 
-It is not a store defect and not a reason to retire `traceary store workspace-alias`. The classifier is doing what the contract says: remote identities and local paths stay distinct until an operator reviews them; two unrelated local trees stay distinct.
+It is not a store defect and not a reason to retire the reviewed-alias mechanism. The classifier is doing what the contract says: remote identities and local paths stay distinct until an operator reviews them; two unrelated local trees stay distinct.
 
 `report workspace-identity` keeps observation-row counts as volume. It now also reports **distinct conflict pairs** and samples **one row per pair** (with the workspace) so the remedy is reachable.
 
@@ -32,17 +32,19 @@ Antigravity contributing many distinct pairs while Codex contributes many rows i
 
 ### 2. Should the report count pairs instead of rows?
 
-It should count **both**. Observation-row totals stay; they are volume, not a deduplication decision (see the contract). Distinct `(session_id, workspace)` pairs under the current `conflict` projection are the actionable count. Samples are one latest observation per pair and include `workspace` so `store workspace-alias add --session … --workspace …` can be run from the report.
+It should count **both**. Observation-row totals stay; they are volume, not a deduplication decision (see the contract). Distinct `(session_id, workspace)` pairs under the current `conflict` projection are the actionable count. Samples are one latest observation per pair and include `workspace` so `doctor --alias-add --session … --workspace …` can be run from the report. The management surface moved from `store workspace-alias` in v0.42.0 (#2075).
 
 Row-based `conflict_rate` is unchanged.
 
 ### 3. What happens to `store workspace-alias`?
 
-Keep it. It is the only public way to add, withdraw, or list a reviewed alias. Existing aliases keep meaning on read (`explicit_alias`) and on future writes. Auto-normalising remotes to paths, or a family-wide rule, would violate the contract. Withdrawing the conflict contract would freeze the mechanism with no replacement. Deprecation stays blocked: “nothing is lost” is false.
+v0.42.0 (#2075) moved the management surface to `doctor --alias-add` / `--alias-remove` / `--alias-list`. The alias rows and conflict contract below are unchanged.
+
+Keep the reviewed-alias mechanism. It is the only public way to add, withdraw, or list a reviewed alias. Existing aliases keep meaning on read (`explicit_alias`) and on future writes. Auto-normalising remotes to paths, or a family-wide rule, would violate the contract. Withdrawing the conflict contract would freeze the mechanism with no replacement.
 
 ## Non-goals
 
-- Deprecating or removing `store workspace-alias`.
+- Dropping the reviewed-alias mechanism (the CLI name `store workspace-alias` was folded in #2075).
 - Querying or rewriting the live store.
 - Auto-aliasing remotes to checkouts.
 - Changing row-based `relationships.conflict` or `conflict_rate`.

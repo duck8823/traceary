@@ -130,9 +130,9 @@ The default report reads only body-free exact-delivery and workspace projections
 Reviewed conflicts can be reclassified without changing canonical session provenance:
 
 ```sh
-traceary store workspace-alias add --session <id> --workspace <path> --reviewed-by <operator> --note <reason>
-traceary store workspace-alias list
-traceary store workspace-alias remove --session <id> --workspace <path>
+traceary doctor --alias-add --session <id> --workspace <path> --reviewed-by <operator> --note <reason>
+traceary doctor --alias-list
+traceary doctor --alias-remove --session <id> --workspace <path>
 ```
 
 Aliases affect the current diagnostic projection only. Removing one restores the original relationship classification.

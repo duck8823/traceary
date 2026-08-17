@@ -967,12 +967,12 @@ sessions、events、commands、usage は、1つの読み取り専用トランザ
 
 ### `traceary report workspace-identity`
 
-本文を含めずに、ワークスペース帰属の網羅率、関係と競合率、安定 ID による完全再送率を表示します。observation 行数は volume のまま残し、`conflict_pair_count` が actionable な単位（現行 conflict projection の distinct `(session_id, workspace)`）です。sample は pair あたり最新 1 行で `workspace` を含むので、report から `store workspace-alias add` を実行できます。履歴上の本文・時間窓候補は既定で測定しません。`--include-heuristic` を使うと上限付き dry-run を明示的に要求でき、必要に応じて `--heuristic-limit`（既定 5,000 件）または `--strict` を指定できます。JSON のヒューリスティック `measurement_state` は `not_requested`、`partial`、`complete`、`failed` のいずれかで、exact delivery とは独立しています。自動化と QA では `--json` と `--conflict-sample-limit` を利用できます。
+本文を含めずに、ワークスペース帰属の網羅率、関係と競合率、安定 ID による完全再送率を表示します。observation 行数は volume のまま残し、`conflict_pair_count` が actionable な単位（現行 conflict projection の distinct `(session_id, workspace)`）です。sample は pair あたり最新 1 行で `workspace` を含むので、report から `doctor --alias-add` を実行できます。履歴上の本文・時間窓候補は既定で測定しません。`--include-heuristic` を使うと上限付き dry-run を明示的に要求でき、必要に応じて `--heuristic-limit`（既定 5,000 件）または `--strict` を指定できます。JSON のヒューリスティック `measurement_state` は `not_requested`、`partial`、`complete`、`failed` のいずれかで、exact delivery とは独立しています。自動化と QA では `--json` と `--conflict-sample-limit` を利用できます。
 store の初期化または migration が必要な場合は、先に `traceary doctor` を実行してください。report 自体は読み取り専用です。意味は [workspace-conflict の意味](../research/workspace-conflict-meaning.ja.md) を見てください。
 
-### `traceary store workspace-alias add|list|remove`
+### `traceary doctor --alias-add` / `--alias-remove` / `--alias-list`
 
-現在の診断 projection で使う、運用者確認済みのセッション/ワークスペース別名を管理します。review 済み alias を追加・撤回・一覧する唯一の public 経路であり、非推奨化しません。add には `--session`、`--workspace`、`--reviewed-by` が必要で、正規 provenance は書き換えません。
+現在の診断 projection で使う、運用者確認済みのセッション/ワークスペース別名を管理します。旧 `store workspace-alias add|list|remove` を吸収します。add には `--session`、`--workspace`、`--reviewed-by` が必要で、正規 provenance は書き換えません。`doctor --fix` は alias を自動作成しません。既定の doctor inspect は小ストア経路の additive `workspace-aliases` check 以外は変わりません。
 
 ## 関連ドキュメント
 

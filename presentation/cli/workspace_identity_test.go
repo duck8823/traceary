@@ -196,12 +196,11 @@ func TestRootCLI_WorkspaceIdentityReportDoesNotTreatBackfillAsLiveSample(t *test
 }
 
 func TestRootCLI_WorkspaceAliasAddAndRemove(t *testing.T) {
-	t.Parallel()
 	identity := &workspaceIdentityUsecaseStub{}
 	store := &storeManagementUsecaseStub{}
 	for _, args := range [][]string{
-		{"store", "workspace-alias", "add", "--db-path", t.TempDir() + "/traceary.db", "--session", "session-1", "--workspace", "/repo", "--reviewed-by", "operator", "--note", "reviewed"},
-		{"store", "workspace-alias", "remove", "--db-path", t.TempDir() + "/traceary.db", "--session", "session-1", "--workspace", "/repo"},
+		{"doctor", "--alias-add", "--db-path", t.TempDir() + "/traceary.db", "--session", "session-1", "--workspace", "/repo", "--reviewed-by", "operator", "--note", "reviewed"},
+		{"doctor", "--alias-remove", "--db-path", t.TempDir() + "/traceary.db", "--session", "session-1", "--workspace", "/repo"},
 	} {
 		root := cli.NewRootCLI(cli.WithStoreManagement(store), cli.WithWorkspaceIdentity(identity)).Command()
 		root.SetOut(&bytes.Buffer{})
@@ -213,5 +212,41 @@ func TestRootCLI_WorkspaceAliasAddAndRemove(t *testing.T) {
 	}
 	if identity.added != [4]string{"session-1", "/repo", "operator", "reviewed"} || identity.removed != [2]string{"session-1", "/repo"} {
 		t.Fatalf("added/removed = %#v/%#v", identity.added, identity.removed)
+	}
+}
+
+func TestRootCLI_DoctorAliasListDispatchesToWorkspaceIdentity(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+	identity := &workspaceIdentityUsecaseStub{report: apptypes.WorkspaceIdentityReport{
+		Aliases: []apptypes.WorkspaceAliasSummary{{SessionID: "session-1", Workspace: "/repo", ReviewedBy: "operator"}},
+	}}
+	root := cli.NewRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{}), cli.WithWorkspaceIdentity(identity)).Command()
+	var stdout bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&bytes.Buffer{})
+	root.SetArgs([]string{"doctor", "--alias-list", "--db-path", filepath.Join(t.TempDir(), "traceary.db")})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if identity.limit != 0 {
+		t.Fatalf("Report limit = %d, want 0", identity.limit)
+	}
+	if !strings.Contains(stdout.String(), "session_id=session-1") || !strings.Contains(stdout.String(), "workspace=/repo") {
+		t.Fatalf("stdout = %q, want listed alias", stdout.String())
+	}
+}
+
+func TestRootCLI_DoctorRejectsAliasFlagsWithoutMode(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+	root := cli.NewRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{})).Command()
+	root.SetOut(&bytes.Buffer{})
+	root.SetErr(&bytes.Buffer{})
+	root.SetArgs([]string{"doctor", "--session", "session-1", "--db-path", filepath.Join(t.TempDir(), "traceary.db")})
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("Execute() error = nil, want alias flag pairing error")
+	}
+	if !strings.Contains(err.Error(), "--session/--workspace/--reviewed-by/--note require --alias-add or --alias-remove") {
+		t.Fatalf("error = %q", err.Error())
 	}
 }
