@@ -2,7 +2,7 @@
 
 [日本語](./workspace-conflict-meaning.ja.md)
 
-**Status:** decided. Keep `store workspace-alias`. Count actionable pairs.
+**Status:** decided. Keep the reviewed-alias mechanism (CLI: `doctor --alias-*` since v0.42.0 #2075). Count actionable pairs.
 
 **Date:** 2026-08-15
 
@@ -12,7 +12,7 @@
 
 A workspace `conflict` is an operator-reviewable pair `(session_id, effective workspace)` whose effective value is known, differs from the session canonical workspace, and is not `exact`, `descendant`, `ancestor`, or a reviewed `explicit_alias`.
 
-It is not a store defect and not a reason to retire `traceary store workspace-alias`. The classifier is doing what the contract says: remote identities and local paths stay distinct until an operator reviews them; two unrelated local trees stay distinct.
+It is not a store defect and not a reason to retire the reviewed-alias mechanism. The classifier is doing what the contract says: remote identities and local paths stay distinct until an operator reviews them; two unrelated local trees stay distinct.
 
 `report workspace-identity` keeps observation-row counts as volume. It now also reports **distinct conflict pairs** and samples **one row per pair** (with the workspace) so the remedy is reachable.
 

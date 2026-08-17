@@ -2,7 +2,7 @@
 
 [English](./workspace-conflict-meaning.md)
 
-**Status:** 決定済み。`store workspace-alias` は残す。actionable な単位は pair。
+**Status:** 決定済み。review 済み alias の mechanism は残す（CLI は v0.42.0 #2075 以降 `doctor --alias-*`）。actionable な単位は pair。
 
 **Date:** 2026-08-15
 
@@ -12,7 +12,7 @@
 
 workspace の `conflict` は、operator が review する pair `(session_id, effective workspace)` です。effective は既知で、session の canonical と異なり、`exact` / `descendant` / `ancestor` / review 済み `explicit_alias` のいずれでもありません。
 
-store の欠陥ではなく、`traceary store workspace-alias` を廃する理由でもありません。分類器は契約どおりです。remote identity と local path は operator が review するまで別物で、祖先でも子孫でもない 2 本の local tree も別物です。
+store の欠陥ではなく、review 済み alias の mechanism を廃する理由でもありません。分類器は契約どおりです。remote identity と local path は operator が review するまで別物で、祖先でも子孫でもない 2 本の local tree も別物です。
 
 `report workspace-identity` は observation 行数を volume として残します。あわせて **distinct な conflict pair** を出し、sample は **pair あたり 1 行**（workspace 付き）にして、是正コマンドに届くようにします。
 
