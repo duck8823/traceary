@@ -7,6 +7,8 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ## [Unreleased]
 
+## [v0.42.0] - 2026-08-17
+
 ### Fixed
 - **`memory inbox list` discloses the candidate pool size (#2064)** — text mode prints `showing N of M candidates (source split)` after the page, including `extracted-hidden` unless `--source` is set. JSON stays the existing item array.
 - **Extraction hides orchestration progress narration (#2063)** — sprint/wave status, markdown status-table rows, scratch-path lines, and `ephemeralMessage` envelopes are routed to `extracted-hidden` (`transient_status`). Durable always/never/must facts stay visible.
