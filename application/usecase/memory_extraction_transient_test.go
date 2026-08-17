@@ -63,6 +63,21 @@ func TestClassifyExtractionNoise_TransientStatus(t *testing.T) {
 			fact: "Changelog entries must name the issue they close",
 			want: nil,
 		},
+		{
+			name: "durable draft-pr workflow without always/never stays visible",
+			fact: "Open a Draft PR per issue before coding",
+			want: nil,
+		},
+		{
+			name: "durable japanese draft-pr rule stays visible",
+			fact: "Draft PR は Codex review 後に ready にする",
+			want: nil,
+		},
+		{
+			name: "durable worktree lesson with two issue refs stays visible",
+			fact: "Bundling #2010 and #2013 into one worktree broke the sub-issue wiring",
+			want: nil,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
