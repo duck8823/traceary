@@ -18,7 +18,7 @@ import (
 )
 
 // defaultMemoryInboxLimit is the page size applied when the operator does
-// not pass --limit. The value matches the existing `memory list` default
+// not pass --limit. The value matches the existing `memory search --all` default
 // so operators can move between the two surfaces without re-tuning.
 const defaultMemoryInboxLimit = 20
 
@@ -728,7 +728,7 @@ func parseMemorySources(values []string) ([]domtypes.MemorySource, error) {
 // false. It pins the default to the visible-by-default sources so
 // `extracted-hidden` rows are skipped. When the operator passed an
 // explicit source filter, this function returns it unchanged so
-// explicit always wins. Shared by `memory list`, `memory search`, and
+// explicit always wins. Shared by `memory search --all`, `memory search`, and
 // `memory inbox list` to avoid drift.
 func applyExtractedHiddenDefault(sources []domtypes.MemorySource, includeHidden bool) []domtypes.MemorySource {
 	if len(sources) > 0 || includeHidden {

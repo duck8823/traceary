@@ -47,7 +47,7 @@ durable memory を `type` + `scope` で分類する方針にし、別軸 `block`
 - `valid_from` — fact が真として主張され始める時刻（既定値は `created_at`）
 - `valid_to` — fact が真でなくなる時刻（`NULL` は open-ended）
 
-既定の取得経路（`memory list` / `memory search`、および `session handoff` / `context`）は `valid_to` が過去の memory を自動で隠します。つまり、いま真と主張されている memory だけが返ります。
+既定の取得経路（`memory search` / `memory search --all`、および `session handoff` / `context`）は `valid_to` が過去の memory を自動で隠します。つまり、いま真と主張されている memory だけが返ります。
 
 時間移動したい場合は CLI list / search に `--as-of <timestamp>` を渡すと、その時点での `valid_from <= asOf < valid_to` で評価します。validity filter を外す `--include-expired` は、過去の決定を監査する場合などに使えます。これらは lifecycle な `status` filter と独立で、superseded / rejected の memory を見たい場合は引き続き `--status` を使ってください。
 
@@ -248,13 +248,13 @@ import は Codex の Markdown memory（既定値は `~/.codex/memories/*.md`）�
 
 既存の durable memory を調べるときは次を使います。
 
-- `traceary memory list`
+- `traceary memory search --all`
 - `traceary memory search`
 - `traceary memory show`
 
 #### 取り出し preset
 
-`memory list` / `memory search` は `--preset <name>` で用途別の取り出し shape をプリセットできます。`--status` / `--type` を明示した場合は preset のデフォルトを上書きします。
+`memory search` は `--preset <name>` で用途別の取り出し shape をプリセットできます。`--status` / `--type` を明示した場合は preset のデフォルトを上書きします。
 
 | Preset | 用途 | 既定フィルタ |
 | --- | --- | --- |
@@ -264,8 +264,8 @@ import は Codex の Markdown memory（既定値は `~/.codex/memories/*.md`）�
 
 例:
 
-- `traceary memory list --preset review --workspace github.com/org/repo`
-- `traceary memory list --preset review --type lesson` — 明示 `--type` は preset の既定を上書き
+- `traceary memory search --all --preset review --workspace github.com/org/repo`
+- `traceary memory search --all --preset review --type lesson` — 明示 `--type` は preset の既定を上書き
 - `traceary memory search --preset incident --workspace github.com/org/repo`
 
 ### 文脈に載せる経路

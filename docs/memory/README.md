@@ -47,7 +47,7 @@ Every durable memory carries a content validity window `(valid_from, valid_to)` 
 - `valid_from` — when the fact starts being asserted (defaults to `created_at`)
 - `valid_to` — when the fact stops being asserted (`NULL` means open-ended)
 
-Default retrieval (`memory list` / `memory search`, plus `session handoff` / `context`) hides memories whose `valid_to` is in the past — you only see what is still asserted as true right now.
+Default retrieval (`memory search` / `memory search --all`, plus `session handoff` / `context`) hides memories whose `valid_to` is in the past — you only see what is still asserted as true right now.
 
 To time-travel, pass `--as-of <timestamp>` to CLI list / search, which evaluates `valid_from <= asOf < valid_to` against the supplied point in time. Pass `--include-expired` to bypass the validity filter entirely (e.g. when auditing historical decisions). Neither flag replaces lifecycle `status` filtering — a superseded or rejected memory still needs `--status` to surface.
 
@@ -337,13 +337,13 @@ by a later import run.
 
 Use these to inspect existing durable memories:
 
-- `traceary memory list`
+- `traceary memory search --all`
 - `traceary memory search`
 - `traceary memory show`
 
 #### Retrieval presets
 
-`memory list` and `memory search` accept `--preset <name>` to apply a built-in retrieval shape for a common operator scenario. Explicit `--status` / `--type` flags still win — the preset only pre-populates the defaults.
+`memory search` accepts `--preset <name>` to apply a built-in retrieval shape for a common operator scenario. Explicit `--status` / `--type` flags still win — the preset only pre-populates the defaults.
 
 | Preset | Intent | Defaults applied |
 | --- | --- | --- |
@@ -353,8 +353,8 @@ Use these to inspect existing durable memories:
 
 Examples:
 
-- `traceary memory list --preset review --workspace github.com/org/repo`
-- `traceary memory list --preset review --type lesson` — explicit `--type` overrides the preset's default
+- `traceary memory search --all --preset review --workspace github.com/org/repo`
+- `traceary memory search --all --preset review --type lesson` — explicit `--type` overrides the preset's default
 - `traceary memory search --preset incident --workspace github.com/org/repo`
 
 ### Context / handoff path

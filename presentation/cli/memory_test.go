@@ -31,7 +31,7 @@ func TestRootCLI_MemoryListCommand_DefaultWorkspaceScope(t *testing.T) {
 	).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
-	rootCmd.SetArgs([]string{"memory", "list", "--db-path", "/tmp/test-traceary.db", "--json"})
+	rootCmd.SetArgs([]string{"memory", "search", "--all", "--db-path", "/tmp/test-traceary.db", "--json"})
 
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
@@ -55,7 +55,7 @@ func TestRootCLI_MemoryListCommand_DefaultExcludesExtractedHidden(t *testing.T) 
 	).Command()
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})
-	rootCmd.SetArgs([]string{"memory", "list", "--workspace", "duck8823/traceary", "--db-path", "/tmp/t.db"})
+	rootCmd.SetArgs([]string{"memory", "search", "--all", "--workspace", "duck8823/traceary", "--db-path", "/tmp/t.db"})
 
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
@@ -63,11 +63,11 @@ func TestRootCLI_MemoryListCommand_DefaultExcludesExtractedHidden(t *testing.T) 
 
 	got := stub.listCriteria.Sources()
 	if len(got) == 0 {
-		t.Fatalf("default memory list must constrain Sources to exclude extracted-hidden, got empty filter")
+		t.Fatalf("default memory search --all must constrain Sources to exclude extracted-hidden, got empty filter")
 	}
 	for _, s := range got {
 		if s == types.MemorySourceExtractedHidden {
-			t.Fatalf("default memory list must not include extracted-hidden in Sources, got %v", got)
+			t.Fatalf("default memory search --all must not include extracted-hidden in Sources, got %v", got)
 		}
 	}
 }
@@ -81,13 +81,32 @@ func TestRootCLI_MemoryListCommand_IncludeHiddenSkipsDefaultFilter(t *testing.T)
 	).Command()
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})
-	rootCmd.SetArgs([]string{"memory", "list", "--workspace", "duck8823/traceary", "--include-hidden", "--db-path", "/tmp/t.db"})
+	rootCmd.SetArgs([]string{"memory", "search", "--all", "--workspace", "duck8823/traceary", "--include-hidden", "--db-path", "/tmp/t.db"})
 
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
 	if got := stub.listCriteria.Sources(); len(got) != 0 {
 		t.Fatalf("--include-hidden should not add a Sources filter, got %v", got)
+	}
+}
+
+func TestRootCLI_MemorySearchCommand_AllRejectsQueryTerm(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(&memoryUsecaseStub{}),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"memory", "search", "--all", "release", "--db-path", "/tmp/test-traceary.db"})
+
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Fatal("Execute() error = nil, want --all/query mutual exclusion")
+	}
+	if !strings.Contains(err.Error(), "--all cannot be combined with a query term") {
+		t.Fatalf("error = %q, want --all/query mutual exclusion", err.Error())
 	}
 }
 

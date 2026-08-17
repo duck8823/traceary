@@ -240,32 +240,13 @@ memory
 
 ### 日常 read コマンド
 
-#### `traceary memory list`
-
-durable memory を一覧表示します。scope flag を明示しない場合は、解決した workspace scope を既定で使います。
-
-主な flag:
-
-- `--workspace`
-- `--agent`
-- `--session-family`
-- `--status`
-- `--type`
-- `--source`
-- `--include-hidden`
-- `--limit`
-- `--offset`
-- `--as-of`
-- `--include-expired`
-- `--preset`
-- `--json`
-
 #### `traceary memory search [<query>]`
 
-全文検索と構造フィルタで durable memory を検索します。query か filter のどちらか 1 つ以上が必要です。
+全文検索と構造フィルタで durable memory を検索します。`--all` が無いときは query か filter のどちらか 1 つ以上が必要です。`--all` は旧 `memory list` と同じ意味（filter、他 scope が無いときの既定 workspace scope、並び順、`--json`）で一覧し、query と同時には使えません。
 
 主な flag:
 
+- `--all`
 - `--workspace`
 - `--agent`
 - `--session-family`

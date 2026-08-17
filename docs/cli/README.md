@@ -240,32 +240,13 @@ memory
 
 ### Daily-read commands
 
-#### `traceary memory list`
-
-List durable memories. When no explicit scope flag is set, `memory list` defaults to the resolved workspace scope.
-
-Useful flags:
-
-- `--workspace`
-- `--agent`
-- `--session-family`
-- `--status`
-- `--type`
-- `--source`
-- `--include-hidden`
-- `--limit`
-- `--offset`
-- `--as-of`
-- `--include-expired`
-- `--preset`
-- `--json`
-
 #### `traceary memory search [<query>]`
 
-Search durable memories by text and structured filters. At least one query or filter is required.
+Search durable memories by text and structured filters. At least one query or filter is required unless `--all` is set. `--all` enumerates durable memories with the former `memory list` semantics (filters, default workspace scope when no other scope is set, ordering, `--json`) and cannot be combined with a query term.
 
 Useful flags:
 
+- `--all`
 - `--workspace`
 - `--agent`
 - `--session-family`

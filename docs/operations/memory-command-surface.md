@@ -90,6 +90,8 @@ memory
 
 The acceptance criteria for this issue explicitly mention `search` and `show`. `list` follows the same principle and is intentionally included in the daily read tier here. If implementation in a follow-up sub-issue uncovers a concrete reason to demote any of these (for example, an unavoidable flag conflict between `memory list` and a grouped `memory inbox list`), the implementing PR may revisit the placement and update this document accordingly.
 
+v0.42.0 (#2071) absorbed `memory list` into `memory search --all` (same List backend and default workspace scope). `memory list` is now an unknown subcommand.
+
 ## Path mapping
 
 | Old path | New canonical path | Status in v0.14 |

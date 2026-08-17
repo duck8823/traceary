@@ -153,7 +153,7 @@ traceary session handoff --workspace github.com/duck8823/traceary
 
 ### 5. Curate the memory review queue
 
-`traceary memory ...` is grouped by intent: `memory inbox` for candidate review, `memory store` for deliberate writes (`propose` / `distill`), and `memory admin` for extraction, host-side I/O (`import` / `export` / `activate`), maintenance (`hygiene` / `graph`), and lifecycle (`supersede` / `expire` / `set-validity`). Daily-read commands (`memory search` / `memory show` / `memory list`) stay top-level. The flat verbs from earlier releases (`memory remember`, `memory accept`, ...) were removed in v0.15.0 after the v0.14 compatibility window; `memory store remember` was removed in v0.36.0. Use the canonical grouped paths above.
+`traceary memory ...` is grouped by intent: `memory inbox` for candidate review, `memory store` for deliberate writes (`propose` / `distill`), and `memory admin` for extraction, host-side I/O (`import` / `export` / `activate`), maintenance (`hygiene` / `graph`), and lifecycle (`supersede` / `expire` / `set-validity`). Daily-read commands (`memory search` / `memory show`) stay top-level; enumerate with `memory search --all`. The flat verbs from earlier releases (`memory remember`, `memory accept`, ...) were removed in v0.15.0 after the v0.14 compatibility window; `memory store remember` was removed in v0.36.0. Use the canonical grouped paths above.
 
 For interactive review of the memory review queue at the terminal:
 

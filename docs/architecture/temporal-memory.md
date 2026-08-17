@@ -6,7 +6,7 @@ Part of #567 · closes the evaluation half of #573.
 
 ## Context
 
-v0.8 (#565) added half-open `[valid_from, valid_to)` windows to every accepted memory. Readers can time-travel with `traceary memory list --as-of <date>`, and `memory admin hygiene scan`'s `validity_overlap_supersede` detector uses the same windows to propose replacement chains.
+v0.8 (#565) added half-open `[valid_from, valid_to)` windows to every accepted memory. Readers can time-travel with `traceary memory search --all --as-of <date>`, and `memory admin hygiene scan`'s `validity_overlap_supersede` detector uses the same windows to propose replacement chains.
 
 Windows alone answer "what did we believe about X at time T" but they do not record **why** X was superseded or **how** X relates to neighbouring facts. Zep / Letta / Graphiti and similar 2026 temporal memory systems model memories as nodes in a temporal knowledge graph with typed edges, which unlocks queries like:
 

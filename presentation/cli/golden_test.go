@@ -390,7 +390,7 @@ func TestMemoryFamily_JSON_Goldens(t *testing.T) {
 		args    []string
 		fixture string
 	}{
-		{"list", []string{"memory", "list", "--db-path", "/tmp/test-traceary.db", "--workspace", "github.com/duck8823/traceary", "--json"}, "list.golden.json"},
+		{"list", []string{"memory", "search", "--all", "--db-path", "/tmp/test-traceary.db", "--workspace", "github.com/duck8823/traceary", "--json"}, "list.golden.json"},
 		{"search", []string{"memory", "search", "--db-path", "/tmp/test-traceary.db", "--workspace", "github.com/duck8823/traceary", "--json", "golden"}, "search.golden.json"},
 		{"show", []string{"memory", "show", "--db-path", "/tmp/test-traceary.db", "--json", "memory-golden-accepted"}, "show.golden.json"},
 		{"propose", []string{"memory", "store", "propose", "--db-path", "/tmp/test-traceary.db", "--workspace", "github.com/duck8823/traceary", "--type", "decision", "--fact", "Candidate golden memory", "--json"}, "propose.golden.json"},

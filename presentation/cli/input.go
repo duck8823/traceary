@@ -269,7 +269,7 @@ type tailCommandInput struct {
 	tickerFactory    func(time.Duration) tailTicker
 }
 
-// memoryListCommandInput is the resolved input to `traceary memory list`.
+// memoryListCommandInput is the resolved input to `traceary memory search --all`.
 type memoryListCommandInput struct {
 	dbPath         string
 	workspace      string
@@ -290,6 +290,7 @@ type memoryListCommandInput struct {
 // memorySearchCommandInput is the resolved input to `traceary memory search`.
 type memorySearchCommandInput struct {
 	dbPath         string
+	all            bool
 	workspace      string
 	agent          string
 	sessionFamily  string
@@ -408,7 +409,7 @@ type memoryImportCodexCommandInput struct {
 
 // memoryInboxListCommandInput is the resolved input to `traceary memory
 // inbox`. The command is a provenance-first view over candidate durable
-// memories, so the filter set is identical to `memory list` but the
+// memories, so the filter set is identical to `memory search --all` but the
 // default status is pinned to candidate.
 type memoryInboxListCommandInput struct {
 	dbPath         string
