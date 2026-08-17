@@ -181,7 +181,7 @@ CLI, check out the matching tag and rerun the installer:
 ```sh
 brew upgrade traceary
 git fetch --tags
-git checkout v0.23.0 # replace with the installed Traceary version
+git checkout "v$(traceary -v | awk '{print $2}')"
 ./scripts/install-grok-plugin.sh
 traceary doctor --client grok --project-dir . --json
 ```

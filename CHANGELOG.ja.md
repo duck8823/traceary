@@ -18,6 +18,9 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 - **`traceary sessions` を削除 (#2061)** — `--snapshot` / `--snapshot --json` を含む。呼び出しは unknown command（非ゼロ、`DEPRECATED` なし）。`list` / `search` / `context` / `report` / `session handoff` を使います。hook の workspace 正規化向け List は残します。
 - **`traceary session latest` と `traceary session list` を削除 (#2057)** — どちらも unknown subcommand（非ゼロ、`DEPRECATED` なし）。hook の `[Traceary] Session <id>`、`list` / `search` / `context`、`report` を使います。handoff / hooks / context 向けの内部 Active/Latest/List クエリは残します。
 
+### Docs
+- Grok plugin の Update checkout を実行中の CLI バージョン（`traceary -v`）に合わせる。install clone と同じピン (#2065)。
+
 ## [v0.41.0] - 2026-08-17
 
 ### Added
