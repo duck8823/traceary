@@ -20,7 +20,7 @@ func TestFormatConsolidationReason(t *testing.T) {
 			result: usecase.ConsolidationPressureResult{
 				PressureBytes: 66560,
 			},
-			want: "Session sess-1 has unrefined material at or above the consolidation threshold (66560 bytes). Write a session refinement with `traceary session refine` covering this session's events so far. State why the work was undertaken and what changed; if useful, include how it went, including approaches tried and rejected.",
+			want: "[Traceary] Session sess-1 has unrefined material at or above the consolidation threshold (66560 bytes). Write a session refinement with `traceary session refine` covering this session's events so far. State why the work was undertaken and what changed; if useful, include how it went, including approaches tried and rejected.",
 		},
 		{
 			name: "with previous summary",
@@ -29,7 +29,7 @@ func TestFormatConsolidationReason(t *testing.T) {
 				PreviousSummary:  types.Some("previous summary"),
 				PreviousCoversTo: types.Some(types.EventID("evt-1")),
 			},
-			want: "Session sess-1 has unrefined material at or above the consolidation threshold (66560 bytes). Write a session refinement with `traceary session refine` covering this session's events so far. State why the work was undertaken and what changed; if useful, include how it went, including approaches tried and rejected. Merge with the previous summary (covers_to=evt-1): previous summary",
+			want: "[Traceary] Session sess-1 has unrefined material at or above the consolidation threshold (66560 bytes). Write a session refinement with `traceary session refine` covering this session's events so far. State why the work was undertaken and what changed; if useful, include how it went, including approaches tried and rejected. Merge with the previous summary (covers_to=evt-1): previous summary",
 		},
 	}
 

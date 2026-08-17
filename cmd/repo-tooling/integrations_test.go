@@ -114,7 +114,7 @@ func TestValidateSessionHistorySkillContract_AcceptsEquivalentContractWording(t 
 ### 1. Discovery
 Use traceary list with --workspace and a limit of 5.
 traceary list --workspace x --limit 5 --json --fields id,ts,kind,session
-Use session latest or session latest --active when the question is about a session.
+Use traceary context and list or search when the question is about recent work.
 
 ### 2. Inspection
 Example: traceary context.
@@ -130,6 +130,75 @@ For a single event, run traceary show <event-id>.
 	}
 }
 
+func TestValidateSessionHistorySkillContract_RejectsSessionLatest(t *testing.T) {
+	t.Parallel()
+
+	body := `
+### 1. Discovery
+Use traceary list with --workspace and a limit of 5.
+traceary list --workspace x --limit 5 --json --fields id,ts,kind,session
+Use traceary context and list or search when the question is about recent work.
+Use session latest if you still want the last session.
+
+### 2. Inspection
+Example: traceary context.
+traceary context has no event-id filter and narrows only with workspace, session_id, and limit.
+
+### 3. Detail
+For a single event, run traceary show <event-id>.
+
+## Preferred tools
+`
+	err := validateSessionHistorySkillContract("skill", body)
+	if err == nil {
+		t.Fatal("validateSessionHistorySkillContract() error = nil, want session latest rejection")
+	}
+	if !strings.Contains(err.Error(), "session latest") {
+		t.Fatalf("error = %v, want session latest prohibition", err)
+	}
+}
+
+func TestValidateSessionRefineSkillContract_RequiresHookSessionAndContext(t *testing.T) {
+	t.Parallel()
+
+	body := `
+Motivation
+The change
+How it went
+session refine
+covers-to
+Merge
+[Traceary] Session <id>
+traceary context
+`
+	if err := validateSessionRefineSkillContract("skill", body); err != nil {
+		t.Fatalf("validateSessionRefineSkillContract() error = %v, want nil", err)
+	}
+}
+
+func TestValidateSessionRefineSkillContract_RejectsSessionLatest(t *testing.T) {
+	t.Parallel()
+
+	body := `
+Motivation
+The change
+How it went
+session refine
+covers-to
+Merge
+[Traceary] Session <id>
+traceary context
+session latest
+`
+	err := validateSessionRefineSkillContract("skill", body)
+	if err == nil {
+		t.Fatal("validateSessionRefineSkillContract() error = nil, want session latest rejection")
+	}
+	if !strings.Contains(err.Error(), "session latest") {
+		t.Fatalf("error = %v, want session latest prohibition", err)
+	}
+}
+
 func TestValidateSessionHistorySkillContract_RejectsMissingContextScope(t *testing.T) {
 	t.Parallel()
 
@@ -137,7 +206,7 @@ func TestValidateSessionHistorySkillContract_RejectsMissingContextScope(t *testi
 ### 1. Discovery
 Use traceary list with --workspace and a limit of 5.
 traceary list --workspace x --limit 5 --json --fields id,ts,kind,session
-Use session latest or session latest --active when the question is about a session.
+Use traceary context and list or search when the question is about recent work.
 
 ### 2. Inspection
 Example: traceary context.
@@ -163,7 +232,7 @@ func TestValidateSessionHistoryDiscoveryFields_RejectsBareListWithoutFields(t *t
 	body := `
 ### 1. Discovery
 traceary list --workspace x --limit 5
-Use session latest or session latest --active.
+Use traceary context and list or search.
 
 ### 2. Inspection
 Example: traceary context.
@@ -189,7 +258,7 @@ func TestValidateSessionHistoryDiscoveryFields_RejectsMessageWithoutMetadataOnly
 	body := `
 ### 1. Discovery
 traceary list --workspace x --limit 5 --json --fields id,ts,kind,message
-Use session latest or session latest --active.
+Use traceary context and list or search.
 
 ### 2. Inspection
 Example: traceary context.
@@ -215,7 +284,7 @@ func TestValidateSessionHistoryDiscoveryFields_RejectsFieldsWithoutID(t *testing
 	body := `
 ### 1. Discovery
 traceary list --workspace x --limit 5 --json --fields ts,kind,session
-Use session latest or session latest --active.
+Use traceary context and list or search.
 
 ### 2. Inspection
 Example: traceary context.
