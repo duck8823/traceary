@@ -129,9 +129,9 @@ in-place `VACUUM` ではありません。旧 inode は受け入れるか
 運用者はセッションの正規 provenance を変更せず、確認済みの競合を再分類できます。
 
 ```sh
-traceary store workspace-alias add --session <id> --workspace <path> --reviewed-by <operator> --note <reason>
-traceary store workspace-alias list
-traceary store workspace-alias remove --session <id> --workspace <path>
+traceary doctor --alias-add --session <id> --workspace <path> --reviewed-by <operator> --note <reason>
+traceary doctor --alias-list
+traceary doctor --alias-remove --session <id> --workspace <path>
 ```
 
 別名は現在の診断 projection だけに影響します。削除すると元の関係分類に戻ります。

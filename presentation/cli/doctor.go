@@ -107,13 +107,24 @@ func (c *RootCLI) newDoctorCommand() *cobra.Command {
 		strict            bool
 		warningsOK        bool
 		coverageThreshold float64
+		aliasAdd          bool
+		aliasRemove       bool
+		aliasList         bool
+		session           string
+		workspace         string
+		reviewedBy        string
+		note              string
 	)
 
 	doctorCmd := &cobra.Command{
 		Use:     "doctor",
 		Aliases: []string{"status"},
 		Short:   Localize("Diagnose Traceary DB and hooks configuration", "Traceary の DB と hooks 設定を診断する"),
-		Args:    noArgsLocalized(),
+		Long: Localize(
+			"Diagnose Traceary DB and hooks configuration. Pass --alias-add / --alias-remove / --alias-list to manage reviewed session workspace aliases (former store workspace-alias).",
+			"Traceary の DB と hooks 設定を診断します。review 済み session workspace alias の管理は --alias-add / --alias-remove / --alias-list です（旧 store workspace-alias）。",
+		),
+		Args: noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runDoctor(cmd.Context(), cmd.OutOrStdout(), doctorCommandInput{
 				dbPath:            dbPath,
@@ -128,6 +139,19 @@ func (c *RootCLI) newDoctorCommand() *cobra.Command {
 				strict:            strict,
 				warningsOK:        warningsOK,
 				coverageThreshold: coverageThreshold,
+				aliasAdd:          aliasAdd,
+				aliasRemove:       aliasRemove,
+				aliasList:         aliasList,
+				session:           session,
+				workspace:         workspace,
+				reviewedBy:        reviewedBy,
+				note:              note,
+				fixSet:            cmd.Flags().Changed("fix"),
+				dryRunSet:         cmd.Flags().Changed("dry-run"),
+				sessionSet:        cmd.Flags().Changed("session"),
+				workspaceSet:      cmd.Flags().Changed("workspace"),
+				reviewedBySet:     cmd.Flags().Changed("reviewed-by"),
+				noteSet:           cmd.Flags().Changed("note"),
 			})
 		},
 	}
@@ -142,6 +166,14 @@ func (c *RootCLI) newDoctorCommand() *cobra.Command {
 	doctorCmd.Flags().BoolVar(&strict, "strict", false, Localize("audit-reliability / content-event-reliability: report every exact duplicate group regardless of time, not only near-simultaneous writes", "audit-reliability / content-event-reliability: 時間に関係なく完全一致する duplicate group をすべて報告する（near-simultaneous な書き込みだけに限定しない）"))
 	doctorCmd.Flags().BoolVar(&warningsOK, "warnings-ok", false, Localize("exit 0 when doctor finds warnings but no failures (for CI/smoke automation)", "doctor が警告のみを見つけた場合は exit 0 にする（CI / smoke automation 向け）"))
 	doctorCmd.Flags().Float64Var(&coverageThreshold, "coverage-threshold", defaultDoctorCoverageThreshold, Localize("client event coverage: warn when the recent prompt/transcript-missing session ratio is above this value (0.0 to 1.0)", "client event coverage: recent session の prompt/transcript 欠落比率がこの値を超えたら警告する (0.0 から 1.0)"))
+	doctorCmd.Flags().BoolVar(&aliasAdd, "alias-add", false, Localize("add or update a reviewed session workspace alias (former store workspace-alias add)", "review 済み session workspace alias を追加または更新する（旧 store workspace-alias add）"))
+	doctorCmd.Flags().BoolVar(&aliasRemove, "alias-remove", false, Localize("remove a reviewed session workspace alias (former store workspace-alias remove)", "review 済み session workspace alias を削除する（旧 store workspace-alias remove）"))
+	doctorCmd.Flags().BoolVar(&aliasList, "alias-list", false, Localize("list reviewed session workspace aliases (former store workspace-alias list)", "review 済み session workspace alias を一覧する（旧 store workspace-alias list）"))
+	doctorCmd.Flags().StringVar(&session, "session", "", Localize("with --alias-add/--alias-remove, session ID", "--alias-add / --alias-remove 時の session ID"))
+	doctorCmd.Flags().StringVar(&workspace, "workspace", "", Localize("with --alias-add/--alias-remove, reviewed alias workspace", "--alias-add / --alias-remove 時の review 済み alias workspace"))
+	doctorCmd.Flags().StringVar(&reviewedBy, "reviewed-by", "", Localize("with --alias-add, reviewer identity", "--alias-add 時の reviewer identity"))
+	doctorCmd.Flags().StringVar(&note, "note", "", Localize("with --alias-add, optional review note", "--alias-add 時の任意の review note"))
+	doctorCmd.MarkFlagsMutuallyExclusive("alias-add", "alias-remove", "alias-list")
 
 	return doctorCmd
 }
@@ -152,6 +184,18 @@ func (c *RootCLI) runDoctor(ctx context.Context, output io.Writer, input doctorC
 	}
 	if err := validateDoctorCoverageThreshold(input.coverageThreshold); err != nil {
 		return err
+	}
+	if err := validateDoctorAliasFlags(input); err != nil {
+		return err
+	}
+	if input.aliasAdd {
+		return c.runStoreWorkspaceAliasAdd(ctx, output, input.dbPath, input.session, input.workspace, input.reviewedBy, input.note)
+	}
+	if input.aliasRemove {
+		return c.runStoreWorkspaceAliasRemove(ctx, output, input.dbPath, input.session, input.workspace)
+	}
+	if input.aliasList {
+		return c.runStoreWorkspaceAliasList(ctx, output, input.dbPath, input.asJSON)
 	}
 
 	report, err := c.buildDoctorReport(ctx, input)
@@ -313,6 +357,9 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		// reported via directory entry counts and byte sizes only (pending /
 		// stale inflight / dead-letter).
 		report.Checks = append(report.Checks, inspectHookSpoolFilesystemMetadata())
+		if c.workspaceIdentity != nil {
+			report.Checks = append(report.Checks, skippedWorkspaceAliasesCheck())
+		}
 		// hook-state-residue is owned by appendFilesystemHostDoctorChecks on
 		// this path; appending it here would print and --fix it twice.
 		// Host package identity (installed plugin/manifest version, native
@@ -359,6 +406,9 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		report.Checks = append(report.Checks, c.inspectSearchProjectionParked(ctx))
 		report.Checks = append(report.Checks, c.inspectStaleActiveSessions(ctx))
 		report.Checks = append(report.Checks, c.inspectArchiveRetention(ctx, resolvedDBPath))
+		if c.workspaceIdentity != nil {
+			report.Checks = append(report.Checks, c.inspectWorkspaceAliases(ctx))
+		}
 		report.Checks = append(report.Checks, c.inspectFileRetentionCapacity(ctx, resolvedDBPath, input.archiveRoot, input.backupRoot)...)
 		report.Checks = append(report.Checks, c.inspectCommandAuditReliability(ctx, input.strict))
 		report.Checks = append(report.Checks, c.inspectContentEventReliability(ctx, input.strict))

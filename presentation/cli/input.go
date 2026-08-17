@@ -80,6 +80,19 @@ type doctorCommandInput struct {
 	strict            bool
 	warningsOK        bool
 	coverageThreshold float64
+	aliasAdd          bool
+	aliasRemove       bool
+	aliasList         bool
+	session           string
+	workspace         string
+	reviewedBy        string
+	note              string
+	fixSet            bool
+	dryRunSet         bool
+	sessionSet        bool
+	workspaceSet      bool
+	reviewedBySet     bool
+	noteSet           bool
 }
 
 // hooksPrintCommandInput is the resolved input to

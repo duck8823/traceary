@@ -6,59 +6,10 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
 	"github.com/duck8823/traceary/domain/types"
 )
-
-func (c *RootCLI) newStoreWorkspaceAliasCommand() *cobra.Command {
-	cmd := &cobra.Command{Use: "workspace-alias", Short: Localize("Manage explicitly reviewed session workspace aliases", "明示的に review した session workspace alias を管理する")}
-	cmd.AddCommand(c.newStoreWorkspaceAliasAddCommand())
-	cmd.AddCommand(c.newStoreWorkspaceAliasRemoveCommand())
-	cmd.AddCommand(c.newStoreWorkspaceAliasListCommand())
-	return cmd
-}
-
-func (c *RootCLI) newStoreWorkspaceAliasAddCommand() *cobra.Command {
-	var dbPath, sessionID, workspace, reviewer, note string
-	cmd := &cobra.Command{Use: "add", Short: Localize("Add or update a reviewed alias", "review 済み alias を追加または更新する"), Args: noArgsLocalized(), RunE: func(cmd *cobra.Command, _ []string) error {
-		return c.runStoreWorkspaceAliasAdd(cmd.Context(), cmd.OutOrStdout(), dbPath, sessionID, workspace, reviewer, note)
-	}}
-	cmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
-	cmd.Flags().StringVar(&sessionID, "session", "", Localize("session ID", "session ID"))
-	cmd.Flags().StringVar(&workspace, "workspace", "", Localize("reviewed alias workspace", "review 済み alias workspace"))
-	cmd.Flags().StringVar(&reviewer, "reviewed-by", "", Localize("reviewer identity", "reviewer identity"))
-	cmd.Flags().StringVar(&note, "note", "", Localize("optional review note", "任意の review note"))
-	_ = cmd.MarkFlagRequired("session")
-	_ = cmd.MarkFlagRequired("workspace")
-	_ = cmd.MarkFlagRequired("reviewed-by")
-	return cmd
-}
-
-func (c *RootCLI) newStoreWorkspaceAliasRemoveCommand() *cobra.Command {
-	var dbPath, sessionID, workspace string
-	cmd := &cobra.Command{Use: "remove", Short: Localize("Remove a reviewed alias", "review 済み alias を削除する"), Args: noArgsLocalized(), RunE: func(cmd *cobra.Command, _ []string) error {
-		return c.runStoreWorkspaceAliasRemove(cmd.Context(), cmd.OutOrStdout(), dbPath, sessionID, workspace)
-	}}
-	cmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
-	cmd.Flags().StringVar(&sessionID, "session", "", Localize("session ID", "session ID"))
-	cmd.Flags().StringVar(&workspace, "workspace", "", Localize("reviewed alias workspace", "review 済み alias workspace"))
-	_ = cmd.MarkFlagRequired("session")
-	_ = cmd.MarkFlagRequired("workspace")
-	return cmd
-}
-
-func (c *RootCLI) newStoreWorkspaceAliasListCommand() *cobra.Command {
-	var dbPath string
-	var asJSON bool
-	cmd := &cobra.Command{Use: "list", Short: Localize("List reviewed aliases", "review 済み alias を一覧表示する"), Args: noArgsLocalized(), RunE: func(cmd *cobra.Command, _ []string) error {
-		return c.runStoreWorkspaceAliasList(cmd.Context(), cmd.OutOrStdout(), dbPath, asJSON)
-	}}
-	cmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
-	cmd.Flags().BoolVar(&asJSON, "json", false, Localize("emit machine-readable JSON", "機械可読な JSON を出力する"))
-	return cmd
-}
 
 func (c *RootCLI) initializeWorkspaceIdentityStore(ctx context.Context, dbPath string) error {
 	if c.workspaceIdentity == nil || c.storeManagement == nil {
