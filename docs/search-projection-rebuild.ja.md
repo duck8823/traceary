@@ -33,12 +33,12 @@ budget hash に関する以下の行には、優先する条件が 1 つあり�
 | `status` の state | 次の通常の store open で起きること | 進んでいない場合 |
 |---|---|---|
 | `complete` | session tier が利用できます | — |
-| `idle`（event あり） | 世代が start し、bounded batch が 1 回走ります | `start` のあと `resume` |
+| `idle`（event あり） | 世代が start し、bounded batch が 1 回走ります | `traceary doctor --fix` |
 | `idle`（event なし） | 何も起きませんが、失われるものもありません。event のない store には一致する session がありません | — |
-| `rebuilding` または `cleanup` 中の `drifted` で、budget hash が既定と一致 | bounded batch が 1 回 resume します | `resume --until-complete` |
-| `rebuilding` または `cleanup` 中の `drifted` で、budget hash が不一致 | **skip** されます。世代は自力では完了しません | 開始時の budget を指定した `resume`。再現できない場合は `abort` のあと `start`。state が `rebuilding` の間 `start` 単独は拒否されますが、`drifted` では受け付けられます |
-| `cleanup` 以外の `drifted` | 置き換えの世代が start します | `start` |
-| `failed` | **skip** されます。意図的に park されています | `start`。`resume` も `abort` も解除しません |
+| `rebuilding` または `cleanup` 中の `drifted` で、budget hash が既定と一致 | bounded batch が 1 回 resume します | `traceary doctor --fix` |
+| `rebuilding` または `cleanup` 中の `drifted` で、budget hash が不一致 | **skip** されます。世代は自力では完了しません | 開始時の budget flag 付き `traceary store compact --projection-rebuild`。再現できない場合は同じコマンドが世代を置き換えます |
+| `cleanup` 以外の `drifted` | 置き換えの世代が start します | `traceary store compact --projection-rebuild` |
+| `failed` | **skip** されます。意図的に park されています | `traceary doctor --fix` |
 
 
 cutover 前後の family バイト数は診断用の値であり、世代を start / complete する transaction の外側で、batch から切り離した context と専用の短い deadline のもとに測定します。測定できなかった場合でも世代が失敗することはありません。`status` は `cutover_before_evidence.status` / `cutover_after_evidence.status` を `unavailable` と理由付きで報告するため、0 バイトという値を「実際に空の family」と取り違えることはありません。before と after は測定時刻も対象 family の大きさも異なるため別々に持ちます。status が空文字の場合はまだ測定していないことを表します。

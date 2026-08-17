@@ -60,12 +60,12 @@ deterministic failure on every open.
 | `status` state | On the next ordinary store open | If it is not advancing |
 |---|---|---|
 | `complete` | the session tier is available | — |
-| `idle`, store has events | a generation starts and one bounded batch runs | `start`, then `resume` |
+| `idle`, store has events | a generation starts and one bounded batch runs | `traceary doctor --fix` |
 | `idle`, store has no events | nothing happens, and nothing is missing: a store with no events has no sessions to match | — |
-| `rebuilding`, or `drifted` in `cleanup`, whose budget hash matches the default | one bounded batch resumes | `resume --until-complete` |
-| `rebuilding`, or `drifted` in `cleanup`, whose budget hash does not match | **skipped** — the generation never finishes on its own | `resume` with the budget it was started under; if that cannot be reproduced, `abort` then `start`. `start` alone is refused while the state is `rebuilding`, but is accepted for `drifted` |
-| `drifted`, outside `cleanup` | a replacement generation starts | `start` |
-| `failed` | **skipped** — parked deliberately | `start`. Neither `resume` nor `abort` clears it |
+| `rebuilding`, or `drifted` in `cleanup`, whose budget hash matches the default | one bounded batch resumes | `traceary doctor --fix` |
+| `rebuilding`, or `drifted` in `cleanup`, whose budget hash does not match | **skipped** — the generation never finishes on its own | `traceary store compact --projection-rebuild` with the original budget flags; if that cannot be reproduced, the same command with the new budget replaces the generation |
+| `drifted`, outside `cleanup` | a replacement generation starts | `traceary store compact --projection-rebuild` |
+| `failed` | **skipped** — parked deliberately | `traceary doctor --fix` |
 
 
 The before/after family byte figures are diagnostic and are measured outside the
@@ -154,7 +154,7 @@ guaranteed in advance: when a generation completes, the family is re-measured an
 measurable).
 
 `-1` means **unknown**. It never means "within budget". When a fresh
-`doctor` InspectCapacity dbstat cache is present, `store search-projection status`
+`doctor` InspectCapacity dbstat cache is present, `traceary doctor`
 publishes a coarse `0`/`1` against the cached family **total**
 (`physical_bytes`, `physical_evidence.status=cached`) and does not persist it.
 Status does not walk dbstat itself; a cache miss is immediately `unavailable`.
@@ -250,11 +250,12 @@ did not move without `VACUUM`. See
 large-corpus lower bound above is unchanged ([#1620](https://github.com/duck8823/traceary/issues/1620)).
 
 If free space is tight, the rebuild has a durable off switch. `traceary store
-search-projection abort` parks the generation (`state=failed`,
+compact --projection-abort` parks the generation (`state=failed`,
 `failure_class=abandoned`), and automatic catch-up does not restart a parked
-generation — so the growth stops and stays stopped until an explicit `traceary store
-search-projection start`. Search keeps working from whatever generation was last
-complete, or from the bounded decoded scan if none was.
+generation — so the growth stops and stays stopped until an explicit
+`traceary store compact --projection-rebuild` or `traceary doctor --fix`. Search
+keeps working from whatever generation was last complete, or from the bounded
+decoded scan if none was.
 
 What is also **not** bounded by this budget is the sum across generations. The
 previous generation stays fully resident — that is what keeps search answerable during
