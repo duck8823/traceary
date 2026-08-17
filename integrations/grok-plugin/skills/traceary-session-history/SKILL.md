@@ -52,10 +52,10 @@ traceary search "<query>" \
 Both `list` and `search` accept `--session-id` when a session is already known.
 Omit unknown filters rather than guessing them.
 
-When the question is about the most recent or still-open work, start with
-`traceary context` (workspace-recent events) and the same small `list` /
-`search` Discovery query. Take the session id from that output. Do not
-resolve the session from a session-listing command.
+When the question is about the most recent or still-open work, run the same
+small `list` / `search` Discovery query and take the session id from those
+metadata rows. Use a bounded `traceary context` only in Inspection, after
+Discovery. Do not resolve the session from a session-listing command.
 
 ### 2. Inspection — bounded context for selected candidates
 
@@ -96,7 +96,6 @@ the first history query.
 
 ## Preferred tools
 
-- `traceary context`: workspace-recent events and a session id when the question is about recent or open work
 - `traceary list --json --fields id,ts,kind,session`: Discovery for recent metadata (always include `id`; never `message` at this stage)
 - `traceary search "<query>" --json --fields id,ts,kind,session`: Discovery for a narrow literal query (same field rule)
 - `traceary context`: bounded surrounding context narrowed only by workspace, session-id, and limit; it cannot target an event id

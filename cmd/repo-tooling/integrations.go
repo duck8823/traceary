@@ -361,10 +361,10 @@ func validateSessionHistorySkillContract(rel, body string) error {
 		{
 			section: "Discovery",
 			body:    discovery,
-			concept: "workspace-recent reads via context and list/search",
+			concept: "workspace-recent session ids via list/search metadata",
 			variants: [][]string{
-				{"traceary context", "list"},
-				{"context", "list", "search"},
+				{"list", "search"},
+				{"traceary list"},
 			},
 		},
 		{

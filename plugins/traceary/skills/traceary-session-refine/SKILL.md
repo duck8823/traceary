@@ -28,9 +28,10 @@ saying why is not — that is what the mechanical fallback already produces for 
 ## Workflow
 
 1. **Identify the session**. Prefer the session id from the hook nudge
-   (`[Traceary] Session <id> …`). If that line is absent, run `traceary context`
-   and take the session id from workspace-recent events. Do not resolve the
-   session from a session-listing command.
+   (`[Traceary] Session <id> …`). If that line is absent, run a bounded
+   `traceary context --limit 1` (or the session-history Discovery `list`
+   query) and take the session id. Do not resolve the session from a
+   session-listing command.
 
 2. **Discover coverage and prior summary**. Use staged reads from
    `traceary-session-history` (list → context → show) to learn the latest event
