@@ -14,12 +14,12 @@ import (
 func TestSearchProjectionDefaultFlagsMatchCatchUpBudget(t *testing.T) {
 	t.Parallel()
 
-	for _, name := range []string{"start", "resume"} {
+	for _, name := range []string{"compact"} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
 			root := cli.NewRootCLI().Command()
-			command, _, err := root.Find([]string{"store", "search-projection", name})
+			command, _, err := root.Find([]string{"store", name})
 			if err != nil {
 				t.Fatalf("Find() error = %v", err)
 			}

@@ -13,7 +13,6 @@ func (c *RootCLI) newStoreCommand() *cobra.Command {
 		Short: Localize("Manage the local SQLite store (backup / compact)", "ローカル SQLite ストアの管理 (backup / compact)"),
 	}
 	storeCmd.AddCommand(c.newStoreBackupCommand())
-	storeCmd.AddCommand(c.newStoreSearchProjectionCommand())
 	storeCmd.AddCommand(c.newStoreCompactionCommand())
 	return storeCmd
 }

@@ -89,8 +89,8 @@ func TestLogSearchProjectionCatchUp_SingleRowLockCapSeparatesFromTheTransientMes
 			// Resume, not abort: LockTime is outside the generation's config
 			// hash, so a larger cap is accepted without discarding progress.
 			recovery, _ := attrs["recovery"].(string)
-			if !strings.Contains(recovery, "resume --until-complete --lock-time") {
-				t.Fatalf("recovery attribute = %q, want a resume command with a larger lock time", recovery)
+			if !strings.Contains(recovery, "--projection-rebuild --lock-time") {
+				t.Fatalf("recovery attribute = %q, want a rebuild/resume command with a larger lock time", recovery)
 			}
 			if strings.Contains(record.Message, "abort") || strings.Contains(recovery, "abort") {
 				t.Fatalf("message %q / recovery %q must not send an operator to abort a generation", record.Message, recovery)
@@ -147,7 +147,7 @@ func TestLogSearchProjectionCatchUp_DiskFullSeparatesFromTheTransientMessage(t *
 		return true
 	})
 	recovery, _ := attrs["recovery"].(string)
-	if !strings.Contains(recovery, "store search-projection abort") {
+	if !strings.Contains(recovery, "store compact --projection-abort") {
 		t.Fatalf("recovery = %q, want abort", recovery)
 	}
 }
@@ -312,7 +312,7 @@ func TestLogSearchProjectionCatchUp_RateLimitsSkippedWarnPerStore(t *testing.T) 
 	if !strings.Contains(first, "search projection catch-up skipped") {
 		t.Fatalf("first emit missing warn: %s", first)
 	}
-	if !strings.Contains(first, "resume --until-complete") {
+	if !strings.Contains(first, apptypes.SearchProjectionRecoveryCommand) {
 		t.Fatalf("first emit missing practical recovery: %s", first)
 	}
 

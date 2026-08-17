@@ -81,13 +81,8 @@ var pillarInventory = []pillarInventoryEntry{
 	{Path: "memory admin set-validity", Pillar: pillarMemory, Reason: "set a memory validity window"},
 	{Path: "store backup create", Pillar: pillarKeep, Reason: "operator safety copy"},
 	{Path: "store backup restore", Pillar: pillarKeep, Reason: "restore a safety copy"},
-	{Path: "store compact", Pillar: pillarRecord, Reason: "compress, drop retired index, discard covered bodies, vacuum; --archive absorbs store archive; --retention-plan/--retention-apply absorb store retention files"},
+	{Path: "store compact", Pillar: pillarRecord, Reason: "compress, drop retired index, discard covered bodies, vacuum; --archive absorbs store archive; --retention-plan/--retention-apply absorb store retention files; --projection-rebuild/--projection-abort absorb store search-projection start/abort"},
 	{Path: "store compact rollback", Pillar: pillarRecord, Reason: "restore the pre-compact inode"},
-	{Path: "store search-projection start", Pillar: pillarRecord, Reason: "build the search index over recorded events"},
-	{Path: "store search-projection resume", Pillar: pillarRecord, Reason: "resume a search-projection generation"},
-	{Path: "store search-projection status", Pillar: pillarRecord, Reason: "inspect search-projection progress"},
-	{Path: "store search-projection abort", Pillar: pillarRecord, Reason: "park a search-projection generation"},
-	{Path: "store search-projection probe", Pillar: pillarRecord, Reason: "probe search-projection capacity without starting a generation"},
 }
 
 func applyInventoryDeprecations(root *cobra.Command) {

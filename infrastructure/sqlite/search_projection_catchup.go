@@ -191,7 +191,7 @@ func logSearchProjectionCatchUp(storePath string, result apptypes.SearchProjecti
 				"state", result.State,
 				"phase", result.Phase,
 				"generation_id", result.GenerationID,
-				"recovery", "traceary store search-projection resume --until-complete --lock-time <larger than the current cap>",
+				"recovery", "traceary store compact --projection-rebuild --lock-time <larger than the current cap>",
 				"error", err,
 			}
 			// Only the source walk stops at the checkpoint. Inventory advances
@@ -215,7 +215,7 @@ func logSearchProjectionCatchUp(storePath string, result apptypes.SearchProjecti
 				"batches", result.Batches,
 				"selected", result.Selected,
 				"written", result.Written,
-				"recovery", "traceary store search-projection abort",
+				"recovery", "traceary store compact --projection-abort",
 				"error", err,
 			)
 			return

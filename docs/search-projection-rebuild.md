@@ -2,13 +2,13 @@
 
 [日本語](search-projection-rebuild.ja.md)
 
-In operator-facing text, **rebuild** means rebuilding the **search-index family** (`traceary store search-projection start|resume|status|abort`). It is not a compile step and not a rebuild of the whole store.
+In operator-facing text, **rebuild** means rebuilding the **search-index family** (`traceary store compact --projection-rebuild` / `traceary doctor --fix` / `traceary store compact --projection-abort`). It is not a compile step and not a rebuild of the whole store.
 
 The search projection is derived: it can always be rebuilt from canonical events and command audits, and projection lifecycle commands never change them. Since v0.34 a complete generation supplies the fingerprint pre-filter and the session tier to `traceary search`; literal matches still come from the newest-first decode walk over canonical tables, with events recorded after the rebuild merged in so results do not go stale between rebuilds.
 
-Stores that have never built a generation do not need an operator command. A store open runs one bounded unit of generation work — start if idle and source events exist, otherwise resume a matching rebuild — except in the states it skips instead, which the table below names. Literal search works throughout: a generation that is not yet `complete` only means the fingerprint pre-filter is unavailable, so candidates are decoded directly and literal matches stay correct. The session tier is a different matter — it is refused until a generation is complete, so a match that exists only in a session summary or its keywords is absent until then. `traceary search` reports on stderr that the session tier was not consulted and points to `traceary store search-projection status`; what that state needs differs from one state to the next, and the table below gives it for each. Before old generation rows are reclaimed, a real session-tier query must succeed against the generation under construction. `status` reports before/after physical bytes for the **bounded_search_projection** family only.
+Stores that have never built a generation do not need an operator command. A store open runs one bounded unit of generation work — start if idle and source events exist, otherwise resume a matching rebuild — except in the states it skips instead, which the table below names. Literal search works throughout: a generation that is not yet `complete` only means the fingerprint pre-filter is unavailable, so candidates are decoded directly and literal matches stay correct. The session tier is a different matter — it is refused until a generation is complete, so a match that exists only in a session summary or its keywords is absent until then. `traceary search` reports on stderr that the session tier was not consulted and points to `traceary doctor`; what that state needs differs from one state to the next, and the table below gives it for each. Before old generation rows are reclaimed, a real session-tier query must succeed against the generation under construction. `status` reports before/after physical bytes for the **bounded_search_projection** family only.
 
-Operators can still drive the same machinery explicitly. Start a generation with `traceary store search-projection start`. Resume one durable bounded batch with `resume`, or run multiple independently committed batches:
+Operators can still drive the same machinery explicitly. Start a generation, or resume a matching in-flight rebuild, with `traceary store compact --projection-rebuild`. Parked failed recovery is `traceary doctor --fix`, which starts a replacement when needed and then runs bounded batches:
 
 On a store upgraded from before the projection schema, the first resume
 batches inventory historical event identities before any payload is decoded.
@@ -38,8 +38,8 @@ every open, `session_tier_unverified` fails the same query, and `abandoned` is
 an operator decision — so restarting automatically would fail identically and
 append a lifecycle row per open. Automatic catch-up skips with a warning naming
 the class. Neither `resume` nor `abort` clears it — `resume` rejects a failed
-generation and `abort` leaves the row failed as `abandoned` — so recovery is an
-explicit `traceary store search-projection start`.
+generation and `abort` leaves the row failed as `abandoned` — so recovery is
+`traceary doctor --fix` (or `traceary store compact --projection-rebuild` for a new budget).
 
 ### What each `status` state needs
 
@@ -60,12 +60,12 @@ deterministic failure on every open.
 | `status` state | On the next ordinary store open | If it is not advancing |
 |---|---|---|
 | `complete` | the session tier is available | — |
-| `idle`, store has events | a generation starts and one bounded batch runs | `start`, then `resume` |
+| `idle`, store has events | a generation starts and one bounded batch runs | `traceary store compact --projection-rebuild` |
 | `idle`, store has no events | nothing happens, and nothing is missing: a store with no events has no sessions to match | — |
-| `rebuilding`, or `drifted` in `cleanup`, whose budget hash matches the default | one bounded batch resumes | `resume --until-complete` |
-| `rebuilding`, or `drifted` in `cleanup`, whose budget hash does not match | **skipped** — the generation never finishes on its own | `resume` with the budget it was started under; if that cannot be reproduced, `abort` then `start`. `start` alone is refused while the state is `rebuilding`, but is accepted for `drifted` |
-| `drifted`, outside `cleanup` | a replacement generation starts | `start` |
-| `failed` | **skipped** — parked deliberately | `start`. Neither `resume` nor `abort` clears it |
+| `rebuilding`, or `drifted` in `cleanup`, whose budget hash matches the default | one bounded batch resumes | `traceary store compact --projection-rebuild` |
+| `rebuilding`, or `drifted` in `cleanup`, whose budget hash does not match | **skipped** — the generation never finishes on its own | `traceary store compact --projection-rebuild` with the original budget flags; if that cannot be reproduced, the same command with the new budget replaces the generation |
+| `drifted`, outside `cleanup` | a replacement generation starts | `traceary store compact --projection-rebuild` |
+| `failed` | **skipped** — parked deliberately | `traceary doctor --fix` |
 
 
 The before/after family byte figures are diagnostic and are measured outside the
@@ -78,12 +78,13 @@ because they are measured at different times against families of different
 sizes; an empty status means no measurement has been attempted yet.
 
 ```sh
-traceary store search-projection resume --until-complete --max-batches 4000 --total-wall-time 8h
+traceary doctor --fix
+traceary store compact --projection-rebuild --lock-time 2s
 ```
 
 Row, stored-byte, decoded-byte, logical-write-byte, lock-time, and per-batch wall-time limits still apply to every batch. Cancellation preserves the last committed checkpoint; run the same command again to continue.
 
-Use `traceary store search-projection abort` to idempotently abandon an incomplete generation before restarting with different generation settings. An active completed generation is never abandoned. Inspect `status` for generation lifecycle, checkpoint, high-water, and capacity evidence.
+Use `traceary store compact --projection-abort` to idempotently abandon an incomplete generation before restarting with different generation settings. An active completed generation is never abandoned. Inspect `traceary doctor` for generation lifecycle, checkpoint, high-water, and capacity evidence.
 
 Since v0.34 this projection is the only maintained search-derived family: the full-corpus migration-032 family it once ran beside is retired, so there is no cutover to authorize and no second index to compare against. See [search retirement](operations/search-retirement.md).
 
@@ -153,7 +154,7 @@ guaranteed in advance: when a generation completes, the family is re-measured an
 measurable).
 
 `-1` means **unknown**. It never means "within budget". When a fresh
-`doctor` InspectCapacity dbstat cache is present, `store search-projection status`
+`doctor` InspectCapacity dbstat cache is present, `traceary doctor`
 publishes a coarse `0`/`1` against the cached family **total**
 (`physical_bytes`, `physical_evidence.status=cached`) and does not persist it.
 Status does not walk dbstat itself; a cache miss is immediately `unavailable`.
@@ -165,12 +166,12 @@ persisted verdict. If the total is also unavailable the field stays `-1` and
 A generation recorded over budget stays that way. Nothing corrects it in place —
 the next `CatchUp` sees a complete generation and returns `already_complete`.
 `traceary doctor` warns on `search-projection-budget` when
-`index_family_within_budget` is `0`. Check `traceary store search-projection status`
+`index_family_within_budget` is `0`. Check `traceary doctor`
 for the same field and `capacity_evidence`. A `0` has several possible causes — the
 amplification estimate was low for this corpus, the permanently resident objects
 grew (`search_projection_source_sequence` gains a row per event and is never
 reclaimed), or FTS5 has not yet merged away the pages of deleted documents. The
-lever is the same regardless: an explicit `traceary store search-projection start`
+lever is the same regardless: an explicit `traceary store compact --projection-rebuild`
 with a smaller `--index-family-bytes`.
 
 The figure is `dbstat` allocation, not file size: the file shrinks at
@@ -249,11 +250,12 @@ did not move without `VACUUM`. See
 large-corpus lower bound above is unchanged ([#1620](https://github.com/duck8823/traceary/issues/1620)).
 
 If free space is tight, the rebuild has a durable off switch. `traceary store
-search-projection abort` parks the generation (`state=failed`,
+compact --projection-abort` parks the generation (`state=failed`,
 `failure_class=abandoned`), and automatic catch-up does not restart a parked
-generation — so the growth stops and stays stopped until an explicit `traceary store
-search-projection start`. Search keeps working from whatever generation was last
-complete, or from the bounded decoded scan if none was.
+generation — so the growth stops and stays stopped until an explicit
+`traceary store compact --projection-rebuild` or `traceary doctor --fix`. Search
+keeps working from whatever generation was last complete, or from the bounded
+decoded scan if none was.
 
 What is also **not** bounded by this budget is the sum across generations. The
 previous generation stays fully resident — that is what keeps search answerable during

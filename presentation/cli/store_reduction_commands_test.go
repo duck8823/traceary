@@ -29,8 +29,8 @@ func TestStoreReductionCommandsAreRemoved(t *testing.T) {
 	if findCommandOrNil(compact, "rollback") == nil {
 		t.Fatal("store compact rollback must remain")
 	}
-	if findCommandOrNil(store, "search-projection") == nil {
-		t.Fatal("store search-projection must remain")
+	if findCommandOrNil(store, "search-projection") != nil {
+		t.Fatal("store search-projection must be removed by #2077")
 	}
 	if findCommandOrNil(store, "retention") != nil {
 		t.Fatal("store retention must be removed by #2074")
@@ -40,6 +40,9 @@ func TestStoreReductionCommandsAreRemoved(t *testing.T) {
 	}
 	if compact.Flags().Lookup("archive") == nil || compact.Flags().Lookup("retention-plan") == nil {
 		t.Fatal("store compact must absorb --archive and --retention-plan")
+	}
+	if compact.Flags().Lookup("projection-rebuild") == nil || compact.Flags().Lookup("projection-abort") == nil {
+		t.Fatal("store compact must absorb --projection-rebuild and --projection-abort")
 	}
 }
 
@@ -64,28 +67,18 @@ func TestStoreCompactHelpNamesForce(t *testing.T) {
 func TestSearchProjectionIndexFamilyBytesHelpNamesRebuildPeak(t *testing.T) {
 	t.Parallel()
 	root := NewRootCLI().Command()
-	start := findCommandOrNil(findCommandOrNil(findCommandOrNil(root, "store"), "search-projection"), "start")
-	if start == nil {
-		t.Fatal("store search-projection start is not registered")
+	compact := findCommandOrNil(findCommandOrNil(root, "store"), "compact")
+	if compact == nil {
+		t.Fatal("store compact is not registered")
 	}
-	flag := start.Flags().Lookup("index-family-bytes")
+	flag := compact.Flags().Lookup("index-family-bytes")
 	if flag == nil {
 		t.Fatal("--index-family-bytes is missing")
 	}
 	if !strings.Contains(flag.Usage, "rebuild-peak") {
 		t.Fatalf("usage=%q, want it to say the budget is not a rebuild-peak cap", flag.Usage)
 	}
-}
-
-func TestStoreSearchProjectionShortIsLocalized(t *testing.T) {
-	t.Setenv("TRACEARY_LANG", "ja")
-	resetConfiguredCLILanguageCacheForTest()
-	root := NewRootCLI().Command()
-	projection := findCommandOrNil(findCommandOrNil(root, "store"), "search-projection")
-	if projection == nil {
-		t.Fatal("store search-projection is not registered")
-	}
-	if !strings.Contains(projection.Short, "派生") {
-		t.Fatalf("search-projection short = %q, want Japanese pairing", projection.Short)
+	if compact.Flags().Lookup("projection-rebuild") == nil {
+		t.Fatal("store compact must accept --projection-rebuild")
 	}
 }

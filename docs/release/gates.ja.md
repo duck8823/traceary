@@ -43,4 +43,4 @@ Corpus: **maintainer store 2026-08-11 uncompressed #1620**。
 
 ## Rebuild
 
-オペレータ向けの **rebuild** は **search-index family** の再構築（`traceary store search-projection …`）です。コンパイル手順でも、ストア全体の rebuild でもありません。[検索プロジェクションの再構築](../search-projection-rebuild.ja.md) を参照してください。
+オペレータ向けの **rebuild** は **search-index family** の再構築（`traceary store compact --projection-rebuild` / `traceary doctor --fix`）です。コンパイル手順でも、ストア全体の rebuild でもありません。[検索プロジェクションの再構築](../search-projection-rebuild.ja.md) を参照してください。

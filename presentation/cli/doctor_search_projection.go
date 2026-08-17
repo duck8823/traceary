@@ -99,7 +99,7 @@ func searchProjectionBudgetDoctorCheck(status apptypes.SearchProjectionControlSt
 			Name:    name,
 			Status:  doctorStatusWarn,
 			Message: Localize("completed search-projection family exceeds the configured index-family budget", "完了した search-projection ファミリが設定した index-family 予算を超えています"),
-			Hint:    Localize("run `traceary store search-projection start` with a smaller --index-family-bytes; CatchUp will not correct a complete generation", "`--index-family-bytes` を小さくして `traceary store search-projection start` を実行してください。CatchUp は complete 世代を直しません"),
+			Hint:    Localize("run `traceary store compact --projection-rebuild` with a smaller --index-family-bytes; CatchUp will not correct a complete generation", "`--index-family-bytes` を小さくして `traceary store compact --projection-rebuild` を実行してください。CatchUp は complete 世代を直しません"),
 		}
 	default:
 		return doctorCheck{

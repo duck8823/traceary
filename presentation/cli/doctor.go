@@ -198,10 +198,13 @@ func (c *RootCLI) runDoctor(ctx context.Context, output io.Writer, input doctorC
 		return c.runStoreWorkspaceAliasList(ctx, output, input.dbPath, input.asJSON)
 	}
 
-	var authorizedFix *doctorFixLog
+	var authorizedFixes []doctorFixLog
 	if input.fix {
 		if fixLog, recorded := c.applyAuthorizedStoreInit(ctx, input); recorded {
-			authorizedFix = &fixLog
+			authorizedFixes = append(authorizedFixes, fixLog)
+		}
+		if fixLog, recorded := c.applySearchProjectionRecovery(ctx, input); recorded {
+			authorizedFixes = append(authorizedFixes, fixLog)
 		}
 	}
 
@@ -211,8 +214,8 @@ func (c *RootCLI) runDoctor(ctx context.Context, output io.Writer, input doctorC
 	}
 	if input.fix {
 		fixes := c.applyDoctorFixes(ctx, report, input.dryRun)
-		if authorizedFix != nil {
-			fixes = append([]doctorFixLog{*authorizedFix}, fixes...)
+		if len(authorizedFixes) > 0 {
+			fixes = append(authorizedFixes, fixes...)
 		}
 		after, err := c.buildDoctorReport(ctx, input)
 		if err != nil {

@@ -49,7 +49,7 @@ func (e *EventSearchUnavailableError) Error() string {
 		return fmt.Sprintf(
 			"event search could not finish within the candidate budget of %d rows; "+
 				"add workspace/session and from/to bounds, "+
-				"or complete the search projection with 'traceary store search-projection start'",
+				"or complete the search projection with 'traceary store compact --projection-rebuild'",
 			e.CandidateLimit,
 		)
 	default:

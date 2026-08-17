@@ -42,11 +42,9 @@ func TestStoreSearchProjectionStatusReportsRecentSourceBytesVerifier(t *testing.
 		t.Fatal(err)
 	}
 
-	root := NewRootCLI(WithSearchProjection(usecase.NewSearchProjectionUsecase(database))).Command()
-	root.SetArgs([]string{"store", "search-projection", "status"})
+	cli := NewRootCLI(WithSearchProjection(usecase.NewSearchProjectionUsecase(database)))
 	var stdout strings.Builder
-	root.SetOut(&stdout)
-	if err := root.Execute(); err != nil {
+	if err := cli.runStoreSearchProjectionInspect(ctx, &stdout); err != nil {
 		t.Fatal(err)
 	}
 	var payload map[string]any
@@ -66,11 +64,9 @@ func TestStoreSearchProjectionStatusReportsRecentSourceBytesVerifier(t *testing.
 	if _, err = db.Exec(`UPDATE search_projection_state SET recent_source_bytes=1 WHERE singleton=1`); err != nil {
 		t.Fatal(err)
 	}
-	root = NewRootCLI(WithSearchProjection(usecase.NewSearchProjectionUsecase(database))).Command()
-	root.SetArgs([]string{"store", "search-projection", "status"})
+	cli = NewRootCLI(WithSearchProjection(usecase.NewSearchProjectionUsecase(database)))
 	stdout.Reset()
-	root.SetOut(&stdout)
-	if err := root.Execute(); err != nil {
+	if err := cli.runStoreSearchProjectionInspect(ctx, &stdout); err != nil {
 		t.Fatal(err)
 	}
 	if err := json.Unmarshal([]byte(stdout.String()), &payload); err != nil {

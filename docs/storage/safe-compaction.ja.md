@@ -88,7 +88,8 @@ operator が解放する手段は、compact 成功 JSON の `rollback_path`
    `command_audits` 行がある履歴 `command_executed` body も空にし、
    `released_command_body_bytes` に stored blob の合計を出します。
    書き換え後のファイルサイズは `bytes_after` です。
-4. search が drifted なら `traceary store search-projection start` と
-   `resume --until-complete` で rebuild します。通常 read を検証してから
-   rollback artifact を削除します。失敗時は `compact rollback RUN_ID` です。
+4. search が drifted なら `traceary store compact --projection-rebuild` で
+   開始または置き換え、同じコマンドをもう一度実行して complete まで resume
+   します。通常 read を検証してから rollback artifact を削除します。失敗時は
+   `compact rollback RUN_ID` です。
 5. 中断後は`store compact`を再実行し、candidateや rollback fileを手動renameしません。
