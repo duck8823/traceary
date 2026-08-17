@@ -34,8 +34,8 @@ The public surface is the operator-facing daily-use surface. Public commands kee
 Current public commands, including compatibility aliases introduced after v0.15, are grouped by intent. The shipped classification of every visible public/admin leaf is `presentation/cli/pillar_inventory.go` (#1692).
 
 - **Event recording** — `traceary log`, `traceary audit`
-- **Read / inspection** — `traceary list` (including `--follow` and `--blocks`), `traceary search`, `traceary show`, `traceary context`
-- **Sessions** — `traceary session start`, `traceary session end`, `traceary session run`, `traceary session handoff` (including `--compact-only`), `traceary session refine`
+- **Read / inspection** — `traceary list` (including `--follow` and `--blocks`), `traceary search`, `traceary show`, `traceary context` (including `--handoff` and `--compact-only`)
+- **Sessions** — `traceary session start`, `traceary session end`, `traceary session run`, `traceary session refine`
 - **Durable memory daily read** — `traceary memory search` (including `--all`), `traceary memory show`
 - **Durable memory inbox** — `traceary memory inbox list`, `traceary memory inbox show`, `traceary memory inbox accept`, `traceary memory inbox reject`, `traceary memory inbox attach`, `traceary memory inbox cleanup`, `traceary memory inbox restore`, `traceary memory inbox review` (TTY-only)
 - **Durable memory store** — `traceary memory store propose`, `traceary memory store distill`
@@ -45,7 +45,7 @@ Current public commands, including compatibility aliases introduced after v0.15,
 - **Replay / archive** — `traceary replay`
 - **Bundle import / export** — `traceary bundle export`, `traceary bundle import`
 
-The `traceary doctor` JSON envelope (`sections` / `summary` / `exit_code` / per-check fields), `traceary list --blocks --json` (`workspace_breakdown`; formerly `traceary timeline --json`), and the structured-text `traceary session handoff` field labels are all part of the public contract. They are golden-tested under `presentation/cli/testdata/` — see [JSON and snapshot contract tests](./operations/json-contract-tests.md) for the contract test workflow.
+The `traceary doctor` JSON envelope (`sections` / `summary` / `exit_code` / per-check fields), `traceary list --blocks --json` (`workspace_breakdown`; formerly `traceary timeline --json`), and the structured-text `traceary context --handoff` field labels (formerly `traceary session handoff`) are all part of the public contract. They are golden-tested under `presentation/cli/testdata/` — see [JSON and snapshot contract tests](./operations/json-contract-tests.md) for the contract test workflow.
 
 `traceary doctor` defaults to exit code `0` for all-pass reports, `1` when any check fails, and `2` for warning-only reports. Automation that treats warnings as operator-visible drift but not a broken install should pass `--warnings-ok`; in that mode warning-only reports exit `0`, failures still exit `1`, and the JSON `summary` / per-check severities remain unchanged.
 
@@ -89,10 +89,11 @@ Currently deprecated:
 
 #1692 walked every visible public/admin leaf against the two pillars (記録 = capture / summarise / compress / evict; 記憶 = consolidate and supply automatically). Hidden hook entrypoints stay plumbing (see below). The shipped table is `presentation/cli/pillar_inventory.go`; a test fails if a visible action is added without a row.
 
-A command is removed only for empty backing data, duplication, or serving no pillar. Usage counts are not grounds. Remaining groups from the #1870 97→29 keep-list were never in the v0.34 deprecation registry, so v0.35 does not delete them. `list --follow` landed in v0.42.0 (#2068). `list --blocks` landed in v0.42.0 (#2069). `hooks install --dry-run` landed in v0.42.0 (#2070). `memory search --all` landed in v0.42.0 (#2071). Doctor absorbed `store capacity` in v0.42.0 (#2072). `replay` stays: it is the only single-file HTML export, and #1870 called usage a weak removal basis.
+A command is removed only for empty backing data, duplication, or serving no pillar. Usage counts are not grounds. Remaining groups from the #1870 97→29 keep-list were never in the v0.34 deprecation registry, so v0.35 does not delete them. `list --follow` landed in v0.42.0 (#2068). `list --blocks` landed in v0.42.0 (#2069). `hooks install --dry-run` landed in v0.42.0 (#2070). `memory search --all` landed in v0.42.0 (#2071). Doctor absorbed `store capacity` in v0.42.0 (#2072). `context --handoff` / `--compact-only` landed in v0.42.0 (#2073). `replay` stays: it is the only single-file HTML export, and #1870 called usage a weak removal basis.
 
 Historical removal log:
 
+- Removed in v0.42.0 (#2073): `traceary session handoff` (including `--compact-only`). Invocations fail as an unknown subcommand with a non-zero exit and no `DEPRECATED` notice. This is an explicit policy exception to the one-minor deprecation window (owner decision 2026-08-17). Use `traceary context --handoff` (same TRACEARY HANDOFF field labels) or `traceary context --compact-only` (same resume summary; `--recent` defaults to 3 unless set). Default `context` stays raw events plus `--json`. Internal `ContextUsecase.Handoff` and hook `printCompactSummaryWithOptions` remain.
 - Removed in v0.42.0 (#2072): `traceary store capacity`. Invocations fail as an unknown subcommand with a non-zero exit and no `DEPRECATED` notice. This is an explicit policy exception to the one-minor deprecation window (owner decision 2026-08-17). Use `traceary doctor` (additive `store-capacity` check from the same bounded InspectCapacity path). Default doctor on stores ≥2 GiB stays metadata-only and does not open SQLite or walk dbstat.
 - Removed in v0.42.0 (#2071): `traceary memory list`. Invocations fail as an unknown subcommand with a non-zero exit and no `DEPRECATED` notice. This is an explicit policy exception to the one-minor deprecation window (owner decision 2026-08-17). Use `traceary memory search --all` (same List backend, filters, default workspace scope, ordering, and `--json`). `--all` cannot be combined with a query term.
 - Removed in v0.42.0 (#2070): `traceary hooks print`. Invocations fail as an unknown subcommand with a non-zero exit and no `DEPRECATED` notice. This is an explicit policy exception to the one-minor deprecation window (owner decision 2026-08-17). Use `traceary hooks install --dry-run` (same generated config bytes; `--client` / `--traceary-bin` / `--matcher`).
@@ -179,7 +180,7 @@ Examples that follow this default:
 
 ### Longer windows for breaking output changes
 
-When the change affects a heavily scripted output (a public `--json` envelope, a structured-text contract such as `traceary session handoff`, or a public command path that AI skills wire in directly), the deprecation window may be extended beyond one minor at the maintainers' discretion. The decision is recorded in the originating issue and in the changelog entry. A longer window is the exception, not the default.
+When the change affects a heavily scripted output (a public `--json` envelope, a structured-text contract such as `traceary context --handoff`, or a public command path that AI skills wire in directly), the deprecation window may be extended beyond one minor at the maintainers' discretion. The decision is recorded in the originating issue and in the changelog entry. A longer window is the exception, not the default.
 
 Announced under this rule:
 

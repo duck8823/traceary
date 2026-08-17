@@ -29,6 +29,8 @@ func TestRootCLI_RemovedV034NoReplacementSurfaces(t *testing.T) {
 		{name: "session list with label", args: []string{"session", "list", "--label", "foo"}, wantErrHas: "unknown flag: --label"},
 		{name: "session latest", args: []string{"session", "latest"}, wantErrHas: `unknown subcommand "latest"`},
 		{name: "session latest --active", args: []string{"session", "latest", "--active"}, wantErrHas: "unknown flag: --active"},
+		{name: "session handoff", args: []string{"session", "handoff"}, wantErrHas: `unknown subcommand "handoff"`},
+		{name: "session handoff --compact-only", args: []string{"session", "handoff", "--compact-only"}, wantErrHas: "unknown flag: --compact-only"},
 	}
 
 	for _, tt := range tests {

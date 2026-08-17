@@ -16,15 +16,80 @@ import (
 const maxCompactSummaryOutputLen = 560
 
 // compactSummaryDefaultRecent is the default --recent value used by
-// `traceary session handoff --compact-only`. It matches the v0.8.x
+// `traceary context --compact-only`. It matches the v0.8.x
 // `traceary compact-summary` default (removed in v0.14.0) so the
 // compact output stays byte-for-byte compatible.
 const compactSummaryDefaultRecent = 3
 
 // compactSummaryOptions captures every knob the compact-summary path
-// supports. `session handoff --compact-only` threads --memories /
+// supports. `context --compact-only` threads --memories /
 // --preset / --as-of through here so those flags are not silent
 // no-ops.
+type compactSummaryCommandInput struct {
+	dbPath            string
+	sessionID         string
+	workspace         string
+	recent            int
+	memories          int
+	recentChanged     bool
+	memoriesChanged   bool
+	preset            string
+	includeCandidates bool
+	asOf              string
+	staleAfter        time.Duration
+	allowStale        bool
+}
+
+func (c *RootCLI) runCompactSummaryCommand(ctx context.Context, output io.Writer, input compactSummaryCommandInput) error {
+	// Preserve byte-for-byte parity with the legacy
+	// `traceary compact-summary` output: that command
+	// defaulted --recent to 3, while the full handoff
+	// defaults to 5. If the caller did not explicitly
+	// set --recent, fall back to 3 for the compact path.
+	compactRecent := input.recent
+	if !input.recentChanged {
+		compactRecent = compactSummaryDefaultRecent
+	}
+	resolvedDBPath, err := resolveDBPath(input.dbPath)
+	if err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
+	}
+	c.applyDatabasePath(resolvedDBPath)
+	if err := c.storeManagement.Initialize(ctx); err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
+	}
+	// Plumb --memories / --preset / --as-of through to
+	// the compact path too. The legacy compact-summary
+	// command used MemoryLimit == RecentCommandsLimit,
+	// so if --memories was NOT explicitly set we keep
+	// that legacy behavior; a user-provided --memories
+	// wins. --preset and --as-of were not available on
+	// the legacy command, so they are None by default.
+	memoryLimit := compactRecent
+	if input.memoriesChanged {
+		memoryLimit = input.memories
+	}
+	parsedPreset, err := apptypes.MemoryRetrievalPresetOf(input.preset)
+	if err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to parse --preset", "--preset の解析に失敗しました"), err)
+	}
+	parsedAsOf, err := parseOptionalValidityTime(input.asOf)
+	if err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to parse --as-of", "--as-of の解析に失敗しました"), err)
+	}
+	return c.printCompactSummaryWithOptions(ctx, output, compactSummaryOptions{
+		sessionID:         resolveOptionalValue(input.sessionID, "TRACEARY_SESSION_ID", ""),
+		workspace:         resolveWorkspaceValue(ctx, input.workspace),
+		recentCount:       compactRecent,
+		memoryLimit:       memoryLimit,
+		preset:            parsedPreset,
+		includeCandidates: input.includeCandidates,
+		asOf:              parsedAsOf,
+		staleAfter:        input.staleAfter,
+		allowStale:        input.allowStale,
+	})
+}
+
 type compactSummaryOptions struct {
 	sessionID         string
 	workspace         string
@@ -132,7 +197,7 @@ func buildCompactSummaryText(result types.Optional[apptypes.ContextPack]) (strin
 		}
 		sb.WriteString("\n")
 	} else if pack.CandidateMemoryCount() > 0 {
-		fmt.Fprintf(&sb, "  needs_review: %d memory candidates omitted (run session handoff --include-candidates)\n", pack.CandidateMemoryCount())
+		fmt.Fprintf(&sb, "  needs_review: %d memory candidates omitted (run context --handoff --include-candidates)\n", pack.CandidateMemoryCount())
 	}
 	sb.WriteString("  Run traceary list for full history.\n")
 	text := sb.String()

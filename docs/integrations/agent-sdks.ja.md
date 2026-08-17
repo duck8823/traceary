@@ -36,7 +36,7 @@
 以前 Traceary を MCP server として登録していた agent host は、その登録を外し skills / CLI に切り替えてください。skill が案内する CLI の例:
 
 - Discovery / history: `traceary list`、`traceary search`、`traceary show`
-- Resume pack: `traceary session handoff`、`traceary context`
+- Resume pack: `traceary context --handoff`、`traceary context`
 - Durable memory: `traceary memory store …`、`memory inbox …`、`memory search`
 
 Anthropic の native `memory_20250818` tool は別の面です。model が memory command を出し、client application がそれを実行します。Traceary はこの flow 用の experimental Go backend を `pkg/anthropicmemory` として提供します。詳細は [Anthropic native memory tool](./anthropic-memory-tool.ja.md) を参照してください。Anthropic Go SDK の loop を直接持つ場合に有用で、MCP server の代替ではありません。

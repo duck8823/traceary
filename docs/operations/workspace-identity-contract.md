@@ -315,7 +315,7 @@ v0.30 keeps the current selector meaning per surface:
 |---|---|---|
 | `list`, `search`, `list --follow` | event effective workspace | exact filter remains exact |
 | `sessions` snapshot | session canonical workspace | exact filter remains exact |
-| `session handoff`, memory/context pack | canonical session first, then existing local descendant evidence fallback | no remote alias inference |
+| `context --handoff`, memory/context pack | canonical session first, then existing local descendant evidence fallback | no remote alias inference |
 | event JSON `workspace` | effective workspace | field meaning is documented, field name retained |
 | session JSON `workspace` | canonical workspace | field meaning is documented, field name retained |
 

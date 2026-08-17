@@ -32,7 +32,7 @@ Traceary is no longer just a local event log. `v0.5.0` organizes the product aro
 | Layer | What lives there | How it is fed |
 |---|---|---|
 | Audit / Archive | raw events (prompts, transcripts, command audits), session boundaries | host hooks (`SessionStart`, `UserPromptSubmit` / `BeforeAgent`, `PostToolUse` / `AfterTool`, `Stop` / `AfterAgent`, `PreCompact` / `PreCompress`, `SessionEnd`) — see [host coverage matrix](./docs/hooks/host-coverage.md) |
-| Working memory | handoff / context packs assembled from recent sessions | handoff packs are assembled on demand by `traceary session handoff` / `traceary context`. From v0.34 the session summary itself is materialised by consolidation: the stop hook asks the agent to fold the session while the material is still in the agent's context, and the result is stored as a session refinement |
+| Working memory | handoff / context packs assembled from recent sessions | handoff packs are assembled on demand by `traceary context --handoff` (raw events remain `traceary context`). From v0.34 the session summary itself is materialised by consolidation: the stop hook asks the agent to fold the session while the material is still in the agent's context, and the result is stored as a session refinement |
 | Durable memory | reusable facts such as decisions, constraints, preferences, and artifact refs | curated through the `traceary-memory-review` skill (review-intent triggers) and the `traceary-memory-remember` skill (explicit-write triggers) |
 
 In practice, Traceary acts as a local-first memory substrate for AI agents: hooks feed L1 mechanically, L2 is normally consolidated at stop while the material is already in context (anything left unfolded is later reduced to a mechanical summary), and L3 stays small because hook-driven auto-extraction lands memories in a review inbox as `status=candidate` and only human review promotes them. Only the finished summary is used afterwards — wake-time recomputation is deliberately avoided.
@@ -57,7 +57,7 @@ go install github.com/duck8823/traceary@latest
 Tagged releases also publish macOS and Linux archives on [GitHub Releases](https://github.com/duck8823/traceary/releases).
 See the [release guide](./docs/release/README.md) for packaging details.
 
-After installing, run `traceary --help` (or bare `traceary`) to see the command surface. Call script-friendly subcommands directly (`traceary list`, `traceary search`, `traceary doctor --json`, etc.). The former `traceary tui` / `traceary dashboard` cockpit entrypoints, the `traceary top` alias, and `traceary sessions` were removed; use `list` / `search` / `report` / `session handoff` instead.
+After installing, run `traceary --help` (or bare `traceary`) to see the command surface. Call script-friendly subcommands directly (`traceary list`, `traceary search`, `traceary doctor --json`, etc.). The former `traceary tui` / `traceary dashboard` cockpit entrypoints, the `traceary top` alias, and `traceary sessions` were removed; use `list` / `search` / `report` / `context --handoff` instead.
 
 ### Step 2: Install the plugin for your agent host
 
@@ -145,10 +145,10 @@ traceary session end --session-id "$sid" --id-only
 traceary memory store propose \
   --type decision \
   --workspace github.com/duck8823/traceary \
-  --fact "Use traceary session handoff --compact-only for compact resume context" \
+  --fact "Use traceary context --compact-only for compact resume context" \
   --evidence issue:#502
 
-traceary session handoff --workspace github.com/duck8823/traceary
+traceary context --handoff --workspace github.com/duck8823/traceary
 ```
 
 ### 5. Curate the memory review queue
@@ -174,7 +174,7 @@ Traceary ships complementary inspection views so you can switch between "what's 
 | Following what is happening now | `traceary list --follow` | confirm hooks are firing, watch failures in real time |
 | Understanding what happened across a span | `traceary list --blocks` | see gap-separated work blocks with a per-workspace activity summary |
 | Inspecting raw events directly | `traceary list` / `traceary search` | jump to an exact kind / session / query |
-| Resuming with assembled working memory | `traceary session handoff` | start a follow-up session with curated context |
+| Resuming with assembled working memory | `traceary context --handoff` | start a follow-up session with curated context |
 
 ### `traceary list --follow`
 

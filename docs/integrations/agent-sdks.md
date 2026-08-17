@@ -36,7 +36,7 @@ Do **not** spawn `traceary mcp-server` from new code or host config.
 Agent hosts that previously registered Traceary as an MCP server must remove that registration and use skills / CLI instead. Example CLI surfaces skills already document:
 
 - Discovery / history: `traceary list`, `traceary search`, `traceary show`
-- Resume pack: `traceary session handoff`, `traceary context`
+- Resume pack: `traceary context --handoff`, `traceary context`
 - Durable memory: `traceary memory store …`, `memory inbox …`, `memory search`
 
 Anthropic's native `memory_20250818` tool is a different surface: the model emits memory commands and the client application executes them. Traceary ships an experimental Go backend for that flow in `pkg/anthropicmemory`; see [Anthropic native memory tool](./anthropic-memory-tool.md). That path is useful only when you own the Anthropic Go SDK loop directly — not as a substitute MCP server.

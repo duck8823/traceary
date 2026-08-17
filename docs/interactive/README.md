@@ -95,14 +95,14 @@ traceary memory inbox review --workspace github.com/duck8823/traceary --type pre
 
 Inside the screen the action keys are `a` accept, `x` reject, `s` skip, `r` attach evidence, `e` edit/distill, `v` view evidence, `?` help, `q` quit. Accept / reject / evidence attach reuse the same application use cases as `memory inbox accept|reject|attach`. `r` accepts comma-separated `kind:value` evidence refs and optional `artifact:kind:value` refs so evidence-less candidates can be substantiated before acceptance. `e` opens an editor prompt that requires you to type a new operator-authored fact and routes through `traceary memory store distill` (no auto-accept of LLM output).
 
-### 8. "What context should I carry into the next session?" → `traceary session handoff`
+### 8. "What context should I carry into the next session?" → `traceary context --handoff`
 
-Use `session handoff` when you want a concise working-memory pack instead of the raw event stream.
-This is the operator-facing summary view for resuming work or handing context to another agent. (The v0.13.x top-level `traceary handoff` alias was removed in v0.14.0.)
+Use `context --handoff` when you want a concise working-memory pack instead of the raw event stream.
+This is the operator-facing summary view for resuming work or handing context to another agent. (`traceary session handoff` was removed in v0.42.0; the v0.13.x top-level `traceary handoff` alias was removed in v0.14.0.)
 
 ```sh
-traceary session handoff --workspace github.com/duck8823/traceary
-traceary session handoff --session-id sess_123
+traceary context --handoff --workspace github.com/duck8823/traceary
+traceary context --handoff --session-id sess_123
 ```
 
 ## Shell completion
@@ -126,7 +126,7 @@ The compatibility contract is:
 
 - Bare `traceary` and `traceary --help` print help only.
 - Completion generation and help examples must remain stable.
-- Script-facing commands (`list`, `list --follow`, `search`, `doctor --json`, `session handoff`, `memory inbox list`) remain the recommended automation path.
+- Script-facing commands (`list`, `list --follow`, `search`, `doctor --json`, `context --handoff`, `memory inbox list`) remain the recommended automation path.
 
 ## Still future-facing
 

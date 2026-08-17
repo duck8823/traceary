@@ -32,7 +32,7 @@ Traceary は、単なるイベントログではありません。`v0.5.0` 以�
 | 層 | 何を置くか | どう供給するか |
 |---|---|---|
 | Audit / Archive | 生の event (prompt / transcript / command audit)、session 境界 | host hook 経由（`SessionStart`、`UserPromptSubmit` / `BeforeAgent`、`PostToolUse` / `AfterTool`、`Stop` / `AfterAgent`、`PreCompact` / `PreCompress`、`SessionEnd` 等）— [host coverage matrix](./docs/hooks/host-coverage.ja.md) 参照 |
-| Working memory | 直近の session から組み立てる handoff / context pack | handoff pack は `traceary session handoff` / `traceary context` で都度組み立てる。v0.34 以降、session summary 自体は consolidation で実体として保存される: stop hook が agent に、素材がまだ agent の context にあるうちに session を畳ませ、結果を session refinement として保存する |
+| Working memory | 直近の session から組み立てる handoff / context pack | handoff pack は `traceary context --handoff` で都度組み立てる（生イベントは `traceary context`）。v0.34 以降、session summary 自体は consolidation で実体として保存される: stop hook が agent に、素材がまだ agent の context にあるうちに session を畳ませ、結果を session refinement として保存する |
 | Durable memory | decision / constraint / preference / artifact ref など | `traceary-memory-review` SKILL（review 意図 trigger）と `traceary-memory-remember` SKILL（明示 write trigger）で curate |
 
 つまり Traceary は、ログをためるだけの CLI ではなく AI エージェント向けの local-first な記憶基盤です。L1 は hook で機械的に供給され、L2 は通常 stop 時に素材がまだ context にあるうちに consolidation され（畳まれなかった分は後から機械的な要約に落とされる）、L3 は hook 駆動の auto-extraction が `status=candidate` の review inbox に載せ、人間のレビューでだけ promote することで小さく保たれます。完成した summary だけを以降使い、起動時の再構成は意図的に避けます。
@@ -56,7 +56,7 @@ go install github.com/duck8823/traceary@latest
 
 タグ付きリリースでは macOS / Linux 向けアーカイブを [GitHub Releases](https://github.com/duck8823/traceary/releases) に公開しています。配布形態の詳細は [リリースガイド](./docs/release/README.ja.md) を参照してください。
 
-インストール後、`traceary --help`（または bare `traceary`）で command surface を確認してください。script-friendly な subcommand（`traceary list`、`traceary search`、`traceary doctor --json` など）を直接呼んでください。旧 `traceary tui` / `traceary dashboard` cockpit、`traceary top`、`traceary sessions` は削除済みです。代わりに `list` / `search` / `report` / `session handoff` を使ってください。
+インストール後、`traceary --help`（または bare `traceary`）で command surface を確認してください。script-friendly な subcommand（`traceary list`、`traceary search`、`traceary doctor --json` など）を直接呼んでください。旧 `traceary tui` / `traceary dashboard` cockpit、`traceary top`、`traceary sessions` は削除済みです。代わりに `list` / `search` / `report` / `context --handoff` を使ってください。
 
 ### Step 2: エージェント向けパッケージを入れる
 
@@ -142,10 +142,10 @@ traceary session end --session-id "$sid" --id-only
 traceary memory store propose \
   --type decision \
   --workspace github.com/duck8823/traceary \
-  --fact "再開時の要約には traceary session handoff --compact-only を使う" \
+  --fact "再開時の要約には traceary context --compact-only を使う" \
   --evidence issue:#502
 
-traceary session handoff --workspace github.com/duck8823/traceary
+traceary context --handoff --workspace github.com/duck8823/traceary
 ```
 
 ### 5. durable memory inbox をレビューする
@@ -171,7 +171,7 @@ Traceary は補完的なビューを用意していて、「いま何が起き�
 | いま動いているものを追う | `traceary list --follow` | hook が発火しているか / 失敗がリアルタイムで見えているかを確認 |
 | ある期間の流れを俯瞰する | `traceary list --blocks` | アイドルギャップ区切りの作業ブロックを workspace 別のアクティビティ要約付きで表示 |
 | 生 event を直接掘る | `traceary list` / `traceary search` | kind / session / query をピンポイントで指定 |
-| 引き継ぎコンテキストで再開する | `traceary session handoff` | 整形済みの working memory を次のセッションへ |
+| 引き継ぎコンテキストで再開する | `traceary context --handoff` | 整形済みの working memory を次のセッションへ |
 
 ### `traceary list --follow`
 

@@ -86,7 +86,7 @@ Claude Task subagent capture:
 
 | 欠落機能 | フォールバック |
 |---|---|
-| Compact hooks | `traceary context` / `traceary session handoff` でオンデマンド取得 |
+| Compact hooks | `traceary context` / `traceary context --handoff` でオンデマンド取得 |
 | Failure イベント | 失敗形状の構造化フィールドから `failure_reason` を導出（Claude のトップレベル `error` と Gemini の `tool_response.error` は `host_error`、Grok の `PermissionDenied` は `hook_denied`、中断/timeout marker は `signal` / `timeout`）。構造化された失敗信号を出さない host は `unknown` のまま記録し、整形済み output 本文は解析しない |
 | エージェントタイプ | クライアント名のみ使用（例: `codex`, `gemini`） |
 

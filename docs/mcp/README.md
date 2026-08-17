@@ -10,7 +10,7 @@ Use the CLI for the same work:
 
 | Former MCP surface | CLI replacement |
 |---|---|
-| session / handoff context | `traceary session handoff`, `context`, `list`, `search` |
+| session / handoff context | `traceary context --handoff`, `context`, `list`, `search` |
 | search / list events / report | `traceary search`, `list`, `report` |
 | memory manage / query | `traceary memory store …`, `memory inbox …`, `memory admin …`, `memory search` |
 

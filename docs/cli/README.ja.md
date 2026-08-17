@@ -83,7 +83,7 @@ session 解決ルールは `traceary log` と同じです。
 
 ### bare `traceary`
 
-subcommand なしの `traceary` は TTY / 非 TTY とも常に help を表示します。旧 operator cockpit（`traceary tui` / `traceary dashboard` と、それを開いていた bare TTY 既定動作）は v0.34 の非推奨期間を経て v0.35.0 で削除されました。`traceary list`、`traceary search`、`traceary doctor --json`、`traceary session handoff`、`traceary memory inbox list` などの明示的な read command を使ってください。root は `traceary --db-path … <subcommand>` が有効なままになるよう `--db-path` を受け付けます。cockpit 専用だった `--reset-state` は削除済みです。孤立した local state ファイル `~/.local/state/traceary/cockpit.json`（または `$XDG_STATE_HOME/traceary/cockpit.json`）は手動で削除して安全です。
+subcommand なしの `traceary` は TTY / 非 TTY とも常に help を表示します。旧 operator cockpit（`traceary tui` / `traceary dashboard` と、それを開いていた bare TTY 既定動作）は v0.34 の非推奨期間を経て v0.35.0 で削除されました。`traceary list`、`traceary search`、`traceary doctor --json`、`traceary context --handoff`、`traceary memory inbox list` などの明示的な read command を使ってください。root は `traceary --db-path … <subcommand>` が有効なままになるよう `--db-path` を受け付けます。cockpit 専用だった `--reset-state` は削除済みです。孤立した local state ファイル `~/.local/state/traceary/cockpit.json`（または `$XDG_STATE_HOME/traceary/cockpit.json`）は手動で削除して安全です。
 
 ### `traceary list`
 
@@ -181,32 +181,25 @@ replay HTML は sessions / timeline blocks / failure hotspots / durable memories
 
 ### `traceary context`
 
-別 session や別 tool に渡すために、直近の生イベント列を表示します。
+別 session や別 tool に渡すために、直近の生イベント列を表示します。`--handoff` で構造化 working-memory pack（`TRACEARY HANDOFF` ラベル）を出します。`--compact-only` で prompt injection 向けの短い summary を出します。`--compact-only` 指定時は `--recent` 未指定なら 3 に自動設定されます。`--handoff` と `--compact-only` は同時に使えません。`--json` は生イベント経路だけです。
+
+構造化 `--handoff` テキストは互換用の `RECENT_COMMANDS` 文字列一覧を維持し、兄弟セクション `RECENT_COMMAND_ITEMS` を追加します。各項目は event ID、応答・保存・元データの byte 数、応答時の切り詰め有無、明示的な詳細取得コマンド `traceary show <event-id>` を示します。pack は本文の上限付き先頭部分だけを読み、command payload 全文をメモリに展開しません。
 
 主な flag:
 
 - `--session-id`
 - `--workspace`
-- `--limit`
-- `--json`
+- `--limit`（生イベント経路）
+- `--json`（生イベント経路）
+- `--handoff`
+- `--recent`（`--handoff` / `--compact-only` 時）
+- `--memories`（`--handoff` / `--compact-only` 時）
+- `--preset`（任意、`--handoff` / `--compact-only` 時）: durable memory に built-in preset (`resume` / `review` / `incident`) を適用
+- `--as-of`（任意、`--handoff` / `--compact-only` 時）: durable memory の validity を指定時刻 (YYYY-MM-DD または RFC3339) で評価する。既定は「現在」
+- `--compact-only`（任意）: prompt injection 向けの短い summary を出力。`--recent` 未指定時は 3 に自動設定
+- `--include-candidates` / `--allow-stale` / `--stale-after`（`--handoff` / `--compact-only` 時）
 
-### `traceary session handoff`
-
-session metadata、recent commands、compact summary、accepted durable memories から組み立てた handoff summary を表示します。`--compact-only` を付けると、prompt injection 向けの短い summary を出力します。`--compact-only` 指定時は `--recent` 未指定なら 3 に自動設定されます。
-
-構造化テキストは互換用の `RECENT_COMMANDS` 文字列一覧を維持し、兄弟セクション `RECENT_COMMAND_ITEMS` を追加します。各項目は event ID、応答・保存・元データの byte 数、応答時の切り詰め有無、明示的な詳細取得コマンド `traceary show <event-id>` を示します。handoff は本文の上限付き先頭部分だけを読み、command payload 全文をメモリに展開しません。
-
-主な flag:
-
-- `--session-id`
-- `--workspace`
-- `--recent`
-- `--memories`
-- `--preset` (任意): durable memory に built-in preset (`resume` / `review` / `incident`) を適用
-- `--as-of` (任意): durable memory の validity を指定時刻 (YYYY-MM-DD または RFC3339) で評価する。既定は「現在」
-- `--compact-only` (任意): prompt injection 向けの短い summary を出力 (`compact-summary` の代替)。`--recent` 未指定時は 3 に自動設定
-
-> **v0.14 移行**: 旧 top-level の `traceary handoff` / `traceary compact-summary` alias は v0.14.0 で削除されました。実行すると Cobra の generic unknown-command で終了します（具体的な migration-error stub は v0.20.0 で撤去）。`traceary session handoff`（必要に応じて `--compact-only`）を使ってください。v0.14 で削除された alias 一覧は [CLI 安定性と非推奨ポリシー](../cli-stability.ja.md) を参照してください。
+> **v0.14 / v0.42 移行**: 旧 top-level の `traceary handoff` / `traceary compact-summary` alias は v0.14.0 で削除されました。`traceary session handoff` は v0.42.0（#2073）で削除されました。実行すると Cobra の generic unknown-command で終了します。`traceary context --handoff`（必要に応じて `--compact-only`）を使ってください。削除された alias 一覧は [CLI 安定性と非推奨ポリシー](../cli-stability.ja.md) を参照してください。
 
 ## Durable memory コマンド
 

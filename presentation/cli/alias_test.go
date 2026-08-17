@@ -24,8 +24,16 @@ func TestRemovedTopLevelAliasesAreHiddenFromHelp(t *testing.T) {
 
 	help := stdout.String()
 	available := extractAvailableCommandsBlock(help)
-	for _, removed := range []string{"compact-summary", "handoff", "  init", "  backup", "  gc"} {
-		if strings.Contains(available, removed) {
+	names := map[string]struct{}{}
+	for _, line := range strings.Split(available, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		names[fields[0]] = struct{}{}
+	}
+	for _, removed := range []string{"compact-summary", "handoff", "init", "backup", "gc"} {
+		if _, ok := names[removed]; ok {
 			t.Fatalf("traceary --help still advertises removed alias %q:\n%s", removed, available)
 		}
 	}

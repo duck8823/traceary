@@ -7,7 +7,7 @@ Traceary は、公開 CLI の JSON / newline-delimited JSON (NDJSON) / 構造化
 contract surface は次の 3 種類です。
 
 - **CLI `--json` 出力** — `presentation/cli/testdata/<command>/<case>.golden.json`。新しい CLI `--json` flag を追加するときは、同じ変更で対応する golden fixture も追加してください。代表的なカバー対象は `event list` / `event search` / `event show`、`session start` / `session end`、`memory search --all` / `memory search` / `memory show` および `memory inbox` / `memory admin hygiene` 系一式、`bundle import --json`、`timeline --json`、`doctor --json` です。
-- **CLI 構造化テキスト出力** — `presentation/cli/testdata/session_handoff/*.golden` など。`traceary session handoff` のように `--json` flag を持たないコマンドは、構造化テキストそのものが prompt-injection / resume tooling の parse 対象となる public contract です。これらの golden は field label (`SESSION_ID:` / `WORKING_STATE:` / `RECENT_COMMANDS:` / `RECENT_COMMAND_ITEMS:` / `MEMORIES:`) と並び順を守ります。
+- **CLI 構造化テキスト出力** — `presentation/cli/testdata/session_handoff/*.golden` など。`traceary context --handoff` のように `--json` flag を持たないコマンドは、構造化テキストそのものが prompt-injection / resume tooling の parse 対象となる public contract です。これらの golden は field label (`SESSION_ID:` / `WORKING_STATE:` / `RECENT_COMMANDS:` / `RECENT_COMMAND_ITEMS:` / `MEMORIES:`) と並び順を守ります。
 - **MCP tool registry snapshot** — v0.35.0 (#1871) で MCP server 退役に伴い削除。
 
 v0.30.0 以降、CLI `traceary report --json` は application の `ReportSnapshot` 読み取りモデルを直列化します。レポート契約にはデータ源ごとの集計範囲が含まれ、部分集計では先頭部分から誤解を招く割合を出さず、該当フィールドを省略します。v0.32.0 以降、このモデルには取得可否と cost origin を明示した usage 集計と、重複排除済み run fact 集計も含まれます。旧 MCP `get_report` の対になる経路は v0.35.0 (#1871) で削除されました。モデル変更時は CLI golden を更新してください。

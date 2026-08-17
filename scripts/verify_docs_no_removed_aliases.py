@@ -54,8 +54,8 @@ V014_REMOVED_ALIAS_PATTERNS: tuple[tuple[str, str], ...] = (
     (r"\btraceary init\b", "traceary store init"),
     (r"\btraceary backup\b", "traceary store backup ..."),
     (r"\btraceary gc\b", "traceary store gc"),
-    (r"\btraceary handoff\b", "traceary session handoff"),
-    (r"\btraceary compact-summary\b", "traceary session handoff --compact-only"),
+    (r"\btraceary handoff\b", "traceary context --handoff"),
+    (r"\btraceary compact-summary\b", "traceary context --compact-only"),
 )
 
 # Removed Codex integration aliases. `integration codex install` was already

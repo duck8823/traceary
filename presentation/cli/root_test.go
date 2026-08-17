@@ -456,12 +456,12 @@ func TestRootCLI_SessionHelpOmitsRemovedLookupLeaves(t *testing.T) {
 	for _, cmd := range sessionCmd.Commands() {
 		got[cmd.Name()] = struct{}{}
 	}
-	for _, keep := range []string{"start", "end", "run", "refine", "handoff", "gc", "repair-one-shot"} {
+	for _, keep := range []string{"start", "end", "run", "refine", "gc", "repair-one-shot"} {
 		if _, ok := got[keep]; !ok {
 			t.Fatalf("missing kept session leaf %q: %#v", keep, got)
 		}
 	}
-	for _, retired := range []string{"latest", "list"} {
+	for _, retired := range []string{"latest", "list", "handoff"} {
 		if _, ok := got[retired]; ok {
 			t.Fatalf("retired session leaf %q is still registered: %#v", retired, got)
 		}
