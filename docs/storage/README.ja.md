@@ -167,7 +167,7 @@ Durable memory に紐づく artifact ref です。
 - 既定 retention: `90` 日 (`--keep-days 90`)
 - 物理容量回収は書き換えそのもの。in-place `VACUUM` ではない
 - 未 refine の破棄対象は、`--force` で機械要約を書くまで残る
-- `store search-projection` は独立コマンドのまま。archive / backup の file retention は `store compact --retention-plan` / `--retention-apply`。
+- search-projection の再構築は `store compact --projection-rebuild` / `--projection-abort`。parked した failed の復旧は `doctor --fix`。archive / backup の file retention は `store compact --retention-plan` / `--retention-apply`。
 
 `--force` のあと、compact は **orphan range** を機械要約します。orphan とは `session_refinements.covers_to` より先にあり、エージェントがもう畳めないイベント範囲です（セッション終了、24h 無活動の stale 扱い、または post-compact での前倒し記録）。session start/end 以外を含む、まだ畳まれていない各範囲に対し、`degraded=1` の refinement（`produced_by=gc:orphan-consolidation`）を書きます。内容はいつ・どの kind が何回・どのコマンドかだけで、エージェントの判断理由（なぜ）は復元しません。lifecycle だけの tail（正しく fold したあとに着く `session_ended` が典型）は `covers_to` だけ進め、機械的な脚注は付けません。`degraded` は「合成テキストを含む」意味のまま、wake 適格性のビットにはしません。wake injection は `has_agent_reasoning` を読むため、正しく fold されたセッションは reduction のあとも注入対象に残ります。この機械 refinement も破棄にとって**有効な被覆**です。破棄が失うのはテキストだけであり、残すと約束している bytes・timestamps・counts はまさにこの要約が保持するためです。出力は orphan 機械要約件数と整理件数の両方を報告します。`--dry-run` は両方を数え、どちらも書きません。この処理に専用コマンドや `--target` はありません。
 

@@ -203,10 +203,11 @@ family 258,048 → 再構築ピーク **405,504**（gen2 予算 225,280 の 1.80
 を参照。上の大規模コーパス下限は変わりません（[#1620](https://github.com/duck8823/traceary/issues/1620)）。
 
 空き容量が厳しい場合、再構築には永続的な停止手段があります。`traceary store
-search-projection abort` は世代を park し（`state=failed`、`failure_class=abandoned`）、
+compact --projection-abort` は世代を park し（`state=failed`、`failure_class=abandoned`）、
 自動 catch-up は park された世代を再開しません。したがって増加はそこで止まり、明示的な
-`traceary doctor --fix` を実行するまで止まったままです。検索は最後に
-complete した世代（無ければ上限付きの復号スキャン）で動き続けます。
+`traceary store compact --projection-rebuild` または `traceary doctor --fix` を実行するまで
+止まったままです。検索は最後に complete した世代（無ければ上限付きの復号スキャン）で
+動き続けます。
 
 **世代をまたいだ合計**もこの予算では上限されません。前世代は完全に常駐したままです。
 それが再構築中も検索に答えられる理由であり、回収されるのは終端の cleanup フェーズです。

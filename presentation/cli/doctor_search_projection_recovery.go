@@ -28,16 +28,13 @@ func (c *RootCLI) applySearchProjectionRecovery(ctx context.Context, input docto
 		Origin:       status.Origin,
 	}
 	notice.ApplyParkedNotice(apptypes.DefaultSearchProjectionBudget().ConfigHash())
+	// Parked failed/default-budget recovery only. Healthy in-flight rebuilds
+	// and operator hash-mismatch belong on compact --projection-rebuild.
+	if notice.RecoveryCommand != apptypes.SearchProjectionRecoveryCommand {
+		return log, false
+	}
 	rebuilding := status.State == "rebuilding" || (status.State == "drifted" && status.Phase == "cleanup")
-	// Operator-owned hash mismatch is compact --projection-rebuild, not
-	// doctor --fix with the default budget (ResumeUntil would refuse).
-	if notice.RecoveryCommand == apptypes.SearchProjectionStartCommand {
-		return log, false
-	}
-	needsStart := notice.RecoveryCommand != "" && !rebuilding
-	if !needsStart && !rebuilding {
-		return log, false
-	}
+	needsStart := !rebuilding
 	budget := apptypes.DefaultSearchProjectionBudget()
 	if needsStart {
 		if input.dryRun {

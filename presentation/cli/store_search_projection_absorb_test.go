@@ -2,15 +2,18 @@ package cli
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
 	infra "github.com/duck8823/traceary/infrastructure/sqlite"
 	sqliteschema "github.com/duck8823/traceary/schema/sqlite"
+	_ "modernc.org/sqlite"
 )
 
 func TestStoreCompactProjectionRebuildStartsGeneration(t *testing.T) {
@@ -144,5 +147,124 @@ func TestStoreCompactProjectionBudgetFlagsRequireRebuild(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "--projection-rebuild") {
 		t.Fatalf("error=%q, want --projection-rebuild required", err.Error())
+	}
+}
+
+func TestApplySearchProjectionRecoverySkipsHealthyInFlightRebuild(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "store.db")
+	migrations, err := sqliteschema.Migrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	database := infra.NewDatabase(path, migrations)
+	if err := infra.NewStoreManagementDatasource(database).Initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	projection := usecase.NewSearchProjectionUsecase(database)
+	if _, err := projection.StartGeneration(ctx, apptypes.DefaultSearchProjectionBudget(), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	before, err := projection.ControlStatus(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.State != "rebuilding" && before.GenerationID == "" {
+		t.Fatalf("setup state=%q gen=%q", before.State, before.GenerationID)
+	}
+
+	root := NewRootCLI(WithSearchProjection(projection))
+	log, recorded := root.applySearchProjectionRecovery(ctx, doctorCommandInput{})
+	if recorded {
+		t.Fatalf("doctor --fix recorded healthy rebuild as parked recovery: %+v", log)
+	}
+	after, err := projection.ControlStatus(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.GenerationID != before.GenerationID {
+		t.Fatalf("generation changed: before=%s after=%s", before.GenerationID, after.GenerationID)
+	}
+}
+
+func TestApplySearchProjectionRecoveryStartsParkedFailedGeneration(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "store.db")
+	migrations, err := sqliteschema.Migrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	database := infra.NewDatabase(path, migrations)
+	if err := infra.NewStoreManagementDatasource(database).Initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	projection := usecase.NewSearchProjectionUsecase(database)
+	started, err := projection.StartGeneration(ctx, apptypes.DefaultSearchProjectionBudget(), time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := projection.Abandon(ctx, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	root := NewRootCLI(WithSearchProjection(projection))
+	log, recorded := root.applySearchProjectionRecovery(ctx, doctorCommandInput{})
+	if !recorded {
+		t.Fatal("doctor --fix must record parked failed recovery")
+	}
+	if log.Error != "" {
+		t.Fatalf("recovery error=%q action=%q", log.Error, log.Action)
+	}
+	if log.Action == "" {
+		t.Fatalf("expected recovery action, log=%+v", log)
+	}
+	after, err := projection.ControlStatus(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.GenerationID == "" || after.GenerationID == started.GenerationID {
+		t.Fatalf("failed generation must be replaced: parked=%s after=%s", started.GenerationID, after.GenerationID)
+	}
+}
+
+func TestStoreCompactProjectionRebuildResumesDriftedCleanupWhenHashMatches(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "store.db")
+	migrations, err := sqliteschema.Migrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	database := infra.NewDatabase(path, migrations)
+	if err := infra.NewStoreManagementDatasource(database).Initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	projection := usecase.NewSearchProjectionUsecase(database)
+	started, err := projection.StartGeneration(ctx, apptypes.DefaultSearchProjectionBudget(), time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	if _, err = db.Exec(`UPDATE search_projection_state SET state='drifted', phase='cleanup' WHERE singleton=1`); err != nil {
+		t.Fatal(err)
+	}
+
+	root := NewRootCLI(WithSearchProjection(usecase.NewSearchProjectionUsecase(database))).Command()
+	root.SetArgs([]string{"store", "compact", "--projection-rebuild"})
+	var stdout strings.Builder
+	root.SetOut(&stdout)
+	if err := root.Execute(); err != nil {
+		t.Fatalf("rebuild drifted/cleanup: %v stdout=%s", err, stdout.String())
+	}
+	after, err := projection.ControlStatus(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.GenerationID != started.GenerationID {
+		t.Fatalf("matching drifted/cleanup must resume, not replace: started=%s after=%s stdout=%s", started.GenerationID, after.GenerationID, stdout.String())
 	}
 }
