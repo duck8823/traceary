@@ -345,6 +345,10 @@ func (s *stubImportMemoryUsecase) Save(_ context.Context, memory *model.Memory) 
 	return s.proposeErr
 }
 
+func (s *stubImportMemoryUsecase) BackfillCandidateTTLs(context.Context, time.Duration) (int, error) {
+	return 0, nil
+}
+
 func (s *stubImportMemoryUsecase) SaveDistillation(context.Context, *model.Memory, []*model.Memory) error {
 	return nil
 }

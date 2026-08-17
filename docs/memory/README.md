@@ -30,11 +30,19 @@ Every durable memory has a type, scope, status, confidence, evidence refs, and o
 
 Only active accepted memories are returned by the default "active memory" paths.
 
+### Candidate TTL
+
+Unreviewed auto-extracted candidates (`source=extracted` or `extracted-hidden`) carry a scheduled `expires_at` of `created_at + 30 days`. The stamp is written at propose time. Existing rows with `expires_at` NULL are backfilled by `memory decay --apply` (and the same path from session-end hooks / `doctor --fix`).
+
+`memory decay` (dry-run by default) expires those candidates once they are older than `--older-than` **from `created_at`**, not `updated_at`, so a later touch does not reset the clock. The count line reports `backfilled=N` for rows that still needed a stamp. Expiry is non-destructive (`status=expired`); restore with `memory inbox restore`.
+
+`remember-intent`, `manual`, and `compact-summary` candidates are exempt — they wait for a human look.
+
 See also [Memory blocks: evaluation and decision](../architecture/memory-blocks.md) for the reasoning behind keeping durable memory classified by `type` + `scope` instead of adding a separate `block` axis.
 
 ### Content validity window
 
-Every durable memory carries a content validity window `(valid_from, valid_to)` distinct from the lifecycle `status` and the `expires_at` operation timestamp written by `memory admin expire`:
+Every durable memory carries a content validity window `(valid_from, valid_to)` distinct from the lifecycle `status` and from `expires_at` (scheduled candidate TTL while `status=candidate`, or the expire-event timestamp after `memory decay` / `memory admin expire`):
 
 - `valid_from` — when the fact starts being asserted (defaults to `created_at`)
 - `valid_to` — when the fact stops being asserted (`NULL` means open-ended)

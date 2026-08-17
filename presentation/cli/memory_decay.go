@@ -117,8 +117,8 @@ func (c *RootCLI) runMemoryDecay(ctx context.Context, output io.Writer, input me
 	if result.Applied {
 		mode = "applied"
 	}
-	_, err = fmt.Fprintf(output, "memory decay (%s): scanned=%d expired=%d superseded=%d remaining=%d older_than=%s\n",
-		mode, result.Scanned, len(result.ExpiredIDs), len(result.SupersededIDs), result.RemainingAfter, result.OlderThan)
+	_, err = fmt.Fprintf(output, "memory decay (%s): scanned=%d expired=%d superseded=%d remaining=%d backfilled=%d older_than=%s\n",
+		mode, result.Scanned, len(result.ExpiredIDs), len(result.SupersededIDs), result.RemainingAfter, result.Backfilled, result.OlderThan)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print memory decay summary", "memory decay サマリの出力に失敗しました"), err)
 	}

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	_ "embed"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -40,6 +41,9 @@ var selectMemoryEvidenceRefsQuery string
 
 //go:embed sql/select_memory_artifact_refs.sql
 var selectMemoryArtifactRefsQuery string
+
+//go:embed sql/backfill_candidate_ttl.sql
+var backfillCandidateTTLQuery string
 
 const selectMemorySummaryColumnsQuery = `
 SELECT
@@ -297,6 +301,28 @@ func (d *MemoryDatasource) FindByID(ctx context.Context, memoryID types.MemoryID
 	}
 
 	return types.Some(memory), nil
+}
+
+// BackfillCandidateTTLs stamps expires_at = created_at + olderThan on
+// extracted / extracted-hidden candidates that have no scheduled TTL.
+func (d *MemoryDatasource) BackfillCandidateTTLs(ctx context.Context, olderThan time.Duration) (int, error) {
+	if olderThan <= 0 {
+		return 0, xerrors.Errorf("candidate TTL backfill older-than must be positive")
+	}
+	modifier := fmt.Sprintf("+%d seconds", int64(olderThan/time.Second))
+	var stamped int
+	err := d.runMemoryWriteTx(ctx, func(tx *sql.Tx) error {
+		n, execErr := execRowsAffected(ctx, tx, backfillCandidateTTLQuery, modifier)
+		if execErr != nil {
+			return execErr
+		}
+		stamped = n
+		return nil
+	})
+	if err != nil {
+		return 0, xerrors.Errorf("failed to backfill candidate TTL stamps: %w", err)
+	}
+	return stamped, nil
 }
 
 // GetDetails returns the details for a single memory.

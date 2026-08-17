@@ -47,7 +47,7 @@ func TestRootCLI_MemoryDecay_DryRun(t *testing.T) {
 	if stub.decayCall.Apply {
 		t.Fatal("default must be dry-run")
 	}
-	if !strings.Contains(stdout.String(), "dry-run") || !strings.Contains(stdout.String(), "expired=1") {
+	if !strings.Contains(stdout.String(), "dry-run") || !strings.Contains(stdout.String(), "expired=1") || !strings.Contains(stdout.String(), "backfilled=") {
 		t.Fatalf("stdout = %q", stdout.String())
 	}
 }

@@ -1063,6 +1063,10 @@ func (r *candidateApplyMemoryRepository) SaveSupersession(context.Context, *mode
 	return nil
 }
 
+func (r *candidateApplyMemoryRepository) BackfillCandidateTTLs(context.Context, time.Duration) (int, error) {
+	return 0, nil
+}
+
 func (r *candidateApplyMemoryRepository) FindByID(_ context.Context, memoryID domtypes.MemoryID) (domtypes.Optional[*model.Memory], error) {
 	if r.findErr != nil {
 		return domtypes.None[*model.Memory](), r.findErr

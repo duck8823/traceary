@@ -14,8 +14,9 @@ import (
 //
 // validFrom / validTo describe the **content validity window** —
 // the period during which the fact is asserted to be true. They are
-// distinct from expiresAt (the lifecycle timestamp written when an
-// operator runs `memory expire`) and from createdAt / updatedAt
+// distinct from expiresAt (scheduled candidate TTL, or the lifecycle
+// timestamp written when decay / `memory expire` actually expires the
+// row) and from createdAt / updatedAt
 // (which describe when the row itself was recorded). See
 // docs/memory/README.md and docs/architecture/memory-blocks.md.
 type Memory struct {
@@ -63,7 +64,12 @@ func NewMemoryCandidateWithClock(
 	supersedes types.Optional[types.MemoryID],
 	clock types.Clock,
 ) (*Memory, error) {
-	return newMemory(memoryID, memoryType, scope, fact, types.MemoryStatusCandidate, types.ConfidenceLow, source, evidenceRefs, artifactRefs, supersedes, types.None[time.Time](), clock)
+	clock = clockOrSystem(clock)
+	expiresAt := types.None[time.Time]()
+	if types.CandidateTTLApplies(source) {
+		expiresAt = types.Some(clock.Now().Add(types.DefaultMemoryDecayOlderThan))
+	}
+	return newMemory(memoryID, memoryType, scope, fact, types.MemoryStatusCandidate, types.ConfidenceLow, source, evidenceRefs, artifactRefs, supersedes, expiresAt, clock)
 }
 
 // NewAcceptedMemory creates an accepted memory with the default
@@ -365,8 +371,9 @@ func (m *Memory) Expire(expiresAt time.Time) error {
 
 // EligibleForDecay reports whether this memory may be auto-expired under the
 // given policy at now. Only candidates with an allowed auto-source whose
-// updated_at is strictly older than the policy threshold are eligible.
-// Accepted, rejected, superseded, and expired memories never decay.
+// created_at is strictly older than the policy threshold are eligible.
+// updated_at must not reset the clock (#2062). Accepted, rejected,
+// superseded, and expired memories never decay.
 func (m *Memory) EligibleForDecay(policy types.MemoryDecayPolicy, now time.Time) bool {
 	if m.status != types.MemoryStatusCandidate {
 		return false
@@ -375,7 +382,7 @@ func (m *Memory) EligibleForDecay(policy types.MemoryDecayPolicy, now time.Time)
 		return false
 	}
 	cutoff := now.UTC().Add(-policy.OlderThan())
-	return m.updatedAt.UTC().Before(cutoff)
+	return m.createdAt.UTC().Before(cutoff)
 }
 
 // MarkCandidateSupersededByDuplicate transitions a candidate to superseded
@@ -389,15 +396,21 @@ func (m *Memory) MarkCandidateSupersededByDuplicate() error {
 	return nil
 }
 
-// RestoreToCandidate transitions an expired memory back to candidate and
-// clears the lifecycle expiresAt stamp so it re-enters the review inbox.
+// RestoreToCandidate transitions an expired memory back to candidate.
+// TTL sources get a fresh scheduled expires_at (now + default TTL);
+// other sources clear the stamp so they re-enter the inbox without a clock.
 func (m *Memory) RestoreToCandidate() error {
 	if m.status != types.MemoryStatusExpired {
 		return ErrInvalidMemoryState
 	}
 	m.status = types.MemoryStatusCandidate
-	m.expiresAt = types.None[time.Time]()
-	m.updatedAt = m.now()
+	now := m.now()
+	if types.CandidateTTLApplies(m.source) {
+		m.expiresAt = types.Some(now.Add(types.DefaultMemoryDecayOlderThan))
+	} else {
+		m.expiresAt = types.None[time.Time]()
+	}
+	m.updatedAt = now
 	return nil
 }
 

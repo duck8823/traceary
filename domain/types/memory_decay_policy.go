@@ -15,13 +15,19 @@ type MemoryDecayPolicy struct {
 }
 
 // DefaultDecaySources are the auto-extraction sources that may decay.
-// Explicit user intent (manual / remember-intent) and imports never decay.
+// Explicit user intent (manual / remember-intent), compact-summary, and
+// imports never decay — they wait for a human look (#2062).
 func DefaultDecaySources() []MemorySource {
 	return []MemorySource{
 		MemorySourceExtracted,
 		MemorySourceExtractedHidden,
-		MemorySourceCompactSummary,
 	}
+}
+
+// CandidateTTLApplies reports whether a candidate should carry a scheduled
+// expires_at stamp (created_at + DefaultMemoryDecayOlderThan).
+func CandidateTTLApplies(source MemorySource) bool {
+	return source == MemorySourceExtracted || source == MemorySourceExtractedHidden
 }
 
 // DefaultMemoryDecayOlderThan is 30 days — more conservative than the legacy

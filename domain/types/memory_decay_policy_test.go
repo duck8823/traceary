@@ -19,10 +19,10 @@ func TestMemoryDecayPolicyOf_DefaultsSources(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !p.AllowsSource(types.MemorySourceExtracted) || !p.AllowsSource(types.MemorySourceCompactSummary) {
-		t.Fatalf("default sources missing auto-extract sources: %#v", p.Sources())
+	if !p.AllowsSource(types.MemorySourceExtracted) || !p.AllowsSource(types.MemorySourceExtractedHidden) {
+		t.Fatalf("default sources missing TTL auto-extract sources: %#v", p.Sources())
 	}
-	if p.AllowsSource(types.MemorySourceManual) || p.AllowsSource(types.MemorySourceRememberIntent) {
-		t.Fatal("manual/remember-intent must not be in default decay sources")
+	if p.AllowsSource(types.MemorySourceManual) || p.AllowsSource(types.MemorySourceRememberIntent) || p.AllowsSource(types.MemorySourceCompactSummary) {
+		t.Fatal("manual/remember-intent/compact-summary must not be in default decay sources")
 	}
 }

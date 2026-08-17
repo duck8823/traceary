@@ -50,6 +50,11 @@ func (r *decayRepoFake) SaveSupersession(context.Context, *model.Memory, *model.
 	return nil
 }
 
+func (r *decayRepoFake) BackfillCandidateTTLs(context.Context, time.Duration) (int, error) {
+	r.saves++
+	return 1, nil
+}
+
 type decayClock struct{ t time.Time }
 
 func (c decayClock) Now() time.Time { return c.t }
@@ -99,6 +104,75 @@ func TestMemoryUsecase_Decay_DryRunReportsEligibleWithoutWriting(t *testing.T) {
 	}
 	if repo.saves != 0 {
 		t.Fatalf("dry-run must not Save, saves=%d", repo.saves)
+	}
+	if result.Backfilled != 0 {
+		t.Fatalf("stamped extracted candidate Backfilled=%d, want 0", result.Backfilled)
+	}
+}
+
+func TestMemoryUsecase_Decay_UsesCreatedAtAndCountsUnstamped(t *testing.T) {
+	old := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	id, err := domtypes.MemoryIDFrom("mem-decay-unstamped")
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope := domtypes.WorkspaceScopeOf(domtypes.Workspace("ws"))
+	summary, err := apptypes.MemorySummaryOf(
+		id,
+		domtypes.MemoryTypeDecision,
+		scope,
+		"legacy extracted with null expires_at",
+		domtypes.MemoryStatusCandidate,
+		domtypes.ConfidenceLow,
+		domtypes.MemorySourceExtracted,
+		domtypes.None[domtypes.MemoryID](),
+		domtypes.None[time.Time](),
+		old,
+		domtypes.None[time.Time](),
+		old,
+		now,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := &decayQueryFake{summaries: []apptypes.MemorySummary{summary}}
+	repo := &decayRepoFake{}
+	sut := usecase.NewMemoryUsecase(repo, query, nil)
+
+	dry, err := sut.Decay(context.Background(), apptypes.MemoryDecayCriteria{
+		OlderThan: 30 * 24 * time.Hour,
+		Limit:     10,
+		Apply:     false,
+		Now:       now,
+	})
+	if err != nil {
+		t.Fatalf("Decay() dry-run error = %v", err)
+	}
+	if dry.Backfilled != 1 {
+		t.Fatalf("Backfilled=%d, want 1 unstamped extracted", dry.Backfilled)
+	}
+	if len(dry.ExpiredIDs) != 1 {
+		t.Fatalf("ExpiredIDs=%#v, want due from created_at despite fresh updated_at", dry.ExpiredIDs)
+	}
+	if repo.saves != 0 {
+		t.Fatalf("dry-run must not backfill, saves=%d", repo.saves)
+	}
+
+	applied, err := sut.Decay(context.Background(), apptypes.MemoryDecayCriteria{
+		OlderThan: 30 * 24 * time.Hour,
+		Limit:     10,
+		Apply:     true,
+		Now:       now,
+	})
+	if err != nil {
+		t.Fatalf("Decay() apply error = %v", err)
+	}
+	if applied.Backfilled != 1 {
+		t.Fatalf("apply Backfilled=%d, want SQL stamp count", applied.Backfilled)
+	}
+	if repo.saves < 1 {
+		t.Fatal("apply must call BackfillCandidateTTLs")
 	}
 }
 

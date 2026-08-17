@@ -37,6 +37,10 @@ func (s *memoryExtractionMemoryUsecaseStub) Save(_ context.Context, memory *mode
 	return s.proposeErr
 }
 
+func (s *memoryExtractionMemoryUsecaseStub) BackfillCandidateTTLs(context.Context, time.Duration) (int, error) {
+	return 0, nil
+}
+
 func (s *memoryExtractionMemoryUsecaseStub) SaveDistillation(context.Context, *model.Memory, []*model.Memory) error {
 	return nil
 }

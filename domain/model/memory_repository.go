@@ -2,6 +2,7 @@ package model
 
 import (
 	"context"
+	"time"
 
 	"github.com/duck8823/traceary/domain/types"
 )
@@ -19,4 +20,8 @@ type MemoryRepository interface {
 	// FindByID returns the memory for the given ID.
 	// Returns an empty Optional when the memory does not exist.
 	FindByID(ctx context.Context, memoryID types.MemoryID) (types.Optional[*Memory], error)
+	// BackfillCandidateTTLs stamps expires_at = created_at + olderThan on
+	// extracted / extracted-hidden candidates that have no scheduled TTL.
+	// Returns the number of rows stamped.
+	BackfillCandidateTTLs(ctx context.Context, olderThan time.Duration) (int, error)
 }
