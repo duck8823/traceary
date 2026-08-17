@@ -14,6 +14,7 @@ import (
 
 func TestRootCLI_DoctorFixAppliesAuthorizedOfflineMigrations(t *testing.T) {
 	t.Setenv("TRACEARY_LANG", "en")
+	setTracearyPathToCurrentExecutable(t)
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
 	stub := &storeManagementUsecaseStub{previewOffline: []int64{35, 45}}
 	stdout := &bytes.Buffer{}
@@ -34,6 +35,7 @@ func TestRootCLI_DoctorFixAppliesAuthorizedOfflineMigrations(t *testing.T) {
 
 func TestRootCLI_DoctorFixDryRunDoesNotApplyOfflineMigrations(t *testing.T) {
 	t.Setenv("TRACEARY_LANG", "en")
+	setTracearyPathToCurrentExecutable(t)
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
 	stub := &storeManagementUsecaseStub{previewOffline: []int64{35, 45}}
 	stdout := &bytes.Buffer{}
@@ -54,6 +56,7 @@ func TestRootCLI_DoctorFixDryRunDoesNotApplyOfflineMigrations(t *testing.T) {
 
 func TestRootCLI_DoctorCreatesFreshEmptyStore(t *testing.T) {
 	t.Setenv("TRACEARY_LANG", "en")
+	setTracearyPathToCurrentExecutable(t)
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
 	if _, err := os.Stat(dbPath); !os.IsNotExist(err) {
 		t.Fatalf("precondition: store must not exist yet: %v", err)
