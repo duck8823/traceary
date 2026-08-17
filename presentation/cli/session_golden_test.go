@@ -6,95 +6,10 @@ import (
 	"testing"
 	"time"
 
-	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/presentation/cli"
 )
-
-func TestSessionListJSON_Goldens(t *testing.T) {
-	startedAt := time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC)
-	endedAt := time.Date(2026, 4, 9, 13, 30, 0, 0, time.UTC)
-
-	cases := []struct {
-		name      string
-		summaries []apptypes.SessionSummary
-	}{
-		{
-			name: "flat_without_ongoing",
-			summaries: []apptypes.SessionSummary{
-				apptypes.SessionSummaryOf(
-					types.SessionID("session-list-ended-a"),
-					types.Workspace("duck8823/traceary"),
-					startedAt,
-					types.Some(endedAt),
-					"ended",
-					42,
-					30,
-					[]string{"claude", "codex"},
-					"docs",
-					"Document session JSON contracts.",
-					types.SessionID(""),
-				),
-				apptypes.SessionSummaryOf(
-					types.SessionID("session-list-ended-b"),
-					types.Workspace("duck8823/traceary"),
-					startedAt.Add(2*time.Hour),
-					types.Some(startedAt.Add(3*time.Hour+15*time.Minute)),
-					"ended",
-					11,
-					7,
-					[]string{"codex"},
-					"tests",
-					"Lock flat session list output.",
-					types.SessionID(""),
-				),
-			},
-		},
-		{
-			name: "flat_with_ongoing",
-			summaries: []apptypes.SessionSummary{
-				apptypes.SessionSummaryOf(
-					types.SessionID("session-list-active"),
-					types.Workspace("duck8823/traceary"),
-					startedAt,
-					types.None[time.Time](),
-					"active",
-					9,
-					4,
-					[]string{"codex"},
-					"implementation",
-					"Record active session list output.",
-					types.SessionID("parent-session-list"),
-				),
-				apptypes.SessionSummaryOf(
-					types.SessionID("session-list-ended"),
-					types.Workspace("duck8823/traceary"),
-					startedAt.Add(-2*time.Hour),
-					types.Some(startedAt.Add(-30*time.Minute)),
-					"ended",
-					18,
-					12,
-					[]string{"claude"},
-					"review",
-					"Review existing session list behavior.",
-					types.SessionID(""),
-				),
-			},
-		},
-		{
-			name:      "empty",
-			summaries: nil,
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			stdout := executeSessionJSONGoldenCommand(t, &sessionUsecaseStub{listResult: tc.summaries}, "session", "list", "--json")
-			assertJSONGolden(t, stdout, filepath.Join("testdata", "session_list", tc.name+".golden.json"))
-		})
-	}
-}
 
 func TestSessionBoundaryAndLookupJSON_Goldens(t *testing.T) {
 	cases := []struct {
@@ -114,18 +29,6 @@ func TestSessionBoundaryAndLookupJSON_Goldens(t *testing.T) {
 			fixtureDir:  "session_end",
 			sessionStub: &sessionUsecaseStub{endEvent: sessionGoldenEvent(t, "event-session-end-golden", types.EventKindSessionEnded, "session-end-golden", time.Date(2026, 4, 7, 13, 30, 0, 0, time.UTC))},
 			args:        []string{"session", "end", "--json", "--client", "cli", "--agent", "codex", "--workspace", "duck8823/traceary", "--session-id", "session-end-golden"},
-		},
-		{
-			name:        "single_result",
-			fixtureDir:  "session_active",
-			sessionStub: &sessionUsecaseStub{activeEvent: sessionGoldenEvent(t, "event-session-active-golden", types.EventKindSessionStarted, "session-active-golden", time.Date(2026, 4, 25, 10, 0, 0, 0, time.UTC))},
-			args:        []string{"session", "latest", "--active", "--json", "--allow-stale", "--client", "cli", "--agent", "codex", "--workspace", "duck8823/traceary"},
-		},
-		{
-			name:        "single_result",
-			fixtureDir:  "session_latest",
-			sessionStub: &sessionUsecaseStub{latestEvent: sessionGoldenEvent(t, "event-session-latest-golden", types.EventKindSessionStarted, "session-latest-golden", time.Date(2026, 4, 8, 13, 0, 0, 0, time.UTC))},
-			args:        []string{"session", "latest", "--json", "--client", "cli", "--agent", "codex", "--workspace", "duck8823/traceary"},
 		},
 	}
 

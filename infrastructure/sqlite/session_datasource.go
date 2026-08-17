@@ -32,9 +32,6 @@ var updateSessionModelIfEmptyQuery string
 //go:embed sql/select_session_by_id.sql
 var selectSessionByIDQuery string
 
-//go:embed sql/find_latest_session.sql
-var findLatestSessionQuery string
-
 //go:embed sql/find_active_session.sql
 var findActiveSessionQuery string
 

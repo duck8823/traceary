@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/spf13/cobra"
 )
 
 func TestRootCLI_Command_SilencesCobraErrorOutput(t *testing.T) {
@@ -440,19 +441,31 @@ func TestRootCLI_AuditHelpMentionsDefaults(t *testing.T) {
 	}
 }
 
-func TestRootCLI_SessionLatestHelpExplainsSemantics(t *testing.T) {
+func TestRootCLI_SessionHelpOmitsRemovedLookupLeaves(t *testing.T) {
 	t.Parallel()
 
-	stdout := &bytes.Buffer{}
-	rootCmd := NewRootCLI().Command()
-	rootCmd.SetOut(stdout)
-	rootCmd.SetErr(&bytes.Buffer{})
-	rootCmd.SetArgs([]string{"session", "latest", "--help"})
-
-	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("Execute() error = %v", err)
+	var sessionCmd *cobra.Command
+	for _, cmd := range NewRootCLI().Command().Commands() {
+		if cmd.Name() == "session" {
+			sessionCmd = cmd
+			break
+		}
 	}
-	if !strings.Contains(stdout.String(), "most recent lifecycle boundary") {
-		t.Fatalf("stdout = %q, want lifecycle boundary explanation", stdout.String())
+	if sessionCmd == nil {
+		t.Fatal("session command is missing")
+	}
+	got := map[string]struct{}{}
+	for _, cmd := range sessionCmd.Commands() {
+		got[cmd.Name()] = struct{}{}
+	}
+	for _, keep := range []string{"start", "end", "run", "refine", "handoff", "gc", "repair-one-shot"} {
+		if _, ok := got[keep]; !ok {
+			t.Fatalf("missing kept session leaf %q: %#v", keep, got)
+		}
+	}
+	for _, retired := range []string{"latest", "list"} {
+		if _, ok := got[retired]; ok {
+			t.Fatalf("retired session leaf %q is still registered: %#v", retired, got)
+		}
 	}
 }

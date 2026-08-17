@@ -11,16 +11,17 @@ import (
 
 	_ "modernc.org/sqlite"
 
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/types"
 	sqliteinfra "github.com/duck8823/traceary/infrastructure/sqlite"
 	"github.com/duck8823/traceary/presentation/cli"
 )
 
-// TestRootCLI_SessionListReadsRefinementNotSessionsSummary drives the shipped
-// cobra tree against a scratch store. leftover sessions.summary is not shown;
-// session end --summary writes a refinement that list surfaces.
-func TestRootCLI_SessionListReadsRefinementNotSessionsSummary(t *testing.T) {
+// leftover sessions.summary is not shown by the remaining session List
+// query (used by sessions snapshot / hooks). session end --summary writes
+// a refinement that List surfaces. The session list CLI is gone (#2057).
+func TestSessionListQueryReadsRefinementNotSessionsSummary(t *testing.T) {
 	t.Setenv("TRACEARY_LANG", "en")
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
 	database := sqliteinfra.NewDatabase(dbPath, os.DirFS(filepath.Join("..", "..", "schema", "sqlite", "migrations")))
@@ -68,16 +69,14 @@ func TestRootCLI_SessionListReadsRefinementNotSessionsSummary(t *testing.T) {
 		t.Fatalf("Close() error = %v", err)
 	}
 
-	listBefore := &bytes.Buffer{}
-	listCmd := newRoot().Command()
-	listCmd.SetOut(listBefore)
-	listCmd.SetErr(&bytes.Buffer{})
-	listCmd.SetArgs([]string{"session", "list", "--db-path", dbPath, "--json"})
-	if err := listCmd.Execute(); err != nil {
-		t.Fatalf("session list before end error = %v", err)
+	before, err := sessionUC.List(context.Background(), apptypes.NewSessionListCriteriaBuilder(20).Build())
+	if err != nil {
+		t.Fatalf("List() before end error = %v", err)
 	}
-	if strings.Contains(listBefore.String(), "leftover column text") {
-		t.Fatalf("session list surfaced leftover sessions.summary:\n%s", listBefore.String())
+	for _, summary := range before {
+		if strings.Contains(summary.Summary(), "leftover column text") {
+			t.Fatalf("List() surfaced leftover sessions.summary: %#v", before)
+		}
 	}
 
 	endCmd := newRoot().Command()
@@ -93,20 +92,19 @@ func TestRootCLI_SessionListReadsRefinementNotSessionsSummary(t *testing.T) {
 		t.Fatalf("session end --summary error = %v", err)
 	}
 
-	listAfter := &bytes.Buffer{}
-	listAfterCmd := newRoot().Command()
-	listAfterCmd.SetOut(listAfter)
-	listAfterCmd.SetErr(&bytes.Buffer{})
-	listAfterCmd.SetArgs([]string{"session", "list", "--db-path", dbPath, "--json"})
-	if err := listAfterCmd.Execute(); err != nil {
-		t.Fatalf("session list after end error = %v", err)
+	after, err := sessionUC.List(context.Background(), apptypes.NewSessionListCriteriaBuilder(20).Build())
+	if err != nil {
+		t.Fatalf("List() after end error = %v", err)
 	}
-	got := listAfter.String()
+	var got string
+	for _, summary := range after {
+		got += summary.Summary()
+	}
 	if !strings.Contains(got, "end refinement text") {
-		t.Fatalf("session list missing refinement:\n%s", got)
+		t.Fatalf("List() missing refinement: %#v", after)
 	}
 	if strings.Contains(got, "leftover column text") {
-		t.Fatalf("session list surfaced leftover sessions.summary after end:\n%s", got)
+		t.Fatalf("List() surfaced leftover sessions.summary after end: %#v", after)
 	}
 
 	conn, err = sql.Open("sqlite", dbPath)

@@ -125,7 +125,7 @@ Default text output is a compact single-line row (`HH:MM:SS  kind  agent=<agent>
 
 > The compact session ID (`sess=<first-8>`) is intended for human scanning only. For machine processing, use `--wide --utc` or `--json`.
 
-Use `--fields ts,kind,message` to override the compact column order (precedence: flag > preset fields > `read.fields` in config.json > built-in default). `--fields` cannot be combined with `--wide`; see `traceary list` above for the full list of supported fields. Use `--preset <name>` for saved views (built-in: `failures` / `prompts-only` / `compact-summaries`; user-defined in `read.presets`). Use `--follow-session <prefix>` (minimum 8 runes) to scope the tail to one session — the value matches session ids by prefix so it is safe to paste from `traceary session list` output.
+Use `--fields ts,kind,message` to override the compact column order (precedence: flag > preset fields > `read.fields` in config.json > built-in default). `--fields` cannot be combined with `--wide`; see `traceary list` above for the full list of supported fields. Use `--preset <name>` for saved views (built-in: `failures` / `prompts-only` / `compact-summaries`; user-defined in `read.presets`). Use `--follow-session <prefix>` (minimum 8 runes) to scope the tail to one session — the value matches session ids by prefix so it is safe to paste from `traceary sessions --snapshot` output.
 
 Useful flags:
 
@@ -150,7 +150,7 @@ Search events by text and structured filters.
 
 `search` finds literal matches by walking `events` newest-first and decoding bounded candidates. When a generation is complete, its literal fingerprints provide a pre-filter that can skip decoding candidates, and its session tier enables a separate **SESSIONS** group. A SESSIONS row is a session whose summary or keyword text matches the query — it is not an older-event bucket or a matching event line.
 
-Session rows mean the trail contains a match. A session is selected by its start instant for `--from` / `--to` — the same rule `traceary session list` uses — and `--failures` is satisfied by any failed command in the session. Filters on session rows apply to the session, not to a single event: a session can appear when the query, the time range and `--failures` are each satisfied by different activity within it. The event tier is the one where every filter narrows to a single row.
+Session rows mean the trail contains a match. A session is selected by its start instant for `--from` / `--to` — the same rule session-summary queries use — and `--failures` is satisfied by any failed command in the session. Filters on session rows apply to the session, not to a single event: a session can appear when the query, the time range and `--failures` are each satisfied by different activity within it. The event tier is the one where every filter narrows to a single row.
 
 A completed generation is a snapshot, so events recorded after it are read directly from `events` and merged into the same result — search never goes stale between rebuilds. Before a generation completes, `search` still answers literal matches correctly by decoding candidates directly; it is slower, and the SESSIONS group is empty because the session tier is refused until then (#1844). The stderr notice points to `traceary store search-projection status`: `docs/search-projection-rebuild.md` lists what each state needs; if readiness cannot be determined, the same status command explains the ambiguous empty group. When the walk exhausts its candidate budget it does not return a partial page — it reports `index_incomplete`. Completing the projection restores the fingerprint pre-filter and the session tier; which command gets a given state there is in `docs/search-projection-rebuild.md`, because `start` is refused while a generation is already rebuilding.
 
@@ -858,22 +858,6 @@ Useful flags:
 - `--snapshot --json` — print a one-shot JSON envelope with `sessions`, `failures`, `recent_commands`, `candidates` (`{ count, remember_intent_count, items }`), `stale_memories` (`{ count, items }`), and `reliability`. Each session node carries `latest_event_kind`, `latest_event_message`, `latest_event_id`, and `latest_event_at` in addition to the standard session fields; `latest_event_message` is truncated to the shared 500-rune body cap so a noisy command/tool payload is not re-amplified into the next agent's context, and when it is cut the node adds `latest_event_message_truncated`, `latest_event_message_length`, and `latest_event_message_bytes` — fetch the full body explicitly with `traceary show <latest_event_id>`. `reliability.large_payloads` additionally carries a bounded `samples` array; each sample is body-safe metadata (`event_id`, `kind`, `source`, `message_length`, `message_bytes`, `first_line`, `retrieval_hint`) and never the full body. Failures and recent commands reuse the standard event JSON shape (also body-capped); memory candidates reuse the durable-memory summary JSON shape; stale memories reuse durable-memory summary fields plus a `reason`
 - `--limit`
 
-### `traceary session list`
-
-List session summaries.
-
-The session list view surfaces session metadata such as `summary` and `parent_session_id` together with status, duration, and aggregate counts. The session-label surface (`session label`, `--label`, the `LABEL` column, and the `label` JSON field) was removed in v0.35.0 after the v0.34 deprecation (#1691). The standalone `session tree` / `session lineage` commands were removed in v0.35.0 (#1869); use `traceary sessions --snapshot` for the active parent/child view.
-
-Useful flags:
-
-- `--workspace`
-- `--agent`
-- `--from`
-- `--to`
-- `--limit`
-- `--offset`
-- `--json`
-
 ### `traceary session refine <session-id>`
 
 Store an agent-authored session refinement (L2 summary).
@@ -894,27 +878,9 @@ Useful flags:
 - `--json` — machine-readable outcome (`created` / `superseded` / `unchanged`) with generation and coverage
 - `--db-path`
 
-### `traceary session latest`
-
-Print the latest session ID matching the current filters.
-
-`latest` means the session whose most recent lifecycle boundary (`session start` or `session end`) is newest among the matches.
-
-With `--active`, only a non-ended session is returned. Active sessions older than 24h are stale unless `--allow-stale` is set. `--stale-after` and `--allow-stale` require `--active`.
-
-Useful flags:
-
-- `--client`
-- `--agent`
-- `--workspace`
-- `--active`
-- `--stale-after`
-- `--allow-stale`
-- `--json`
-
 ### Session status values
 
-`session list` and the `sessions --snapshot` JSON `status` field report one of:
+The `sessions --snapshot` JSON `status` field reports one of:
 
 | Status | Meaning |
 |--------|---------|
@@ -923,7 +889,7 @@ Useful flags:
 | `ended` | Has an end marker and no events after it. |
 | `ended_with_late_events` | Has an end marker but later events arrived under the same session. The end marker can come from a `session_ended` event or from `session gc` writing `ended_at` directly. |
 
-The active-only snapshot keeps `active`, `ended_with_late_events`, and (with `--allow-stale`) `stale` sessions. `ended_with_late_events` is what stops `sessions --snapshot` from returning zero sessions when recent workspace events exist even though the session was already closed — for example when a host such as Codex closed the session early but the conversation kept going. `session list` and `sessions --snapshot` apply the same rule, so a session with events after its end marker is surfaced on both CLI reads.
+The active-only snapshot keeps `active`, `ended_with_late_events`, and (with `--allow-stale`) `stale` sessions. `ended_with_late_events` is what stops `sessions --snapshot` from returning zero sessions when recent workspace events exist even though the session was already closed — for example when a host such as Codex closed the session early but the conversation kept going.
 
 ## Hooks and diagnostics
 

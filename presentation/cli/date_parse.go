@@ -41,7 +41,7 @@ func parseFlexibleTime(value string, endExclusive bool) (time.Time, error) {
 
 // parseFlexibleTimeOptional parses a date/time string into an Optional[time.Time].
 // Returns an empty Optional when the input is empty. Used by commands that pass
-// optional date values to query services (e.g. session list).
+// optional date values to query services (e.g. search / sessions).
 func parseFlexibleTimeOptional(value string, endExclusive bool) (types.Optional[time.Time], error) {
 	t, err := parseFlexibleTime(value, endExclusive)
 	if err != nil {

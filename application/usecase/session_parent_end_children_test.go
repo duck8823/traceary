@@ -32,7 +32,7 @@ func newParentEndChildrenTestDatabase(t *testing.T) *sqliteinfra.Database {
 // TestSessionUsecase_End_ClosesOpenChildSessions drives the real
 // SessionUsecase.End against a fixture DB (parent + still-open child), and
 // asserts the child no longer leaks as an open session that
-// `session latest --active` would keep returning after its parent ended
+// Active() would keep returning after its parent ended
 // (#2012).
 func TestSessionUsecase_End_ClosesOpenChildSessions(t *testing.T) {
 	t.Parallel()
@@ -82,7 +82,7 @@ func TestSessionUsecase_End_ClosesOpenChildSessions(t *testing.T) {
 
 	// `find_active_session.sql` ranks active candidates by start time, so a
 	// leaked open child (started before the parent ended) keeps winning
-	// `session latest --active` for this (client, agent, workspace) bucket
+	// Active() for this (client, agent, workspace) bucket
 	// for as long as it stays open, even though the parent it belonged to
 	// has already finished. Once the child is closed too, nothing in this
 	// bucket should report as active.

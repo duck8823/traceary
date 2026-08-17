@@ -30,8 +30,8 @@
 | --- | --- |
 | 一般metadata list（limit/offsetを含む） | `idx_event_metadata_created_at_norm_id_desc` |
 | workspace list/context | `idx_event_metadata_workspace_created_at_norm_id_desc` |
-| session list/context | `idx_event_metadata_session_created_at_norm_id_desc` |
-| workspace + session list/context | `idx_event_metadata_workspace_session_created_at_norm_id_desc` |
+| session snapshot/context | `idx_event_metadata_session_created_at_norm_id_desc` |
+| workspace + session snapshot/context | `idx_event_metadata_workspace_session_created_at_norm_id_desc` |
 | 明示source-hook list | `idx_event_metadata_source_hook_created_at_norm_id_desc` |
 
 時刻境界が指定された場合は直接predicateのSQLを選び、対象の順序index内を

@@ -129,7 +129,7 @@ traceary audit \
   --output '{"stdout":"panic: boom","stderr":"stacktrace","exitCode":1}'
 
 traceary search boom --json
-traceary session latest --active
+traceary sessions --snapshot --json
 ```
 
 ### 3. Use script-friendly output when needed
@@ -234,9 +234,8 @@ For the full contract and hook semantics, see the [hook contract](./docs/hooks/c
 ## Defaults worth knowing
 
 - `traceary log` and `traceary audit` reuse the latest non-stale active session for the resolved workspace when `--session-id` is omitted; when `remote.origin.url` is missing inside a git worktree, Traceary falls back to the worktree root path
-- `traceary session latest --active` treats sessions older than `24h` as stale unless you pass `--allow-stale`
 - `traceary session start` prints a session ID; `traceary session end` prints the recorded event ID
-- `traceary session list --json` includes `label`, `summary`, and `parent_session_id` when present
+- `traceary sessions --snapshot --json` includes `summary` and `parent_session_id` when present
 - default operator-facing CLI output is English; set `TRACEARY_LANG=ja` when you want Japanese messaging
 - `--json` output stays language-neutral
 

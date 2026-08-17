@@ -27,79 +27,11 @@ func (c *RootCLI) newSessionCommand() *cobra.Command {
 	sessionCmd.AddCommand(c.newSessionEndCommand())
 	sessionCmd.AddCommand(c.newSessionRunCommand())
 	sessionCmd.AddCommand(c.newSessionRepairOneShotCommand())
-	sessionCmd.AddCommand(c.newSessionLatestCommand())
-	sessionCmd.AddCommand(c.newSessionListCommand())
 	sessionCmd.AddCommand(c.newSessionRefineCommand())
 	sessionCmd.AddCommand(c.newSessionHandoffCommand())
 	sessionCmd.AddCommand(c.newSessionGCCommand())
 
 	return sessionCmd
-}
-
-func (c *RootCLI) newSessionLatestCommand() *cobra.Command {
-	var (
-		dbPath     string
-		client     string
-		agent      string
-		repo       string
-		activeOnly bool
-		staleAfter time.Duration
-		allowStale bool
-		asJSON     bool
-	)
-
-	latestCmd := &cobra.Command{
-		Use:   "latest",
-		Short: Localize("Print the latest session ID", "直近のセッション ID を表示する"),
-		Long: Localize(
-			"Print the latest matching session ID.\n\n\"latest\" means the session whose most recent lifecycle boundary (start or end) is newest among the matches.\nWith --active, only a non-ended session is returned. By default, active sessions older than 24h are treated as stale unless --allow-stale is set.\n--stale-after and --allow-stale require --active.\nFilters resolve as flag -> TRACEARY_CLIENT / TRACEARY_AGENT / TRACEARY_WORKSPACE, and --workspace falls back to the detected workspace when omitted.",
-			"条件に一致する直近の session ID を表示します。\n\nここでの「直近」は、一致した session のうち最新の lifecycle boundary (start または end) が最も新しいものを意味します。\n--active を付けると未終了の session だけを返します。既定では 24h を超える active session は --allow-stale を指定しない限り stale とみなします。\n--stale-after と --allow-stale は --active と一緒にだけ使えます。\nfilter は flag -> TRACEARY_CLIENT / TRACEARY_AGENT / TRACEARY_WORKSPACE の順に解決し、--workspace 省略時は検出した workspace を使います。",
-		),
-		Args: noArgsLocalized(),
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			if err := rejectStaleFlagsWithoutActive(cmd, activeOnly); err != nil {
-				return err
-			}
-			return c.runSessionLatest(cmd.Context(), cmd.OutOrStdout(), sessionLatestCommandInput{
-				dbPath:     dbPath,
-				client:     client,
-				agent:      agent,
-				repo:       repo,
-				activeOnly: activeOnly,
-				staleAfter: staleAfter,
-				allowStale: allowStale,
-				asJSON:     asJSON,
-			})
-		},
-	}
-	latestCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
-	latestCmd.Flags().StringVar(&client, "client", "", Localize("filter by client", "記録経路で絞り込む"))
-	latestCmd.Flags().StringVar(&agent, "agent", "", Localize("filter by agent", "作業主体で絞り込む"))
-	latestCmd.Flags().StringVar(&repo, "workspace", "", Localize("filter by auxiliary workspace identifier", "補助的な workspace 識別子で絞り込む"))
-	latestCmd.Flags().BoolVar(&activeOnly, "active", false, Localize("return only a non-ended session", "未終了の session だけを返す"))
-	latestCmd.Flags().DurationVar(
-		&staleAfter,
-		"stale-after",
-		defaultActiveSessionStaleAfter,
-		Localize("with --active, mark sessions older than this duration as stale", "--active 時、この duration を超える session を stale とみなす"),
-	)
-	latestCmd.Flags().BoolVar(&allowStale, "allow-stale", false, Localize("with --active, allow stale sessions to be returned", "--active 時、stale な session も返す"))
-	latestCmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
-
-	return latestCmd
-}
-
-func rejectStaleFlagsWithoutActive(cmd *cobra.Command, activeOnly bool) error {
-	if activeOnly {
-		return nil
-	}
-	if cmd.Flags().Changed("stale-after") || cmd.Flags().Changed("allow-stale") {
-		return xerrors.New(Localize(
-			"--stale-after and --allow-stale require --active",
-			"--stale-after と --allow-stale は --active が必要です",
-		))
-	}
-	return nil
 }
 
 func (c *RootCLI) newSessionStartCommand() *cobra.Command {
@@ -316,86 +248,4 @@ func resolveSessionBoundaryRepo(ctx context.Context, input sessionBoundaryComman
 	}
 
 	return resolveWorkspaceValue(ctx, input.repo)
-}
-
-func (c *RootCLI) runSessionLatest(
-	ctx context.Context,
-	output io.Writer,
-	input sessionLatestCommandInput,
-) error {
-	if c.storeManagement == nil {
-		return xerrors.New(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
-	}
-	if c.session == nil {
-		return xerrors.New(Localize("find latest session query service is not configured", "直近セッションクエリサービスが設定されていません"))
-	}
-
-	resolvedDBPath, err := resolveDBPath(input.dbPath)
-	if err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
-	}
-	c.applyDatabasePath(resolvedDBPath)
-	if err := c.storeManagement.Initialize(ctx); err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
-	}
-
-	criteria := apptypes.NewSessionLookupCriteriaBuilder().
-		Client(types.Client(resolveOptionalValue(input.client, "TRACEARY_CLIENT", ""))).
-		Agent(types.Agent(resolveOptionalValue(input.agent, "TRACEARY_AGENT", ""))).
-		Workspace(types.Workspace(resolveWorkspaceValue(ctx, input.repo))).
-		Build()
-	var result types.Optional[*model.Event]
-	if input.activeOnly {
-		result, err = c.session.Active(ctx, criteria)
-	} else {
-		result, err = c.session.Latest(ctx, criteria)
-	}
-	if err != nil {
-		if input.activeOnly {
-			return xerrors.Errorf("%s: %w", Localize("failed to get active session", "アクティブ session の取得に失敗しました"), err)
-		}
-		return xerrors.Errorf("%s: %w", Localize("failed to get latest session", "直近セッションの取得に失敗しました"), err)
-	}
-	if _, ok := result.Value(); !ok {
-		if input.activeOnly {
-			return xerrors.New(Localize("no matching active session found", "条件に一致する active session は存在しません"))
-		}
-		return xerrors.New(Localize("no matching session found", "条件に一致する session は存在しません"))
-	}
-	event, _ := result.Value()
-	if err := validateActiveSessionFreshness(event, input); err != nil {
-		return err
-	}
-	if input.asJSON {
-		if err := writeEventJSON(output, event); err != nil {
-			return xerrors.Errorf("%s: %w", Localize("failed to print session result", "session 結果の出力に失敗しました"), err)
-		}
-		return nil
-	}
-
-	if _, err := fmt.Fprintln(output, event.SessionID()); err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to print session ID", "session ID の出力に失敗しました"), err)
-	}
-
-	return nil
-}
-
-func validateActiveSessionFreshness(event *model.Event, input sessionLatestCommandInput) error {
-	if !input.activeOnly || input.allowStale || input.staleAfter <= 0 || event == nil {
-		return nil
-	}
-
-	staleCutoff := time.Now().Add(-input.staleAfter)
-	if !event.CreatedAt().Before(staleCutoff) {
-		return nil
-	}
-
-	return xerrors.Errorf(
-		Localize(
-			"active session %s is older than %s and considered stale; use --allow-stale or close it with session end",
-			"active session %s は %s を超えており stale です。--allow-stale を使うか session end で閉じてください",
-		),
-		event.SessionID(),
-		input.staleAfter,
-	)
 }

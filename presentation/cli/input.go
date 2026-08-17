@@ -211,19 +211,6 @@ type sessionBoundaryCommandInput struct {
 	asJSON          bool
 }
 
-// sessionLatestCommandInput is the resolved input to
-// `traceary session latest` and `traceary session latest --active`.
-type sessionLatestCommandInput struct {
-	dbPath     string
-	client     string
-	agent      string
-	repo       string
-	activeOnly bool
-	staleAfter time.Duration
-	allowStale bool
-	asJSON     bool
-}
-
 // timelineCommandInput is the resolved input to the `traceary timeline` command.
 type timelineCommandInput struct {
 	dbPath    string

@@ -1003,246 +1003,6 @@ func TestRootCLI_SessionEndCommand_JSON(t *testing.T) {
 	}
 }
 
-func TestRootCLI_SessionLatestCommand(t *testing.T) {
-	t.Parallel()
-
-	eventID, err := types.EventIDFrom("event-3")
-	if err != nil {
-		t.Fatalf("EventIDFrom() error = %v", err)
-	}
-	agent, err := types.AgentFrom("codex")
-	if err != nil {
-		t.Fatalf("AgentFrom() error = %v", err)
-	}
-	sessionID, err := types.SessionIDFrom("session-latest")
-	if err != nil {
-		t.Fatalf("SessionIDFrom() error = %v", err)
-	}
-
-	stdout := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(
-		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
-		cli.WithSession(&sessionUsecaseStub{
-			latestEvent: model.EventOf(
-				eventID,
-				types.EventKindSessionStarted,
-				"cli",
-				agent,
-				sessionID,
-				"duck8823/traceary",
-				"session started",
-				time.Date(2026, 4, 8, 13, 0, 0, 0, time.UTC),
-			),
-		}),
-	).Command()
-	rootCmd.SetOut(stdout)
-	rootCmd.SetErr(&bytes.Buffer{})
-	rootCmd.SetArgs([]string{
-		"session",
-		"latest",
-		"--db-path",
-		"/tmp/test-traceary.db",
-		"--client", "cli",
-		"--agent", "codex",
-		"--workspace", "duck8823/traceary",
-	})
-
-	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("Execute() error = %v", err)
-	}
-	if diff := cmp.Diff("session-latest\n", stdout.String()); diff != "" {
-		t.Fatalf("stdout mismatch (-want +got):\n%s", diff)
-	}
-}
-
-func TestRootCLI_SessionLatestCommand_JSON(t *testing.T) {
-	t.Parallel()
-
-	stdout := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(
-		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
-		cli.WithSession(&sessionUsecaseStub{
-			latestEvent: model.EventOf(
-				mustEventID(t, "event-latest-json"),
-				types.EventKindSessionStarted,
-				"cli",
-				mustAgent(t, "codex"),
-				mustSessionID(t, "session-latest-json"),
-				"duck8823/traceary",
-				"session started",
-				time.Date(2026, 4, 8, 13, 0, 0, 0, time.UTC),
-			),
-		}),
-	).Command()
-	rootCmd.SetOut(stdout)
-	rootCmd.SetErr(&bytes.Buffer{})
-	rootCmd.SetArgs([]string{"session", "latest", "--db-path", "/tmp/test-traceary.db", "--json"})
-
-	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("Execute() error = %v", err)
-	}
-
-	payload := decodeJSONMap(t, stdout.String())
-	if diff := cmp.Diff("event-latest-json", payload["event_id"]); diff != "" {
-		t.Fatalf("event_id mismatch (-want +got):\n%s", diff)
-	}
-	if diff := cmp.Diff("session-latest-json", payload["session_id"]); diff != "" {
-		t.Fatalf("session_id mismatch (-want +got):\n%s", diff)
-	}
-}
-
-func TestRootCLI_SessionActiveCommand(t *testing.T) {
-	t.Parallel()
-
-	eventID, err := types.EventIDFrom("event-4")
-	if err != nil {
-		t.Fatalf("EventIDFrom() error = %v", err)
-	}
-	agent, err := types.AgentFrom("codex")
-	if err != nil {
-		t.Fatalf("AgentFrom() error = %v", err)
-	}
-	sessionID, err := types.SessionIDFrom("session-active")
-	if err != nil {
-		t.Fatalf("SessionIDFrom() error = %v", err)
-	}
-
-	stdout := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(
-		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
-		cli.WithSession(&sessionUsecaseStub{
-			activeEvent: model.EventOf(
-				eventID,
-				types.EventKindSessionStarted,
-				"cli",
-				agent,
-				sessionID,
-				"duck8823/traceary",
-				"session started",
-				time.Now().Add(-1*time.Hour),
-			),
-		}),
-	).Command()
-	rootCmd.SetOut(stdout)
-	rootCmd.SetErr(&bytes.Buffer{})
-	rootCmd.SetArgs([]string{
-		"session",
-		"latest",
-		"--active",
-		"--db-path",
-		"/tmp/test-traceary.db",
-		"--agent", "codex",
-	})
-
-	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("Execute() error = %v", err)
-	}
-	if diff := cmp.Diff("session-active\n", stdout.String()); diff != "" {
-		t.Fatalf("stdout mismatch (-want +got):\n%s", diff)
-	}
-}
-
-func TestRootCLI_SessionActiveCommand_StaleError(t *testing.T) {
-	t.Parallel()
-
-	eventID, err := types.EventIDFrom("event-5")
-	if err != nil {
-		t.Fatalf("EventIDFrom() error = %v", err)
-	}
-	agent, err := types.AgentFrom("codex")
-	if err != nil {
-		t.Fatalf("AgentFrom() error = %v", err)
-	}
-	sessionID, err := types.SessionIDFrom("session-stale")
-	if err != nil {
-		t.Fatalf("SessionIDFrom() error = %v", err)
-	}
-
-	rootCmd := cli.NewRootCLI(
-		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
-		cli.WithSession(&sessionUsecaseStub{
-			activeEvent: model.EventOf(
-				eventID,
-				types.EventKindSessionStarted,
-				"cli",
-				agent,
-				sessionID,
-				"duck8823/traceary",
-				"session started",
-				time.Now().Add(-48*time.Hour),
-			),
-		}),
-	).Command()
-	rootCmd.SetOut(&bytes.Buffer{})
-	rootCmd.SetErr(&bytes.Buffer{})
-	rootCmd.SetArgs([]string{
-		"session",
-		"latest",
-		"--active",
-		"--db-path",
-		"/tmp/test-traceary.db",
-	})
-
-	err = rootCmd.Execute()
-	if err == nil {
-		t.Fatalf("Execute() error = nil, want error")
-	}
-	if !strings.Contains(err.Error(), "stale") {
-		t.Fatalf("error = %q, want stale error", err.Error())
-	}
-}
-
-func TestRootCLI_SessionActiveCommand_AllowStale(t *testing.T) {
-	t.Parallel()
-
-	eventID, err := types.EventIDFrom("event-6")
-	if err != nil {
-		t.Fatalf("EventIDFrom() error = %v", err)
-	}
-	agent, err := types.AgentFrom("codex")
-	if err != nil {
-		t.Fatalf("AgentFrom() error = %v", err)
-	}
-	sessionID, err := types.SessionIDFrom("session-stale")
-	if err != nil {
-		t.Fatalf("SessionIDFrom() error = %v", err)
-	}
-
-	stdout := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(
-		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
-		cli.WithSession(&sessionUsecaseStub{
-			activeEvent: model.EventOf(
-				eventID,
-				types.EventKindSessionStarted,
-				"cli",
-				agent,
-				sessionID,
-				"duck8823/traceary",
-				"session started",
-				time.Now().Add(-48*time.Hour),
-			),
-		}),
-	).Command()
-	rootCmd.SetOut(stdout)
-	rootCmd.SetErr(&bytes.Buffer{})
-	rootCmd.SetArgs([]string{
-		"session",
-		"latest",
-		"--active",
-		"--db-path",
-		"/tmp/test-traceary.db",
-		"--allow-stale",
-	})
-
-	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("Execute() error = %v", err)
-	}
-	if diff := cmp.Diff("session-stale\n", stdout.String()); diff != "" {
-		t.Fatalf("stdout mismatch (-want +got):\n%s", diff)
-	}
-}
-
 func TestRootCLI_SessionActiveCommand_IsUnknown(t *testing.T) {
 	t.Setenv("TRACEARY_LANG", "en")
 
@@ -1268,44 +1028,41 @@ func TestRootCLI_SessionActiveCommand_IsUnknown(t *testing.T) {
 	}
 }
 
-func TestRootCLI_SessionLatestCommand_RejectsStaleFlagsWithoutActive(t *testing.T) {
-	t.Parallel()
-
-	rootCmd := cli.NewRootCLI(
-		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
-		cli.WithSession(&sessionUsecaseStub{}),
-	).Command()
-	rootCmd.SetOut(&bytes.Buffer{})
-	rootCmd.SetErr(&bytes.Buffer{})
-	rootCmd.SetArgs([]string{"session", "latest", "--allow-stale", "--db-path", "/tmp/test-traceary.db"})
-
-	err := rootCmd.Execute()
-	if err == nil {
-		t.Fatal("Execute() error = nil, want stale flags to require --active")
+func TestRootCLI_SessionLatestAndListAreUnknown(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+	tests := []struct {
+		name       string
+		args       []string
+		wantErrHas string
+	}{
+		{name: "latest", args: []string{"session", "latest"}, wantErrHas: `unknown subcommand "latest"`},
+		{name: "latest --active", args: []string{"session", "latest", "--active"}, wantErrHas: "unknown flag: --active"},
+		{name: "list", args: []string{"session", "list"}, wantErrHas: `unknown subcommand "list"`},
+		{name: "list --json", args: []string{"session", "list", "--json"}, wantErrHas: "unknown flag: --json"},
 	}
-	if !strings.Contains(err.Error(), "--active") {
-		t.Fatalf("error = %q, want --active requirement", err.Error())
-	}
-}
-
-func TestRootCLI_SessionLatestCommand_NotFoundError(t *testing.T) {
-	t.Parallel()
-
-	dbPath := filepath.Join(t.TempDir(), "traceary.db")
-	rootCmd := cli.NewRootCLI(
-		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
-		cli.WithSession(&sessionUsecaseStub{}),
-	).Command()
-	rootCmd.SetOut(&bytes.Buffer{})
-	rootCmd.SetErr(&bytes.Buffer{})
-	rootCmd.SetArgs([]string{"session", "latest", "--db-path", dbPath})
-
-	err := rootCmd.Execute()
-	if err == nil {
-		t.Fatal("Execute() error = nil, want error")
-	}
-	if diff := cmp.Diff("no matching session found", err.Error()); diff != "" {
-		t.Fatalf("error mismatch (-want +got):\n%s", diff)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stdout := &bytes.Buffer{}
+			stderr := &bytes.Buffer{}
+			rootCmd := cli.NewRootCLI(
+				cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+				cli.WithSession(&sessionUsecaseStub{}),
+			).Command()
+			rootCmd.SetOut(stdout)
+			rootCmd.SetErr(stderr)
+			rootCmd.SetArgs(tt.args)
+			err := rootCmd.Execute()
+			if err == nil {
+				t.Fatal("Execute() error = nil, want unknown subcommand")
+			}
+			got := err.Error() + stderr.String() + stdout.String()
+			if !strings.Contains(got, tt.wantErrHas) {
+				t.Fatalf("error = %q, want substring %q", got, tt.wantErrHas)
+			}
+			if strings.Contains(got, "DEPRECATED") {
+				t.Fatalf("error = %q, must not mention DEPRECATED", got)
+			}
+		})
 	}
 }
 

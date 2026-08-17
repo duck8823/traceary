@@ -6,7 +6,7 @@ Traceary uses golden tests to protect public JSON, newline-delimited JSON (NDJSO
 
 The contract surfaces are:
 
-- **CLI `--json` outputs** — `presentation/cli/testdata/<command>/<case>.golden.json`. Every new CLI `--json` flag must ship with a matching golden fixture in the same change. The covered representative surfaces include `event list` / `event search` / `event show`, `session list` / `session start` / `session end` / `session latest` / `session latest --active`, `memory list` / `memory search` / `memory show` and the full `memory inbox` / `memory admin hygiene` family, `sessions --snapshot --json`, `bundle import --json`, `timeline --json`, and `doctor --json`.
+- **CLI `--json` outputs** — `presentation/cli/testdata/<command>/<case>.golden.json`. Every new CLI `--json` flag must ship with a matching golden fixture in the same change. The covered representative surfaces include `event list` / `event search` / `event show`, `session start` / `session end`, `memory list` / `memory search` / `memory show` and the full `memory inbox` / `memory admin hygiene` family, `sessions --snapshot --json`, `bundle import --json`, `timeline --json`, and `doctor --json`.
 - **CLI structured-text outputs** — `presentation/cli/testdata/session_handoff/*.golden`, `presentation/cli/testdata/top/*.golden`, etc. Some commands (notably `traceary session handoff`) intentionally do not expose `--json` because their structured-text shape is the documented contract that prompt-injection / resume tooling parses directly. These goldens guard the field labels (`SESSION_ID:`, `WORKING_STATE:`, `RECENT_COMMANDS:`, `RECENT_COMMAND_ITEMS:`, `MEMORIES:`) and ordering.
 - **MCP tool registry snapshot** — removed with the MCP server in v0.35.0 (#1871).
 
