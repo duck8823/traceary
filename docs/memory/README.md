@@ -111,7 +111,7 @@ Since v0.21.0, only fully-formed unified-diff / git metadata is **dropped entire
 
 #### Candidate hygiene
 
-`traceary sessions --snapshot --json` reports `reliability.memory.candidate_hygiene` counts — `stale_count`, `duplicate_count`, `fragment_like_count`, `extracted_hidden_count`, `likely_actionable_count` — so operators can gauge how much of the candidate backlog is actually worth reviewing (`likely_actionable_count`) versus stale, duplicate, fragment-like, or already-hidden noise. The four flag counts may overlap and are subject to the snapshot scan limit (`scan_limit_reached`). To clear low-value candidates, run the dry-run-first `traceary memory inbox cleanup --quality low` to preview, then add `--apply` to reject the matches (cleanup only rejects candidates; it never deletes or auto-accepts). `traceary memory admin hygiene scan` adds similarity-based duplicate detection beyond the snapshot's exact `duplicate_count` (same scope, memory type, and fact).
+The former sessions snapshot hygiene pane was removed with `traceary sessions` in v0.42.0 (#2061). Gauge and clear the candidate backlog with `traceary memory inbox list` and the dry-run-first `traceary memory inbox cleanup --quality low` (add `--apply` to reject matches; cleanup only rejects candidates; it never deletes or auto-accepts). `traceary memory admin hygiene scan` adds similarity-based duplicate detection beyond exact same-scope / memory-type / fact matches.
 
 #### Context-boundary extraction
 

@@ -401,7 +401,7 @@ func (c *RootCLI) runTail(ctx context.Context, warnWriter io.Writer, output io.W
 // followSessionMinRunes is the minimum length accepted by --follow-session.
 // Anything shorter would risk matching far too many sessions to be useful
 // as a filter and the error steers the operator to paste the full id
-// prefix from `sessions --snapshot` output.
+// prefix from `list` / `search` output.
 const followSessionMinRunes = 8
 
 // validateFollowSessionPrefix checks the --follow-session value. Empty

@@ -82,7 +82,7 @@ The hook exits successfully without recording anything when:
 - `traceary` is not installed
 - the hook payload has no `tool_input.command`
 - a session ID cannot be resolved yet
-- `TRACEARY_NO_AUDIT` is truthy, or the audited tool is a Traceary read/self-inspection command such as `traceary list --json` or `traceary sessions --snapshot --json`
+- `TRACEARY_NO_AUDIT` is truthy, or the audited tool is a Traceary read/self-inspection command such as `traceary list --json` or `traceary search --json`
 
 Use `TRACEARY_NO_AUDIT=1` when running ad-hoc Traceary investigations that would otherwise feed large JSON back into Traceary's own command-audit table. Traceary also skips known read-only self-inspection surfaces by default; write-like CLI commands such as `traceary log` / `traceary memory store` remain auditable.
 

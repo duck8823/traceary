@@ -69,6 +69,10 @@ func summarizeToolAwareCommandBody(body string, eventID string) (string, bool) {
 	return formatToolAwareSummary(sum), true
 }
 
+func largePayloadRetrievalHint(eventID string) string {
+	return "traceary show " + eventID
+}
+
 func detectToolAwareTool(body string) string {
 	if m := toolAwareEditWritePattern.FindStringSubmatch(body); len(m) > 1 {
 		return m[1]

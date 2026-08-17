@@ -59,7 +59,7 @@ func isTracearySelfInspectionCommand(command string) bool {
 		return false
 	}
 	switch tokens[0] {
-	case "list", "search", "show", "tail", "timeline", "context", "sessions", "doctor", "status":
+	case "list", "search", "show", "tail", "timeline", "context", "doctor", "status":
 		return true
 	case "session":
 		if len(tokens) < 2 {

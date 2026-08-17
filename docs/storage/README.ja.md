@@ -233,7 +233,7 @@ fold schema より前の store には被覆の証跡が無いため、破棄候�
 - retention pruner が本文を空にした行は **対象外** です。pruning は client / kind を問わずすべての行の本文を同じ固定マーカー文字列へ置き換えるため、空になった時点で、もともと互いに duplicate ではなかった prompt 同士が同一 identity になってしまいます。
 - retention の **ledger** 行を持つ行は **アーカイブしません** が、grouping には参加させます。`raw_body_retention_entries.event_id` は `ON DELETE RESTRICT` なので削除すると batch が中断します。かといって scan から外すと identity group から消えてしまい、近接クラスタリングは見えている行同士の間隔を測るため、cluster の中央にある ledger 行を隠すとその前後の間隔が広がって cluster が分裂し、retention とは無関係な通常の duplicate が取り残されます。したがって cluster の member としては残し、duplicates からのみ除外します。
 - restore は **all-or-nothing** で上書きを拒否します。元の event id がすでに `events` に存在する場合、restore 全体が失敗し何も変更しません。
-- duplicate は `events` の *外* へ移動されるため、通常の `list`、`sessions --snapshot`、`doctor`、`context` の read surface からは自動的に見えなくなります。
+- duplicate は `events` の *外* へ移動されるため、通常の `list`、`search`、`doctor`、`context` の read surface からは自動的に見えなくなります。
 
 **rollback。** apply を取り消すには `traceary store dedupe content-events --restore <run-id>` を実行します（run id は `--apply` が出力し、隔離した各行にも記録されます）。run id が出力される前に apply が中断した場合は `--list-runs` で見つけられます。バッチは run id が報告される前に commit されるため、これがないとその行は restore / purge のどちらからも到達できません。念のためのコピーが欲しい場合は、`--apply` の前に `traceary store backup create` を取得してください。
 

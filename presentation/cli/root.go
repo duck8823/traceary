@@ -413,8 +413,8 @@ func (c *RootCLI) Command() *cobra.Command {
 		Use:   "traceary",
 		Short: Localize("Local-first CLI for AI agent work history", "AI エージェントの作業履歴をローカルに記録する CLI"),
 		Long: Localize(
-			"Traceary records and inspects local AI-agent work history. Running `traceary` with no subcommand prints this help (TTY and non-TTY). Use explicit read commands such as `traceary list`, `traceary sessions --snapshot [--json]`, or `traceary doctor --json`.",
-			"Traceary はローカルの AI agent 作業履歴を記録・確認します。subcommand なしの `traceary` は TTY / 非 TTY ともこの help を表示します。`traceary list`、`traceary sessions --snapshot [--json]`、`traceary doctor --json` などの明示的な read command を使ってください。",
+			"Traceary records and inspects local AI-agent work history. Running `traceary` with no subcommand prints this help (TTY and non-TTY). Use explicit read commands such as `traceary list`, `traceary search`, or `traceary doctor --json`.",
+			"Traceary はローカルの AI agent 作業履歴を記録・確認します。subcommand なしの `traceary` は TTY / 非 TTY ともこの help を表示します。`traceary list`、`traceary search`、`traceary doctor --json` などの明示的な read command を使ってください。",
 		),
 		SilenceErrors: true,
 		SilenceUsage:  true,
@@ -436,7 +436,6 @@ func (c *RootCLI) Command() *cobra.Command {
 	rootCmd.AddCommand(c.newAuditCommand())
 	rootCmd.AddCommand(c.newSearchCommand())
 	rootCmd.AddCommand(c.newTailCommand())
-	rootCmd.AddCommand(c.newSessionsCommand())
 	rootCmd.AddCommand(c.newContextCommand())
 	rootCmd.AddCommand(c.newListCommand())
 	rootCmd.AddCommand(c.newShowCommand())

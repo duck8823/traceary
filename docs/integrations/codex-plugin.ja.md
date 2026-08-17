@@ -136,7 +136,7 @@ spool working directory の canonical 化は1回につき distinct 64件を上�
 
 local path alias で session / event が見つからない場合は、
 `codex-capture` が表示した `workspace=` の値で CLI の read を再実行してください。
-`sessions --snapshot`、`list`、usage aggregate、この diagnostic は同じ
+`list`、usage aggregate、この diagnostic は同じ
 canonical workspace identity を使います。
 
 ## 検証済み usage の取得

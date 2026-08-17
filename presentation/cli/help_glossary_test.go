@@ -60,8 +60,6 @@ func TestDocumentationAndGoldensDoNotExposeLegacyMemoryCandidateGlossary(t *test
 		"../../docs/interactive/README.ja.md",
 		"../../docs/memory/README.md",
 		"../../docs/memory/README.ja.md",
-		"testdata/top/snapshot_text.golden",
-		"testdata/top/snapshot_text_empty.golden",
 	}
 
 	for _, path := range paths {

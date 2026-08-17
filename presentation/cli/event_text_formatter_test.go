@@ -70,8 +70,9 @@ func TestTruncateNormalized(t *testing.T) {
 		want     string
 	}{
 		"collapses whitespace": {input: "hello   world", maxRunes: 32, want: "hello world"},
-		// `init()` in top.go pins runewidth ambiguous handling to
-		// narrow, so "…" is 1 column. Budget=5 → 4 visible chars + "…".
+		// `init()` in event_text_formatter.go pins runewidth
+		// ambiguous handling to narrow, so "…" is 1 column.
+		// Budget=5 → 4 visible chars + "…".
 		"truncates and appends ellipsis":  {input: "abcdefghij", maxRunes: 5, want: "abcd…"},
 		"zero budget yields empty string": {input: "abc", maxRunes: 0, want: ""},
 		"budget larger than input":        {input: "abc", maxRunes: 10, want: "abc"},

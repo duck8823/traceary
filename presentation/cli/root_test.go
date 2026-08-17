@@ -73,7 +73,7 @@ func TestRootCLI_NoArgsShowsHelp(t *testing.T) {
 	for _, want := range []string{
 		"Traceary records and inspects local AI-agent work history",
 		"traceary list",
-		"traceary sessions --snapshot",
+		"traceary search",
 		"traceary doctor --json",
 		"Available Commands:",
 	} {

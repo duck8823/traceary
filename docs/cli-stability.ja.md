@@ -34,7 +34,7 @@ Traceary の各サブコマンドは必ず以下のいずれか 1 ティアに�
 v0.15 以降に追加された互換 alias も含む現在の公開コマンド（用途別）。可視の public / admin leaf の出荷分類は `presentation/cli/pillar_inventory.go`（#1692）です。
 
 - **イベント記録** — `traceary log`、`traceary audit`
-- **読み取り / 観察** — `traceary list`、`traceary search`、`traceary tail`、`traceary timeline`、`traceary show`、`traceary context`、`traceary sessions`（および `traceary sessions --snapshot` / `--snapshot --json`）
+- **読み取り / 観察** — `traceary list`、`traceary search`、`traceary tail`、`traceary timeline`、`traceary show`、`traceary context`
 - **セッション** — `traceary session start`、`traceary session end`、`traceary session run`、`traceary session handoff`（`--compact-only` を含む）、`traceary session refine`
 - **durable memory 日常 read** — `traceary memory list`、`traceary memory search`、`traceary memory show`
 - **durable memory inbox** — `traceary memory inbox list`、`traceary memory inbox show`、`traceary memory inbox accept`、`traceary memory inbox reject`、`traceary memory inbox attach`、`traceary memory inbox cleanup`、`traceary memory inbox restore`、`traceary memory inbox review`（TTY のみ）
@@ -45,11 +45,9 @@ v0.15 以降に追加された互換 alias も含む現在の公開コマンド�
 - **replay / archive** — `traceary replay`
 - **bundle import / export** — `traceary bundle export`、`traceary bundle import`
 
-`traceary doctor` の JSON envelope（`sections` / `summary` / `exit_code` / 各 check のフィールド）、`traceary sessions --snapshot --json` の envelope（`sessions` / `failures` / `recent_commands` / `candidates` / `stale_memories`）、`traceary timeline --json`（`workspace_breakdown`）、`traceary session handoff` の構造化テキストのフィールドラベルはいずれも公開契約の一部です。これらは `presentation/cli/testdata/` で golden test により固定されています。詳細は [JSON / snapshot contract test](./operations/json-contract-tests.ja.md) を参照してください。
+`traceary doctor` の JSON envelope（`sections` / `summary` / `exit_code` / 各 check のフィールド）、`traceary timeline --json`（`workspace_breakdown`）、`traceary session handoff` の構造化テキストのフィールドラベルはいずれも公開契約の一部です。これらは `presentation/cli/testdata/` で golden test により固定されています。詳細は [JSON / snapshot contract test](./operations/json-contract-tests.ja.md) を参照してください。
 
 `traceary doctor` は既定で、全 check が pass なら exit code `0`、1 件でも fail があれば `1`、warning-only report なら `2` で終了します。warning を operator-visible な drift として見たいが、壊れた install だけを失敗扱いにしたい automation では `--warnings-ok` を指定してください。この場合 warning-only report は `0`、failure は引き続き `1` で終了し、JSON の `summary` と各 check の severity は変わりません。
-
-`traceary sessions --snapshot` の v0.19.0 text snapshot は読みやすさのため raw な `workspace=` / `agent=` metadata の前に `name="..."` を意図的に挿入します。機械的に安定した契約が必要な script は、変更のない `--json` envelope を優先するか、テキストを位置ではなく key で parse してください。
 
 > TTY 必須の公開コマンド（現状は `traceary memory inbox review`）は TTY 要件を明示し、stdin/stdout が TTY でないときは非ゼロ終了コードでスクリプト用フォールバックを案内します。新しい TTY-only 公開コマンドを追加するときも、必ず batch / scripted フォールバック経路を文書化してください。
 
@@ -91,11 +89,12 @@ v0.35 時点の admin コマンド：
 
 #1692 は可視の public / admin leaf を 2 本の柱（記録 = 捕捉 / 要約 / 圧縮 / 破棄、記憶 = 統合して自動供給）に突き合わせました。hidden な hook 入口は plumbing のままです（後述）。出荷テーブルは `presentation/cli/pillar_inventory.go` で、可視 action を行なしで追加するとテストが失敗します。
 
-削除根拠は空の backing、重複、柱なしだけです。usage 件数は理由にしません。#1870 の 97→29 keep-list に残っているグループは v0.34 の非推奨 registry に無いので、v0.35 では削除しません。予定している吸収（`list --follow`、`list --blocks`、`hooks install --dry-run`、`memory search --all`）は、その flag ができるまで通知しません。`sessions --snapshot` は v0.34 で既に予告済みなので残します。`replay` は単一ファイル HTML export だけで、#1870 も usage を弱い削除根拠だと書いています。
+削除根拠は空の backing、重複、柱なしだけです。usage 件数は理由にしません。#1870 の 97→29 keep-list に残っているグループは v0.34 の非推奨 registry に無いので、v0.35 では削除しません。予定している吸収（`list --follow`、`list --blocks`、`hooks install --dry-run`、`memory search --all`）は、その flag ができるまで通知しません。`replay` は単一ファイル HTML export だけで、#1870 も usage を弱い削除根拠だと書いています。
 
 過去の削除履歴：
 
-- v0.42.0 で削除（#2057）: `traceary session latest`（`--active` を含む）と `traceary session list`。呼び出しは unknown subcommand として非ゼロ終了し、`DEPRECATED` 通知は出しません。one-minor deprecation window の明示的なポリシー例外です（owner 決定 2026-08-17）。open session の ID は hook メッセージ（`[Traceary] Session <id>`）で渡り、直近の作業は `list` / `search` / `context`、期間サマリーは `report` です。内部の `Active` / `Latest` / `List` クエリは handoff / hooks / context / memory extract / `sessions --snapshot` のために残します。
+- v0.42.0 で削除（#2061）: `traceary sessions`（`--snapshot` / `--snapshot --json` を含む）。呼び出しは unknown command として非ゼロ終了し、`DEPRECATED` 通知は出しません。one-minor deprecation window の明示的なポリシー例外です（owner 決定 2026-08-17）。代わりに `list` / `search` / `context` / `report` / `session handoff` を使います。hook の workspace 正規化向け `Session.List` と `list_sessions.sql` は残します。
+- v0.42.0 で削除（#2057）: `traceary session latest`（`--active` を含む）と `traceary session list`。呼び出しは unknown subcommand として非ゼロ終了し、`DEPRECATED` 通知は出しません。one-minor deprecation window の明示的なポリシー例外です（owner 決定 2026-08-17）。open session の ID は hook メッセージ（`[Traceary] Session <id>`）で渡り、直近の作業は `list` / `search` / `context`、期間サマリーは `report` です。内部の `Active` / `Latest` / `List` クエリは handoff / hooks / context / memory extract のために残します。
 - v0.36.0 で削除（v0.35 の非推奨のあと。#1692 / #1870）: `traceary memory store remember`。呼び出しは unknown subcommand として非ゼロ終了し、`DEPRECATED` 通知は出しません。代わりに `traceary memory store propose`（`status=candidate`）を使います。skill `traceary-memory-remember` はすでに `propose` に着地します。
 - v0.36.0 で削除（#1704）: `traceary session active`。呼び出しは unknown subcommand として非ゼロ終了し、`DEPRECATED` 通知は出しません。代わりに `traceary session latest --active` を使います（stale の既定は同じ: 24h、`--stale-after`、`--allow-stale`）。`--active` なしの `--stale-after` / `--allow-stale` は拒否します。振る舞いは同じで、綴りだけを既存コマンドに畳みました。
 - v0.35.0 で削除（#1872）: ストアサイズ削減コマンド一式を `traceary store compact` に畳みました。呼び出しは unknown command として非ゼロ終了し、`DEPRECATED` 通知は出しません。削除: `traceary store gc`、`traceary store dedupe` / `content-events`、`traceary store retention plan|apply|restore`（本文 retention。`store retention files` は残します）、`traceary store payload-rehearsal`（`preview|run|resume|scrub|rollback`）、`traceary store payload-backfill`（`preview|run|resume|status`）、`traceary store search-retire`、`traceary store compact plan|apply|resume|status`。代わりに `traceary store compact`（任意の `--force`、`--keep-days`）と `traceary store compact rollback RUN_ID` を使ってください。`traceary store search-projection` は変更しません。旧ファイルは rollback を捨てるまで archive です。
@@ -188,7 +187,7 @@ help / usage テキストはこの保証の対象外です。上記の通知ル�
 - 新しい公開サブコマンドの追加
 - 新しい optional フラグの追加
 - JSON オブジェクトの末尾に新しい optional フィールドを追加（consumer は未知フィールドを許容すること）
-- `traceary doctor` の新セクション、canonical な `traceary sessions --snapshot` surface の新ペインの追加
+- `traceary doctor` の新セクションの追加
 
 これらを **削除・改名** すると破壊的変更になり、deprecation フローを通します。
 

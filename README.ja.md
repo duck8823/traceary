@@ -56,7 +56,7 @@ go install github.com/duck8823/traceary@latest
 
 タグ付きリリースでは macOS / Linux 向けアーカイブを [GitHub Releases](https://github.com/duck8823/traceary/releases) に公開しています。配布形態の詳細は [リリースガイド](./docs/release/README.ja.md) を参照してください。
 
-インストール後、`traceary --help`（または bare `traceary`）で command surface を確認してください。script-friendly な subcommand（`traceary list`、`traceary sessions --snapshot [--json]`、`traceary doctor --json` など）を直接呼んでください。旧 `traceary tui` / `traceary dashboard` cockpit entrypoint と互換 alias の `traceary top` は v0.35.0 で削除済みです。代わりに `traceary sessions --snapshot` を使用してください。
+インストール後、`traceary --help`（または bare `traceary`）で command surface を確認してください。script-friendly な subcommand（`traceary list`、`traceary search`、`traceary doctor --json` など）を直接呼んでください。旧 `traceary tui` / `traceary dashboard` cockpit、`traceary top`、`traceary sessions` は削除済みです。代わりに `list` / `search` / `report` / `session handoff` を使ってください。
 
 ### Step 2: エージェント向けパッケージを入れる
 
@@ -126,7 +126,6 @@ traceary audit \
   --output '{"stdout":"panic: boom","stderr":"stacktrace","exitCode":1}'
 
 traceary search boom --json
-traceary sessions --snapshot --json
 ```
 
 ### 3. スクリプトからは `--id-only` を使う
@@ -169,19 +168,10 @@ Traceary は補完的なビューを用意していて、「いま何が起き�
 | 目的 | コマンド | 使いどころ |
 |---|---|---|
 | command surface を確認する | `traceary` / `traceary --help` | help を表示（TTY / 非 TTY とも） |
-| workspace sessions snapshot を見る | `traceary sessions` | active session、直近の失敗 / command、メモリ候補、stale memory を一回出力 |
 | いま動いているものを追う | `traceary tail` | hook が発火しているか / 失敗がリアルタイムで見えているかを確認 |
 | ある期間の流れを俯瞰する | `traceary timeline` | アイドルギャップ区切りの作業ブロックを workspace 別のアクティビティ要約付きで表示 |
 | 生 event を直接掘る | `traceary list` / `traceary search` | kind / session / query をピンポイントで指定 |
 | 引き継ぎコンテキストで再開する | `traceary session handoff` | 整形済みの working memory を次のセッションへ |
-
-### `traceary sessions`
-
-```sh
-traceary sessions
-```
-
-`sessions` は active sessions、直近の failures、recent commands、メモリ候補、stale memories をまとめた one-shot snapshot を出力します。bare の `traceary sessions` は `traceary sessions --snapshot` とバイト単位で同一です。JSON envelope（`stale_memories` キーを含む）は `traceary sessions --snapshot --json` で取得します。旧ライブ対話 dashboard と互換 alias の `traceary top` は v0.35.0 で削除されました。
 
 ### `traceary tail`
 
@@ -232,7 +222,7 @@ $ traceary timeline --limit 2
 
 - `traceary log` / `traceary audit` で `--session-id` を省くと、解決できた workspace に対応する最新の non-stale アクティブセッションを優先して使います。`remote.origin.url` が無い Git worktree では、worktree ルートパスを代わりに使います
 - `traceary session start` はセッション ID を出力し、`traceary session end` は記録したイベント ID を出力します
-- `traceary sessions --snapshot --json` では、値がある場合に `summary` / `parent_session_id` も確認できます
+- `traceary search --json` では、要約が query に一致すると `sessions` 階層も返ります
 - CLI の通常メッセージは英語が既定です。日本語表示にしたい場合は `TRACEARY_LANG=ja` を指定してください
 - `--json` 出力は言語設定の影響を受けません
 

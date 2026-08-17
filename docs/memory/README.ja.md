@@ -111,7 +111,7 @@ v0.21.0 以降、完全な構造を持つ unified-diff / git metadata のみ aut
 
 #### 候補の hygiene
 
-`traceary sessions --snapshot --json` は `reliability.memory.candidate_hygiene` の各カウント — `stale_count`、`duplicate_count`、`fragment_like_count`、`extracted_hidden_count`、`likely_actionable_count` — を出力します。これにより operator は候補 backlog のうち実際にレビュー価値があるもの (`likely_actionable_count`) と、stale / duplicate / fragment-like / 既に hidden な noise の量を把握できます。4 つの flag カウントは重複しうるもので、snapshot の scan 上限 (`scan_limit_reached`) の影響を受けます。低価値な候補を掃除するには、まず dry-run 既定の `traceary memory inbox cleanup --quality low` でプレビューし、`--apply` を付けて match を reject します (cleanup は候補を reject するだけで、削除や auto-accept はしません)。`traceary memory admin hygiene scan` は snapshot の exact な `duplicate_count` (同一 scope・memory type・fact) を超えた similarity ベースの重複検出を追加します。
+旧 sessions snapshot の hygiene pane は v0.42.0 で `traceary sessions` とともに削除されました（#2061）。候補 backlog の把握と掃除は `traceary memory inbox list` と dry-run 既定の `traceary memory inbox cleanup --quality low` を使います（`--apply` で match を reject。cleanup は候補を reject するだけで、削除や auto-accept はしません）。`traceary memory admin hygiene scan` は exact な同一 scope・memory type・fact を超えた similarity ベースの重複検出を追加します。
 
 #### context boundary からの抽出
 

@@ -30,7 +30,7 @@ func TestRootCLI_HookAuditCommand_SuppressesSelfInspectionNoise(t *testing.T) {
 		},
 		{
 			name:    "traceary CLI self-inspection read command suppresses audit",
-			payload: `{"session_id":"generated-session","tool_input":{"command":"traceary sessions --snapshot --json"},"tool_response":{"stdout":"{\"sessions\":[]}"}}`,
+			payload: `{"session_id":"generated-session","tool_input":{"command":"traceary list --json"},"tool_response":{"stdout":"[]"}}`,
 		},
 	}
 

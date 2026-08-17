@@ -19,8 +19,8 @@ import (
 )
 
 // leftover sessions.summary is not shown by the remaining session List
-// query (used by sessions snapshot / hooks). session end --summary writes
-// a refinement that List surfaces. The session list CLI is gone (#2057).
+// query (used by hook workspace canonicalization). session end --summary
+// writes a refinement that List surfaces.
 func TestSessionListQueryReadsRefinementNotSessionsSummary(t *testing.T) {
 	t.Setenv("TRACEARY_LANG", "en")
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")

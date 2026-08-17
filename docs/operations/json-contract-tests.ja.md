@@ -6,19 +6,13 @@ Traceary は、公開 CLI の JSON / newline-delimited JSON (NDJSON) / 構造化
 
 contract surface は次の 3 種類です。
 
-- **CLI `--json` 出力** — `presentation/cli/testdata/<command>/<case>.golden.json`。新しい CLI `--json` flag を追加するときは、同じ変更で対応する golden fixture も追加してください。代表的なカバー対象は `event list` / `event search` / `event show`、`session start` / `session end`、`memory list` / `memory search` / `memory show` および `memory inbox` / `memory admin hygiene` 系一式、`sessions --snapshot --json`、`bundle import --json`、`timeline --json`、`doctor --json` です。
-- **CLI 構造化テキスト出力** — `presentation/cli/testdata/session_handoff/*.golden`、`presentation/cli/testdata/top/*.golden` など。`traceary session handoff` のように `--json` flag を持たないコマンドは、構造化テキストそのものが prompt-injection / resume tooling の parse 対象となる public contract です。これらの golden は field label (`SESSION_ID:` / `WORKING_STATE:` / `RECENT_COMMANDS:` / `RECENT_COMMAND_ITEMS:` / `MEMORIES:`) と並び順を守ります。
+- **CLI `--json` 出力** — `presentation/cli/testdata/<command>/<case>.golden.json`。新しい CLI `--json` flag を追加するときは、同じ変更で対応する golden fixture も追加してください。代表的なカバー対象は `event list` / `event search` / `event show`、`session start` / `session end`、`memory list` / `memory search` / `memory show` および `memory inbox` / `memory admin hygiene` 系一式、`bundle import --json`、`timeline --json`、`doctor --json` です。
+- **CLI 構造化テキスト出力** — `presentation/cli/testdata/session_handoff/*.golden` など。`traceary session handoff` のように `--json` flag を持たないコマンドは、構造化テキストそのものが prompt-injection / resume tooling の parse 対象となる public contract です。これらの golden は field label (`SESSION_ID:` / `WORKING_STATE:` / `RECENT_COMMANDS:` / `RECENT_COMMAND_ITEMS:` / `MEMORIES:`) と並び順を守ります。
 - **MCP tool registry snapshot** — v0.35.0 (#1871) で MCP server 退役に伴い削除。
 
 v0.30.0 以降、CLI `traceary report --json` は application の `ReportSnapshot` 読み取りモデルを直列化します。レポート契約にはデータ源ごとの集計範囲が含まれ、部分集計では先頭部分から誤解を招く割合を出さず、該当フィールドを省略します。v0.32.0 以降、このモデルには取得可否と cost origin を明示した usage 集計と、重複排除済み run fact 集計も含まれます。旧 MCP `get_report` の対になる経路は v0.35.0 (#1871) で削除されました。モデル変更時は CLI golden を更新してください。
 
-`traceary sessions --snapshot --json` は snapshot 専用 contract を持ち、`latest_event_*` field は sessions snapshot contract 専用です。v0.14.0 以降、snapshot は `sessions` / `failures` / `recent_commands` / `candidates` (`{ count, items }`) を持つ envelope オブジェクトでラップされ、二次的なセクションのデータを返します。従来「session node の配列」を直接読み取っていた消費側は、envelope の `sessions` を読み取るように更新する必要があります。v0.15.0 以降は stale-memory セクションに対応する `stale_memories` (`{ count, items }`) も含まれます。stale row は durable-memory summary field に `reason` を加えた shape です。v0.16.0 以降、stale active session の明示確認は `sessions --allow-stale` で有効化できます。このとき stale session node には任意 field として `is_stale` / `stale_after_seconds` / `stale_age_seconds` が追加され、既存の session field は維持されます。旧 `traceary session tree --json` contract は v0.35.0 で削除されました（#1869）。
-
-v0.19.0 以降、`traceary sessions --snapshot` の text snapshot は raw な `workspace=` / `agent=` metadata の前に `name="..."` を含みます。この形状は text golden fixture で固定されています。位置ベースの安定性が必要な機械 consumer は、変更のない JSON envelope を使ってください。
-
-v0.20.1 以降、JSON / text snapshot writer は downstream の broken pipe を通常の early-close として扱います。`traceary sessions --snapshot --json | head -c 1` のような command は、誤解を招く Traceary error を出さずに silent に終了します。一方で、query や JSON encoding の失敗は従来どおり loud に失敗します。
-
-v0.21.0 以降、snapshot の `reliability.memory` オブジェクトに additive な `candidate_hygiene` オブジェクト (`stale_count` / `duplicate_count` / `fragment_like_count` / `extracted_hidden_count` / `likely_actionable_count`) が追加されます。この field は additive なので既存の snapshot consumer には影響せず、JSON 専用です (text snapshot renderer は意図的に変更していません)。各カウントは `scan_limit_reached` と同じ memory scan の範囲に束縛され、flag カウントは重複しうるもので、`likely_actionable_count` はその補集合 (どの hygiene flag も立っていない候補) です。
+旧 `traceary sessions --snapshot --json` envelope は v0.42.0 で削除されました（#2061）。旧 `traceary session tree --json` contract は v0.35.0 で削除されました（#1869）。
 
 CLI コマンドの公開出力に対応する fixture が無い場合は、ad-hoc な string assertion ではなく、merge 前に fixture を追加してください。
 

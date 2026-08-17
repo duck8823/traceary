@@ -71,7 +71,7 @@ Useful flags:
 
 Command-audit input/output payloads are truncated before persistence when they exceed the resolved limit. The resolved limit is `--max-*-bytes` flag, then `TRACEARY_MAX_AUDIT_*_BYTES`, then `audit.max_*_bytes` in `~/.config/traceary/config.json`, then the built-in default. Truncated payloads preserve head and tail context and include structured `input_truncated` / `output_truncated` metadata plus an `original_bytes` marker; omitted bytes are not recoverable through `traceary show`.
 
-On **read surfaces** (`sessions --snapshot --json`, list-style recent-command panes), large host-tool payloads (`Edit` / `Write` / `Read` / shell) are projected into a tool-aware compact summary (tool name, path when present, rune counts, content hash, head/tail, and a `traceary show <event_id>` retrieval hint). This is a presentation-time projection only: raw persistence and `traceary show` remain full-fidelity.
+On **read surfaces** (`list`, `search`, `context`, and handoff recent-command panes), large host-tool payloads (`Edit` / `Write` / `Read` / shell) are projected into a tool-aware compact summary (tool name, path when present, rune counts, content hash, head/tail, and a `traceary show <event_id>` retrieval hint). This is a presentation-time projection only: raw persistence and `traceary show` remain full-fidelity.
 
 Command strings also pass through the built-in best-effort secret redactors before storage. `input_redacted` / `output_redacted` only report input/output payload redaction; they do not expose a separate command-redaction flag.
 
@@ -83,7 +83,7 @@ Session resolution follows the same rules as `traceary log`.
 
 ### Bare `traceary`
 
-Running `traceary` with no subcommand always prints help (TTY and non-TTY). The former operator cockpit (`traceary tui` / `traceary dashboard` and the bare TTY default that opened it) was removed in v0.35.0 after the v0.34 deprecation window. Use explicit read commands such as `traceary list`, `traceary sessions --snapshot [--json]`, `traceary doctor --json`, `traceary session handoff`, and `traceary memory inbox list`. Root still accepts `--db-path` so `traceary --db-path … <subcommand>` stays valid; cockpit-only `--reset-state` is gone. An orphan local state file at `~/.local/state/traceary/cockpit.json` (or `$XDG_STATE_HOME/traceary/cockpit.json`) is safe to delete manually.
+Running `traceary` with no subcommand always prints help (TTY and non-TTY). The former operator cockpit (`traceary tui` / `traceary dashboard` and the bare TTY default that opened it) was removed in v0.35.0 after the v0.34 deprecation window. Use explicit read commands such as `traceary list`, `traceary search`, `traceary doctor --json`, `traceary session handoff`, and `traceary memory inbox list`. Root still accepts `--db-path` so `traceary --db-path … <subcommand>` stays valid; cockpit-only `--reset-state` is gone. An orphan local state file at `~/.local/state/traceary/cockpit.json` (or `$XDG_STATE_HOME/traceary/cockpit.json`) is safe to delete manually.
 
 ### `traceary list`
 
@@ -125,7 +125,7 @@ Default text output is a compact single-line row (`HH:MM:SS  kind  agent=<agent>
 
 > The compact session ID (`sess=<first-8>`) is intended for human scanning only. For machine processing, use `--wide --utc` or `--json`.
 
-Use `--fields ts,kind,message` to override the compact column order (precedence: flag > preset fields > `read.fields` in config.json > built-in default). `--fields` cannot be combined with `--wide`; see `traceary list` above for the full list of supported fields. Use `--preset <name>` for saved views (built-in: `failures` / `prompts-only` / `compact-summaries`; user-defined in `read.presets`). Use `--follow-session <prefix>` (minimum 8 runes) to scope the tail to one session — the value matches session ids by prefix so it is safe to paste from `traceary sessions --snapshot` output.
+Use `--fields ts,kind,message` to override the compact column order (precedence: flag > preset fields > `read.fields` in config.json > built-in default). `--fields` cannot be combined with `--wide`; see `traceary list` above for the full list of supported fields. Use `--preset <name>` for saved views (built-in: `failures` / `prompts-only` / `compact-summaries`; user-defined in `read.presets`). Use `--follow-session <prefix>` (minimum 8 runes) to scope the tail to one session — the value matches session ids by prefix so it is safe to paste from `traceary list` / `traceary search` output.
 
 Useful flags:
 
@@ -781,83 +781,6 @@ Use [`traceary session repair-one-shot`](../operations/one-shot-repair.md) to
 inspect and repair stale one-shot sessions. The command is dry-run by default;
 applying a repair requires a backup and a validated evidence manifest.
 
-<a id="traceary-top"></a>
-
-### `traceary sessions`
-
-Print a one-shot Sessions snapshot for active sessions (root → child), recent failures, recent `command_executed` events, memory review queue candidates, and stale durable memories that may need cleanup. Bare `traceary sessions` is byte-identical to `traceary sessions --snapshot` for every caller. The former live interactive dashboard was removed in v0.35.0 after the v0.34 deprecation window (#1765 / #1766). The former `traceary top` compatibility alias was removed in v0.35.0 after the v0.34 deprecation window (#1688 / #1690); use `traceary sessions` instead. The standalone `traceary session tree` / `session lineage` commands were removed in v0.35.0 (#1869).
-
-The text snapshot starts with a `RELIABILITY` section, then prints `ACTIVE SESSIONS`, `RECENT FAILURES`, `RECENT COMMANDS`, `CANDIDATE MEMORIES (count=N remember_intent=M)`, and `STALE MEMORIES (count=N)` sections; empty sections print a stable empty-state line so headers always render. Idle sessions are marked with an `idle` suffix when their latest activity is older than `--idle`; they are not hidden. The JSON snapshot (`--snapshot --json`) is wrapped in an envelope with `sessions`, `failures`, `recent_commands`, `candidates` (`{ count, remember_intent_count, items }`), `stale_memories` (`{ count, items }`), and `reliability` keys; each session node keeps the same fields earlier releases emitted. `reliability.memory` additionally carries a `candidate_hygiene` object (`stale_count`, `duplicate_count`, `fragment_like_count`, `extracted_hidden_count`, `likely_actionable_count`) summarising the hygiene composition of the scanned candidate window: the four flag counts are independent diagnostic dimensions and may overlap, `likely_actionable_count` is the complement (candidates flagged by none), and — like `accepted_count` / `candidate_count` — they reflect the scanned sample when `scan_limit_reached` is true. `duplicate_count` counts exact duplicates only (same scope, memory type, and fact, matching the extraction dedupe key); similarity duplicates stay in `traceary memory admin hygiene scan`. Per-section row caps follow the snapshot defaults (50 failures, 50 recent commands, 25 candidates, 25 stale memories); the session section keeps using `--limit`.
-
-### Operator vs AI-safe JSON profiles
-
-`--snapshot --json` defaults to the full **operator** envelope (snapshot sections with truncated bodies). For agent resume / handoff, prefer:
-
-```sh
-traceary sessions --snapshot --json --profile ai
-```
-
-The `ai` profile keeps a bounded envelope:
-
-- `profile: "ai"` in the JSON payload
-- session identity + `latest_event_id` with retrieval hints (`traceary show <event_id>`) instead of large latest-event bodies
-- small failure / recent-command samples as ID + kind + retrieval hints (no raw bodies)
-- memory candidate / stale counts and reliability hygiene without candidate fact arrays
-- tighter session / pane caps (does not change the default operator profile)
-
-Use the operator snapshot for humans, dashboards, and full-fidelity scripts. Use `--profile ai` when an agent should decide next steps without re-amplifying large command bodies or inbox facts.
-
-Example snapshot:
-
-```sh
-traceary sessions --snapshot
-```
-
-```text
-RELIABILITY:
-- stale_active_sessions=0 hint="ok"
-- memory_counts accepted=3 candidate=1 accepted_ratio=75% hint="review memory candidates with `traceary memory inbox review` and cleanup old candidates with `traceary memory inbox cleanup --dry-run`"
-- candidate_age count=1 oldest=2026-04-10T12:00:00Z newest=2026-04-10T12:00:00Z avg_age=6h0m hint="prioritize older memory candidates first"
-- large_payloads count=0 recent_commands=0 recent_failures=0 sampled=2 body_limit=500 hint="inspect full payloads with `traceary show <event_id>`; keep command output concise for handoff/top surfaces"
-
-ACTIVE SESSIONS:
-4a70c526 name="github.com/duck8823/traceary · codex" workspace=github.com/duck8823/traceary agent=codex client=claude started=07:06:37 latest=07:06:58 events=165 last=transcript: investigating failing tests
-└── 7c91a2bf name="github.com/duck8823/traceary · worker" workspace=github.com/duck8823/traceary agent=worker client=claude started=07:03:12 latest=07:06:52 events=42 last=command_executed: go test ./presentation/cli
-
-RECENT FAILURES:
-07:06:58 command_executed go test ./presentation/cli [exit=1]
-
-RECENT COMMANDS:
-07:06:52 command_executed go build ./...
-
-CANDIDATE MEMORIES (count=1 remember_intent=1):
-mem-1 preference prefer table-driven subtests
-
-STALE MEMORIES (count=1):
-mem-stale-1 decision workspace:duck8823/traceary superseded superseded rollout note
-```
-
-Active session columns:
-
-- `name` — operator display name inserted before raw metadata; uses `label` first, then `summary`, then `workspace · agent`, then workspace, agent, or the short session id; quoted with Go-style `%q` escaping and capped by the same message truncation rule
-- `workspace` — compact workspace path; tail is preserved when truncated so the repo qualifier stays readable
-- `agent` — most specific agent / subagent role
-- `client` — recording client
-- `started` — session start time
-- `latest` — latest event time
-- `events` — total event count
-- `last` — latest event as `<kind>: <message>`, or `-` when there is no event yet (the message is scrubbed of newlines / control characters and capped at 80 runes)
-- `idle` — appended when latest activity is older than `--idle`
-
-Useful flags:
-
-- `--workspace`
-- `--client`
-- `--agent`
-- `--idle <duration>` — dim rows older than the threshold without hiding them
-- `--snapshot --json` — print a one-shot JSON envelope with `sessions`, `failures`, `recent_commands`, `candidates` (`{ count, remember_intent_count, items }`), `stale_memories` (`{ count, items }`), and `reliability`. Each session node carries `latest_event_kind`, `latest_event_message`, `latest_event_id`, and `latest_event_at` in addition to the standard session fields; `latest_event_message` is truncated to the shared 500-rune body cap so a noisy command/tool payload is not re-amplified into the next agent's context, and when it is cut the node adds `latest_event_message_truncated`, `latest_event_message_length`, and `latest_event_message_bytes` — fetch the full body explicitly with `traceary show <latest_event_id>`. `reliability.large_payloads` additionally carries a bounded `samples` array; each sample is body-safe metadata (`event_id`, `kind`, `source`, `message_length`, `message_bytes`, `first_line`, `retrieval_hint`) and never the full body. Failures and recent commands reuse the standard event JSON shape (also body-capped); memory candidates reuse the durable-memory summary JSON shape; stale memories reuse durable-memory summary fields plus a `reason`
-- `--limit`
-
 ### `traceary session refine <session-id>`
 
 Store an agent-authored session refinement (L2 summary).
@@ -880,7 +803,7 @@ Useful flags:
 
 ### Session status values
 
-The `sessions --snapshot` JSON `status` field reports one of:
+Internal session rows (hooks, handoff, context) still use these status values:
 
 | Status | Meaning |
 |--------|---------|
@@ -889,7 +812,7 @@ The `sessions --snapshot` JSON `status` field reports one of:
 | `ended` | Has an end marker and no events after it. |
 | `ended_with_late_events` | Has an end marker but later events arrived under the same session. The end marker can come from a `session_ended` event or from `session gc` writing `ended_at` directly. |
 
-The active-only snapshot keeps `active`, `ended_with_late_events`, and (with `--allow-stale`) `stale` sessions. `ended_with_late_events` is what stops `sessions --snapshot` from returning zero sessions when recent workspace events exist even though the session was already closed — for example when a host such as Codex closed the session early but the conversation kept going.
+The former public `sessions --snapshot` view of these values was removed in v0.42.0 (#2061). `ended_with_late_events` still lets hook / handoff resolution keep a closed host session when later workspace events exist — for example when a host such as Codex closed the session early but the conversation kept going.
 
 ## Hooks and diagnostics
 

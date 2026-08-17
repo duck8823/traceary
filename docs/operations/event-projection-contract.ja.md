@@ -145,7 +145,7 @@ CLI の projection / flag が唯一の現行 consumer 契約です。
 ## 対象response surface
 
 共有するresponse切り詰め語彙は、event list、search、context、
-`top/sessions --snapshot`、handoff recent-command projectionへ適用します。
+handoff recent-command projectionへ適用します。
 既定rune上限はsurfaceごとに異なっても、provenanceと単位は共通です。
 詳細取得は明示的な保存済み本文全文の経路を維持します。v0.30.0で共有provenanceを
 出せないsurfaceは既知の互換gapとして列挙し、別の意味を追加しません。
