@@ -713,6 +713,135 @@ func TestMemoryInboxList_RememberIntentPriorityFlagSetOnCriteria(t *testing.T) {
 	}
 }
 
+func TestMemoryInboxList_PoolSummaryDisclosesHiddenTotal(t *testing.T) {
+	t.Parallel()
+
+	visible := buildInboxCandidateDetails(t, "memory-extracted", "keep CI green", domtypes.MemorySourceExtracted)
+	memoryStub := &memoryUsecaseStub{
+		listResult:      []apptypes.MemorySummary{visible.Summary()},
+		showDetails:     visible,
+		sourceCountsSet: true,
+		sourceCounts: apptypes.MemorySourceCountsFrom(map[domtypes.MemorySource]int{
+			domtypes.MemorySourceExtracted:       24962,
+			domtypes.MemorySourceExtractedHidden: 5827,
+			domtypes.MemorySourceRememberIntent:  519,
+		}),
+	}
+	root := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(memoryStub),
+	)
+	cmd := root.Command()
+	stdout := &bytes.Buffer{}
+	cmd.SetOut(stdout)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"memory", "inbox", "list", "--db-path", t.TempDir() + "/t.db", "--limit", "1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	want := "showing 1 of 31,308 candidates (24,962 extracted / 5,827 hidden / 519 remember-intent) — use --offset/--limit, --source to narrow"
+	if !strings.Contains(stdout.String(), want) {
+		t.Fatalf("pool summary missing:\n%s", stdout.String())
+	}
+	if got := memoryStub.countBySourceCriteria.Sources(); len(got) != 0 {
+		t.Fatalf("default COUNT must include hidden (empty Sources), got %v", got)
+	}
+	if got := memoryStub.listCriteria.Sources(); len(got) == 0 {
+		t.Fatal("default list must still exclude extracted-hidden")
+	}
+}
+
+func TestMemoryInboxList_EmptyVisiblePageStillSummarizesPool(t *testing.T) {
+	t.Parallel()
+
+	memoryStub := &memoryUsecaseStub{
+		sourceCountsSet: true,
+		sourceCounts: apptypes.MemorySourceCountsFrom(map[domtypes.MemorySource]int{
+			domtypes.MemorySourceExtractedHidden: 5827,
+		}),
+	}
+	root := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(memoryStub),
+	)
+	cmd := root.Command()
+	stdout := &bytes.Buffer{}
+	cmd.SetOut(stdout)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"memory", "inbox", "list", "--db-path", t.TempDir() + "/t.db"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	out := stdout.String()
+	if !strings.Contains(out, "showing 0 of 5,827 candidates (5,827 hidden) — use --offset/--limit, --source to narrow") {
+		t.Fatalf("hidden-only pool must still print a summary:\n%s", out)
+	}
+}
+
+func TestMemoryInboxList_JSONLeavesArrayUntouched(t *testing.T) {
+	t.Parallel()
+
+	imported := buildInboxCandidateDetails(t, "memory-json", "from host", domtypes.MemorySourceImported)
+	memoryStub := &memoryUsecaseStub{
+		listResult:      []apptypes.MemorySummary{imported.Summary()},
+		showDetails:     imported,
+		sourceCountsSet: true,
+		sourceCounts: apptypes.MemorySourceCountsFrom(map[domtypes.MemorySource]int{
+			domtypes.MemorySourceImported: 99,
+		}),
+	}
+	root := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(memoryStub),
+	)
+	cmd := root.Command()
+	stdout := &bytes.Buffer{}
+	cmd.SetOut(stdout)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"memory", "inbox", "list", "--db-path", t.TempDir() + "/t.db", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	var items []json.RawMessage
+	if err := json.Unmarshal(stdout.Bytes(), &items); err != nil {
+		t.Fatalf("JSON must stay a top-level array: %v (body=%s)", err, stdout.String())
+	}
+	if len(items) != 1 {
+		t.Fatalf("JSON items = %d, want 1", len(items))
+	}
+	if strings.Contains(stdout.String(), "showing ") || strings.Contains(stdout.String(), "\"total\"") {
+		t.Fatalf("JSON must not grow a totals envelope:\n%s", stdout.String())
+	}
+}
+
+func TestMemoryInboxList_ExplicitSourceNarrowsCount(t *testing.T) {
+	t.Parallel()
+
+	imported := buildInboxCandidateDetails(t, "memory-imported", "from host", domtypes.MemorySourceImported)
+	memoryStub := &memoryUsecaseStub{
+		listResult:  []apptypes.MemorySummary{imported.Summary()},
+		showDetails: imported,
+	}
+	root := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(memoryStub),
+	)
+	cmd := root.Command()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"memory", "inbox", "list", "--db-path", t.TempDir() + "/t.db", "--source", "imported"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	got := memoryStub.countBySourceCriteria.Sources()
+	if len(got) != 1 || got[0] != domtypes.MemorySourceImported {
+		t.Fatalf("explicit --source must pin COUNT sources, got %v", got)
+	}
+}
+
 func TestMemoryInboxAccept_BatchIDs(t *testing.T) {
 	t.Parallel()
 

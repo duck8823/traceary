@@ -8,6 +8,7 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 ## [Unreleased]
 
 ### Fixed
+- **`memory inbox list` discloses the candidate pool size (#2064)** — text mode prints `showing N of M candidates (source split)` after the page, including `extracted-hidden` unless `--source` is set. JSON stays the existing item array.
 - **Extraction hides orchestration progress narration (#2063)** — sprint/wave status, markdown status-table rows, scratch-path lines, and `ephemeralMessage` envelopes are routed to `extracted-hidden` (`transient_status`). Durable always/never/must facts stay visible.
 - **Unreviewed extracted memory candidates now carry a 30-day TTL (#2062)** — `expires_at` is stamped at propose time and backfilled on `memory decay --apply`. Decay clocks `created_at` (not `updated_at`). `remember-intent` / `manual` / `compact-summary` stay exempt. Dry-run counts include `backfilled=`.
 - **`store search-projection status` no longer walks dbstat (#2059)** — physical bytes come from the `store capacity` sidecar cache (`physical_evidence.status=cached`) or are immediately `unavailable`. Lifecycle fields stay on the control snapshot. Target is low-second answers on large stores.

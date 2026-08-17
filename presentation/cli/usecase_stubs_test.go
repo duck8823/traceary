@@ -576,12 +576,16 @@ type memoryUsecaseStub struct {
 		evidenceRefs []types.EvidenceRef
 		artifactRefs []types.ArtifactRef
 	}
-	listCriteria   apptypes.MemoryListCriteria
-	staleCriteria  apptypes.StaleMemoryListCriteria
-	staleCalls     int
-	searchCriteria apptypes.MemorySearchCriteria
-	showMemoryID   types.MemoryID
-	acceptCall     struct {
+	listCriteria          apptypes.MemoryListCriteria
+	sourceCounts          apptypes.MemorySourceCounts
+	sourceCountsSet       bool
+	sourceCountErr        error
+	countBySourceCriteria apptypes.MemoryListCriteria
+	staleCriteria         apptypes.StaleMemoryListCriteria
+	staleCalls            int
+	searchCriteria        apptypes.MemorySearchCriteria
+	showMemoryID          types.MemoryID
+	acceptCall            struct {
 		memoryID   types.MemoryID
 		confidence types.Optional[types.Confidence]
 	}
@@ -696,6 +700,21 @@ func (s *memoryUsecaseStub) SetValidity(_ context.Context, memoryID types.Memory
 func (s *memoryUsecaseStub) List(_ context.Context, criteria apptypes.MemoryListCriteria) ([]apptypes.MemorySummary, error) {
 	s.listCriteria = criteria
 	return s.listResult, s.listErr
+}
+
+func (s *memoryUsecaseStub) CountBySource(_ context.Context, criteria apptypes.MemoryListCriteria) (apptypes.MemorySourceCounts, error) {
+	s.countBySourceCriteria = criteria
+	if s.sourceCountErr != nil {
+		return apptypes.MemorySourceCounts{}, s.sourceCountErr
+	}
+	if s.sourceCountsSet {
+		return s.sourceCounts, nil
+	}
+	bySource := make(map[types.MemorySource]int)
+	for _, item := range s.listResult {
+		bySource[item.Source()]++
+	}
+	return apptypes.MemorySourceCountsFrom(bySource), nil
 }
 
 func (s *memoryUsecaseStub) ListStale(_ context.Context, criteria apptypes.StaleMemoryListCriteria) (apptypes.StaleMemoryListResult, error) {

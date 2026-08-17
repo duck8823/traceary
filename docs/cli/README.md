@@ -337,6 +337,8 @@ Review the memory review queue. `list` surfaces `candidate` memories together wi
 
 Useful flags: `--workspace`, `--agent`, `--session-family`, `--type`, `--source` (manual / extracted / extracted-hidden / imported / remember-intent / compact-summary), `--include-hidden`, `--limit`, `--offset`, `--json`.
 
+Text mode ends with a pool-size line (`showing N of M candidates (source split)`) so a `--limit` page cannot hide a 30k inbox. The count includes `extracted-hidden` unless `--source` is set. `--json` stays a top-level item array.
+
 The `--source` filter pairs naturally with the extraction and import paths:
 
 - `--source imported` focuses on memories read from host-native sources such as Codex (see `memory admin import codex`).

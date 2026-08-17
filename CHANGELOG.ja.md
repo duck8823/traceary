@@ -8,6 +8,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 ## [Unreleased]
 
 ### Fixed
+- **`memory inbox list` が候補プール件数を出す (#2064)** — テキストはページの後に `showing N of M candidates (source split)` を出す。`--source` 未指定なら `extracted-hidden` も含む。JSON は既存の item 配列のまま。
 - **抽出がオーケストレーション進捗のナレーションを hidden にする (#2063)** — sprint/wave 状況、markdown の status 表、scratch パス、`ephemeralMessage` 包みを `extracted-hidden`（`transient_status`）へ。always/never/must の durable 事実は表示されたまま。
 - **未レビューの extracted メモリ候補に 30 日 TTL を付ける (#2062)** — 提案時に `expires_at` を刻み、`memory decay --apply` で NULL を backfill する。decay の時計は `created_at`（`updated_at` ではない）。`remember-intent` / `manual` / `compact-summary` は対象外。dry-run 件数に `backfilled=` を出す。
 - **`store search-projection status` が dbstat を歩かない (#2059)** — 物理バイトは `store capacity` の sidecar cache（`physical_evidence.status=cached`）か、即座の `unavailable`。lifecycle 欄は control snapshot のまま。大きい store でも数秒で答えるのが目標。

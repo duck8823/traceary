@@ -708,6 +708,51 @@ func TestMemoryDatasource_CountByStatus(t *testing.T) {
 	}
 }
 
+func TestMemoryDatasource_CountBySourceIgnoresLimit(t *testing.T) {
+	t.Parallel()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	sut, storeManager := newMemoryDatasource(t, dbPath, memoryDatasourceTestMigrations())
+	ctx := context.Background()
+	if err := storeManager.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	ws := mustWorkspaceScope(t, "github.com/duck8823/traceary")
+	base := time.Date(2026, 4, 12, 8, 0, 0, 0, time.UTC)
+	fixtures := []*model.Memory{
+		memoryOf(t, "ext-1", types.MemoryTypeLesson, ws, "e1", types.MemoryStatusCandidate, types.ConfidenceLow, types.MemorySourceExtracted, nil, nil, types.None[types.MemoryID](), types.None[time.Time](), base, base),
+		memoryOf(t, "ext-2", types.MemoryTypeLesson, ws, "e2", types.MemoryStatusCandidate, types.ConfidenceLow, types.MemorySourceExtracted, nil, nil, types.None[types.MemoryID](), types.None[time.Time](), base, base),
+		memoryOf(t, "hid-1", types.MemoryTypeLesson, ws, "h1", types.MemoryStatusCandidate, types.ConfidenceLow, types.MemorySourceExtractedHidden, nil, nil, types.None[types.MemoryID](), types.None[time.Time](), base, base),
+		memoryOf(t, "rem-1", types.MemoryTypePreference, ws, "r1", types.MemoryStatusCandidate, types.ConfidenceLow, types.MemorySourceRememberIntent, nil, nil, types.None[types.MemoryID](), types.None[time.Time](), base, base),
+		memoryOf(t, "acc-1", types.MemoryTypeDecision, ws, "a1", types.MemoryStatusAccepted, types.ConfidenceHigh, types.MemorySourceManual, nil, nil, types.None[types.MemoryID](), types.None[time.Time](), base, base),
+	}
+	for _, memory := range fixtures {
+		if err := sut.Save(ctx, memory); err != nil {
+			t.Fatalf("Save(%s) error = %v", memory.MemoryID(), err)
+		}
+	}
+	counts, err := sut.CountBySource(ctx, apptypes.NewMemoryListCriteriaBuilder(1).
+		Statuses([]types.MemoryStatus{types.MemoryStatusCandidate}).
+		Build())
+	if err != nil {
+		t.Fatalf("CountBySource() error = %v", err)
+	}
+	if counts.Total() != 4 {
+		t.Fatalf("Total=%d, want 4 candidates (limit must not cap COUNT)", counts.Total())
+	}
+	if counts.Count(types.MemorySourceExtracted) != 2 {
+		t.Fatalf("extracted=%d, want 2", counts.Count(types.MemorySourceExtracted))
+	}
+	if counts.Count(types.MemorySourceExtractedHidden) != 1 {
+		t.Fatalf("hidden=%d, want 1", counts.Count(types.MemorySourceExtractedHidden))
+	}
+	if counts.Count(types.MemorySourceRememberIntent) != 1 {
+		t.Fatalf("remember-intent=%d, want 1", counts.Count(types.MemorySourceRememberIntent))
+	}
+	if counts.Count(types.MemorySourceManual) != 0 {
+		t.Fatal("accepted manual must not be counted as a candidate")
+	}
+}
+
 func TestMemoryDatasource_List_RememberIntentPriorityAppliesBeforePagination(t *testing.T) {
 	t.Parallel()
 

@@ -119,7 +119,7 @@ Since v0.21.0, only fully-formed unified-diff / git metadata is **dropped entire
 
 #### Candidate hygiene
 
-The former sessions snapshot hygiene pane was removed with `traceary sessions` in v0.42.0 (#2061). Gauge and clear the candidate backlog with `traceary memory inbox list` and the dry-run-first `traceary memory inbox cleanup --quality low` (add `--apply` to reject matches; cleanup only rejects candidates; it never deletes or auto-accepts). `traceary memory admin hygiene scan` adds similarity-based duplicate detection beyond exact same-scope / memory-type / fact matches.
+The former sessions snapshot hygiene pane was removed with `traceary sessions` in v0.42.0 (#2061). Gauge and clear the candidate backlog with `traceary memory inbox list` (text mode prints `showing N of M candidates`, including hidden unless `--source` is set) and the dry-run-first `traceary memory inbox cleanup --quality low` (add `--apply` to reject matches; cleanup only rejects candidates; it never deletes or auto-accepts). `traceary memory admin hygiene scan` adds similarity-based duplicate detection beyond exact same-scope / memory-type / fact matches.
 
 #### Context-boundary extraction
 

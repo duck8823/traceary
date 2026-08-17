@@ -109,10 +109,12 @@ func NewMemoryDatasourceWithClock(db *Database, clock types.Clock) *MemoryDataso
 }
 
 var (
-	_ model.MemoryRepository               = (*MemoryDatasource)(nil)
-	_ queryservice.MemoryQueryService      = (*MemoryDatasource)(nil)
-	_ queryservice.MemoryHygieneScanSource = (*MemoryDatasource)(nil)
-	_ queryservice.StaleMemoryQueryService = (*MemoryDatasource)(nil)
+	_ model.MemoryRepository                     = (*MemoryDatasource)(nil)
+	_ queryservice.MemoryQueryService            = (*MemoryDatasource)(nil)
+	_ queryservice.MemoryHygieneScanSource       = (*MemoryDatasource)(nil)
+	_ queryservice.StaleMemoryQueryService       = (*MemoryDatasource)(nil)
+	_ queryservice.MemoryStatusCountQueryService = (*MemoryDatasource)(nil)
+	_ queryservice.MemorySourceCountQueryService = (*MemoryDatasource)(nil)
 )
 
 // Save persists a memory aggregate together with its refs.
@@ -446,6 +448,53 @@ func (d *MemoryDatasource) CountByStatus(ctx context.Context, criteria apptypes.
 	}
 
 	return counts, nil
+}
+
+// CountBySource returns the true per-source row counts matching the criteria,
+// ignoring its Limit/Offset. It backs the inbox list pool-size summary (#2064).
+func (d *MemoryDatasource) CountBySource(ctx context.Context, criteria apptypes.MemoryListCriteria) (apptypes.MemorySourceCounts, error) {
+	db, err := d.db.open(ctx)
+	if err != nil {
+		return apptypes.MemorySourceCounts{}, xerrors.Errorf("failed to open DB for memory source count: %w", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+
+	query, args, err := buildMemoryCountBySourceQuery(criteria, d.clock)
+	if err != nil {
+		return apptypes.MemorySourceCounts{}, xerrors.Errorf("failed to build memory source count query: %w", err)
+	}
+
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return apptypes.MemorySourceCounts{}, xerrors.Errorf("failed to count memories by source: %w", err)
+	}
+	defer func() {
+		if err := rows.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+
+	bySource := make(map[types.MemorySource]int)
+	for rows.Next() {
+		var source string
+		var count int
+		if err := rows.Scan(&source, &count); err != nil {
+			return apptypes.MemorySourceCounts{}, xerrors.Errorf("failed to scan memory source count row: %w", err)
+		}
+		parsed, err := types.MemorySourceFrom(source)
+		if err != nil {
+			return apptypes.MemorySourceCounts{}, xerrors.Errorf("failed to parse memory source: %w", err)
+		}
+		bySource[parsed] = count
+	}
+	if err := rows.Err(); err != nil {
+		return apptypes.MemorySourceCounts{}, xerrors.Errorf("failed to iterate memory source count rows: %w", err)
+	}
+	return apptypes.MemorySourceCountsFrom(bySource), nil
 }
 
 // ListStale returns stale memory rows plus the total count before paging.
@@ -909,6 +958,19 @@ func buildMemoryCountByStatusQuery(criteria apptypes.MemoryListCriteria, clock t
 	args = appendMemoryValidityWindowFilter(&builder, args, criteria.AsOf(), criteria.IncludeExpiredByValidity(), clock)
 	args = appendMemoryUpdatedAtFilter(&builder, args, criteria.UpdatedBefore(), criteria.UpdatedAfter())
 	builder.WriteString(" GROUP BY m.status")
+	return builder.String(), args, nil
+}
+
+func buildMemoryCountBySourceQuery(criteria apptypes.MemoryListCriteria, clock types.Clock) (string, []any, error) {
+	var builder strings.Builder
+	builder.WriteString("SELECT m.source, COUNT(*) FROM memories m WHERE 1 = 1")
+	args, err := appendMemoryFilters(&builder, nil, criteria.Scopes(), criteria.Statuses(), criteria.MemoryTypes(), criteria.Sources())
+	if err != nil {
+		return "", nil, err
+	}
+	args = appendMemoryValidityWindowFilter(&builder, args, criteria.AsOf(), criteria.IncludeExpiredByValidity(), clock)
+	args = appendMemoryUpdatedAtFilter(&builder, args, criteria.UpdatedBefore(), criteria.UpdatedAfter())
+	builder.WriteString(" GROUP BY m.source")
 	return builder.String(), args, nil
 }
 

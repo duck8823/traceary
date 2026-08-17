@@ -337,6 +337,8 @@ durable memory を一覧表示します。scope flag を明示しない場合は
 
 主な flag: `--workspace`, `--agent`, `--session-family`, `--type`, `--source` (manual / extracted / extracted-hidden / imported / remember-intent / compact-summary), `--include-hidden`, `--limit`, `--offset`, `--json`。
 
+テキスト出力の末尾にプール件数行（`showing N of M candidates (source split)`）を出します。`--limit` のページの裏に 3 万件が隠れないようにするためです。`--source` 未指定なら `extracted-hidden` も含みます。`--json` は従来どおり item の配列です。
+
 `--source` は extraction / import 経路との相性が良い filter です。
 
 - `--source imported` は host-native source (Codex 等、`memory admin import codex` 参照) から取り込まれた memory に絞ります。
