@@ -8,7 +8,7 @@ The search projection is derived: it can always be rebuilt from canonical events
 
 Stores that have never built a generation do not need an operator command. A store open runs one bounded unit of generation work — start if idle and source events exist, otherwise resume a matching rebuild — except in the states it skips instead, which the table below names. Literal search works throughout: a generation that is not yet `complete` only means the fingerprint pre-filter is unavailable, so candidates are decoded directly and literal matches stay correct. The session tier is a different matter — it is refused until a generation is complete, so a match that exists only in a session summary or its keywords is absent until then. `traceary search` reports on stderr that the session tier was not consulted and points to `traceary doctor`; what that state needs differs from one state to the next, and the table below gives it for each. Before old generation rows are reclaimed, a real session-tier query must succeed against the generation under construction. `status` reports before/after physical bytes for the **bounded_search_projection** family only.
 
-Operators can still drive the same machinery explicitly. Start a generation with `traceary store compact --projection-rebuild`. Parked or in-flight recovery is `traceary doctor --fix`, which starts a replacement when needed and then runs bounded batches:
+Operators can still drive the same machinery explicitly. Start a generation, or resume a matching in-flight rebuild, with `traceary store compact --projection-rebuild`. Parked failed recovery is `traceary doctor --fix`, which starts a replacement when needed and then runs bounded batches:
 
 On a store upgraded from before the projection schema, the first resume
 batches inventory historical event identities before any payload is decoded.
@@ -60,9 +60,9 @@ deterministic failure on every open.
 | `status` state | On the next ordinary store open | If it is not advancing |
 |---|---|---|
 | `complete` | the session tier is available | — |
-| `idle`, store has events | a generation starts and one bounded batch runs | `traceary doctor --fix` |
+| `idle`, store has events | a generation starts and one bounded batch runs | `traceary store compact --projection-rebuild` |
 | `idle`, store has no events | nothing happens, and nothing is missing: a store with no events has no sessions to match | — |
-| `rebuilding`, or `drifted` in `cleanup`, whose budget hash matches the default | one bounded batch resumes | `traceary doctor --fix` |
+| `rebuilding`, or `drifted` in `cleanup`, whose budget hash matches the default | one bounded batch resumes | `traceary store compact --projection-rebuild` |
 | `rebuilding`, or `drifted` in `cleanup`, whose budget hash does not match | **skipped** — the generation never finishes on its own | `traceary store compact --projection-rebuild` with the original budget flags; if that cannot be reproduced, the same command with the new budget replaces the generation |
 | `drifted`, outside `cleanup` | a replacement generation starts | `traceary store compact --projection-rebuild` |
 | `failed` | **skipped** — parked deliberately | `traceary doctor --fix` |

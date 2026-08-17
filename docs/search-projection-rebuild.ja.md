@@ -8,7 +8,7 @@
 
 世代を一度も作っていない store でも、オペレータのコマンドは不要です。store を開くと generation 作業を上限付きで 1 単位進めます。idle かつ source event があるときだけ start し、それ以外は一致する rebuild を resume します。ただし代わりに skip される state があり、それらは後述の表に挙げています。この間も本文一致の検索は機能します。世代が `complete` でない状態は fingerprint による pre-filter が使えないことを意味するだけで、候補を直接復号して本文一致は正しく返ります。session tier は別です。世代が complete になるまで参照を拒否するため、session の要約やキーワードにだけ存在する一致はそれまで返りません。`traceary search` は stderr で session tier を参照しなかったことを通知し、`traceary doctor` を案内します。報告された state ごとに必要な操作は異なり、通常の store open では進まない state が 2 つあります。`failed` な generation には明示的な `start` が必要で、非既定の budget で開始された rebuild には同じ budget を指定した `resume` または `abort` が必要です。generation が rebuilding の間、`start` は拒否されるためです。旧世代の行を回収する前に、構築中の世代に対する session tier の実クエリが成功する必要があります。`status` が報告する前後の物理バイトは **bounded_search_projection** ファミリのみです。
 
-オペレータは同じ機構を明示的に動かせます。`traceary store compact --projection-rebuild`で世代を開始します。parked または進行中の復旧は `traceary doctor --fix` で、必要なら置換世代を開始してから bounded batch を走らせます。
+オペレータは同じ機構を明示的に動かせます。世代の開始、または hash が一致する進行中 rebuild の resume は `traceary store compact --projection-rebuild` です。parked した failed の復旧は `traceary doctor --fix` で、必要なら置換世代を開始してから bounded batch を走らせます。
 
 プロジェクションschemaより前のstoreをupgradeした場合、最初の`resume`バッチ群はpayloadをdecodeする前に、過去のevent identityをinventoryします。このphaseは`status`に明示され、安定したevent ID cursorを使用し、行数、保存バイト数、論理書き込みバイト数、wall time、lock timeの上限に従います。processを再起動すると最後にatomic commitされたcursorから再開します。過去行への並行の**update / delete**は、不完全なinventoryを受け入れずgenerationを無効化します。ライブの**insert**は無効化しません。events の insert trigger が新しい identity を `search_projection_source_sequence` へ無条件登録するため、inventory に追加作業はなく、store を開くたびに書く hook でも `complete` に到達できます。旧migration 38ですでに投入済みのstoreと新規の空storeは、正本tableをscanせずこのphaseを省略します。
 
@@ -33,9 +33,9 @@ budget hash に関する以下の行には、優先する条件が 1 つあり�
 | `status` の state | 次の通常の store open で起きること | 進んでいない場合 |
 |---|---|---|
 | `complete` | session tier が利用できます | — |
-| `idle`（event あり） | 世代が start し、bounded batch が 1 回走ります | `traceary doctor --fix` |
+| `idle`（event あり） | 世代が start し、bounded batch が 1 回走ります | `traceary store compact --projection-rebuild` |
 | `idle`（event なし） | 何も起きませんが、失われるものもありません。event のない store には一致する session がありません | — |
-| `rebuilding` または `cleanup` 中の `drifted` で、budget hash が既定と一致 | bounded batch が 1 回 resume します | `traceary doctor --fix` |
+| `rebuilding` または `cleanup` 中の `drifted` で、budget hash が既定と一致 | bounded batch が 1 回 resume します | `traceary store compact --projection-rebuild` |
 | `rebuilding` または `cleanup` 中の `drifted` で、budget hash が不一致 | **skip** されます。世代は自力では完了しません | 開始時の budget flag 付き `traceary store compact --projection-rebuild`。再現できない場合は同じコマンドが世代を置き換えます |
 | `cleanup` 以外の `drifted` | 置き換えの世代が start します | `traceary store compact --projection-rebuild` |
 | `failed` | **skip** されます。意図的に park されています | `traceary doctor --fix` |
