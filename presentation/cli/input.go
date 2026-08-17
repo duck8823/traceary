@@ -127,25 +127,28 @@ type listCommandInput struct {
 	// sensitiveOnly keeps command_executed events whose bodies match the
 	// sensitive-path classifier (compute-on-read; independent of redaction).
 	// When set, kind defaults to command_executed if unset.
-	sensitiveOnly   bool
-	sourceHook      string
-	asJSON          bool
-	wide            bool
-	utc             bool
-	location        *time.Location
-	fields          []string
-	fieldsSet       bool
-	preset          string
-	presetSet       bool
-	kindSet         bool
-	clientSet       bool
-	agentSet        bool
-	sessionIDSet    bool
-	repoSet         bool
-	failuresOnlySet bool
-	sourceHookSet   bool
-	color           string
-	colorSet        bool
+	sensitiveOnly    bool
+	sourceHook       string
+	asJSON           bool
+	wide             bool
+	utc              bool
+	location         *time.Location
+	fields           []string
+	fieldsSet        bool
+	preset           string
+	presetSet        bool
+	kindSet          bool
+	clientSet        bool
+	agentSet         bool
+	sessionIDSet     bool
+	repoSet          bool
+	failuresOnlySet  bool
+	sourceHookSet    bool
+	color            string
+	colorSet         bool
+	follow           bool
+	followSession    string
+	followSessionSet bool
 }
 
 // logCommandInput is the resolved input to the `traceary log` command.
@@ -226,7 +229,8 @@ type timelineCommandInput struct {
 	location  *time.Location
 }
 
-// tailCommandInput is the resolved input to the `traceary tail` command.
+// tailCommandInput is the resolved input to `traceary list --follow`
+// (the former `traceary tail` live stream).
 type tailCommandInput struct {
 	dbPath           string
 	limit            int

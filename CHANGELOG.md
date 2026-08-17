@@ -15,6 +15,7 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 - **Parked search-projection catch-up no longer warns on every command (#2058)** — the skip WARN is rate-limited to once per 24h per store. `doctor` and `store search-projection status` still always show the parked reason. Recovery text names `start` then `resume --until-complete`.
 
 ### Removed
+- **`traceary tail` (#2068)** — invocations fail as an unknown command (non-zero, no `DEPRECATED` notice). Use `traceary list --follow` (same stream, filters, and rendering). `--follow-session` moved onto `list`.
 - **`traceary sessions` (#2061)** — including `--snapshot` / `--snapshot --json`. Invocations fail as an unknown command (non-zero, no `DEPRECATED` notice). Use `list` / `search` / `context` / `report` / `session handoff`. Internal session List stays for hook workspace canonicalization.
 - **`traceary session latest` and `traceary session list` (#2057)** — both fail as unknown subcommands (non-zero, no `DEPRECATED` notice). Use hook `[Traceary] Session <id>`, `list` / `search` / `context`, and `report`. Internal Active/Latest/List queries stay for handoff, hooks, and context.
 

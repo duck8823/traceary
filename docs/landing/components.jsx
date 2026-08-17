@@ -104,11 +104,11 @@ const inspectViews = {
     )
   },
   tail: {
-    cmd: 'traceary tail --limit 3',
+    cmd: 'traceary list --follow --limit 3',
     title: 'live event stream',
     body: (
       <>
-        <div className="term-line"><span className="term-prompt">$</span><span className="term-cmd">traceary tail --limit 3</span></div>
+        <div className="term-line"><span className="term-prompt">$</span><span className="term-cmd">traceary list --follow --limit 3</span></div>
         <div className="term-out" dangerouslySetInnerHTML={{__html:
           '<span class="ts">07:06:44</span>  <span class="kind">command_executed</span>  agent=codex   <span class="sess">sess=4a70c5</span>  <span class="ws">ws=traceary</span>  ls ~/.traceary 2>&1; find ~ -name "trace…\n' +
           '<span class="ts">07:06:47</span>  <span class="kind">command_executed</span>  agent=codex   <span class="sess">sess=4a70c5</span>  <span class="ws">ws=traceary</span>  ./traceary timeline --db-path /Users/duck8…\n' +
@@ -179,7 +179,7 @@ function InspectSection() {
   const [active, setActive] = useState('list');
   const items = [
     { id: 'list', cmd: 'traceary list', desc: 'Scan recent events with workspace, session, and kind filters' },
-    { id: 'tail', cmd: 'traceary tail', desc: 'Confirm hooks are firing, watch failures in real time' },
+    { id: 'tail', cmd: 'traceary list --follow', desc: 'Confirm hooks are firing, watch failures in real time' },
     { id: 'timeline', cmd: 'traceary timeline', desc: 'See gap-separated work blocks with per-workspace summaries' },
     { id: 'search', cmd: 'traceary search', desc: 'Jump to an exact kind, session, or query' },
     { id: 'handoff', cmd: 'traceary session handoff', desc: 'Resume with curated working memory' },

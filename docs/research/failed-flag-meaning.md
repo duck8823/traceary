@@ -10,7 +10,7 @@
 
 ## Decision
 
-`command_audits.failed = 1` is a compatibility flag for structured command failure. On the current write path it is derived from `failure_reason.IsFailure()` and is never set independently. `list --failures` (and the same predicate on `search` / `tail`) matches `failed = 1` **or** a captured non-zero `exit_code`. Hosts still almost never report exit codes, so the flag half is the live surface.
+`command_audits.failed = 1` is a compatibility flag for structured command failure. On the current write path it is derived from `failure_reason.IsFailure()` and is never set independently. `list --failures` (and the same predicate on `search` / `list --follow`) matches `failed = 1` **or** a captured non-zero `exit_code`. Hosts still almost never report exit codes, so the flag half is the live surface.
 
 Keep that surface. Do not move it into `doctor`. Do not add a CHECK that forbids `failed=1 AND failure_reason='unknown'`: restore must keep pre-classifier rows. New writes already cannot persist that pair.
 

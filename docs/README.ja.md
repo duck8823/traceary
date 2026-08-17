@@ -22,7 +22,7 @@
 - [ネイティブ連携ガイド](./integrations/README.ja.md): Claude / Codex / Gemini（レガシー）向けパッケージ、導入手順、smoke test
 - [Antigravity hooks / plugin](./integrations/antigravity.ja.md): v0.21.1 の hook client サポート、packaged plugin、install パス、制限事項、公式 hook/plugin リファレンス
 - [Hooks ガイド](./hooks/README.ja.md): Claude Code / Codex / Gemini（レガシー）の hook 設定、導入手順、トラブルシュート
-- [インタラクティブ運用ガイド](./interactive/README.ja.md): `list`、`tail`、`search`、`show`、`handoff` の使い分け
+- [インタラクティブ運用ガイド](./interactive/README.ja.md): `list`、`list --follow`、`search`、`show`、`handoff` の使い分け
 
 ## 運用
 

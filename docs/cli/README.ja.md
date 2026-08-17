@@ -93,7 +93,7 @@ subcommand なしの `traceary` は TTY / 非 TTY とも常に help を表示し
 
 `list` と `search` は、開始を含み終了を含まない 1 つの期間を使います。RFC3339 の `--from` は含み、`--to` は正確な時刻として含みません。日付だけの `--to YYYY-MM-DD` は、その日を含めるため翌日の現地午前 0 時へ解決します。日付だけの値には `--timezone <IANA名>` を使い、既定値は明示的に UTC です。端末のローカルタイムゾーンを暗黙に使いません。ホストごとに意味が変わる Go の特殊なゾーン名 `Local` は拒否します。終了を省略した場合は、コマンド開始時の 1 つのスナップショット時刻に固定します。
 
-デフォルトのテキスト出力は `tail` と同じコンパクトな 1 行形式 (`HH:MM:SS  kind  agent=<agent>  sess=<先頭8文字>  ws=<basename>  message`、ヘッダ無し、現地時刻) です。`--wide` で従来のタブ区切り表、`--utc` でテキスト出力を UTC に切り替えられます。`--wide --utc` を組み合わせると v0.6.1 以前の出力を完全再現します。明示的な `--fields` がない JSON は従来の event key を維持します。JSON で `--fields` を明示すると選択した key だけを出力し、`message` を含まない `list` / `search` は本文を読まないメタデータクエリを使用します。`--fields ts,kind,message` でフィールドを選択できます（テキストでの優先順位: `--fields` > preset fields > `~/.config/traceary/config.json` の `read.fields` > 組み込み既定値）。`--fields` は `--wide` と併用できません。利用可能フィールド: `ts`, `kind`, `session`, `ws`, `client`, `agent`, `message`, `exit_code`, `id`, `source_hook`。`--preset <name>` で保存済みビューを適用できます。built-in は `failures` / `prompts-only` / `compact-summaries`、`read.presets` に定義したユーザー preset が同名 built-in を上書きします。明示した `--kind` / `--failures` / `--workspace` などのフラグは常に preset より優先されます。`--wide` / `--json` のときは preset の fields 指定は無視されますが、filter は有効です。`--color=auto|always|never` でコンパクト行の ANSI ハイライトを切り替えられます（既定は `auto`、`NO_COLOR` 環境変数でも無効化可、`--wide` / `--json` では適用されません）。ハイライトが有効な場合、失敗した `command_executed` は赤+太字、`prompt` と `transcript` は cyan、`compact_summary` は magenta、`session_started` / `session_ended` は dim で表示されます。
+デフォルトのテキスト出力はコンパクトな 1 行形式 (`HH:MM:SS  kind  agent=<agent>  sess=<先頭8文字>  ws=<basename>  message`、ヘッダ無し、現地時刻) です。`--wide` で従来のタブ区切り表、`--utc` でテキスト出力を UTC に切り替えられます。`--wide --utc` を組み合わせると v0.6.1 以前の出力を完全再現します。明示的な `--fields` がない JSON は従来の event key を維持します。JSON で `--fields` を明示すると選択した key だけを出力し、`message` を含まない `list` / `search` は本文を読まないメタデータクエリを使用します。`--fields ts,kind,message` でフィールドを選択できます（テキストでの優先順位: `--fields` > preset fields > `~/.config/traceary/config.json` の `read.fields` > 組み込み既定値）。`--fields` は `--wide` と併用できません。利用可能フィールド: `ts`, `kind`, `session`, `ws`, `client`, `agent`, `message`, `exit_code`, `id`, `source_hook`。`--preset <name>` で保存済みビューを適用できます。built-in は `failures` / `prompts-only` / `compact-summaries`、`read.presets` に定義したユーザー preset が同名 built-in を上書きします。明示した `--kind` / `--failures` / `--workspace` などのフラグは常に preset より優先されます。`--wide` / `--json` のときは preset の fields 指定は無視されますが、filter は有効です。`--color=auto|always|never` でコンパクト行の ANSI ハイライトを切り替えられます（既定は `auto`、`NO_COLOR` 環境変数でも無効化可、`--wide` / `--json` では適用されません）。ハイライトが有効な場合、失敗した `command_executed` は赤+太字、`prompt` と `transcript` は cyan、`compact_summary` は magenta、`session_started` / `session_ended` は dim で表示されます。
 
 主な flag:
 
@@ -114,35 +114,8 @@ subcommand なしの `traceary` は TTY / 非 TTY とも常に help を表示し
 - `--to` / `--until`
 - `--timezone`
 - `--failures` — この 記録 フィルタは残す。`command_audits.failed = 1` または取得済みの非ゼロ `exit_code` に一致する。現行の書き込みは構造化された host のツール失敗を `unknown` ではなく `host_error` として保存する。分類器以前の `unknown`+`failed=1` はフラグ側で一致する。意味は [failed-flag の意味](../research/failed-flag-meaning.ja.md) を見てください。
-
-### `traceary tail`
-
-新しい event を追跡表示します。
-
-`tail` はイベントの流れをその場で追いかけるためのコマンドです。最初に最近の backlog を表示し、その後はローカルストアに追加される一致 event を継続して追跡します。hook が正しく動いているか、想定した session / workspace に書き込まれているか、失敗がリアルタイムで見えているかを確認したいときに向いています。`list` のように 1 回で終わらず、`search` のようなキーワード検索も行いません。`handoff` と違って working memory は組み立てず、生の event stream をそのまま表示します。
-
-デフォルトのテキスト出力は `HH:MM:SS  kind  agent=<agent>  sess=<先頭8文字>  ws=<basename>  message` というコンパクトな 1 行形式で、約 100 カラムに収まり、タイムスタンプは現地時刻 (local time) を使用します。`--wide` で従来のタブ区切り形式、`--utc` でテキスト出力のタイムスタンプを UTC に切り替えられます。`--wide --utc` を組み合わせると v0.6.1 以前と完全に同一のバイト列を再現するので、既存スクリプトとの互換を保てます。`--json` を付けると改行区切り JSON（1 行 1 event）を出力し、パイプラインから逐次処理できます（JSON の時刻は UTC RFC3339Nano で `--utc` の影響を受けません）。
-
-> コンパクト表示の session ID (`sess=<先頭8文字>`) は人間が目視する前提の短縮形です。機械処理には `--wide --utc` または `--json` を利用してください。
-
-`--fields ts,kind,message` でコンパクトカラムの順序を上書きできます (優先順位: `--fields` > preset fields > config.json の `read.fields` > 組み込み既定値)。`--fields` は `--wide` と併用できません。利用可能フィールドは `traceary list` の説明を参照してください。`--preset <name>` で保存済みビューを適用できます（built-in: `failures` / `prompts-only` / `compact-summaries`、user-defined は `read.presets`）。`--follow-session <prefix>`（8 文字以上）で 1 つの session に tail を絞れます。`traceary list` / `traceary search` の出力から session id の先頭を貼り付ければそのまま使えます。
-
-主な flag:
-
-- `--kind`
-- `--limit`
-- `--json`
-- `--wide`
-- `--utc`
-- `--fields`
-- `--preset`
-- `--color`
-- `--follow-session`
-- `--client`
-- `--agent`
-- `--workspace`
-- `--session-id`
-- `--failures`
+- `--follow` — 新しい一致イベントを追跡表示する（旧 `traceary tail`）。`--limit 0` は新規のみ。`--json` はスナップショット配列ではなく NDJSON。`--offset`、`--from`/`--since`/`--to`/`--until`、`--sensitive`、`--source-hook` とは同時に使えない。
+- `--follow-session <prefix>` — `--follow` 時に 1 つの session へ先頭一致（最低 8 文字）。
 
 ### `traceary search [<query>]`
 
@@ -156,7 +129,7 @@ complete な世代はスナップショットなので、その後に記録さ�
 
 この command をかつて支えていた全文コーパス版 migration-032 索引は v0.34 で退役しました。読み書きはされず、`traceary store compact` が書き換え時に落とします。詳細は [検索インデックスの退役](../operations/search-retirement.ja.md) を参照してください。
 
-本文一致だけの結果では、テキスト出力は `list` / `tail` と同じコンパクト 1 行形式 (デフォルトで現地時刻) です。両方のグループがあるときは `EVENTS (literal matches)` と `SESSIONS (summary or keyword matches)` のラベル付きグループになります。日本語表示では `EVENTS（本文一致）` と `SESSIONS（要約・キーワード一致）` です。`--wide` で従来のタブ区切り表、`--utc` で UTC に切り替えられます。`--wide --utc` を組み合わせると v0.6.1 以前の event 行形状を再現します。`--json` は `{"events": [...], "sessions": [...]}` を出力します。どちらのキーも常に存在し、ヒットがない tier は空配列です。明示的な `--fields` は `.events` 内の event フィールドだけを選び、session オブジェクトは固定形状（`session_id` / `summary` / `event_count` / `started_at`）のままです。`--fields ts,kind,message` でコンパクトカラムの順序を上書きできます (優先順位: `--fields` > preset fields > config.json の `read.fields` > 組み込み既定値)。`--fields` は `--wide` と併用できません。利用可能フィールドは `traceary list` の説明を参照してください。`--preset <name>` で保存済みビューを適用できます。filter を持つ preset なら free-text query なしでも検索条件が揃うので、preset-only な検索も成立します。
+本文一致だけの結果では、テキスト出力は `list` と同じコンパクト 1 行形式 (デフォルトで現地時刻) です。両方のグループがあるときは `EVENTS (literal matches)` と `SESSIONS (summary or keyword matches)` のラベル付きグループになります。日本語表示では `EVENTS（本文一致）` と `SESSIONS（要約・キーワード一致）` です。`--wide` で従来のタブ区切り表、`--utc` で UTC に切り替えられます。`--wide --utc` を組み合わせると v0.6.1 以前の event 行形状を再現します。`--json` は `{"events": [...], "sessions": [...]}` を出力します。どちらのキーも常に存在し、ヒットがない tier は空配列です。明示的な `--fields` は `.events` 内の event フィールドだけを選び、session オブジェクトは固定形状（`session_id` / `summary` / `event_count` / `started_at`）のままです。`--fields ts,kind,message` でコンパクトカラムの順序を上書きできます (優先順位: `--fields` > preset fields > config.json の `read.fields` > 組み込み既定値)。`--fields` は `--wide` と併用できません。利用可能フィールドは `traceary list` の説明を参照してください。`--preset <name>` で保存済みビューを適用できます。filter を持つ preset なら free-text query なしでも検索条件が揃うので、preset-only な検索も成立します。
 
 期間 filter は `traceary list` と同じ要求値・実効値の規則を使います。日付だけの終了日は指定した暦日を含み、`--timezone` は明示的（既定は UTC）、RFC3339 の終了は正確な排他時刻のままです。
 

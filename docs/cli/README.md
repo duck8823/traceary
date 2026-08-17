@@ -93,7 +93,7 @@ List recent events.
 
 `list` and `search` use one half-open interval: `--from` is inclusive and `--to` is exclusive for RFC3339 instants. A date-only `--to YYYY-MM-DD` includes that calendar day by resolving to the next local midnight. Date-only values use `--timezone <IANA-name>`; the default is explicitly UTC and never the host's local timezone. The special Go zone name `Local` is rejected because its meaning depends on the host. An omitted upper bound is fixed to one command-start snapshot.
 
-Default text output is the same compact single-line shape as `tail` (`HH:MM:SS  kind  agent=<agent>  sess=<first-8>  ws=<basename>  message`, local time, no header). Pass `--wide` for the legacy tab-separated format, or `--utc` to force UTC timestamps. `--wide --utc` reproduces the pre-v0.6.1 output byte-for-byte. JSON without explicit `--fields` keeps the existing full event keys. Explicit JSON `--fields` emits only the selected keys; when `message` is absent, `list` and `search` use the body-free metadata query. Use `--fields ts,kind,message` to pick fields; precedence for text is `--fields` > preset fields > `read.fields` in `~/.config/traceary/config.json` > built-in default. `--fields` cannot be combined with `--wide`. Supported fields: `ts`, `kind`, `session`, `ws`, `client`, `agent`, `message`, `exit_code`, `id`, `source_hook`. Use `--preset <name>` to apply a saved view: built-in presets are `failures`, `prompts-only`, `compact-summaries`; user-defined entries in `read.presets` can override built-in names and explicit filter flags (`--kind`, `--failures`, `--workspace`, etc.) still win over a preset. Presets ignore `--wide` / `--json` for field overrides but still apply filters. Use `--color=auto|always|never` to toggle ANSI highlighting of compact rows (defaults to `auto`, honours the `NO_COLOR` env variable, and is ignored by `--wide` and `--json`). When highlighting is on, failed `command_executed` rows turn red+bold, `prompt` and `transcript` rows become cyan, `compact_summary` rows become magenta, and `session_started` / `session_ended` rows are dimmed.
+Default text output is a compact single-line shape (`HH:MM:SS  kind  agent=<agent>  sess=<first-8>  ws=<basename>  message`, local time, no header). Pass `--wide` for the legacy tab-separated format, or `--utc` to force UTC timestamps. `--wide --utc` reproduces the pre-v0.6.1 output byte-for-byte. JSON without explicit `--fields` keeps the existing full event keys. Explicit JSON `--fields` emits only the selected keys; when `message` is absent, `list` and `search` use the body-free metadata query. Use `--fields ts,kind,message` to pick fields; precedence for text is `--fields` > preset fields > `read.fields` in `~/.config/traceary/config.json` > built-in default. `--fields` cannot be combined with `--wide`. Supported fields: `ts`, `kind`, `session`, `ws`, `client`, `agent`, `message`, `exit_code`, `id`, `source_hook`. Use `--preset <name>` to apply a saved view: built-in presets are `failures`, `prompts-only`, `compact-summaries`; user-defined entries in `read.presets` can override built-in names and explicit filter flags (`--kind`, `--failures`, `--workspace`, etc.) still win over a preset. Presets ignore `--wide` / `--json` for field overrides but still apply filters. Use `--color=auto|always|never` to toggle ANSI highlighting of compact rows (defaults to `auto`, honours the `NO_COLOR` env variable, and is ignored by `--wide` and `--json`). When highlighting is on, failed `command_executed` rows turn red+bold, `prompt` and `transcript` rows become cyan, `compact_summary` rows become magenta, and `session_started` / `session_ended` rows are dimmed.
 
 Useful flags:
 
@@ -114,35 +114,8 @@ Useful flags:
 - `--to` / `--until`
 - `--timezone`
 - `--failures` — keep this 記録 filter. It matches `command_audits.failed = 1` or a captured non-zero `exit_code`. Current writes store structured host tool failures as `host_error` (not `unknown`). Pre-classifier `unknown`+`failed=1` rows still match the flag half. See [failed-flag meaning](../research/failed-flag-meaning.md).
-
-### `traceary tail`
-
-Follow new events as they arrive.
-
-`tail` is the live observation view. It prints a recent backlog first and then keeps following new matching events from the local store. Use it when you want to confirm that hooks are firing, that the expected session/workspace is receiving writes, or that failures are surfacing in real time. Unlike `list`, it does not exit after one snapshot. Unlike `search`, it does not perform keyword matching. Unlike `handoff`, it stays at the raw event-stream layer rather than assembling working memory.
-
-Default text output is a compact single-line row (`HH:MM:SS  kind  agent=<agent>  sess=<first-8>  ws=<basename>  message`) that fits within ~100 columns and uses local time. Pass `--wide` for the legacy tab-separated shape, or `--utc` to force UTC timestamps in either text mode. `--wide --utc` reproduces the pre-v0.6.1 format byte-for-byte for scripts that parse it. `--json` emits newline-delimited JSON objects (one event per line) so pipelines can consume the stream incrementally; timestamps in JSON are UTC RFC3339Nano and are unaffected by `--utc`.
-
-> The compact session ID (`sess=<first-8>`) is intended for human scanning only. For machine processing, use `--wide --utc` or `--json`.
-
-Use `--fields ts,kind,message` to override the compact column order (precedence: flag > preset fields > `read.fields` in config.json > built-in default). `--fields` cannot be combined with `--wide`; see `traceary list` above for the full list of supported fields. Use `--preset <name>` for saved views (built-in: `failures` / `prompts-only` / `compact-summaries`; user-defined in `read.presets`). Use `--follow-session <prefix>` (minimum 8 runes) to scope the tail to one session — the value matches session ids by prefix so it is safe to paste from `traceary list` / `traceary search` output.
-
-Useful flags:
-
-- `--kind`
-- `--limit`
-- `--json`
-- `--wide`
-- `--utc`
-- `--fields`
-- `--preset`
-- `--color`
-- `--follow-session`
-- `--client`
-- `--agent`
-- `--workspace`
-- `--session-id`
-- `--failures`
+- `--follow` — keep printing new matching events (the former `traceary tail` stream). `--limit 0` prints only new events. `--json` is NDJSON (one event per line), not a snapshot array. Incompatible with `--offset`, `--from`/`--since`/`--to`/`--until`, `--sensitive`, and `--source-hook`.
+- `--follow-session <prefix>` — with `--follow`, prefix-match one session (minimum 8 runes).
 
 ### `traceary search [<query>]`
 
@@ -156,7 +129,7 @@ A completed generation is a snapshot, so events recorded after it are read direc
 
 The full-corpus migration-032 index that used to back this command is retired in v0.34. It is no longer read or maintained, and `traceary store compact` drops it during the rewrite — see [search retirement](../operations/search-retirement.md).
 
-Text results use the same compact single-line format as `list` / `tail` (local time by default) when only literal event matches are present. When both groups are present, output is labelled as `EVENTS (literal matches)` and `SESSIONS (summary or keyword matches)`. Pass `--wide` for the legacy tab-separated table, or `--utc` to force UTC timestamps. `--wide --utc` reproduces the pre-v0.6.1 event-row shape. `--json` emits `{"events": [...], "sessions": [...]}`. Both keys are always present (empty arrays when a tier has no hits). Explicit `--fields` selects event fields inside `.events`; session objects keep their fixed shape (`session_id`, `summary`, `event_count`, `started_at`). Use `--fields ts,kind,message` to override the compact column order (precedence: flag > preset fields > `read.fields` in config.json > built-in default); `--fields` cannot be combined with `--wide`, and the supported field list is shown under `traceary list` above. Use `--preset <name>` for saved views; a preset with filters can make a search with no free-text query valid because its filters count as constraints.
+Text results use the same compact single-line format as `list` (local time by default) when only literal event matches are present. When both groups are present, output is labelled as `EVENTS (literal matches)` and `SESSIONS (summary or keyword matches)`. Pass `--wide` for the legacy tab-separated table, or `--utc` to force UTC timestamps. `--wide --utc` reproduces the pre-v0.6.1 event-row shape. `--json` emits `{"events": [...], "sessions": [...]}`. Both keys are always present (empty arrays when a tier has no hits). Explicit `--fields` selects event fields inside `.events`; session objects keep their fixed shape (`session_id`, `summary`, `event_count`, `started_at`). Use `--fields ts,kind,message` to override the compact column order (precedence: flag > preset fields > `read.fields` in config.json > built-in default); `--fields` cannot be combined with `--wide`, and the supported field list is shown under `traceary list` above. Use `--preset <name>` for saved views; a preset with filters can make a search with no free-text query valid because its filters count as constraints.
 
 Time filters use the same requested/effective interval semantics as `traceary list`: date-only upper bounds include the requested calendar day, `--timezone` is explicit (UTC by default), and RFC3339 upper bounds remain exact exclusive instants.
 

@@ -10,7 +10,7 @@
 
 ## 決定
 
-`command_audits.failed = 1` は、構造化されたコマンド失敗の互換フラグです。現行の書き込み経路では `failure_reason.IsFailure()` から導出し、独立には立てません。`list --failures`（および `search` / `tail` の同じ述語）は `failed = 1` **または** 取得済みの非ゼロ `exit_code` に一致します。host は今もほぼ exit code を出さないため、生きている面はフラグ側です。
+`command_audits.failed = 1` は、構造化されたコマンド失敗の互換フラグです。現行の書き込み経路では `failure_reason.IsFailure()` から導出し、独立には立てません。`list --failures`（および `search` / `list --follow` の同じ述語）は `failed = 1` **または** 取得済みの非ゼロ `exit_code` に一致します。host は今もほぼ exit code を出さないため、生きている面はフラグ側です。
 
 この面は残します。`doctor` には移しません。`failed=1 AND failure_reason='unknown'` を禁じる CHECK は追加しません。restore が分類器以前の行を保持する必要があるためです。新規書き込みはその組を保存できません。
 

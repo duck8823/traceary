@@ -313,7 +313,7 @@ v0.30 keeps the current selector meaning per surface:
 
 | Surface | Existing `workspace` selector matches | Compatibility rule |
 |---|---|---|
-| `list`, `search`, `tail` | event effective workspace | exact filter remains exact |
+| `list`, `search`, `list --follow` | event effective workspace | exact filter remains exact |
 | `sessions` snapshot | session canonical workspace | exact filter remains exact |
 | `session handoff`, memory/context pack | canonical session first, then existing local descendant evidence fallback | no remote alias inference |
 | event JSON `workspace` | effective workspace | field meaning is documented, field name retained |

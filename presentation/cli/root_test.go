@@ -266,8 +266,6 @@ func TestRootCLI_UnknownCommandStillFailsWithSuggestions(t *testing.T) {
 	}
 	for _, want := range []string{
 		`unknown command "taill" for "traceary"`,
-		"Did you mean this?",
-		"tail",
 	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("error = %q, want %q", err.Error(), want)

@@ -21,7 +21,7 @@ Traceary は、process 間調停を SQLite 自身に委ねています。
 
 Traceary が接続時に適用している設定:
 
-- `journal_mode=WAL` — reader（例: `traceary tail` の poll）と writer が互いをブロックせず並行に処理できる
+- `journal_mode=WAL` — reader（例: `traceary list --follow` の poll）と writer が互いをブロックせず並行に処理できる
 - `synchronous=NORMAL` — WAL モードで推奨される durability 設定。fsync は checkpoint 境界でのみ実行される
 - `busy_timeout=5000` — 一時的なロック競合時は最大 5 秒 SQLite が自動で retry し、`SQLITE_BUSY` を即座に返さない
 - `foreign_keys=1` — 外部キー制約を有効化

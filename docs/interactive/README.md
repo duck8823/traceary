@@ -11,7 +11,7 @@ Traceary now ships these baseline interactive conveniences:
 
 - bare `traceary` prints help (TTY and non-TTY); the former Tail-first cockpit entrypoint was removed in v0.35.0
 - shell completion
-- `traceary tail` for live-follow inspection
+- `traceary list --follow` for live-follow inspection
 - `traceary report` / `traceary list` / `traceary search` for recent work
 - `traceary memory inbox review` for TTY-only inbox walk-through
 
@@ -56,15 +56,15 @@ traceary search --workspace github.com/duck8823/traceary
 traceary report
 ```
 
-### 4. "Is the system writing events right now?" → `traceary tail`
+### 4. "Is the system writing events right now?" → `traceary list --follow`
 
-Use `tail` when you want to watch new events arrive in real time.
+Use `list --follow` when you want to watch new events arrive in real time.
 This is the best command for confirming that hooks are firing, that the expected workspace is receiving writes, or that failures are visible as they happen.
 
 ```sh
-traceary tail
-traceary tail --workspace github.com/duck8823/traceary --failures
-traceary tail --json
+traceary list --follow
+traceary list --follow --workspace github.com/duck8823/traceary --failures
+traceary list --follow --json
 ```
 
 ### 5. "Find a specific error / command / note" → `traceary search`
@@ -116,7 +116,7 @@ traceary completion fish
 traceary completion powershell
 ```
 
-Completion is still worth enabling even after `tail` landed, because it reduces command discovery friction for the broader CLI surface.
+Completion is still worth enabling even after `list --follow` landed, because it reduces command discovery friction for the broader CLI surface.
 
 ## Bare `traceary` entrypoint policy
 
@@ -126,7 +126,7 @@ The compatibility contract is:
 
 - Bare `traceary` and `traceary --help` print help only.
 - Completion generation and help examples must remain stable.
-- Script-facing commands (`list`, `search`, `tail`, `doctor --json`, `session handoff`, `memory inbox list`) remain the recommended automation path.
+- Script-facing commands (`list`, `list --follow`, `search`, `doctor --json`, `session handoff`, `memory inbox list`) remain the recommended automation path.
 
 ## Still future-facing
 
