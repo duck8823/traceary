@@ -470,7 +470,7 @@ func (u *SearchProjectionUsecase) CatchUp(ctx context.Context, b apptypes.Search
 		out.Action = "skipped"
 		out.GenerationID = status.GenerationID
 		out.SkippedReason = "budget does not match generation configuration; run '" +
-			apptypes.SearchProjectionRecoveryCommand + "' to replace the generation"
+			apptypes.SearchProjectionStartCommand + "' to replace the generation"
 		return out, nil
 	}
 	// A failed generation is parked, not retried. Every failure class this store

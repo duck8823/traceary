@@ -1282,8 +1282,8 @@ func TestSearchProjectionOperatorTuningNotHijacked(t *testing.T) {
 	if !strings.Contains(result.SkippedReason, "budget does not match") {
 		t.Fatalf("reason=%q, want budget mismatch", result.SkippedReason)
 	}
-	if !strings.Contains(result.SkippedReason, apptypes.SearchProjectionRecoveryCommand) {
-		t.Fatalf("reason=%q, want recovery command", result.SkippedReason)
+	if !strings.Contains(result.SkippedReason, apptypes.SearchProjectionStartCommand) {
+		t.Fatalf("reason=%q, want start command", result.SkippedReason)
 	}
 	status, err := store.SearchProjectionStatus(ctx)
 	if err != nil {
@@ -1292,7 +1292,7 @@ func TestSearchProjectionOperatorTuningNotHijacked(t *testing.T) {
 	if status.Origin != apptypes.SearchProjectionOriginOperator {
 		t.Fatalf("origin=%q, want operator", status.Origin)
 	}
-	if status.ParkedReason == "" || status.RecoveryCommand != apptypes.SearchProjectionRecoveryCommand {
+	if status.ParkedReason == "" || status.RecoveryCommand != apptypes.SearchProjectionStartCommand {
 		t.Fatalf("status parked_reason=%q recovery=%q", status.ParkedReason, status.RecoveryCommand)
 	}
 }
