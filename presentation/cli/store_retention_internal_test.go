@@ -1,29 +1,46 @@
 package cli
 
-import "testing"
+import (
+	"bytes"
+	"strings"
+	"testing"
+)
 
-func TestStoreRetentionCommandsAreVisibleButRemainExplicit(t *testing.T) {
-	t.Parallel()
-
-	rootCLI := NewRootCLI()
-	command := rootCLI.newStoreFileRetentionOnlyCommand()
-	if command.Hidden {
-		t.Fatal("store retention command is hidden after copied-store dogfood")
+func TestStoreRetentionAndArchiveAreUnknownSubcommands(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+	tests := []struct {
+		name       string
+		args       []string
+		wantErrHas string
+	}{
+		{name: "bare archive", args: []string{"store", "archive"}, wantErrHas: `unknown subcommand "archive"`},
+		{name: "archive create", args: []string{"store", "archive", "create"}, wantErrHas: "unknown flag: --output"},
+		{name: "bare retention", args: []string{"store", "retention"}, wantErrHas: `unknown subcommand "retention"`},
+		{name: "retention files", args: []string{"store", "retention", "files"}, wantErrHas: "unknown flag: --output"},
 	}
-	files, _, err := command.Find([]string{"files"})
-	if err != nil {
-		t.Fatalf("Find(files) error = %v", err)
-	}
-	if files.Hidden {
-		t.Fatal("store retention files command is hidden after copied-store dogfood")
-	}
-	if _, _, err := command.Find([]string{"apply"}); err == nil {
-		t.Fatal("raw-body store retention apply must not remain under store retention")
-	}
-	if _, _, err := command.Find([]string{"plan"}); err == nil {
-		t.Fatal("raw-body store retention plan must not remain under store retention")
-	}
-	if _, _, err := command.Find([]string{"restore"}); err == nil {
-		t.Fatal("raw-body store retention restore must not remain under store retention")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stdout := &bytes.Buffer{}
+			stderr := &bytes.Buffer{}
+			root := NewRootCLI().Command()
+			root.SetOut(stdout)
+			root.SetErr(stderr)
+			root.SetArgs(tt.args)
+			err := root.Execute()
+			if err == nil {
+				t.Fatalf("Execute(%v) error = nil, want %q", tt.args, tt.wantErrHas)
+			}
+			got := err.Error() + stderr.String() + stdout.String()
+			if !strings.Contains(got, tt.wantErrHas) && !strings.Contains(err.Error(), `unknown subcommand`) {
+				// archive create / retention files after unknown parent: cobra may report
+				// unknown subcommand "archive"/"retention" before extra args become flags.
+				if !strings.Contains(got, `unknown subcommand "archive"`) && !strings.Contains(got, `unknown subcommand "retention"`) {
+					t.Fatalf("error = %q, want %q or unknown subcommand", got, tt.wantErrHas)
+				}
+			}
+			if strings.Contains(got, "DEPRECATED") {
+				t.Fatalf("must not mention DEPRECATED: %q", got)
+			}
+		})
 	}
 }

@@ -823,6 +823,11 @@ type storeManagementUsecaseStub struct {
 		dryRun              bool
 		protectedSessionIDs []types.SessionID
 	}
+	archiveCreateParams apptypes.StoreArchiveCreateParams
+	archiveCreateResult apptypes.StoreArchiveResult
+	archiveVerifyPath   string
+	archiveRestorePath  string
+	archiveRestoreDry   bool
 }
 
 func (s *storeManagementUsecaseStub) Initialize(_ context.Context) error {
@@ -862,14 +867,21 @@ func (s *storeManagementUsecaseStub) RestoreContentEventDedupeRun(_ context.Cont
 	s.restoreRunIDs = append(s.restoreRunIDs, runID)
 	return s.restoreResult, s.restoreRunErr
 }
-func (s *storeManagementUsecaseStub) CreateStoreArchive(_ context.Context, _ apptypes.StoreArchiveCreateParams) (apptypes.StoreArchiveResult, error) {
-	return apptypes.StoreArchiveResult{}, nil
+func (s *storeManagementUsecaseStub) CreateStoreArchive(_ context.Context, params apptypes.StoreArchiveCreateParams) (apptypes.StoreArchiveResult, error) {
+	s.archiveCreateParams = params
+	if s.archiveCreateResult.Path == "" && params.OutputPath != "" {
+		return apptypes.StoreArchiveResult{Path: params.OutputPath, TotalRows: s.archiveCreateResult.TotalRows}, nil
+	}
+	return s.archiveCreateResult, nil
 }
-func (s *storeManagementUsecaseStub) VerifyStoreArchive(_ context.Context, _ string, _ []byte) error {
+func (s *storeManagementUsecaseStub) VerifyStoreArchive(_ context.Context, path string, _ []byte) error {
+	s.archiveVerifyPath = path
 	return nil
 }
-func (s *storeManagementUsecaseStub) RestoreStoreArchive(_ context.Context, _ string, _ []byte, _ bool) (apptypes.StoreArchiveRestoreResult, error) {
-	return apptypes.StoreArchiveRestoreResult{}, nil
+func (s *storeManagementUsecaseStub) RestoreStoreArchive(_ context.Context, path string, _ []byte, dryRun bool) (apptypes.StoreArchiveRestoreResult, error) {
+	s.archiveRestorePath = path
+	s.archiveRestoreDry = dryRun
+	return apptypes.StoreArchiveRestoreResult{DryRun: dryRun}, nil
 }
 func (s *storeManagementUsecaseStub) CloseStaleSessions(_ context.Context, staleAfter time.Duration, dryRun bool, protectedSessionIDs []types.SessionID) (apptypes.CloseStaleSessionsResult, error) {
 	s.staleMu.Lock()

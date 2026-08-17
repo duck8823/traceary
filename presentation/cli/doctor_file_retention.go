@@ -83,7 +83,7 @@ func fileRetentionCapacityDoctorCheck(name string, status apptypes.FileRetention
 }
 
 func fileRetentionCapacityHint(class, root string) string {
-	command := renderShellCommand([]string{"traceary", "store", "retention", "files", "plan", "--" + class + "-root", root, "..."})
+	command := renderShellCommand([]string{"traceary", "store", "compact", "--retention-plan", "--" + class + "-root", root, "..."})
 	return localizef(
 		"capacity changes remain manual and opt-in; review `%s` before exact apply",
 		"capacity 変更は手動 opt-in のままです。exact apply の前に `%s` を確認してください",

@@ -64,9 +64,9 @@ memory decay 系 GC (#1368/#1369) と削除経路の所有権を分離する: ve
 ### 提案 CLI（#1371 規範。変更時は設計改訂）
 
 ```text
-traceary store archive create --output PATH [--target …] [--keep-days N] [--dry-run] [--passphrase-env NAME]
-traceary store archive verify --input PATH [--passphrase-env NAME]
-traceary store archive restore --input PATH [--dry-run] [--passphrase-env NAME]
+traceary store compact --archive --output PATH [--target …] [--keep-days N] [--dry-run] [--passphrase-env NAME]
+traceary store compact --archive-verify PATH [--passphrase-env NAME]
+traceary store compact --archive-restore PATH [--dry-run] [--passphrase-env NAME]
 ```
 
 自動モード (#1372) は同じ use case を呼ぶ。SQL を再実装しない。

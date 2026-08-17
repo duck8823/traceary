@@ -24,7 +24,7 @@ New SQLite backups also receive a digest-bound reserved retention manifest. A le
 The commands are public in v0.31 after copied-store dogfooding, but remain manual and opt-in. No install, update, hook, or `doctor` invocation applies a plan.
 
 ```sh
-traceary store retention files plan \
+traceary store compact --retention-plan \
   --db-path ~/.config/traceary/traceary.db \
   --archive-root ~/.config/traceary/archives \
   --archive-max-age 2160h \
@@ -43,7 +43,7 @@ Review `canonical_payload.classes[].inventory`, `floor`, `status`, `ceilings`, `
 
 ```sh
 PLAN_ID=$(jq -r .plan_id /tmp/traceary-file-retention-plan.json)
-traceary store retention files apply \
+traceary store compact --retention-apply \
   --plan /tmp/traceary-file-retention-plan.json \
   --confirm-plan-id "$PLAN_ID"
 ```
@@ -56,7 +56,7 @@ Before enabling a real cleanup policy, copy the retained floor to a disposable s
 
 ```sh
 sqlite3 copied-backup.db 'PRAGMA integrity_check;'
-traceary store archive verify --input retained.trcaryar
+traceary store compact --archive-verify retained.trcaryar
 ```
 
 Then restore into a disposable Traceary database and run representative metadata and full-body reads. Capacity cleanup and SQLite compaction remain separate operations.

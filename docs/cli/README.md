@@ -889,13 +889,13 @@ Useful flags:
 
 Restore the pre-compact store from the rollback inode published by a successful rewrite.
 
-### `traceary store archive create|restore|verify`
+### `traceary store compact --archive` / `--archive-verify` / `--archive-restore`
 
-Create, restore, or verify an offline archive segment. These are public store-administration commands; they do not replace `store compact`.
+Export GC-eligible rows to a versioned archive package, verify a package, or restore rows (idempotent). `--delete-after-verify` is the verify-before-delete path. These flags absorb the former `store archive create|verify|restore` leaves. Default `store compact` rewrite is unchanged.
 
-### `traceary store retention files plan|apply`
+### `traceary store compact --retention-plan` / `--retention-apply`
 
-Plan or apply file-retention actions for host-side artifacts. `apply` is operator-consented and is not part of the default hook path.
+Plan or apply file-retention actions for host-side archive and backup artifacts. `--retention-apply` requires `--plan` and `--confirm-plan-id`. These flags absorb the former `store retention files plan|apply` leaves. Apply is operator-consented and is not part of the default hook path.
 
 ### `traceary store search-projection start|resume|status|abort|probe`
 
