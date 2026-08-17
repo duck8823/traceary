@@ -109,7 +109,7 @@
       "status": "pass",
       "severity": "PASS",
       "section": "Database",
-      "message": "automatic archive-before-GC is disabled (retention.mode=disabled); manual path: traceary store archive create",
+      "message": "automatic archive-before-GC is disabled (retention.mode=disabled); manual path: traceary store compact --archive",
       "hint": "opt in via config.json retention.mode=archive_then_gc (passphrase via env name only)",
       "fix_command": "",
       "auto_fix_available": false
@@ -379,7 +379,7 @@
           "status": "pass",
           "severity": "PASS",
           "section": "Database",
-          "message": "automatic archive-before-GC is disabled (retention.mode=disabled); manual path: traceary store archive create",
+          "message": "automatic archive-before-GC is disabled (retention.mode=disabled); manual path: traceary store compact --archive",
           "hint": "opt in via config.json retention.mode=archive_then_gc (passphrase via env name only)",
           "fix_command": "",
           "auto_fix_available": false

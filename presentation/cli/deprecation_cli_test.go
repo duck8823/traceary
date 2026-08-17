@@ -104,6 +104,42 @@ func TestRootCLI_TopIsUnknownCommand(t *testing.T) {
 	}
 }
 
+func TestRootCLI_StoreArchiveAndRetentionAreUnknownSubcommands(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+	tests := []struct {
+		name       string
+		args       []string
+		wantErrHas string
+	}{
+		{name: "bare archive", args: []string{"store", "archive"}, wantErrHas: `unknown subcommand "archive"`},
+		{name: "archive create", args: []string{"store", "archive", "create"}, wantErrHas: `unknown subcommand "archive"`},
+		{name: "bare retention", args: []string{"store", "retention"}, wantErrHas: `unknown subcommand "retention"`},
+		{name: "retention files", args: []string{"store", "retention", "files"}, wantErrHas: `unknown subcommand "retention"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stdout := &bytes.Buffer{}
+			stderr := &bytes.Buffer{}
+			root := cli.NewRootCLI(
+				cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			).Command()
+			root.SetOut(stdout)
+			root.SetErr(stderr)
+			root.SetArgs(tt.args)
+			err := root.Execute()
+			if err == nil {
+				t.Fatalf("Execute(%v) error = nil, want %q", tt.args, tt.wantErrHas)
+			}
+			if !strings.Contains(err.Error(), tt.wantErrHas) {
+				t.Fatalf("Execute(%v) error = %q, want substring %q", tt.args, err.Error(), tt.wantErrHas)
+			}
+			if strings.Contains(err.Error(), "DEPRECATED:") || strings.Contains(stderr.String(), "DEPRECATED:") || strings.Contains(stdout.String(), "DEPRECATED:") {
+				t.Errorf("unexpected deprecation notice:\nerr=%v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
+			}
+		})
+	}
+}
+
 func TestRootCLI_StoreCapacityIsUnknownSubcommand(t *testing.T) {
 	t.Setenv("TRACEARY_LANG", "en")
 	tests := []struct {

@@ -73,6 +73,51 @@ func TestRunStoreFileRetentionApplyRequiresExactUsecaseResult(t *testing.T) {
 	}
 }
 
+func TestStoreCompactRetentionPlanAndApplyCommands(t *testing.T) {
+	rootDir := t.TempDir()
+	planPath := filepath.Join(t.TempDir(), "plan.json")
+	fileStub := &fileRetentionUsecaseStub{plan: []byte(`{"plan_id":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}`)}
+	root := NewRootCLI(WithFileRetention(fileStub)).Command()
+	root.SetOut(&bytes.Buffer{})
+	root.SetErr(&bytes.Buffer{})
+	root.SetArgs([]string{
+		"store", "compact", "--retention-plan",
+		"--backup-root", rootDir,
+		"--backup-max-count", "1",
+		"--output", planPath,
+		"--db-path", filepath.Join(rootDir, "live.db"),
+	})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("retention-plan Execute() error = %v", err)
+	}
+	if fileStub.createCalls != 1 {
+		t.Fatalf("CreatePlan calls = %d, want 1", fileStub.createCalls)
+	}
+
+	if err := os.WriteFile(planPath, []byte(`{"plan_id":"plan-id"}`), 0o600); err != nil {
+		t.Fatalf("WriteFile(plan) error = %v", err)
+	}
+	applyStub := &fileRetentionUsecaseStub{result: apptypes.FileRetentionApplyResult{PlanID: "plan-id", DeletedCount: 1}}
+	root = NewRootCLI(WithFileRetention(applyStub)).Command()
+	var stdout bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&bytes.Buffer{})
+	root.SetArgs([]string{
+		"store", "compact", "--retention-apply",
+		"--plan", planPath,
+		"--confirm-plan-id", "plan-id",
+	})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("retention-apply Execute() error = %v", err)
+	}
+	if applyStub.applyCalls != 1 || applyStub.confirmedID != "plan-id" {
+		t.Fatalf("apply calls/id = %d/%q", applyStub.applyCalls, applyStub.confirmedID)
+	}
+	if !bytes.Contains(stdout.Bytes(), []byte("Deleted: 1")) {
+		t.Fatalf("stdout = %q, want Deleted: 1", stdout.String())
+	}
+}
+
 func TestFileRetentionClassRequestsRejectsRootWithoutCeiling(t *testing.T) {
 	t.Parallel()
 

@@ -26,8 +26,8 @@ func (c *RootCLI) inspectArchiveRetention(ctx context.Context, dbPath string) do
 			Name:   name,
 			Status: doctorStatusPass,
 			Message: localizef(
-				"automatic archive-before-GC is disabled (retention.mode=%s); manual path: traceary store archive create",
-				"automatic archive-before-GC は無効です (retention.mode=%s); 手動: traceary store archive create",
+				"automatic archive-before-GC is disabled (retention.mode=%s); manual path: traceary store compact --archive",
+				"automatic archive-before-GC は無効です (retention.mode=%s); 手動: traceary store compact --archive",
 				mode,
 			),
 			Hint: Localize(
@@ -95,10 +95,10 @@ func (c *RootCLI) inspectArchiveRetention(ctx context.Context, dbPath string) do
 				status.At, status.Error, status.Rows,
 			),
 			Hint: Localize(
-				"fix config/passphrase_env, free disk, then wait for the next interval or run store archive create manually",
-				"config / passphrase_env / ディスクを直し、次 interval を待つか store archive create を手動実行",
+				"fix config/passphrase_env, free disk, then wait for the next interval or run store compact --archive manually",
+				"config / passphrase_env / ディスクを直し、次 interval を待つか store compact --archive を手動実行",
 			),
-			FixCommand: "traceary store archive create --output ~/.config/traceary/archives/manual.trcaryar --delete-after-verify",
+			FixCommand: "traceary store compact --archive --output ~/.config/traceary/archives/manual.trcaryar --delete-after-verify",
 		}
 	}
 

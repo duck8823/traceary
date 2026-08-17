@@ -64,9 +64,9 @@ Serialize GC rewrites with memory-decay GC work (#1368/#1369): archive ownership
 ### Proposed CLI shape (normative for #1371; bikeshed only with design amendment)
 
 ```text
-traceary store archive create --output PATH [--target all|events|…] [--keep-days N] [--dry-run] [--passphrase-env NAME]
-traceary store archive verify --input PATH [--passphrase-env NAME]
-traceary store archive restore --input PATH [--dry-run] [--passphrase-env NAME]
+traceary store compact --archive --output PATH [--target all|events|…] [--keep-days N] [--dry-run] [--passphrase-env NAME]
+traceary store compact --archive-verify PATH [--passphrase-env NAME]
+traceary store compact --archive-restore PATH [--dry-run] [--passphrase-env NAME]
 # Optional sugar later:
 traceary store gc --archive PATH …   # archive-then-gc one shot; still verify-before-delete
 ```

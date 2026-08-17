@@ -32,15 +32,14 @@ func TestStoreReductionCommandsAreRemoved(t *testing.T) {
 	if findCommandOrNil(store, "search-projection") == nil {
 		t.Fatal("store search-projection must remain")
 	}
-	retention := findCommandOrNil(store, "retention")
-	if retention == nil {
-		t.Fatal("store retention (files) must remain")
+	if findCommandOrNil(store, "retention") != nil {
+		t.Fatal("store retention must be removed by #2074")
 	}
-	if findCommandOrNil(retention, "plan") != nil || findCommandOrNil(retention, "apply") != nil || findCommandOrNil(retention, "restore") != nil {
-		t.Fatal("raw-body store retention plan/apply/restore must be removed")
+	if findCommandOrNil(store, "archive") != nil {
+		t.Fatal("store archive must be removed by #2074")
 	}
-	if findCommandOrNil(retention, "files") == nil {
-		t.Fatal("store retention files must remain")
+	if compact.Flags().Lookup("archive") == nil || compact.Flags().Lookup("retention-plan") == nil {
+		t.Fatal("store compact must absorb --archive and --retention-plan")
 	}
 }
 

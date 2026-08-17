@@ -14,8 +14,6 @@ func (c *RootCLI) newStoreCommand() *cobra.Command {
 	}
 	storeCmd.AddCommand(c.newStoreInitCommand())
 	storeCmd.AddCommand(c.newStoreBackupCommand())
-	storeCmd.AddCommand(c.newStoreArchiveCommand())
-	storeCmd.AddCommand(c.newStoreFileRetentionOnlyCommand())
 	storeCmd.AddCommand(c.newStoreWorkspaceAliasCommand())
 	storeCmd.AddCommand(c.newStoreSearchProjectionCommand())
 	storeCmd.AddCommand(c.newStoreCompactionCommand())

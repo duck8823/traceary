@@ -24,7 +24,7 @@ Traceary v0.31 では、ローカルの archive root と SQLite backup root を�
 copied-store dogfooding 完了後、v0.31 では command を公開します。ただし手動 opt-in のままで、install、update、hook、`doctor` が plan を適用することはありません。
 
 ```sh
-traceary store retention files plan \
+traceary store compact --retention-plan \
   --db-path ~/.config/traceary/traceary.db \
   --archive-root ~/.config/traceary/archives \
   --archive-max-age 2160h \
@@ -43,7 +43,7 @@ traceary store retention files plan \
 
 ```sh
 PLAN_ID=$(jq -r .plan_id /tmp/traceary-file-retention-plan.json)
-traceary store retention files apply \
+traceary store compact --retention-apply \
   --plan /tmp/traceary-file-retention-plan.json \
   --confirm-plan-id "$PLAN_ID"
 ```
@@ -56,7 +56,7 @@ traceary store retention files apply \
 
 ```sh
 sqlite3 copied-backup.db 'PRAGMA integrity_check;'
-traceary store archive verify --input retained.trcaryar
+traceary store compact --archive-verify retained.trcaryar
 ```
 
 その後、使い捨ての Traceary database へ復元し、代表的な metadata read と full-body read を実行します。容量 cleanup と SQLite compaction は別の操作です。

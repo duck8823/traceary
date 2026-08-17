@@ -7,7 +7,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
 	apptypes "github.com/duck8823/traceary/application/types"
@@ -34,75 +33,6 @@ type storeArchiveRestoreInput struct {
 	input         string
 	dryRun        bool
 	passphraseEnv string
-}
-
-func (c *RootCLI) newStoreArchiveCommand() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "archive",
-		Short: Localize("Archive cold store rows before GC (verify-before-delete)", "GC 前に cold 行を archive する (verify-before-delete)"),
-	}
-	cmd.AddCommand(c.newStoreArchiveCreateCommand())
-	cmd.AddCommand(c.newStoreArchiveVerifyCommand())
-	cmd.AddCommand(c.newStoreArchiveRestoreCommand())
-	return cmd
-}
-
-func (c *RootCLI) newStoreArchiveCreateCommand() *cobra.Command {
-	input := storeArchiveCreateInput{
-		keepDays: defaultRetentionDays,
-		target:   "all",
-	}
-	cmd := &cobra.Command{
-		Use:   "create",
-		Short: Localize("Export GC-eligible rows to a versioned archive package", "GC 適格行を版付き archive package に export する"),
-		Args:  noArgsLocalized(),
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return c.runStoreArchiveCreate(cmd.Context(), cmd.OutOrStdout(), input, cmd.Root().Version)
-		},
-	}
-	cmd.Flags().StringVar(&input.dbPath, "db-path", "", dbPathFlagUsage())
-	cmd.Flags().StringVar(&input.output, "output", "", Localize("archive output path (required unless --dry-run)", "archive 出力 path (--dry-run 以外は必須)"))
-	cmd.Flags().IntVar(&input.keepDays, "keep-days", defaultRetentionDays, Localize("retention window matching store compact", "store compact と同じ保持日数"))
-	cmd.Flags().StringVar(&input.target, "target", "all", Localize("records to archive (events | sessions | memories | memory_edges | all)", "対象 (events | sessions | memories | memory_edges | all)"))
-	cmd.Flags().BoolVar(&input.dryRun, "dry-run", false, Localize("print plan counts only; do not write a package", "plan 件数のみ表示。package を書かない"))
-	cmd.Flags().BoolVar(&input.deleteAfterVerify, "delete-after-verify", false, Localize("after a successful verify, delete exact archived identities from the live store", "verify 成功後に archive 済み identity を live store から削除"))
-	cmd.Flags().StringVar(&input.passphraseEnv, "passphrase-env", "", Localize("env var name holding an optional archive passphrase (never store the secret)", "任意の passphrase を持つ env 名（秘密自体は保存しない）"))
-	return cmd
-}
-
-func (c *RootCLI) newStoreArchiveVerifyCommand() *cobra.Command {
-	input := storeArchiveVerifyInput{}
-	cmd := &cobra.Command{
-		Use:   "verify",
-		Short: Localize("Verify archive package integrity", "archive package の完全性を検証する"),
-		Args:  noArgsLocalized(),
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return c.runStoreArchiveVerify(cmd.Context(), cmd.OutOrStdout(), input)
-		},
-	}
-	cmd.Flags().StringVar(&input.dbPath, "db-path", "", dbPathFlagUsage())
-	cmd.Flags().StringVar(&input.input, "input", "", Localize("archive input path", "archive 入力 path"))
-	cmd.Flags().StringVar(&input.passphraseEnv, "passphrase-env", "", Localize("env var name holding an optional archive passphrase", "任意の passphrase を持つ env 名"))
-	_ = cmd.MarkFlagRequired("input")
-	return cmd
-}
-
-func (c *RootCLI) newStoreArchiveRestoreCommand() *cobra.Command {
-	input := storeArchiveRestoreInput{}
-	cmd := &cobra.Command{
-		Use:   "restore",
-		Short: Localize("Restore rows from an archive package (idempotent)", "archive package から行を restore する (冪等)"),
-		Args:  noArgsLocalized(),
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return c.runStoreArchiveRestore(cmd.Context(), cmd.OutOrStdout(), input)
-		},
-	}
-	cmd.Flags().StringVar(&input.dbPath, "db-path", "", dbPathFlagUsage())
-	cmd.Flags().StringVar(&input.input, "input", "", Localize("archive input path", "archive 入力 path"))
-	cmd.Flags().BoolVar(&input.dryRun, "dry-run", false, Localize("report insert/skip/conflict counts without writing", "書き込まず insert/skip/conflict 件数を表示"))
-	cmd.Flags().StringVar(&input.passphraseEnv, "passphrase-env", "", Localize("env var name holding an optional archive passphrase", "任意の passphrase を持つ env 名"))
-	_ = cmd.MarkFlagRequired("input")
-	return cmd
 }
 
 func (c *RootCLI) runStoreArchiveCreate(ctx context.Context, output io.Writer, input storeArchiveCreateInput, toolVersion string) error {

@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
 	apptypes "github.com/duck8823/traceary/application/types"
@@ -32,68 +31,6 @@ type storeFileRetentionPlanInput struct {
 type storeFileRetentionApplyInput struct {
 	planPath        string
 	confirmedPlanID string
-}
-
-func (c *RootCLI) newStoreFileRetentionOnlyCommand() *cobra.Command {
-	command := &cobra.Command{
-		Use:   "retention",
-		Short: Localize("Manage on-disk archive and backup file retention", "ディスク上の archive / backup ファイル保持を管理する"),
-	}
-	command.AddCommand(c.newStoreFileRetentionCommand())
-	return command
-}
-
-func (c *RootCLI) newStoreFileRetentionCommand() *cobra.Command {
-	command := &cobra.Command{
-		Use:   "files",
-		Short: Localize("Plan and apply archive/backup capacity limits", "archive/backup の容量上限を計画・適用する"),
-	}
-	command.AddCommand(c.newStoreFileRetentionPlanCommand())
-	command.AddCommand(c.newStoreFileRetentionApplyCommand())
-	return command
-}
-
-func (c *RootCLI) newStoreFileRetentionPlanCommand() *cobra.Command {
-	input := storeFileRetentionPlanInput{archiveMaxCount: -1, archiveMaxBytes: -1, backupMaxCount: -1, backupMaxBytes: -1, expiresAfter: time.Hour}
-	command := &cobra.Command{
-		Use:   "plan",
-		Short: Localize("Write an immutable archive/backup capacity plan", "変更不能な archive/backup 容量計画を書き出す"),
-		Args:  noArgsLocalized(),
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return c.runStoreFileRetentionPlan(cmd.Context(), cmd.OutOrStdout(), input)
-		},
-	}
-	flags := command.Flags()
-	flags.StringVar(&input.dbPath, "db-path", "", dbPathFlagUsage())
-	flags.StringVar(&input.archiveRoot, "archive-root", "", Localize("archive directory to inspect", "確認する archive directory"))
-	flags.StringVar(&input.backupRoot, "backup-root", "", Localize("backup directory to inspect", "確認する backup directory"))
-	flags.DurationVar(&input.archiveMaxAge, "archive-max-age", 0, Localize("maximum archive age (for example 720h)", "archive の最大保持期間（例: 720h）"))
-	flags.IntVar(&input.archiveMaxCount, "archive-max-count", -1, Localize("maximum archive count", "archive の最大件数"))
-	flags.Int64Var(&input.archiveMaxBytes, "archive-max-allocated-bytes", -1, Localize("maximum allocated archive bytes", "archive の最大割り当て byte 数"))
-	flags.DurationVar(&input.backupMaxAge, "backup-max-age", 0, Localize("maximum backup age (for example 720h)", "backup の最大保持期間（例: 720h）"))
-	flags.IntVar(&input.backupMaxCount, "backup-max-count", -1, Localize("maximum backup count", "backup の最大件数"))
-	flags.Int64Var(&input.backupMaxBytes, "backup-max-allocated-bytes", -1, Localize("maximum allocated backup bytes", "backup の最大割り当て byte 数"))
-	flags.DurationVar(&input.expiresAfter, "expires-after", time.Hour, Localize("plan validity duration", "plan の有効期間"))
-	flags.StringVar(&input.outputPath, "output", "", Localize("new plan output path", "新しい plan の出力先"))
-	_ = command.MarkFlagRequired("output")
-	return command
-}
-
-func (c *RootCLI) newStoreFileRetentionApplyCommand() *cobra.Command {
-	input := storeFileRetentionApplyInput{}
-	command := &cobra.Command{
-		Use:   "apply",
-		Short: Localize("Apply an exact reviewed archive/backup plan", "review 済みの archive/backup 計画を厳密に適用する"),
-		Args:  noArgsLocalized(),
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return c.runStoreFileRetentionApply(cmd.Context(), cmd.OutOrStdout(), input)
-		},
-	}
-	command.Flags().StringVar(&input.planPath, "plan", "", Localize("reviewed plan path", "review 済み plan path"))
-	command.Flags().StringVar(&input.confirmedPlanID, "confirm-plan-id", "", Localize("exact reviewed plan ID", "review 済み plan ID の完全値"))
-	_ = command.MarkFlagRequired("plan")
-	_ = command.MarkFlagRequired("confirm-plan-id")
-	return command
 }
 
 func (c *RootCLI) runStoreFileRetentionPlan(ctx context.Context, output io.Writer, input storeFileRetentionPlanInput) error {

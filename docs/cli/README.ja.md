@@ -880,13 +880,13 @@ preview ではなく、in-place `VACUUM` でもありません。成功後は `t
 
 成功した書き換えが残した rollback inode から、compact 前のストアを戻します。
 
-### `traceary store archive create|restore|verify`
+### `traceary store compact --archive` / `--archive-verify` / `--archive-restore`
 
-オフライン archive segment の作成・復元・検証です。公開されている store 管理コマンドであり、`store compact` の代替ではありません。
+GC 適格行を版付き archive package に export するか、package を検証・restore（冪等）します。`--delete-after-verify` が verify-before-delete 経路です。旧 `store archive create|verify|restore` を吸収します。既定の `store compact` rewrite は変わりません。
 
-### `traceary store retention files plan|apply`
+### `traceary store compact --retention-plan` / `--retention-apply`
 
-ホスト側 artifact の file-retention を計画または適用します。`apply` は operator 同意が必要で、既定 hook 経路には入りません。
+ホスト側 archive / backup artifact の file-retention を計画または適用します。`--retention-apply` には `--plan` と `--confirm-plan-id` が必要です。旧 `store retention files plan|apply` を吸収します。apply は operator 同意が必要で、既定 hook 経路には入りません。
 
 ### `traceary store search-projection start|resume|status|abort|probe`
 
