@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -254,7 +255,14 @@ func (c *RootCLI) runMemoryInboxList(ctx context.Context, output io.Writer, inpu
 	// reviewer is not drowned by low-quality auto-extractions. The
 	// rows are still in the store for audit; `--include-hidden`
 	// surfaces them. Explicit `--source` always wins (#810/#830).
-	sources = applyExtractedHiddenDefault(sources, input.includeHidden)
+	listSources := applyExtractedHiddenDefault(sources, input.includeHidden)
+	// Pool-size COUNT includes extracted-hidden unless the operator
+	// named a source. A hidden-only 31k inbox must still be visible
+	// as a total on the default page (#2064).
+	countSources := sources
+	if len(input.sources) == 0 && !input.rememberIntent {
+		countSources = nil
+	}
 
 	// Inbox is always scoped to candidate — that is the point of the view.
 	// Source filters go into the criteria so pagination is consistent: if
@@ -274,7 +282,7 @@ func (c *RootCLI) runMemoryInboxList(ctx context.Context, output io.Writer, inpu
 		Scopes(scopes).
 		Statuses([]domtypes.MemoryStatus{domtypes.MemoryStatusCandidate}).
 		MemoryTypes(memoryTypes).
-		Sources(sources).
+		Sources(listSources).
 		RememberIntentPriority(true)
 	criteriaBuilder = applyMemoryInboxAgeFilters(criteriaBuilder, input.olderThan, input.newerThan, time.Now())
 	criteria := criteriaBuilder.Build()
@@ -293,7 +301,13 @@ func (c *RootCLI) runMemoryInboxList(ctx context.Context, output io.Writer, inpu
 			items = append(items, details)
 		}
 	}
-	return writeMemoryInboxList(output, items, input.asJSON)
+	if err := writeMemoryInboxList(output, items, input.asJSON); err != nil {
+		return err
+	}
+	if input.asJSON {
+		return nil
+	}
+	return c.writeMemoryInboxListPoolSummary(ctx, output, criteriaBuilder, countSources, len(items), quality)
 }
 
 func (c *RootCLI) runMemoryInboxShow(ctx context.Context, output io.Writer, input memoryInboxShowCommandInput) error {
@@ -727,6 +741,97 @@ func applyExtractedHiddenDefault(sources []domtypes.MemorySource, includeHidden 
 		domtypes.MemorySourceCompactSummary,
 		domtypes.MemorySourceImported,
 	}
+}
+
+// memorySourceCounter is the additive CountBySource capability used by
+// `memory inbox list` to disclose the candidate pool. It is not on
+// MemoryUsecase so existing callers stay unchanged.
+type memorySourceCounter interface {
+	CountBySource(ctx context.Context, criteria apptypes.MemoryListCriteria) (apptypes.MemorySourceCounts, error)
+}
+
+func (c *RootCLI) writeMemoryInboxListPoolSummary(
+	ctx context.Context,
+	output io.Writer,
+	criteriaBuilder *apptypes.MemoryListCriteriaBuilder,
+	countSources []domtypes.MemorySource,
+	shown int,
+	quality memoryInboxQuality,
+) error {
+	counter, ok := c.memory.(memorySourceCounter)
+	if !ok || criteriaBuilder == nil {
+		return nil
+	}
+	countCriteria := criteriaBuilder.Sources(countSources).Build()
+	counts, err := counter.CountBySource(ctx, countCriteria)
+	if err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to count memory review queue candidates", "メモリ候補の確認キューの件数取得に失敗しました"), err)
+	}
+	if _, err := fmt.Fprintln(output, formatMemoryInboxPoolSummary(shown, counts, quality)); err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to print memory review queue pool summary", "メモリ候補の確認キュー件数行の出力に失敗しました"), err)
+	}
+	return nil
+}
+
+func formatMemoryInboxPoolSummary(shown int, counts apptypes.MemorySourceCounts, quality memoryInboxQuality) string {
+	shownLabel := formatGroupedInt(shown)
+	if quality != memoryInboxQualityAny {
+		shownLabel = fmt.Sprintf("%s (quality=%s)", shownLabel, quality)
+	}
+	return fmt.Sprintf(
+		"showing %s of %s candidates%s — use --offset/--limit, --source to narrow",
+		shownLabel,
+		formatGroupedInt(counts.Total()),
+		formatMemoryInboxSourceSplit(counts),
+	)
+}
+
+func formatMemoryInboxSourceSplit(counts apptypes.MemorySourceCounts) string {
+	type bucket struct {
+		source domtypes.MemorySource
+		label  string
+	}
+	order := []bucket{
+		{domtypes.MemorySourceExtracted, "extracted"},
+		{domtypes.MemorySourceExtractedHidden, "hidden"},
+		{domtypes.MemorySourceRememberIntent, "remember-intent"},
+		{domtypes.MemorySourceCompactSummary, "compact-summary"},
+		{domtypes.MemorySourceImported, "imported"},
+		{domtypes.MemorySourceManual, "manual"},
+	}
+	parts := make([]string, 0, len(order))
+	for _, item := range order {
+		n := counts.Count(item.source)
+		if n <= 0 {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s %s", formatGroupedInt(n), item.label))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return " (" + strings.Join(parts, " / ") + ")"
+}
+
+func formatGroupedInt(n int) string {
+	sign := ""
+	if n < 0 {
+		sign = "-"
+		n = -n
+	}
+	digits := strconv.Itoa(n)
+	first := len(digits) % 3
+	if first == 0 {
+		first = 3
+	}
+	var b strings.Builder
+	b.WriteString(sign)
+	b.WriteString(digits[:first])
+	for i := first; i < len(digits); i += 3 {
+		b.WriteByte(',')
+		b.WriteString(digits[i : i+3])
+	}
+	return b.String()
 }
 
 func writeMemoryInboxList(output io.Writer, items []apptypes.MemoryDetails, asJSON bool) error {

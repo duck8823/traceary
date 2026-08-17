@@ -119,7 +119,7 @@ v0.21.0 以降、完全な構造を持つ unified-diff / git metadata のみ aut
 
 #### 候補の hygiene
 
-旧 sessions snapshot の hygiene pane は v0.42.0 で `traceary sessions` とともに削除されました（#2061）。候補 backlog の把握と掃除は `traceary memory inbox list` と dry-run 既定の `traceary memory inbox cleanup --quality low` を使います（`--apply` で match を reject。cleanup は候補を reject するだけで、削除や auto-accept はしません）。`traceary memory admin hygiene scan` は exact な同一 scope・memory type・fact を超えた similarity ベースの重複検出を追加します。
+旧 sessions snapshot の hygiene pane は v0.42.0 で `traceary sessions` とともに削除されました（#2061）。候補 backlog の把握と掃除は `traceary memory inbox list`（テキストは `showing N of M candidates`。`--source` 未指定なら hidden も含む）と dry-run 既定の `traceary memory inbox cleanup --quality low` を使います（`--apply` で match を reject。cleanup は候補を reject するだけで、削除や auto-accept はしません）。`traceary memory admin hygiene scan` は exact な同一 scope・memory type・fact を超えた similarity ベースの重複検出を追加します。
 
 #### context boundary からの抽出
 

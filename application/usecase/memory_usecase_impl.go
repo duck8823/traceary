@@ -610,6 +610,23 @@ func (u *memoryUsecase) CountByStatus(ctx context.Context, criteria apptypes.Mem
 	return counts, nil
 }
 
+// CountBySource returns the true per-source durable-memory counts, ignoring
+// the criteria's Limit/Offset.
+func (u *memoryUsecase) CountBySource(ctx context.Context, criteria apptypes.MemoryListCriteria) (apptypes.MemorySourceCounts, error) {
+	if u.memoryQuery == nil {
+		return apptypes.MemorySourceCounts{}, xerrors.Errorf("memory query service is not configured")
+	}
+	counter, ok := u.memoryQuery.(queryservice.MemorySourceCountQueryService)
+	if !ok {
+		return apptypes.MemorySourceCounts{}, xerrors.Errorf("memory query service does not support source counts")
+	}
+	counts, err := counter.CountBySource(ctx, criteria)
+	if err != nil {
+		return apptypes.MemorySourceCounts{}, xerrors.Errorf("failed to count durable memories by source: %w", err)
+	}
+	return counts, nil
+}
+
 func (u *memoryUsecase) ListStale(ctx context.Context, criteria apptypes.StaleMemoryListCriteria) (apptypes.StaleMemoryListResult, error) {
 	if u.memoryQuery == nil {
 		return apptypes.StaleMemoryListResult{}, xerrors.Errorf("memory query service is not configured")

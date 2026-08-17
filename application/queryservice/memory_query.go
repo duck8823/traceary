@@ -27,6 +27,14 @@ type MemoryStatusCountQueryService interface {
 	CountByStatus(ctx context.Context, criteria apptypes.MemoryListCriteria) (apptypes.MemoryStatusCounts, error)
 }
 
+// MemorySourceCountQueryService is the additive read-side query used by
+// `memory inbox list` to disclose the candidate pool size (#2064).
+type MemorySourceCountQueryService interface {
+	// CountBySource returns the true per-source row counts matching the
+	// criteria, ignoring its Limit/Offset.
+	CountBySource(ctx context.Context, criteria apptypes.MemoryListCriteria) (apptypes.MemorySourceCounts, error)
+}
+
 // StaleMemoryQueryService provides the additive read-side query used by
 // `traceary top --snapshot --json` to surface stale durable memories without
 // introducing a write-side use case.
