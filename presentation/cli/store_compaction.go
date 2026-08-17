@@ -224,11 +224,7 @@ func (c *RootCLI) runStoreCompact(cmd *cobra.Command, input storeCompactInput) e
 		}
 	}
 	if input.projectionRebuild {
-		err := c.runStoreSearchProjectionStart(cmd.Context(), cmd.OutOrStdout(), input.projectionBudget.budget())
-		if err != nil && strings.Contains(err.Error(), "already rebuilding") {
-			return c.runStoreSearchProjectionResumeUntil(cmd.Context(), cmd.OutOrStdout(), input.projectionBudget.budget(), defaultProjectionRunOptions())
-		}
-		return err
+		return c.runStoreSearchProjectionRebuild(cmd.Context(), cmd.OutOrStdout(), input.projectionBudget.budget())
 	}
 	if input.projectionAbort {
 		return c.runStoreSearchProjectionAbort(cmd.Context(), cmd.OutOrStdout())

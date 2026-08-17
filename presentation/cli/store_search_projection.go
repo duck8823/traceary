@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"strings"
 	"time"
 
 	"golang.org/x/xerrors"
@@ -21,6 +22,30 @@ func (c *RootCLI) runStoreSearchProjectionStart(ctx context.Context, output io.W
 		return err
 	}
 	return json.NewEncoder(output).Encode(got)
+}
+
+func (c *RootCLI) runStoreSearchProjectionRebuild(ctx context.Context, output io.Writer, budget apptypes.SearchProjectionBudget) error {
+	err := c.runStoreSearchProjectionStart(ctx, output, budget)
+	if err == nil {
+		return nil
+	}
+	if !strings.Contains(err.Error(), "already rebuilding") {
+		return err
+	}
+	if c.searchProjection == nil {
+		return xerrors.New("search projection usecase is not configured")
+	}
+	status, statusErr := c.searchProjection.ControlStatus(ctx)
+	if statusErr != nil {
+		return statusErr
+	}
+	if status.ConfigHash == budget.ConfigHash() {
+		return c.runStoreSearchProjectionResumeUntil(ctx, output, budget, defaultProjectionRunOptions())
+	}
+	if _, abandonErr := c.searchProjection.Abandon(ctx, time.Now()); abandonErr != nil {
+		return abandonErr
+	}
+	return c.runStoreSearchProjectionStart(ctx, output, budget)
 }
 
 func (c *RootCLI) runStoreSearchProjectionResumeUntil(ctx context.Context, output io.Writer, budget apptypes.SearchProjectionBudget, opts apptypes.SearchProjectionRunOptions) error {
