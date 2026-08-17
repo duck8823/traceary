@@ -8,7 +8,7 @@ import (
 )
 
 // summarizeCommand drives the handoff RECENT_COMMANDS list, which feeds
-// both the CLI `traceary session handoff` text rendering and the MCP
+// both the CLI `traceary context --handoff` text rendering and the MCP
 // session_handoff tool. The single-line cap is intentionally smaller
 // than the list-surface defaults (60 vs 500 runes) because each row
 // renders on its own line; truncation here keeps multi-hundred-line

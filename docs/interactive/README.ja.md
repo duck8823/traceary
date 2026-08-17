@@ -95,14 +95,14 @@ traceary memory inbox review --workspace github.com/duck8823/traceary --type pre
 
 画面内の action key は `a` accept、`x` reject、`s` skip、`r` attach evidence、`e` edit/distill、`v` view evidence、`?` help、`q` quit です。Accept / reject / evidence attach は `memory inbox accept|reject|attach` と同じ application use case を再利用します。`r` は comma-separated な `kind:value` evidence ref と任意の `artifact:kind:value` ref を受け付け、evidence の無い候補を accept 前に補強できます。`e` は operator-authored fact の入力を要求する editor prompt を開き、`traceary memory store distill` 経由で処理します（LLM 出力の auto-accept はありません）。
 
-### 8. 「次の session に何を持ち込む？」→ `traceary session handoff`
+### 8. 「次の session に何を持ち込む？」→ `traceary context --handoff`
 
-生 event stream ではなく concise な working-memory pack が欲しいときは `session handoff` を使います。
-作業再開や他 agent への handoff 向けの operator-facing summary view です（v0.13.x の top-level `traceary handoff` alias は v0.14.0 で削除済み）。
+生 event stream ではなく concise な working-memory pack が欲しいときは `context --handoff` を使います。
+作業再開や他 agent への handoff 向けの operator-facing summary view です（`traceary session handoff` は v0.42.0 で削除。v0.13.x の top-level `traceary handoff` alias は v0.14.0 で削除済み）。
 
 ```sh
-traceary session handoff --workspace github.com/duck8823/traceary
-traceary session handoff --session-id sess_123
+traceary context --handoff --workspace github.com/duck8823/traceary
+traceary context --handoff --session-id sess_123
 ```
 
 ## Shell completion
@@ -126,7 +126,7 @@ bare `traceary` は TTY / 非 TTY とも常に help を表示します。旧 Tai
 
 - bare `traceary` と `traceary --help` は help のみを表示する
 - completion generation と help の例は安定したままにする
-- automation の推奨 path は script-facing command（`list`、`list --follow`、`search`、`doctor --json`、`session handoff`、`memory inbox list`）
+- automation の推奨 path は script-facing command（`list`、`list --follow`、`search`、`doctor --json`、`context --handoff`、`memory inbox list`）
 
 ## まだ future-facing なもの
 

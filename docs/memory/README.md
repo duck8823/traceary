@@ -47,7 +47,7 @@ Every durable memory carries a content validity window `(valid_from, valid_to)` 
 - `valid_from` — when the fact starts being asserted (defaults to `created_at`)
 - `valid_to` — when the fact stops being asserted (`NULL` means open-ended)
 
-Default retrieval (`memory search` / `memory search --all`, plus `session handoff` / `context`) hides memories whose `valid_to` is in the past — you only see what is still asserted as true right now.
+Default retrieval (`memory search` / `memory search --all`, plus `context --handoff` / `context`) hides memories whose `valid_to` is in the past — you only see what is still asserted as true right now.
 
 To time-travel, pass `--as-of <timestamp>` to CLI list / search, which evaluates `valid_from <= asOf < valid_to` against the supplied point in time. Pass `--include-expired` to bypass the validity filter entirely (e.g. when auditing historical decisions). Neither flag replaces lifecycle `status` filtering — a superseded or rejected memory still needs `--status` to surface.
 
@@ -361,10 +361,10 @@ Examples:
 
 Use these when you want the memory layer folded into a resume-friendly context pack:
 
-- `traceary session handoff`
+- `traceary context --handoff`
 - `traceary context`
 
-`session handoff` returns a working-memory summary for the next session (the v0.13.x top-level `traceary handoff` alias was removed in v0.14.0). `context` is the structured pack when a client wants durable memories folded into the same resume bundle.
+`context --handoff` returns a working-memory summary for the next session (`session handoff` was removed in v0.42.0; the v0.13.x top-level `traceary handoff` alias was removed in v0.14.0). Bare `context` is the raw-event stream.
 
 ## Sanitization and redaction
 
@@ -382,7 +382,7 @@ That means:
 2. inspect recent work with `traceary list`, `traceary list --follow`, `traceary search`, or `traceary show`
 3. use `traceary memory store propose` for explicit facts (they land as candidates)
 4. use `traceary memory admin extract` to generate reviewable candidates from session summaries and compact summaries
-5. use `traceary session handoff` when the next agent or session should start from a compact context bundle
+5. use `traceary context --handoff` when the next agent or session should start from a compact context bundle
 
 ## Related docs
 

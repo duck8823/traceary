@@ -12,7 +12,7 @@ import (
 )
 
 // TestSessionHandoff_TextGoldens locks the structured handoff text shape
-// because `traceary session handoff` does not expose a `--json` flag and
+// because `traceary context --handoff` does not expose a `--json` flag and
 // downstream prompt-injection / resume tooling parses the text directly.
 // The fields and ordering ("TRACEARY HANDOFF" header, SESSION_ID,
 // WORKSPACE, LABEL, STATUS, TOTAL_EVENTS, COMMAND_COUNT, AGENTS,
@@ -129,7 +129,7 @@ func TestSessionHandoff_TextGoldens(t *testing.T) {
 			rootCmd.SetOut(stdout)
 			rootCmd.SetErr(&bytes.Buffer{})
 			rootCmd.SetArgs([]string{
-				"session", "handoff",
+				"context", "--handoff",
 				"--db-path", "/tmp/test-traceary.db",
 				"--session-id", "session-handoff-golden",
 			})

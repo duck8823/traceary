@@ -15,6 +15,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 - **parked な search-projection が毎コマンド WARN しない (#2058)** — skip WARN は store あたり 24 時間に 1 回。`doctor` と `store search-projection status` は毎回 parked 理由を出す。復旧文言は `start` のあと `resume --until-complete`。
 
 ### Removed
+- **`traceary session handoff` を削除 (#2073)** — 呼び出しは unknown subcommand（非ゼロ、`DEPRECATED` なし）。`traceary context --handoff`（同じ TRACEARY HANDOFF ラベル）または `traceary context --compact-only`（同じ再開サマリー。`--recent` 未指定時は 3）を使う。既定の `context` は生イベント + `--json` のまま。hooks は内部で compact 行を組み立てる。
 - **`traceary store capacity` を削除 (#2072)** — 呼び出しは unknown subcommand（非ゼロ、`DEPRECATED` なし）。`traceary doctor` の additive な `store-capacity` check を使う。大きい store の既定 doctor は filesystem-metadata-only のままで、SQLite を開かず dbstat も歩かない。
 - **`traceary memory list` を削除 (#2071)** — 呼び出しは unknown subcommand（非ゼロ、`DEPRECATED` なし）。`traceary memory search --all` を使う（同じ List バックエンド、filter、既定 workspace scope、並び順、`--json`）。`--all` は query と同時に使えない。
 - **`traceary hooks print` を削除 (#2070)** — 呼び出しは unknown subcommand（非ゼロ、`DEPRECATED` なし）。`traceary hooks install --dry-run` を使う（同じ生成 config バイト列。`--client` / `--traceary-bin` / `--matcher`）。

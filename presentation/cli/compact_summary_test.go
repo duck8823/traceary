@@ -43,7 +43,7 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"session", "handoff", "--compact-only", "--db-path", dbPath})
+		rootCmd.SetArgs([]string{"context", "--compact-only", "--db-path", dbPath})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
@@ -84,7 +84,7 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"session", "handoff", "--compact-only", "--db-path", dbPath})
+		rootCmd.SetArgs([]string{"context", "--compact-only", "--db-path", dbPath})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
@@ -122,7 +122,7 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"session", "handoff", "--compact-only", "--db-path", dbPath, "--session-id", "target-session"})
+		rootCmd.SetArgs([]string{"context", "--compact-only", "--db-path", dbPath, "--session-id", "target-session"})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
@@ -179,7 +179,7 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"session", "handoff", "--compact-only", "--db-path", dbPath})
+		rootCmd.SetArgs([]string{"context", "--compact-only", "--db-path", dbPath})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
@@ -223,7 +223,7 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"session", "handoff", "--compact-only", "--db-path", dbPath, "--recent", "3"})
+		rootCmd.SetArgs([]string{"context", "--compact-only", "--db-path", dbPath, "--recent", "3"})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
@@ -236,10 +236,10 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("session handoff --compact-only defaults --recent to 3", func(t *testing.T) {
+	t.Run("context --compact-only defaults --recent to 3", func(t *testing.T) {
 		t.Parallel()
 
-		// `session handoff` defaults --recent to 5 because the full
+		// `context --handoff` defaults --recent to 5 because the full
 		// handoff dump expects more history; the --compact-only path
 		// must drop back to the 3-line default that the legacy
 		// `compact-summary` command (removed in v0.14.0) used so the
@@ -254,7 +254,7 @@ func TestRootCLI_CompactSummaryCommand(t *testing.T) {
 		).Command()
 		rootCmd.SetOut(&bytes.Buffer{})
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"session", "handoff", "--compact-only", "--db-path", dbPath})
+		rootCmd.SetArgs([]string{"context", "--compact-only", "--db-path", dbPath})
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
 		}

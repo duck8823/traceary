@@ -22,7 +22,7 @@ This page is the detailed docs index for Traceary. Start here when the top-level
 - [Native integrations](./integrations/README.md): packaged Claude / Codex / Gemini (legacy) integration bundles, install flows, and smoke tests
 - [Antigravity hooks and plugin](./integrations/antigravity.md): v0.21.1 hook client support, packaged plugin, install paths, limitations, and the official hook/plugin references
 - [Hooks guide](./hooks/README.md): Claude Code / Codex / Gemini (legacy) hook setup, install flow, and troubleshooting
-- [Interactive workflows](./interactive/README.md): how to inspect live and recent activity with `list`, `list --follow`, `search`, `show`, and `handoff`
+- [Interactive workflows](./interactive/README.md): how to inspect live and recent activity with `list`, `list --follow`, `search`, `show`, and `context --handoff`
 
 ## Operations
 

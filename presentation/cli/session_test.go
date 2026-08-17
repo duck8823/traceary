@@ -1039,6 +1039,8 @@ func TestRootCLI_SessionLatestAndListAreUnknown(t *testing.T) {
 		{name: "latest --active", args: []string{"session", "latest", "--active"}, wantErrHas: "unknown flag: --active"},
 		{name: "list", args: []string{"session", "list"}, wantErrHas: `unknown subcommand "list"`},
 		{name: "list --json", args: []string{"session", "list", "--json"}, wantErrHas: "unknown flag: --json"},
+		{name: "handoff", args: []string{"session", "handoff"}, wantErrHas: `unknown subcommand "handoff"`},
+		{name: "handoff --compact-only", args: []string{"session", "handoff", "--compact-only"}, wantErrHas: "unknown flag: --compact-only"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

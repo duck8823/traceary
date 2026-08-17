@@ -57,7 +57,7 @@ func TestRootCLI_HandoffCommand(t *testing.T) {
 		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"session", "handoff", "--db-path", filepath.Join(t.TempDir(), "traceary.db")})
+		rootCmd.SetArgs([]string{"context", "--handoff", "--db-path", filepath.Join(t.TempDir(), "traceary.db")})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
@@ -146,7 +146,7 @@ func TestRootCLI_HandoffCommand(t *testing.T) {
 		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"session", "handoff", "--db-path", filepath.Join(t.TempDir(), "traceary.db")})
+		rootCmd.SetArgs([]string{"context", "--handoff", "--db-path", filepath.Join(t.TempDir(), "traceary.db")})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
@@ -188,7 +188,7 @@ func TestRootCLI_HandoffCommand(t *testing.T) {
 		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"session", "handoff", "--db-path", filepath.Join(t.TempDir(), "traceary.db")})
+		rootCmd.SetArgs([]string{"context", "--handoff", "--db-path", filepath.Join(t.TempDir(), "traceary.db")})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
@@ -230,7 +230,7 @@ func TestRootCLI_HandoffCommand(t *testing.T) {
 		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"session", "handoff", "--include-candidates", "--db-path", filepath.Join(t.TempDir(), "traceary.db")})
+		rootCmd.SetArgs([]string{"context", "--handoff", "--include-candidates", "--db-path", filepath.Join(t.TempDir(), "traceary.db")})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
@@ -278,7 +278,7 @@ func TestRootCLI_HandoffCommand(t *testing.T) {
 		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"session", "handoff", "--db-path", filepath.Join(t.TempDir(), "traceary.db")})
+		rootCmd.SetArgs([]string{"context", "--handoff", "--db-path", filepath.Join(t.TempDir(), "traceary.db")})
 
 		err := rootCmd.Execute()
 		if err == nil {
@@ -325,7 +325,7 @@ func TestRootCLI_HandoffCommand(t *testing.T) {
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
 		rootCmd.SetArgs([]string{
-			"session", "handoff",
+			"context", "--handoff",
 			"--db-path", filepath.Join(t.TempDir(), "traceary.db"),
 			"--allow-stale",
 			"--stale-after", "1h",
@@ -373,7 +373,7 @@ func TestRootCLI_HandoffCommand(t *testing.T) {
 		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"session", "handoff", "--db-path", filepath.Join(t.TempDir(), "traceary.db")})
+		rootCmd.SetArgs([]string{"context", "--handoff", "--db-path", filepath.Join(t.TempDir(), "traceary.db")})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
@@ -409,7 +409,7 @@ func TestRootCLI_HandoffCommand(t *testing.T) {
 		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"session", "handoff", "--db-path", filepath.Join(t.TempDir(), "traceary.db")})
+		rootCmd.SetArgs([]string{"context", "--handoff", "--db-path", filepath.Join(t.TempDir(), "traceary.db")})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
@@ -421,36 +421,66 @@ func TestRootCLI_HandoffCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("session handoff subcommand reuses the same structured output", func(t *testing.T) {
+	t.Run("handoff-only flags require --handoff or --compact-only", func(t *testing.T) {
 		t.Parallel()
 
-		stdout := &bytes.Buffer{}
 		rootCmd := cli.NewRootCLI(
 			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
-			cli.WithContext(&contextUsecaseStub{
-				handoff: types.Some(apptypes.ContextPackOf(
-					types.SessionID("session-2"),
-					types.Workspace("duck8823/traceary"),
-					"",
-					"ended",
-					5,
-					1,
-					nil,
-					apptypes.WorkingStateOf("Done", ""),
-					nil,
-					nil,
-				)),
-			}),
+			cli.WithEvent(&eventUsecaseStub{}),
+			cli.WithContext(&contextUsecaseStub{}),
 		).Command()
-		rootCmd.SetOut(stdout)
+		rootCmd.SetOut(&bytes.Buffer{})
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"session", "handoff", "--db-path", filepath.Join(t.TempDir(), "traceary.db")})
+		rootCmd.SetArgs([]string{"context", "--recent", "5", "--db-path", filepath.Join(t.TempDir(), "traceary.db")})
 
-		if err := rootCmd.Execute(); err != nil {
-			t.Fatalf("Execute() error = %v", err)
+		err := rootCmd.Execute()
+		if err == nil {
+			t.Fatal("Execute() error = nil, want handoff-only flag error")
 		}
-		if !strings.Contains(stdout.String(), "SESSION_ID: session-2") {
-			t.Fatalf("output missing session handoff payload:\n%s", stdout.String())
+		if !strings.Contains(err.Error(), "--handoff") || !strings.Contains(err.Error(), "--compact-only") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("raw-context filters cannot combine with --handoff", func(t *testing.T) {
+		t.Parallel()
+
+		tests := []struct {
+			name string
+			flag string
+		}{
+			{name: "limit", flag: "--limit"},
+			{name: "client", flag: "--client"},
+			{name: "agent", flag: "--agent"},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
+
+				rootCmd := cli.NewRootCLI(
+					cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+					cli.WithContext(&contextUsecaseStub{}),
+				).Command()
+				rootCmd.SetOut(&bytes.Buffer{})
+				rootCmd.SetErr(&bytes.Buffer{})
+				value := "3"
+				if tt.flag != "--limit" {
+					value = "codex"
+				}
+				rootCmd.SetArgs([]string{
+					"context", "--handoff",
+					tt.flag, value,
+					"--db-path", filepath.Join(t.TempDir(), "traceary.db"),
+				})
+
+				err := rootCmd.Execute()
+				if err == nil {
+					t.Fatalf("Execute(%s) error = nil, want combination error", tt.flag)
+				}
+				if !strings.Contains(err.Error(), tt.flag) {
+					t.Fatalf("error = %v, want %s mentioned", err, tt.flag)
+				}
+			})
 		}
 	})
 }

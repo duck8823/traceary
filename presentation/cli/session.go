@@ -28,7 +28,6 @@ func (c *RootCLI) newSessionCommand() *cobra.Command {
 	sessionCmd.AddCommand(c.newSessionRunCommand())
 	sessionCmd.AddCommand(c.newSessionRepairOneShotCommand())
 	sessionCmd.AddCommand(c.newSessionRefineCommand())
-	sessionCmd.AddCommand(c.newSessionHandoffCommand())
 	sessionCmd.AddCommand(c.newSessionGCCommand())
 
 	return sessionCmd

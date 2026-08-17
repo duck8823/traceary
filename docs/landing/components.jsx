@@ -12,7 +12,7 @@ function HeroTerminal() {
       '<span class="ts">07:06:58</span>  <span class="kind">transcript</span>  agent=codex   <span class="sess">sess=4a70c5</span>  <span class="ws">ws=traceary</span>  investigating failing tests\n' +
       '<span class="ts">07:06:52</span>  <span class="kind">command_executed</span>  agent=worker  <span class="sess">sess=7c91a2</span>  <span class="ws">ws=traceary</span>  go test ./presentation/cli'
     },
-    { type: 'cmd', text: 'traceary session handoff --compact-only' },
+    { type: 'cmd', text: 'traceary context --compact-only' },
     { type: 'out', text: 'Investigating failing tests in application/usecase. Reproduced panic via `go test ./...`. Next: triage stacktrace.' },
   ];
 
@@ -146,11 +146,11 @@ const inspectViews = {
     )
   },
   handoff: {
-    cmd: 'traceary session handoff',
+    cmd: 'traceary context --handoff',
     title: 'assembled working memory',
     body: (
       <>
-        <div className="term-line"><span className="term-prompt">$</span><span className="term-cmd">traceary session handoff --workspace github.com/duck8823/traceary</span></div>
+        <div className="term-line"><span className="term-prompt">$</span><span className="term-cmd">traceary context --handoff --workspace github.com/duck8823/traceary</span></div>
         <div className="term-out" dangerouslySetInnerHTML={{__html:
           '<span class="kind">TRACEARY HANDOFF</span>\n' +
           '<span class="kind">SESSION_ID</span>: <span class="sess">4a70c526</span>\n' +
@@ -168,7 +168,7 @@ const inspectViews = {
           '- ./traceary tail --db-path /Users/...\n' +
           '- git status\n' +
           '<span class="kind">MEMORIES</span>:\n' +
-          '- [decision][workspace:github.com/duck8823/traceary] Use `traceary session handoff --compact-only` for resume context.'
+          '- [decision][workspace:github.com/duck8823/traceary] Use `traceary context --compact-only` for resume context.'
         }}/>
       </>
     )
@@ -182,7 +182,7 @@ function InspectSection() {
     { id: 'tail', cmd: 'traceary list --follow', desc: 'Confirm hooks are firing, watch failures in real time' },
     { id: 'timeline', cmd: 'traceary list --blocks', desc: 'See gap-separated work blocks with per-workspace summaries' },
     { id: 'search', cmd: 'traceary search', desc: 'Jump to an exact kind, session, or query' },
-    { id: 'handoff', cmd: 'traceary session handoff', desc: 'Resume with curated working memory' },
+    { id: 'handoff', cmd: 'traceary context --handoff', desc: 'Resume with curated working memory' },
   ];
   const view = inspectViews[active];
   return (

@@ -83,7 +83,7 @@ Session resolution follows the same rules as `traceary log`.
 
 ### Bare `traceary`
 
-Running `traceary` with no subcommand always prints help (TTY and non-TTY). The former operator cockpit (`traceary tui` / `traceary dashboard` and the bare TTY default that opened it) was removed in v0.35.0 after the v0.34 deprecation window. Use explicit read commands such as `traceary list`, `traceary search`, `traceary doctor --json`, `traceary session handoff`, and `traceary memory inbox list`. Root still accepts `--db-path` so `traceary --db-path … <subcommand>` stays valid; cockpit-only `--reset-state` is gone. An orphan local state file at `~/.local/state/traceary/cockpit.json` (or `$XDG_STATE_HOME/traceary/cockpit.json`) is safe to delete manually.
+Running `traceary` with no subcommand always prints help (TTY and non-TTY). The former operator cockpit (`traceary tui` / `traceary dashboard` and the bare TTY default that opened it) was removed in v0.35.0 after the v0.34 deprecation window. Use explicit read commands such as `traceary list`, `traceary search`, `traceary doctor --json`, `traceary context --handoff`, and `traceary memory inbox list`. Root still accepts `--db-path` so `traceary --db-path … <subcommand>` stays valid; cockpit-only `--reset-state` is gone. An orphan local state file at `~/.local/state/traceary/cockpit.json` (or `$XDG_STATE_HOME/traceary/cockpit.json`) is safe to delete manually.
 
 ### `traceary list`
 
@@ -181,32 +181,25 @@ Useful flags:
 
 ### `traceary context`
 
-Print raw recent context events for another session or tool.
+Print raw recent context events for another session or tool. Pass `--handoff` for the structured working-memory pack (`TRACEARY HANDOFF` labels). Pass `--compact-only` for the short prompt-injection summary. `--compact-only` defaults `--recent` to 3 when the flag is not set. `--handoff` and `--compact-only` are mutually exclusive. `--json` applies only to the raw-event path.
+
+The structured `--handoff` text keeps the legacy `RECENT_COMMANDS` string list and adds a sibling `RECENT_COMMAND_ITEMS` section. Each item identifies its event, reports returned/stored/original byte extent and response truncation, and includes the explicit `traceary show <event-id>` detail command. The pack reads only a bounded body prefix; it does not hydrate full command payloads.
 
 Useful flags:
 
 - `--session-id`
 - `--workspace`
-- `--limit`
-- `--json`
-
-### `traceary session handoff`
-
-Print a structured working-memory handoff summary built from session metadata, recent commands, compact summaries, and accepted durable memories. Pass `--compact-only` to emit the short prompt-injection summary form. `--compact-only` defaults `--recent` to 3 when the flag is not set.
-
-The structured text keeps the legacy `RECENT_COMMANDS` string list and adds a sibling `RECENT_COMMAND_ITEMS` section. Each item identifies its event, reports returned/stored/original byte extent and response truncation, and includes the explicit `traceary show <event-id>` detail command. Handoff reads only a bounded body prefix; it does not hydrate full command payloads.
-
-Useful flags:
-
-- `--session-id`
-- `--workspace`
-- `--recent`
-- `--memories`
-- `--preset` (optional): apply a built-in retrieval preset (`resume` / `review` / `incident`) to durable memory filters
-- `--as-of` (optional): evaluate durable memory validity at the given timestamp (YYYY-MM-DD or RFC3339); defaults to "now"
+- `--limit` (raw-event path)
+- `--json` (raw-event path)
+- `--handoff`
+- `--recent` (with `--handoff` / `--compact-only`)
+- `--memories` (with `--handoff` / `--compact-only`)
+- `--preset` (optional, with `--handoff` / `--compact-only`): apply a built-in retrieval preset (`resume` / `review` / `incident`) to durable memory filters
+- `--as-of` (optional, with `--handoff` / `--compact-only`): evaluate durable memory validity at the given timestamp (YYYY-MM-DD or RFC3339); defaults to "now"
 - `--compact-only` (optional): emit the short prompt-injection summary form; implicitly sets `--recent=3` unless `--recent` is given explicitly
+- `--include-candidates` / `--allow-stale` / `--stale-after` (with `--handoff` / `--compact-only`)
 
-> **v0.14 migration**: The former top-level `traceary handoff` and `traceary compact-summary` aliases were removed in v0.14.0. Running them now falls back to Cobra's generic unknown-command output — the targeted migration-error stubs were retired in v0.20.0. Use `traceary session handoff` (plus `--compact-only` for the compact form). See [CLI stability and deprecation policy](../cli-stability.md) for the full removal list.
+> **v0.14 / v0.42 migration**: The former top-level `traceary handoff` and `traceary compact-summary` aliases were removed in v0.14.0. `traceary session handoff` was removed in v0.42.0 (#2073). Running the retired names now falls back to Cobra's generic unknown-command output. Use `traceary context --handoff` (plus `--compact-only` for the compact form). See [CLI stability and deprecation policy](../cli-stability.md) for the full removal list.
 
 ## Durable memory commands
 

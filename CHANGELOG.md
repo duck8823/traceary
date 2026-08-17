@@ -15,6 +15,7 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 - **Parked search-projection catch-up no longer warns on every command (#2058)** — the skip WARN is rate-limited to once per 24h per store. `doctor` and `store search-projection status` still always show the parked reason. Recovery text names `start` then `resume --until-complete`.
 
 ### Removed
+- **`traceary session handoff` (#2073)** — invocations fail as an unknown subcommand (non-zero, no `DEPRECATED` notice). Use `traceary context --handoff` (same TRACEARY HANDOFF labels) or `traceary context --compact-only` (same resume summary; `--recent` defaults to 3). Default `context` stays raw events + `--json`. Hooks still build the compact line internally.
 - **`traceary store capacity` (#2072)** — invocations fail as an unknown subcommand (non-zero, no `DEPRECATED` notice). Use `traceary doctor` (additive `store-capacity` check). Large-store default doctor stays filesystem-metadata-only and does not open SQLite or walk dbstat.
 - **`traceary memory list` (#2071)** — invocations fail as an unknown subcommand (non-zero, no `DEPRECATED` notice). Use `traceary memory search --all` (same List backend, filters, default workspace scope, ordering, and `--json`). `--all` cannot be combined with a query term.
 - **`traceary hooks print` (#2070)** — invocations fail as an unknown subcommand (non-zero, no `DEPRECATED` notice). Use `traceary hooks install --dry-run` (same generated config bytes; `--client` / `--traceary-bin` / `--matcher`).

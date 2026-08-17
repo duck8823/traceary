@@ -86,7 +86,7 @@ Claude Task subagent capture:
 
 | Missing Capability | Fallback |
 |---|---|
-| Compact hooks | `traceary context` / `traceary session handoff` on demand |
+| Compact hooks | `traceary context` / `traceary context --handoff` on demand |
 | Failure event | Derive `failure_reason` from failure-shaped structured fields (Claude top-level `error` and Gemini `tool_response.error` become `host_error`; Grok `PermissionDenied` becomes `hook_denied`; interruption/timeout markers become `signal`/`timeout`). Hosts that expose no structured failure signal remain `unknown`; formatted output text is never parsed |
 | Agent type | Use client name only (e.g., `codex`, `gemini`) |
 
