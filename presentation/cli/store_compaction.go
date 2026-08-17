@@ -4,6 +4,7 @@ package cli
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -150,6 +151,9 @@ func (c *RootCLI) runStoreCompact(cmd *cobra.Command, input storeCompactInput) e
 			"--dry-run には --archive または --archive-restore が必要です",
 		))
 	}
+	if err := validateStoreCompactAbsorbFlags(cmd, input); err != nil {
+		return err
+	}
 	if input.archive {
 		return c.runStoreArchiveCreate(cmd.Context(), cmd.OutOrStdout(), storeArchiveCreateInput{
 			dbPath:            input.path,
@@ -180,6 +184,12 @@ func (c *RootCLI) runStoreCompact(cmd *cobra.Command, input storeCompactInput) e
 		return c.runStoreFileRetentionPlan(cmd.Context(), cmd.OutOrStdout(), input.fileRetention)
 	}
 	if input.retentionApply {
+		if strings.TrimSpace(input.planPath) == "" || strings.TrimSpace(input.confirmPlanID) == "" {
+			return xerrors.New(Localize(
+				"--retention-apply requires --plan and --confirm-plan-id",
+				"--retention-apply には --plan と --confirm-plan-id が必要です",
+			))
+		}
 		return c.runStoreFileRetentionApply(cmd.Context(), cmd.OutOrStdout(), storeFileRetentionApplyInput{
 			planPath:        input.planPath,
 			confirmedPlanID: input.confirmPlanID,
@@ -220,6 +230,47 @@ func (c *RootCLI) runStoreCompact(cmd *cobra.Command, input storeCompactInput) e
 		// deletes this file when they accept the rewrite (#1827).
 		"rollback_retained": result.CompactStrategy != application.CompactStrategyInPlace,
 	})
+}
+
+func validateStoreCompactAbsorbFlags(cmd *cobra.Command, input storeCompactInput) error {
+	changed := func(names ...string) bool {
+		for _, name := range names {
+			if cmd.Flags().Changed(name) {
+				return true
+			}
+		}
+		return false
+	}
+	if changed("output") && !input.archive && !input.retentionPlan {
+		return xerrors.New(Localize(
+			"--output requires --archive or --retention-plan",
+			"--output には --archive または --retention-plan が必要です",
+		))
+	}
+	if changed("passphrase-env") && !input.archive && input.archiveVerify == "" && input.archiveRestore == "" {
+		return xerrors.New(Localize(
+			"--passphrase-env requires --archive/--archive-verify/--archive-restore",
+			"--passphrase-env には --archive / --archive-verify / --archive-restore が必要です",
+		))
+	}
+	if changed("plan", "confirm-plan-id") && !input.retentionApply {
+		return xerrors.New(Localize(
+			"--plan/--confirm-plan-id require --retention-apply",
+			"--plan/--confirm-plan-id には --retention-apply が必要です",
+		))
+	}
+	if changed(
+		"archive-root", "backup-root",
+		"archive-max-age", "archive-max-count", "archive-max-allocated-bytes",
+		"backup-max-age", "backup-max-count", "backup-max-allocated-bytes",
+		"expires-after",
+	) && !input.retentionPlan {
+		return xerrors.New(Localize(
+			"file-retention ceiling flags require --retention-plan",
+			"file-retention の上限 flag には --retention-plan が必要です",
+		))
+	}
+	return nil
 }
 
 func (c *RootCLI) newStoreCompactionRollbackCommand() *cobra.Command {
