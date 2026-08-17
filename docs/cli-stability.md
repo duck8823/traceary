@@ -41,7 +41,7 @@ Current public commands, including compatibility aliases introduced after v0.15,
 - **Durable memory store** — `traceary memory store propose`, `traceary memory store distill`
 - **Durable memory decay** — `traceary memory decay`
 - **Hooks** — `traceary hooks install` (including `--dry-run`), `traceary hooks guide`, `traceary completion` (`bash` / `zsh` / `fish` / `powershell`)
-- **Diagnostics** — `traceary doctor` (alias `traceary status`), `traceary report`
+- **Diagnostics** — `traceary doctor` (alias `traceary status`, including the additive `store-capacity` check), `traceary report`
 - **Replay / archive** — `traceary replay`
 - **Bundle import / export** — `traceary bundle export`, `traceary bundle import`
 
@@ -57,7 +57,7 @@ Admin commands are operator-facing maintenance surfaces. They are still listed i
 
 Admin commands as of v0.35:
 
-- **Store administration** — `traceary store init`, `traceary store backup create`, `traceary store backup restore`, `traceary store compact`, `traceary store compact rollback`, `traceary store archive create`, `traceary store archive restore`, `traceary store archive verify`, `traceary store capacity`, `traceary store retention files plan`, `traceary store retention files apply`, `traceary store search-projection start`, `traceary store search-projection resume`, `traceary store search-projection status`, `traceary store search-projection abort`, `traceary store search-projection probe`, `traceary store workspace-alias add`, `traceary store workspace-alias list`, `traceary store workspace-alias remove`
+- **Store administration** — `traceary store init`, `traceary store backup create`, `traceary store backup restore`, `traceary store compact`, `traceary store compact rollback`, `traceary store archive create`, `traceary store archive restore`, `traceary store archive verify`, `traceary store retention files plan`, `traceary store retention files apply`, `traceary store search-projection start`, `traceary store search-projection resume`, `traceary store search-projection status`, `traceary store search-projection abort`, `traceary store search-projection probe`, `traceary store workspace-alias add`, `traceary store workspace-alias list`, `traceary store workspace-alias remove`
 - **Session administration** — `traceary session gc` (closes stale sessions; visible under the `session` namespace and registered alongside the public session subcommands, but treated as an admin-tier maintenance entrypoint), `traceary session repair-one-shot`
 - **Durable memory admin** — `traceary memory admin extract`, `traceary memory admin import codex`, `traceary memory admin import instructions`, `traceary memory admin export`, `traceary memory admin activate`, `traceary memory admin hygiene scan`, `traceary memory admin hygiene apply`, `traceary memory admin supersede`, `traceary memory admin expire`, `traceary memory admin set-validity`
 - **Report administration** — `traceary report workspace-identity`
@@ -89,10 +89,11 @@ Currently deprecated:
 
 #1692 walked every visible public/admin leaf against the two pillars (記録 = capture / summarise / compress / evict; 記憶 = consolidate and supply automatically). Hidden hook entrypoints stay plumbing (see below). The shipped table is `presentation/cli/pillar_inventory.go`; a test fails if a visible action is added without a row.
 
-A command is removed only for empty backing data, duplication, or serving no pillar. Usage counts are not grounds. Remaining groups from the #1870 97→29 keep-list were never in the v0.34 deprecation registry, so v0.35 does not delete them. `list --follow` landed in v0.42.0 (#2068). `list --blocks` landed in v0.42.0 (#2069). `hooks install --dry-run` landed in v0.42.0 (#2070). `memory search --all` landed in v0.42.0 (#2071). `replay` stays: it is the only single-file HTML export, and #1870 called usage a weak removal basis.
+A command is removed only for empty backing data, duplication, or serving no pillar. Usage counts are not grounds. Remaining groups from the #1870 97→29 keep-list were never in the v0.34 deprecation registry, so v0.35 does not delete them. `list --follow` landed in v0.42.0 (#2068). `list --blocks` landed in v0.42.0 (#2069). `hooks install --dry-run` landed in v0.42.0 (#2070). `memory search --all` landed in v0.42.0 (#2071). Doctor absorbed `store capacity` in v0.42.0 (#2072). `replay` stays: it is the only single-file HTML export, and #1870 called usage a weak removal basis.
 
 Historical removal log:
 
+- Removed in v0.42.0 (#2072): `traceary store capacity`. Invocations fail as an unknown subcommand with a non-zero exit and no `DEPRECATED` notice. This is an explicit policy exception to the one-minor deprecation window (owner decision 2026-08-17). Use `traceary doctor` (additive `store-capacity` check from the same bounded InspectCapacity path). Default doctor on stores ≥2 GiB stays metadata-only and does not open SQLite or walk dbstat.
 - Removed in v0.42.0 (#2071): `traceary memory list`. Invocations fail as an unknown subcommand with a non-zero exit and no `DEPRECATED` notice. This is an explicit policy exception to the one-minor deprecation window (owner decision 2026-08-17). Use `traceary memory search --all` (same List backend, filters, default workspace scope, ordering, and `--json`). `--all` cannot be combined with a query term.
 - Removed in v0.42.0 (#2070): `traceary hooks print`. Invocations fail as an unknown subcommand with a non-zero exit and no `DEPRECATED` notice. This is an explicit policy exception to the one-minor deprecation window (owner decision 2026-08-17). Use `traceary hooks install --dry-run` (same generated config bytes; `--client` / `--traceary-bin` / `--matcher`).
 - Removed in v0.42.0 (#2069): `traceary timeline`. Invocations fail as an unknown command with a non-zero exit and no `DEPRECATED` notice. This is an explicit policy exception to the one-minor deprecation window (owner decision 2026-08-17). Use `traceary list --blocks` (same gap-detected blocks, #2033 scan-cap disclosure, and `workspace_breakdown` JSON; `--gap` moved onto `list`).

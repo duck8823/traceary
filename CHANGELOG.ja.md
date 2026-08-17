@@ -11,10 +11,11 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 - **`memory inbox list` が候補プール件数を出す (#2064)** — テキストはページの後に `showing N of M candidates (source split)` を出す。`--source` 未指定なら `extracted-hidden` も含む。JSON は既存の item 配列のまま。
 - **抽出がオーケストレーション進捗のナレーションを hidden にする (#2063)** — sprint/wave 状況、markdown の status 表、scratch パス、`ephemeralMessage` 包みを `extracted-hidden`（`transient_status`）へ。always/never/must の durable 事実は表示されたまま。
 - **未レビューの extracted メモリ候補に 30 日 TTL を付ける (#2062)** — 提案時に `expires_at` を刻み、`memory decay --apply` で NULL を backfill する。decay の時計は `created_at`（`updated_at` ではない）。`remember-intent` / `manual` / `compact-summary` は対象外。dry-run 件数に `backfilled=` を出す。
-- **`store search-projection status` が dbstat を歩かない (#2059)** — 物理バイトは `store capacity` の sidecar cache（`physical_evidence.status=cached`）か、即座の `unavailable`。lifecycle 欄は control snapshot のまま。大きい store でも数秒で答えるのが目標。
+- **`store search-projection status` が dbstat を歩かない (#2059)** — 物理バイトは `doctor` InspectCapacity の sidecar cache（`physical_evidence.status=cached`）か、即座の `unavailable`。lifecycle 欄は control snapshot のまま。大きい store でも数秒で答えるのが目標。
 - **parked な search-projection が毎コマンド WARN しない (#2058)** — skip WARN は store あたり 24 時間に 1 回。`doctor` と `store search-projection status` は毎回 parked 理由を出す。復旧文言は `start` のあと `resume --until-complete`。
 
 ### Removed
+- **`traceary store capacity` を削除 (#2072)** — 呼び出しは unknown subcommand（非ゼロ、`DEPRECATED` なし）。`traceary doctor` の additive な `store-capacity` check を使う。大きい store の既定 doctor は filesystem-metadata-only のままで、SQLite を開かず dbstat も歩かない。
 - **`traceary memory list` を削除 (#2071)** — 呼び出しは unknown subcommand（非ゼロ、`DEPRECATED` なし）。`traceary memory search --all` を使う（同じ List バックエンド、filter、既定 workspace scope、並び順、`--json`）。`--all` は query と同時に使えない。
 - **`traceary hooks print` を削除 (#2070)** — 呼び出しは unknown subcommand（非ゼロ、`DEPRECATED` なし）。`traceary hooks install --dry-run` を使う（同じ生成 config バイト列。`--client` / `--traceary-bin` / `--matcher`）。
 - **`traceary timeline` を削除 (#2069)** — 呼び出しは unknown command（非ゼロ、`DEPRECATED` なし）。`traceary list --blocks` を使う（同じギャップ検出ブロック・scan-cap 開示・`workspace_breakdown` JSON）。`--gap` は `list` に移した。

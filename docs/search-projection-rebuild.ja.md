@@ -111,7 +111,7 @@ b-tree 割当であり、ソーステキストではありません。デフォ�
 `0`（超過）、`-1`（測定不能）を記録します。
 
 `-1` は**不明**を意味します。「予算以下」を意味することは決してありません。
-新しい `store capacity` の dbstat cache があるとき、`store search-projection status`
+新しい `doctor` InspectCapacity の dbstat cache があるとき、`store search-projection status`
 はその cache したファミリ合計（`physical_bytes`、`physical_evidence.status=cached`）
 に対する粗い `0` / `1` を出します（persist はしません）。status 自身は dbstat を歩きません。
 cache miss は即座に `unavailable` です。cutover は完了時に測定するので、complete 世代には

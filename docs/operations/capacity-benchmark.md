@@ -2,10 +2,10 @@
 
 [日本語](capacity-benchmark.ja.md)
 
-`traceary store capacity` emits `traceary.capacity/v1` JSON. The report contains only page counts, file sizes, SQLite object names, and aggregate payload-size buckets. It does not select or emit event bodies, prompts, transcripts, command payloads, or workspace/session/event identifiers.
+`traceary doctor` emits an additive `store-capacity` check with the same metadata-only breakdown (page counts, file sizes, SQLite object names, and aggregate payload-size buckets). It does not select or emit event bodies, prompts, transcripts, command payloads, or workspace/session/event identifiers. Default doctor on stores ≥2 GiB stays filesystem-metadata-only.
 
 ```sh
-traceary store capacity --db-path ./traceary-copy.db > capacity.json
+traceary doctor --db-path ./traceary-copy.db --json --warnings-ok
 ```
 
 `evidence.status` is `complete` when SQLite's optional `dbstat` virtual table is available. Otherwise it is `unavailable`, `evidence.method` is `pragma`, and `objects` is omitted. Unexpected dbstat errors fail the command. Payload buckets use `event_metadata_projection.body_stored_bytes`; `payload_evidence.status` is `partial` while that projection is not fully backfilled.
@@ -32,7 +32,7 @@ Calibrate the #1620 whole-store amplification figure against five deterministic
 corpora (tiny page-slack, enormous rows, CJK, high-entropy, repetitive). This
 is a benchmark, not part of `go test ./...`. It writes one store per kind and
 `calibrate.json` (`traceary.store-gate-calibrate/v1`) using the same
-`store capacity` and operator-cost inspectors as a real store. Search-index
+`doctor` InspectCapacity path and operator-cost inspectors as a real store. Search-index
 amplification stays `unmeasured` unless a completed search-projection
 generation already exists (the rebuild path needs ≥ 8 MiB of recent-tier
 sample). See [`../research/storage-gate-calibration.md`](../research/storage-gate-calibration.md).

@@ -790,6 +790,7 @@ text 出力は `Environment`、`Database`、`Plugins`、`Hooks` の安定した 
 
 追加の doctor check:
 
+- `store-capacity`: 旧 `store capacity` と同じ bounded InspectCapacity 経路で、メタデータのみの容量内訳（database / free / WAL / 上位オブジェクト）を出します。2 GiB 以上の既定 doctor は filesystem-metadata-only のままで、この check は `skip` です（SQLite を開かず、dbstat も歩きません）。
 - `path`: `PATH` 上の `traceary` 解決先と directory を確認します。見つからない場合は `FAIL`、複数見つかる場合は `WARN` です。
 - `<client>-plugin-version`: 検出した plugin manifest / cache の version と実行中 binary version を比較し、不一致なら plugin の reinstall / update を促します。
 - `claude-hook-cancellations`: 対応が必要な SessionEnd cancellation marker と、参照先 session が後から終了した marker を分けて表示します。`doctor --fix --dry-run` は解決済み marker の削除を preview し、`doctor --fix` は終了済みと確認できた marker だけを削除します。active、session 不明、unreadable な証跡は削除しません。
@@ -889,10 +890,6 @@ preview ではなく、in-place `VACUUM` でもありません。成功後は `t
 ### `traceary store archive create|restore|verify`
 
 オフライン archive segment の作成・復元・検証です。公開されている store 管理コマンドであり、`store compact` の代替ではありません。
-
-### `traceary store capacity`
-
-メタデータのみの容量レポートです。大きいストアでは検査が bounded で、`evidence=cached` / `evidence=bounded` になることがあります。
 
 ### `traceary store retention files plan|apply`
 

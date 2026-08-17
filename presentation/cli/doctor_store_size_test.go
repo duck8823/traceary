@@ -34,11 +34,14 @@ func TestInspectStoreGrowthBudgetMeasuresCompletedInspectionLatency(t *testing.T
 	times := []time.Time{time.Unix(0, 0), time.Unix(0, 0).Add(1600 * time.Millisecond)}
 	index := 0
 	checks := root.inspectStoreGrowthBudgetWithClock(context.Background(), path, inspectStoreFileSnapshot(path, os.Stat), func() time.Time { value := times[index]; index++; return value })
-	if len(checks) != 2 || checks[0].Status != doctorStatusWarn || !strings.Contains(checks[0].Message, "latency") {
+	if len(checks) != 3 || checks[0].Status != doctorStatusWarn || !strings.Contains(checks[0].Message, "latency") {
 		t.Fatalf("checks=%#v", checks)
 	}
-	if checks[1].Name != "legacy-search-index" || checks[1].Status != doctorStatusPass {
-		t.Fatalf("legacy check=%#v", checks[1])
+	if checks[1].Name != "store-capacity" || checks[1].Status != doctorStatusPass || !strings.Contains(checks[1].Message, "database=128.0 MiB") {
+		t.Fatalf("capacity check=%#v", checks[1])
+	}
+	if checks[2].Name != "legacy-search-index" || checks[2].Status != doctorStatusPass {
+		t.Fatalf("legacy check=%#v", checks[2])
 	}
 }
 
@@ -63,13 +66,16 @@ func TestInspectStoreGrowthBudgetSeparatesRetiredIndexFromProjection(t *testing.
 		},
 	}}}
 	checks := root.inspectStoreGrowthBudget(context.Background(), path, inspectStoreFileSnapshot(path, os.Stat))
-	if len(checks) != 3 {
+	if len(checks) != 4 {
 		t.Fatalf("checks=%#v", checks)
 	}
-	if checks[2].Name != "compact-rollback-copy" || checks[2].Status != doctorStatusPass {
-		t.Fatalf("rollback check=%#v", checks[2])
+	if checks[1].Name != "store-capacity" || !strings.Contains(checks[1].Message, "top=[") {
+		t.Fatalf("capacity check=%#v", checks[1])
 	}
-	legacy := checks[1]
+	if checks[3].Name != "compact-rollback-copy" || checks[3].Status != doctorStatusPass {
+		t.Fatalf("rollback check=%#v", checks[3])
+	}
+	legacy := checks[2]
 	if legacy.Name != "legacy-search-index" || legacy.Status != doctorStatusWarn {
 		t.Fatalf("legacy check=%#v", legacy)
 	}

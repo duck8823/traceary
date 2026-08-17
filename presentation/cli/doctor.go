@@ -290,6 +290,12 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		residentCost := residentOnlyOperatorCost(snapshot.Size)
 		report.OperatorCost = &residentCost
 		report.Checks = append(report.Checks, unknownStoreGrowthCheck(snapshot.Size, resolvedDBPath, "default doctor is filesystem-metadata-only for stores at or above 2 GiB; inspect a reviewed copy for detailed signals"))
+		// Do not call InspectCapacity here: that opens SQLite and may walk
+		// dbstat. The store-capacity check is filesystem-metadata only.
+		report.Checks = append(report.Checks, skippedStoreCapacityCheck(
+			"default doctor is filesystem-metadata-only for stores at or above 2 GiB",
+			snapshot.Size,
+		))
 		// Sibling rollback copies are a directory listing only; they do not
 		// open SQLite. Large stores are the ones most likely to still hold
 		// a source-sized rollback inode (#1827).

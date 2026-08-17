@@ -2,10 +2,10 @@
 
 [English](capacity-benchmark.md)
 
-`traceary store capacity` は `traceary.capacity/v1` JSON を出力します。ページ数、ファイルサイズ、SQLite オブジェクト名、payload サイズ区分の集計だけを含み、event body、prompt、transcript、command payload、workspace/session/event 識別子を選択・出力しません。
+`traceary doctor` は旧 `store capacity` と同じメタデータのみの内訳を additive な `store-capacity` check として出します。ページ数、ファイルサイズ、SQLite オブジェクト名、payload サイズ区分の集計だけを含み、event body、prompt、transcript、command payload、workspace/session/event 識別子を選択・出力しません。2 GiB 以上の既定 doctor は filesystem-metadata-only のままです。
 
 ```sh
-traceary store capacity --db-path ./traceary-copy.db > capacity.json
+traceary doctor --db-path ./traceary-copy.db --json --warnings-ok
 ```
 
 SQLite の任意機能 `dbstat` が利用できる場合、`evidence.status` は `complete` です。利用できない場合は `unavailable`、`evidence.method` は `pragma` となり、`objects` を省略します。予期しない dbstat error は command を失敗させます。payload 区分は `event_metadata_projection.body_stored_bytes` を使い、backfill 未完了時は `payload_evidence.status` が `partial` です。
@@ -28,7 +28,7 @@ go run ./cmd/store-benchmark --synthetic /private/tmp/traceary-synthetic.db \
   --small-rows 10000 --large-rows 8 --iterations 25 > synthetic-benchmark.json
 ```
 
-#1620 の whole-store amplification を、決定的な 5 コーパス（tiny の page slack、enormous、CJK、高エントロピー、反復）で校正します。これはベンチマークであり `go test ./...` には入りません。kind ごとに 1 ストアと `calibrate.json`（`traceary.store-gate-calibrate/v1`）を書き、live store と同じ `store capacity` / operator-cost inspector を使います。search-index amplification は completed な search-projection generation が無い限り `unmeasured` です（rebuild 経路は recent-tier の sample が 8 MiB 以上必要）。[`../research/storage-gate-calibration.ja.md`](../research/storage-gate-calibration.ja.md) を参照。
+#1620 の whole-store amplification を、決定的な 5 コーパス（tiny の page slack、enormous、CJK、高エントロピー、反復）で校正します。これはベンチマークであり `go test ./...` には入りません。kind ごとに 1 ストアと `calibrate.json`（`traceary.store-gate-calibrate/v1`）を書き、live store と同じ `doctor` InspectCapacity 経路 / operator-cost inspector を使います。search-index amplification は completed な search-projection generation が無い限り `unmeasured` です（rebuild 経路は recent-tier の sample が 8 MiB 以上必要）。[`../research/storage-gate-calibration.ja.md`](../research/storage-gate-calibration.ja.md) を参照。
 
 ```sh
 go run ./cmd/store-benchmark --calibrate-gates /private/tmp/traceary-calibrate
