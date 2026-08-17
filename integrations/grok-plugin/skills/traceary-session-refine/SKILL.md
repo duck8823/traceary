@@ -1,7 +1,7 @@
 ---
 name: traceary-session-refine
 description: Use when Traceary asks for a session refinement (consolidation threshold), or when the user asks to summarize/refine the current session so event bodies can later be discarded. Trigger phrases — "session refine", "refine this session", "session summary", "write a refinement", "セッション要約", "refinement を書いて". Do not use for durable L3 memory facts (that is traceary-memory-remember) or inbox review.
-version: 1.0.0
+version: 1.1.0
 ---
 
 # Traceary session refine
@@ -27,14 +27,11 @@ saying why is not — that is what the mechanical fallback already produces for 
 
 ## Workflow
 
-1. **Identify the session**. Prefer the session named in the consolidation ask.
-   Otherwise:
-
-   ```sh
-   traceary session latest --active
-   # or
-   traceary session latest
-   ```
+1. **Identify the session**. Prefer the session id from the hook nudge
+   (`[Traceary] Session <id> …`). If that line is absent, run a bounded
+   `traceary context --limit 1` (or the session-history Discovery `list`
+   query) and take the session id. Do not resolve the session from a
+   session-listing command.
 
 2. **Discover coverage and prior summary**. Use staged reads from
    `traceary-session-history` (list → context → show) to learn the latest event

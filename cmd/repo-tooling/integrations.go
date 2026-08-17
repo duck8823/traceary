@@ -361,10 +361,10 @@ func validateSessionHistorySkillContract(rel, body string) error {
 		{
 			section: "Discovery",
 			body:    discovery,
-			concept: "session latest and session latest --active entry points",
+			concept: "workspace-recent session ids via list/search metadata",
 			variants: [][]string{
-				{"session latest", "session latest --active"},
-				{"traceary session latest", "traceary session latest --active"},
+				{"list", "search"},
+				{"traceary list"},
 			},
 		},
 		{
@@ -402,6 +402,9 @@ func validateSessionHistorySkillContract(rel, body string) error {
 	}
 	if err := validateSessionHistoryDiscoveryFields(rel, discovery); err != nil {
 		return err
+	}
+	if strings.Contains(strings.ToLower(body), "session latest") {
+		return xerrors.Errorf("%s must not instruct session latest", rel)
 	}
 	if strings.Contains(strings.ToLower(body), "mcp server") || strings.Contains(body, "list_events") || strings.Contains(body, "manage_memory") {
 		return xerrors.Errorf("%s must use the CLI read path, not MCP tool names", rel)
@@ -484,6 +487,15 @@ func validateSessionRefineSkillContract(rel, body string) error {
 	}
 	if !strings.Contains(body, "How it went") {
 		return xerrors.Errorf("%s must mention optional How it went", rel)
+	}
+	if strings.Contains(strings.ToLower(body), "session latest") {
+		return xerrors.Errorf("%s must not instruct session latest", rel)
+	}
+	if !strings.Contains(body, "[Traceary] Session") {
+		return xerrors.Errorf("%s must take the session id from the hook [Traceary] Session line", rel)
+	}
+	if !strings.Contains(body, "traceary context") {
+		return xerrors.Errorf("%s must fall back to traceary context when the hook line is absent", rel)
 	}
 	return nil
 }

@@ -1,7 +1,7 @@
 ---
 name: traceary-session-history
 description: Use when the user asks about prior Traceary sessions, event history, command audits, or what happened earlier in the workspace. Trigger on phrases like "Traceary", "session history", "audit trail", "recent events", or "what happened earlier".
-version: 2.1.0
+version: 2.2.0
 ---
 
 # Traceary session history
@@ -52,9 +52,10 @@ traceary search "<query>" \
 Both `list` and `search` accept `--session-id` when a session is already known.
 Omit unknown filters rather than guessing them.
 
-Use `traceary session latest` first when the task is specifically about the most
-recent session; use `traceary session latest --active` only when it asks about an open
-session.
+When the question is about the most recent or still-open work, run the same
+small `list` / `search` Discovery query and take the session id from those
+metadata rows. Use a bounded `traceary context` only in Inspection, after
+Discovery. Do not resolve the session from a session-listing command.
 
 ### 2. Inspection — bounded context for selected candidates
 
@@ -95,8 +96,6 @@ the first history query.
 
 ## Preferred tools
 
-- `traceary session latest`: most recent session metadata for the current workspace
-- `traceary session latest --active`: only when the question is specifically about an open session
 - `traceary list --json --fields id,ts,kind,session`: Discovery for recent metadata (always include `id`; never `message` at this stage)
 - `traceary search "<query>" --json --fields id,ts,kind,session`: Discovery for a narrow literal query (same field rule)
 - `traceary context`: bounded surrounding context narrowed only by workspace, session-id, and limit; it cannot target an event id
