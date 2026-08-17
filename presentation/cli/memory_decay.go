@@ -52,7 +52,7 @@ func (c *RootCLI) newMemoryDecayCommand() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&input.dbPath, "db-path", "", dbPathFlagUsage())
-	cmd.Flags().DurationVar(&input.olderThan, "older-than", domtypes.DefaultMemoryDecayOlderThan, Localize("only expire candidates not updated within this duration (default 720h)", "この duration 以上更新のない候補のみ expire (既定 720h)"))
+	cmd.Flags().DurationVar(&input.olderThan, "older-than", domtypes.DefaultMemoryDecayOlderThan, Localize("for unstamped candidates, expire when created_at is older than this (default 720h); stamped rows use expires_at", "未 stamp 候補は created_at がこの duration より古いとき expire (既定 720h)。stamp 済みは expires_at を使う"))
 	cmd.Flags().IntVar(&input.limit, "limit", 500, Localize("maximum candidates to expire in one run", "1 回の実行で expire する最大件数"))
 	cmd.Flags().StringVar(&input.workspace, "workspace", "", Localize("filter by workspace scope", "workspace scope で絞り込む"))
 	cmd.Flags().BoolVar(&input.includeHidden, "include-hidden", false, Localize("include extracted-hidden sources (already in default policy)", "extracted-hidden を含める (既定ポリシーに含まれる)"))
