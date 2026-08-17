@@ -42,7 +42,6 @@ v0.15 以降に追加された互換 alias も含む現在の公開コマンド�
 - **durable memory decay** — `traceary memory decay`
 - **hooks** — `traceary hooks install`（`--dry-run` を含む）、`traceary hooks guide`、`traceary completion`（`bash` / `zsh` / `fish` / `powershell`）
 - **診断** — `traceary doctor`（alias `traceary status`、additive な `store-capacity` check を含む）、`traceary report`
-- **replay / archive** — `traceary replay`
 - **bundle import / export** — `traceary bundle export`、`traceary bundle import`
 
 `traceary doctor` の JSON envelope（`sections` / `summary` / `exit_code` / 各 check のフィールド）、`traceary list --blocks --json`（`workspace_breakdown`。旧 `traceary timeline --json`）、`traceary context --handoff` の構造化テキストのフィールドラベル（旧 `traceary session handoff`）はいずれも公開契約の一部です。これらは `presentation/cli/testdata/` で golden test により固定されています。詳細は [JSON / snapshot contract test](./operations/json-contract-tests.ja.md) を参照してください。
@@ -89,9 +88,11 @@ v0.35 時点の admin コマンド：
 
 #1692 は可視の public / admin leaf を 2 本の柱（記録 = 捕捉 / 要約 / 圧縮 / 破棄、記憶 = 統合して自動供給）に突き合わせました。hidden な hook 入口は plumbing のままです（後述）。出荷テーブルは `presentation/cli/pillar_inventory.go` で、可視 action を行なしで追加するとテストが失敗します。
 
-削除根拠は空の backing、重複、柱なしだけです。usage 件数は理由にしません。#1870 の 97→29 keep-list に残っているグループは v0.34 の非推奨 registry に無いので、v0.35 では削除しません。`list --follow` は v0.42.0（#2068）で入りました。`list --blocks` は v0.42.0（#2069）で入りました。`hooks install --dry-run` は v0.42.0（#2070）で入りました。`memory search --all` は v0.42.0（#2071）で入りました。`store capacity` は v0.42.0（#2072）で `doctor` に吸収されました。`context --handoff` / `--compact-only` は v0.42.0（#2073）で入りました。`store compact --archive` / `--retention-plan` は v0.42.0（#2074）で入りました。`doctor --alias-add` / `--alias-remove` / `--alias-list` は v0.42.0（#2075）で入りました。`store init` は v0.42.0（#2076）で自動初期化と `doctor --fix` に畳みました。`replay` は単一ファイル HTML export だけで、#1870 も usage を弱い削除根拠だと書いています。
+削除根拠は空の backing、重複、柱なしだけです。usage 件数は理由にしません。#1870 の 97→29 keep-list に残っているグループは v0.34 の非推奨 registry に無いので、v0.35 では削除しません。`list --follow` は v0.42.0（#2068）で入りました。`list --blocks` は v0.42.0（#2069）で入りました。`hooks install --dry-run` は v0.42.0（#2070）で入りました。`memory search --all` は v0.42.0（#2071）で入りました。`store capacity` は v0.42.0（#2072）で `doctor` に吸収されました。`context --handoff` / `--compact-only` は v0.42.0（#2073）で入りました。`store compact --archive` / `--retention-plan` は v0.42.0（#2074）で入りました。`doctor --alias-add` / `--alias-remove` / `--alias-list` は v0.42.0（#2075）で入りました。`store init` は v0.42.0（#2076）で自動初期化と `doctor --fix` に畳みました。`replay` は v0.42.0（#2078）で削除し、以前の再保持を上書きしました。読み取りは `report` / `context` / `list`、機械可搬 export は `bundle export` です。
 
 過去の削除履歴：
+
+- v0.42.0 で削除（#2078）: `traceary replay`。呼び出しは unknown command として非ゼロ終了し、`DEPRECATED` 通知は出しません。one-minor deprecation window の明示的なポリシー例外です（owner 決定 2026-08-17）。単一ファイル HTML export として残すとした以前の記述を上書きします。期間の読み取りは `traceary report` / `traceary context` / `traceary list`、機械可搬コピーは `traceary bundle export` です。
 
 - v0.42.0 で削除（#2076）: `traceary store init`。呼び出しは unknown subcommand として非ゼロ終了し、`DEPRECATED` 通知は出しません。one-minor deprecation window の明示的なポリシー例外です（owner 決定 2026-08-17）。空ストアは first write または `traceary doctor` で自動初期化します。データ依存 offline migration は `traceary doctor --fix` で適用します（数分かかることがあります）。2 GiB 以上の既定 doctor は filesystem metadata のみです。
 - v0.42.0 で削除（#2075）: `traceary store workspace-alias`（add/list/remove）。呼び出しは unknown subcommand として非ゼロ終了し、`DEPRECATED` 通知は出しません。one-minor deprecation window の明示的なポリシー例外です（owner 決定 2026-08-17）。代わりに `traceary doctor --alias-add` / `--alias-remove` / `--alias-list` を使います（同じ review 済み alias 行。add は `--session`、`--workspace`、`--reviewed-by` が必要）。`doctor --fix` は alias を自動作成しません。既存 alias 行と `report workspace-identity` の grouping は変わりません。

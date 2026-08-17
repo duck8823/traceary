@@ -53,7 +53,7 @@ Two accuracy notes from primary-source verification (2026-06-10):
 | Body truncation/redaction metadata (`input_truncated`, `output_truncated`, `input_redacted`, `output_redacted`; extended by #1173) | `warnings[]` | Good (as precedent) | Relay's `warnings` is a useful precedent: ingest-time truncation should be visible to any downstream consumer, not silent. |
 | Durable memory (`Memory`: type/scope/status/confidence) | none | None | Relay is a per-session conversation export; durable memory is cross-session knowledge. Different jobs. |
 | Bundle export (`manifest_version=2` tar.gz of NDJSON tables) | none | None | Traceary's bundle is a whole-store backup/transfer format with conflict policies, not a per-session relay document. |
-| Replay (`traceary replay` HTML) | none | None | Replay is an operator-facing review view, not a machine-readable interchange format. |
+| Replay (`traceary replay` HTML) | none | Removed in v0.42.0 (#2078) | Period reading is `report` / `context` / `list`. Machine-portable export is `bundle export`. |
 
 ## Decision
 

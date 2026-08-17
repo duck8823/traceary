@@ -154,23 +154,6 @@ Useful flags:
 - `--preset`
 - `--color`
 
-### `traceary replay`
-
-Export a single-file HTML replay of recent sessions, events, and durable memories. The output is one self-contained `.html` — no external scripts, no fonts, no CDN — so it opens on an air-gapped laptop. Intended for incident reviews, weekly retrospectives, and sharing Traceary session history with teammates who don't run the CLI.
-
-Useful flags:
-
-- `--out` (required) — destination `.html` path
-- `--sessions` (default 10) — number of recent sessions to include
-- `--events-per-session` (default 20) — events per session
-- `--memories` (default 20) — accepted memories to include
-- `--timeline-blocks` (default 20) — timeline blocks rendered in the timeline panel; `<= 0` skips the panel
-- `--hotspots` (default 10) — failure-hotspot clusters rendered in the hotspot panel; `<= 0` skips the panel
-
-The replay HTML contains four panels (sessions, timeline blocks, failure hotspots, durable memories) plus a generated-at footer. The timeline and hotspot panels share the semantics of `traceary list --blocks` and `traceary list --failures` so operators can cross-reference either rendering.
-
-Example: `traceary replay --out /tmp/replay.html`
-
 ### `traceary show <event-id>`
 
 Show one event in detail.

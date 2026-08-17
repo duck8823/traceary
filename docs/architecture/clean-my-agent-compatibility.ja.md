@@ -53,7 +53,7 @@ Traceary に関係する成果物は 2 つです。
 | body truncation/redaction メタデータ (`input_truncated`, `output_truncated`, `input_redacted`, `output_redacted`。#1173 で拡張予定) | `warnings[]` | 良好（先例として） | relay の `warnings` は有用な先例です: ingest 時の truncation は下流の消費者から見えるべきで、無言であるべきではありません。 |
 | durable memory (`Memory`: type/scope/status/confidence) | なし | なし | relay は session 単位の会話エクスポートで、durable memory は session 横断の知識です。役割が異なります。 |
 | bundle export (`manifest_version=2`、NDJSON テーブルの tar.gz) | なし | なし | Traceary の bundle は conflict policy を持つストア全体のバックアップ/移送形式で、session 単位の relay ドキュメントではありません。 |
-| replay (`traceary replay` の HTML) | なし | なし | replay はオペレーター向けのレビュービューで、機械可読の交換形式ではありません。 |
+| replay (`traceary replay` の HTML) | なし | v0.42.0（#2078）で削除 | 期間の読み取りは `report` / `context` / `list`。機械可搬 export は `bundle export`。 |
 
 ## 決定
 

@@ -854,7 +854,7 @@ func (c *RootCLI) runHookPrompt(
 //     `prompt_response`, again as a plain string.
 //
 // All paths share the same redaction policy and event kind, so the
-// downstream consumers (`traceary list --follow`, `replay`, `get_context`)
+// downstream consumers (`traceary list --follow`, `report`, `get_context`)
 // cannot distinguish between clients except by the recorded agent.
 // If the host payload is missing or empty we fail soft — transcript
 // capture is a nice-to-have, not a requirement for sessions to close

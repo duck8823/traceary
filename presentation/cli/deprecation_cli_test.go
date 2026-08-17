@@ -313,6 +313,41 @@ func TestRootCLI_HooksPrintIsUnknownSubcommand(t *testing.T) {
 	}
 }
 
+func TestRootCLI_ReplayIsUnknownCommand(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "bare replay", args: []string{"replay"}},
+		{name: "replay help", args: []string{"replay", "--help"}},
+		{name: "replay out", args: []string{"replay", "--out", "x.html"}},
+		{name: "replay format markdown", args: []string{"replay", "--format", "markdown", "--out", "x.md"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stdout := &bytes.Buffer{}
+			stderr := &bytes.Buffer{}
+			root := cli.NewRootCLI(
+				cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			).Command()
+			root.SetOut(stdout)
+			root.SetErr(stderr)
+			root.SetArgs(tt.args)
+			err := root.Execute()
+			if err == nil {
+				t.Fatalf("Execute(%v) error = nil, want unknown-command error", tt.args)
+			}
+			if !strings.Contains(err.Error(), `unknown command "replay"`) {
+				t.Fatalf("Execute(%v) error = %q, want unknown command \"replay\"", tt.args, err.Error())
+			}
+			if strings.Contains(err.Error(), "DEPRECATED:") || strings.Contains(stderr.String(), "DEPRECATED:") || strings.Contains(stdout.String(), "DEPRECATED:") {
+				t.Errorf("unexpected deprecation notice:\nerr=%v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
+			}
+		})
+	}
+}
+
 func TestRootCLI_TailIsUnknownCommand(t *testing.T) {
 	t.Setenv("TRACEARY_LANG", "en")
 	tests := []struct {
