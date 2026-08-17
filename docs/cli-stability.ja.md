@@ -34,7 +34,7 @@ Traceary の各サブコマンドは必ず以下のいずれか 1 ティアに�
 v0.15 以降に追加された互換 alias も含む現在の公開コマンド（用途別）。可視の public / admin leaf の出荷分類は `presentation/cli/pillar_inventory.go`（#1692）です。
 
 - **イベント記録** — `traceary log`、`traceary audit`
-- **読み取り / 観察** — `traceary list`（`--follow` を含む）、`traceary search`、`traceary timeline`、`traceary show`、`traceary context`
+- **読み取り / 観察** — `traceary list`（`--follow` と `--blocks` を含む）、`traceary search`、`traceary show`、`traceary context`
 - **セッション** — `traceary session start`、`traceary session end`、`traceary session run`、`traceary session handoff`（`--compact-only` を含む）、`traceary session refine`
 - **durable memory 日常 read** — `traceary memory list`、`traceary memory search`、`traceary memory show`
 - **durable memory inbox** — `traceary memory inbox list`、`traceary memory inbox show`、`traceary memory inbox accept`、`traceary memory inbox reject`、`traceary memory inbox attach`、`traceary memory inbox cleanup`、`traceary memory inbox restore`、`traceary memory inbox review`（TTY のみ）
@@ -45,7 +45,7 @@ v0.15 以降に追加された互換 alias も含む現在の公開コマンド�
 - **replay / archive** — `traceary replay`
 - **bundle import / export** — `traceary bundle export`、`traceary bundle import`
 
-`traceary doctor` の JSON envelope（`sections` / `summary` / `exit_code` / 各 check のフィールド）、`traceary timeline --json`（`workspace_breakdown`）、`traceary session handoff` の構造化テキストのフィールドラベルはいずれも公開契約の一部です。これらは `presentation/cli/testdata/` で golden test により固定されています。詳細は [JSON / snapshot contract test](./operations/json-contract-tests.ja.md) を参照してください。
+`traceary doctor` の JSON envelope（`sections` / `summary` / `exit_code` / 各 check のフィールド）、`traceary list --blocks --json`（`workspace_breakdown`。旧 `traceary timeline --json`）、`traceary session handoff` の構造化テキストのフィールドラベルはいずれも公開契約の一部です。これらは `presentation/cli/testdata/` で golden test により固定されています。詳細は [JSON / snapshot contract test](./operations/json-contract-tests.ja.md) を参照してください。
 
 `traceary doctor` は既定で、全 check が pass なら exit code `0`、1 件でも fail があれば `1`、warning-only report なら `2` で終了します。warning を operator-visible な drift として見たいが、壊れた install だけを失敗扱いにしたい automation では `--warnings-ok` を指定してください。この場合 warning-only report は `0`、failure は引き続き `1` で終了し、JSON の `summary` と各 check の severity は変わりません。
 
@@ -89,10 +89,11 @@ v0.35 時点の admin コマンド：
 
 #1692 は可視の public / admin leaf を 2 本の柱（記録 = 捕捉 / 要約 / 圧縮 / 破棄、記憶 = 統合して自動供給）に突き合わせました。hidden な hook 入口は plumbing のままです（後述）。出荷テーブルは `presentation/cli/pillar_inventory.go` で、可視 action を行なしで追加するとテストが失敗します。
 
-削除根拠は空の backing、重複、柱なしだけです。usage 件数は理由にしません。#1870 の 97→29 keep-list に残っているグループは v0.34 の非推奨 registry に無いので、v0.35 では削除しません。予定している吸収（`list --blocks`、`hooks install --dry-run`、`memory search --all`）は、その flag ができるまで通知しません。`list --follow` は v0.42.0（#2068）で入りました。`replay` は単一ファイル HTML export だけで、#1870 も usage を弱い削除根拠だと書いています。
+削除根拠は空の backing、重複、柱なしだけです。usage 件数は理由にしません。#1870 の 97→29 keep-list に残っているグループは v0.34 の非推奨 registry に無いので、v0.35 では削除しません。予定している吸収（`hooks install --dry-run`、`memory search --all`）は、その flag ができるまで通知しません。`list --follow` は v0.42.0（#2068）で入りました。`list --blocks` は v0.42.0（#2069）で入りました。`replay` は単一ファイル HTML export だけで、#1870 も usage を弱い削除根拠だと書いています。
 
 過去の削除履歴：
 
+- v0.42.0 で削除（#2069）: `traceary timeline`。呼び出しは unknown command として非ゼロ終了し、`DEPRECATED` 通知は出しません。one-minor deprecation window の明示的なポリシー例外です（owner 決定 2026-08-17）。代わりに `traceary list --blocks` を使います（同じギャップ検出ブロック、#2033 scan-cap 開示、`workspace_breakdown` JSON。`--gap` は `list` に移しました）。
 - v0.42.0 で削除（#2068）: `traceary tail`。呼び出しは unknown command として非ゼロ終了し、`DEPRECATED` 通知は出しません。one-minor deprecation window の明示的なポリシー例外です（owner 決定 2026-08-17）。代わりに `traceary list --follow` を使います（同じストリーム・フィルタ・描画。`--follow-session` は `list` に移しました）。
 - v0.42.0 で削除（#2061）: `traceary sessions`（`--snapshot` / `--snapshot --json` を含む）。呼び出しは unknown command として非ゼロ終了し、`DEPRECATED` 通知は出しません。one-minor deprecation window の明示的なポリシー例外です（owner 決定 2026-08-17）。代わりに `list` / `search` / `context` / `report` / `session handoff` を使います。hook の workspace 正規化向け `Session.List` と `list_sessions.sql` は残します。
 - v0.42.0 で削除（#2057）: `traceary session latest`（`--active` を含む）と `traceary session list`。呼び出しは unknown subcommand として非ゼロ終了し、`DEPRECATED` 通知は出しません。one-minor deprecation window の明示的なポリシー例外です（owner 決定 2026-08-17）。open session の ID は hook メッセージ（`[Traceary] Session <id>`）で渡り、直近の作業は `list` / `search` / `context`、期間サマリーは `report` です。内部の `Active` / `Latest` / `List` クエリは handoff / hooks / context / memory extract のために残します。

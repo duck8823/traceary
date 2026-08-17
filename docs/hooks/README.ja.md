@@ -150,7 +150,7 @@ payload の `prompt` フィールドをそのまま記録し、redaction は適�
 
 Claude client に限り、`hooks install` / `hooks print` で `--matcher <preset>` が使えます。`PostToolUse` / `PostToolUseFailure` の対象を切り替えます。
 
-- `minimal` — `Bash` + `mcp__.*` のみ。v0.8-6 以前の Traceary と同じセットです。built-in tool の監査が `list --follow` / `timeline` のノイズになり過ぎるときに選びます。
+- `minimal` — `Bash` + `mcp__.*` のみ。v0.8-6 以前の Traceary と同じセットです。built-in tool の監査が `list --follow` / `list --blocks` のノイズになり過ぎるときに選びます。
 - `default`（`--matcher` を省略したとき） — v0.8-6b で導入した built-in tool 列 (`Read`, `NotebookRead`, `Edit`, `MultiEdit`, `Write`, `NotebookEdit`, `Grep`, `Glob`, `Agent`, `Task`, `TodoWrite`, `WebFetch`, `WebSearch`, `ExitPlanMode`) を含みます。配布 plugin も同じセットです。
 - `all` — built-in 列の代わりに `.*` を適用し、すべての tool を拾います。plugin 独自 tool やプロジェクト固有 tool も含まれるため、明示的にオプトインする用途向けです。
 

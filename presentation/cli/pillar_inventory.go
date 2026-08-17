@@ -34,9 +34,8 @@ type pillarInventoryEntry struct {
 var pillarInventory = []pillarInventoryEntry{
 	{Path: "audit", Pillar: pillarRecord, Reason: "persist command-audit records"},
 	{Path: "log", Pillar: pillarRecord, Reason: "persist a manual event"},
-	{Path: "list", Pillar: pillarRecord, Reason: "read recorded events; --follow absorbs the former tail live stream"},
+	{Path: "list", Pillar: pillarRecord, Reason: "read recorded events; --follow absorbs tail; --blocks absorbs timeline"},
 	{Path: "search", Pillar: pillarRecord, Reason: "search recorded events and session summaries"},
-	{Path: "timeline", Pillar: pillarRecord, Reason: "workspace timeline of recorded work; list --blocks does not exist"},
 	{Path: "show", Pillar: pillarRecord, Reason: "show one recorded event"},
 	{Path: "context", Pillar: pillarRecord, Reason: "assemble recorded context for a session"},
 	{Path: "session start", Pillar: pillarRecord, Reason: "open a recorded session"},

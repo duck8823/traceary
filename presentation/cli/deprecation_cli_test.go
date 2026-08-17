@@ -138,6 +138,42 @@ func TestRootCLI_TailIsUnknownCommand(t *testing.T) {
 	}
 }
 
+func TestRootCLI_TimelineIsUnknownCommand(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "bare timeline", args: []string{"timeline"}},
+		{name: "timeline json", args: []string{"timeline", "--json"}},
+		{name: "timeline help", args: []string{"timeline", "--help"}},
+		{name: "timeline workspace", args: []string{"timeline", "--workspace", "ws"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stdout := &bytes.Buffer{}
+			stderr := &bytes.Buffer{}
+			root := cli.NewRootCLI(
+				cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+				cli.WithEvent(&eventUsecaseStub{}),
+			).Command()
+			root.SetOut(stdout)
+			root.SetErr(stderr)
+			root.SetArgs(tt.args)
+			err := root.Execute()
+			if err == nil {
+				t.Fatalf("Execute(%v) error = nil, want unknown-command error", tt.args)
+			}
+			if !strings.Contains(err.Error(), `unknown command "timeline"`) {
+				t.Fatalf("Execute(%v) error = %q, want unknown command \"timeline\"", tt.args, err.Error())
+			}
+			if strings.Contains(stderr.String(), "DEPRECATED:") || strings.Contains(stdout.String(), "DEPRECATED:") {
+				t.Errorf("unexpected deprecation notice:\nstdout=%s\nstderr=%s", stdout.String(), stderr.String())
+			}
+		})
+	}
+}
+
 func TestRootCLI_SessionsIsUnknownCommand(t *testing.T) {
 	t.Setenv("TRACEARY_LANG", "en")
 	tests := []struct {

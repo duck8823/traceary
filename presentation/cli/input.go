@@ -149,6 +149,10 @@ type listCommandInput struct {
 	follow           bool
 	followSession    string
 	followSessionSet bool
+	timezoneSet      bool
+	blocks           bool
+	gap              int
+	gapSet           bool
 }
 
 // logCommandInput is the resolved input to the `traceary log` command.
@@ -214,7 +218,8 @@ type sessionBoundaryCommandInput struct {
 	asJSON          bool
 }
 
-// timelineCommandInput is the resolved input to the `traceary timeline` command.
+// timelineCommandInput is the resolved input to `traceary list --blocks`
+// (the former `traceary timeline` work-block view).
 type timelineCommandInput struct {
 	dbPath    string
 	workspace string

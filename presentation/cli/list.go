@@ -42,6 +42,8 @@ func (c *RootCLI) newListCommand() *cobra.Command {
 		color         string
 		follow        bool
 		followSession string
+		blocks        bool
+		gap           int
 	)
 
 	listCmd := &cobra.Command{
@@ -85,11 +87,15 @@ func (c *RootCLI) newListCommand() *cobra.Command {
 				follow:           follow,
 				followSession:    followSession,
 				followSessionSet: cmd.Flags().Changed("follow-session"),
+				timezoneSet:      cmd.Flags().Changed("timezone"),
+				blocks:           blocks,
+				gap:              gap,
+				gapSet:           cmd.Flags().Changed("gap"),
 			})
 		},
 	}
 	listCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
-	listCmd.Flags().IntVar(&limit, "limit", 20, Localize("number of events to display; with --follow, 0 prints only new events", "表示件数。--follow 時は 0 で新規イベントのみ"))
+	listCmd.Flags().IntVar(&limit, "limit", 20, Localize("number of events to display; with --follow, 0 prints only new events; with --blocks, maximum blocks", "表示件数。--follow 時は 0 で新規イベントのみ。--blocks 時はブロック数上限"))
 	listCmd.Flags().IntVar(&offset, "offset", 0, Localize("number of events to skip before listing", "一覧表示前にスキップする件数"))
 	listCmd.Flags().BoolVar(&sensitiveOnly, "sensitive", false, Localize("list only command audits that match sensitive-path patterns (compute-on-read; not redaction)", "sensitive-path パターンに一致した command audit のみ一覧する（compute-on-read。redaction とは別）"))
 	listCmd.Flags().StringVar(&kind, "kind", "", Localize("filter by event kind (note, command_executed, reviewed, session_started, session_ended, compact_summary, prompt, transcript; alias: audit)", "イベント種別で絞り込む (note, command_executed, reviewed, session_started, session_ended, compact_summary, prompt, transcript; alias: audit)"))
@@ -115,6 +121,8 @@ func (c *RootCLI) newListCommand() *cobra.Command {
 		"with --follow, tail events only from the given session id (prefix match, minimum 8 runes)",
 		"--follow 時に指定した session id のイベントだけを追跡する (先頭一致、最低 8 文字)",
 	))
+	listCmd.Flags().BoolVar(&blocks, "blocks", false, Localize("print gap-detected work blocks instead of event rows", "イベント行の代わりにギャップ検出した作業ブロックを表示する"))
+	listCmd.Flags().IntVar(&gap, "gap", defaultGapMinutes, Localize("with --blocks, idle gap threshold in minutes", "--blocks 時のアイドル判定閾値（分）"))
 
 	return listCmd
 }
@@ -166,7 +174,77 @@ func (c *RootCLI) runListFollow(ctx context.Context, warnWriter io.Writer, outpu
 	})
 }
 
+func (c *RootCLI) runListBlocks(ctx context.Context, output io.Writer, input listCommandInput) error {
+	if input.limit < 1 {
+		return xerrors.New(Localize("limit must be greater than or equal to 1", "limit は 1 以上である必要があります"))
+	}
+	if input.offset != 0 {
+		return xerrors.New(Localize("--blocks cannot be combined with --offset", "--blocks は --offset と同時に使えません"))
+	}
+	if input.followSessionSet || strings.TrimSpace(input.followSession) != "" {
+		return xerrors.New(Localize("--blocks cannot be combined with --follow-session", "--blocks は --follow-session と同時に使えません"))
+	}
+	if input.kindSet || strings.TrimSpace(input.kind) != "" {
+		return xerrors.New(Localize("--blocks cannot be combined with --kind", "--blocks は --kind と同時に使えません"))
+	}
+	if input.clientSet || strings.TrimSpace(input.client) != "" {
+		return xerrors.New(Localize("--blocks cannot be combined with --client", "--blocks は --client と同時に使えません"))
+	}
+	if input.agentSet || strings.TrimSpace(input.agent) != "" {
+		return xerrors.New(Localize("--blocks cannot be combined with --agent", "--blocks は --agent と同時に使えません"))
+	}
+	if input.sessionIDSet || strings.TrimSpace(input.sessionID) != "" {
+		return xerrors.New(Localize("--blocks cannot be combined with --session-id", "--blocks は --session-id と同時に使えません"))
+	}
+	if input.failuresOnly {
+		return xerrors.New(Localize("--blocks cannot be combined with --failures", "--blocks は --failures と同時に使えません"))
+	}
+	if input.sensitiveOnly {
+		return xerrors.New(Localize("--blocks cannot be combined with --sensitive", "--blocks は --sensitive と同時に使えません"))
+	}
+	if input.sourceHookSet || strings.TrimSpace(input.sourceHook) != "" {
+		return xerrors.New(Localize("--blocks cannot be combined with --source-hook", "--blocks は --source-hook と同時に使えません"))
+	}
+	if input.wide {
+		return xerrors.New(Localize("--blocks cannot be combined with --wide", "--blocks は --wide と同時に使えません"))
+	}
+	if input.fieldsSet {
+		return xerrors.New(Localize("--blocks cannot be combined with --fields", "--blocks は --fields と同時に使えません"))
+	}
+	if input.presetSet {
+		return xerrors.New(Localize("--blocks cannot be combined with --preset", "--blocks は --preset と同時に使えません"))
+	}
+	if input.colorSet {
+		return xerrors.New(Localize("--blocks cannot be combined with --color", "--blocks は --color と同時に使えません"))
+	}
+	if input.timezoneSet {
+		return xerrors.New(Localize("--blocks cannot be combined with --timezone", "--blocks は --timezone と同時に使えません"))
+	}
+	return c.runTimeline(ctx, output, timelineCommandInput{
+		dbPath:    input.dbPath,
+		workspace: input.repo,
+		from:      input.from,
+		since:     input.since,
+		to:        input.to,
+		until:     input.until,
+		gap:       input.gap,
+		limit:     input.limit,
+		asJSON:    input.asJSON,
+		utc:       input.utc,
+		location:  input.location,
+	})
+}
+
 func (c *RootCLI) runList(ctx context.Context, warnWriter io.Writer, output io.Writer, input listCommandInput) error {
+	if input.follow && input.blocks {
+		return xerrors.New(Localize("--follow cannot be combined with --blocks", "--follow は --blocks と同時に使えません"))
+	}
+	if input.blocks {
+		return c.runListBlocks(ctx, output, input)
+	}
+	if input.gapSet {
+		return xerrors.New(Localize("--gap requires --blocks", "--gap には --blocks が必要です"))
+	}
 	if input.follow {
 		return c.runListFollow(ctx, warnWriter, output, input)
 	}

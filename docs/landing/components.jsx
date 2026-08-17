@@ -118,11 +118,11 @@ const inspectViews = {
     )
   },
   timeline: {
-    cmd: 'traceary timeline --limit 2',
+    cmd: 'traceary list --blocks --limit 2',
     title: 'gap-separated work blocks',
     body: (
       <>
-        <div className="term-line"><span className="term-prompt">$</span><span className="term-cmd">traceary timeline --limit 2</span></div>
+        <div className="term-line"><span className="term-prompt">$</span><span className="term-cmd">traceary list --blocks --limit 2</span></div>
         <div className="term-out" dangerouslySetInnerHTML={{__html:
           '<span class="ts">2026-04-15 06:37 - 07:06</span> (29m21s) total events: 165\n' +
           '  <span class="ws">github.com/duck8823/traceary</span> (153) — 自律的に進めてください。\n' +
@@ -180,7 +180,7 @@ function InspectSection() {
   const items = [
     { id: 'list', cmd: 'traceary list', desc: 'Scan recent events with workspace, session, and kind filters' },
     { id: 'tail', cmd: 'traceary list --follow', desc: 'Confirm hooks are firing, watch failures in real time' },
-    { id: 'timeline', cmd: 'traceary timeline', desc: 'See gap-separated work blocks with per-workspace summaries' },
+    { id: 'timeline', cmd: 'traceary list --blocks', desc: 'See gap-separated work blocks with per-workspace summaries' },
     { id: 'search', cmd: 'traceary search', desc: 'Jump to an exact kind, session, or query' },
     { id: 'handoff', cmd: 'traceary session handoff', desc: 'Resume with curated working memory' },
   ];

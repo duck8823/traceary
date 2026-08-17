@@ -116,6 +116,8 @@ Useful flags:
 - `--failures` — keep this 記録 filter. It matches `command_audits.failed = 1` or a captured non-zero `exit_code`. Current writes store structured host tool failures as `host_error` (not `unknown`). Pre-classifier `unknown`+`failed=1` rows still match the flag half. See [failed-flag meaning](../research/failed-flag-meaning.md).
 - `--follow` — keep printing new matching events (the former `traceary tail` stream). `--limit 0` prints only new events. `--json` is NDJSON (one event per line), not a snapshot array. Incompatible with `--offset`, `--from`/`--since`/`--to`/`--until`, `--sensitive`, and `--source-hook`.
 - `--follow-session <prefix>` — with `--follow`, prefix-match one session (minimum 8 runes).
+- `--blocks` — print gap-detected work blocks (the former `traceary timeline`). `--limit` is the block cap. `--json` is the block array with `workspace_breakdown`, not the snapshot event array. Incompatible with `--follow`, `--offset`, event filters (`--kind` / `--client` / `--agent` / `--session-id` / `--failures` / `--sensitive` / `--source-hook`), `--wide` / `--fields` / `--preset` / `--color`, and `--timezone`.
+- `--gap` — with `--blocks`, idle gap threshold in minutes (default 15).
 
 ### `traceary search [<query>]`
 
@@ -152,22 +154,6 @@ Useful flags:
 - `--preset`
 - `--color`
 
-### `traceary timeline`
-
-Show work timeline with gap-based block detection and per-workspace activity summaries.
-
-`timeline` groups recent events into contiguous work blocks separated by idle gaps (default: 15 minutes) and prints one aligned sub-row per workspace inside each block. The per-workspace activity summary is picked using the fallback chain **`compact_summary` → first `prompt` → kind counts**, so whichever signal exists for that workspace in the block lights up the line. Default text output uses local time; pass `--utc` for UTC. `--json` emits UTC RFC3339Nano `start` / `end` timestamps, numeric `duration_sec`, and a `workspace_breakdown` array (`{workspace, event_count, kind_counts, agents, summary, summary_source}`).
-
-Useful flags:
-
-- `--workspace`
-- `--from`
-- `--to`
-- `--gap` (idle gap threshold in minutes)
-- `--limit`
-- `--json`
-- `--utc`
-
 ### `traceary replay`
 
 Export a single-file HTML replay of recent sessions, events, and durable memories. The output is one self-contained `.html` — no external scripts, no fonts, no CDN — so it opens on an air-gapped laptop. Intended for incident reviews, weekly retrospectives, and sharing Traceary session history with teammates who don't run the CLI.
@@ -181,7 +167,7 @@ Useful flags:
 - `--timeline-blocks` (default 20) — timeline blocks rendered in the timeline panel; `<= 0` skips the panel
 - `--hotspots` (default 10) — failure-hotspot clusters rendered in the hotspot panel; `<= 0` skips the panel
 
-The replay HTML contains four panels (sessions, timeline blocks, failure hotspots, durable memories) plus a generated-at footer. The timeline and hotspot panels share the semantics of `traceary timeline` and `traceary list --failures-only` so operators can cross-reference either rendering.
+The replay HTML contains four panels (sessions, timeline blocks, failure hotspots, durable memories) plus a generated-at footer. The timeline and hotspot panels share the semantics of `traceary list --blocks` and `traceary list --failures` so operators can cross-reference either rendering.
 
 Example: `traceary replay --out /tmp/replay.html`
 

@@ -55,7 +55,7 @@ func TestRootCLI_TimelineCommand(t *testing.T) {
 		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"timeline", "--db-path", "/tmp/test.db", "--from", "2026-04-10", "--utc"})
+		rootCmd.SetArgs([]string{"list", "--blocks", "--db-path", "/tmp/test.db", "--from", "2026-04-10", "--utc"})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
@@ -86,7 +86,7 @@ func TestRootCLI_TimelineCommand(t *testing.T) {
 		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"timeline", "--db-path", "/tmp/test.db", "--since", "2026-04-10", "--until", "2026-04-11"})
+		rootCmd.SetArgs([]string{"list", "--blocks", "--db-path", "/tmp/test.db", "--since", "2026-04-10", "--until", "2026-04-11"})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
@@ -108,7 +108,7 @@ func TestRootCLI_TimelineCommand(t *testing.T) {
 		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"timeline", "--db-path", "/tmp/test.db", "--until", "2026-04-26"})
+		rootCmd.SetArgs([]string{"list", "--blocks", "--db-path", "/tmp/test.db", "--until", "2026-04-26"})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
@@ -130,7 +130,7 @@ func TestRootCLI_TimelineCommand(t *testing.T) {
 		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"timeline", "--db-path", "/tmp/test.db"})
+		rootCmd.SetArgs([]string{"list", "--blocks", "--db-path", "/tmp/test.db"})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
@@ -172,7 +172,7 @@ func TestRootCLI_TimelineCommand(t *testing.T) {
 		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"timeline", "--db-path", "/tmp/test.db", "--json"})
+		rootCmd.SetArgs([]string{"list", "--blocks", "--db-path", "/tmp/test.db", "--json"})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
@@ -196,7 +196,7 @@ func TestRootCLI_TimelineCommand(t *testing.T) {
 		).Command()
 		rootCmd.SetOut(&bytes.Buffer{})
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"timeline", "--db-path", "/tmp/test.db", "--from", "not-a-date"})
+		rootCmd.SetArgs([]string{"list", "--blocks", "--db-path", "/tmp/test.db", "--from", "not-a-date"})
 
 		err := rootCmd.Execute()
 		if err == nil {
@@ -233,7 +233,7 @@ func TestRootCLI_TimelineCommand(t *testing.T) {
 		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"timeline", "--db-path", "/tmp/test.db", "--utc"})
+		rootCmd.SetArgs([]string{"list", "--blocks", "--db-path", "/tmp/test.db", "--utc"})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
@@ -263,7 +263,7 @@ func TestRootCLI_TimelineCommand(t *testing.T) {
 		).Command()
 		rootCmd.SetOut(stdout)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"timeline", "--db-path", "/tmp/test.db", "--json"})
+		rootCmd.SetArgs([]string{"list", "--blocks", "--db-path", "/tmp/test.db", "--json"})
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
