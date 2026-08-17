@@ -307,7 +307,7 @@ func (c *RootCLI) runMemoryInboxList(ctx context.Context, output io.Writer, inpu
 	if input.asJSON {
 		return nil
 	}
-	return c.writeMemoryInboxListPoolSummary(ctx, output, criteriaBuilder, countSources, len(items))
+	return c.writeMemoryInboxListPoolSummary(ctx, output, criteriaBuilder, countSources, len(items), quality)
 }
 
 func (c *RootCLI) runMemoryInboxShow(ctx context.Context, output io.Writer, input memoryInboxShowCommandInput) error {
@@ -756,6 +756,7 @@ func (c *RootCLI) writeMemoryInboxListPoolSummary(
 	criteriaBuilder *apptypes.MemoryListCriteriaBuilder,
 	countSources []domtypes.MemorySource,
 	shown int,
+	quality memoryInboxQuality,
 ) error {
 	counter, ok := c.memory.(memorySourceCounter)
 	if !ok || criteriaBuilder == nil {
@@ -766,19 +767,22 @@ func (c *RootCLI) writeMemoryInboxListPoolSummary(
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to count memory review queue candidates", "メモリ候補の確認キューの件数取得に失敗しました"), err)
 	}
-	if _, err := fmt.Fprintln(output, formatMemoryInboxPoolSummary(shown, counts)); err != nil {
+	if _, err := fmt.Fprintln(output, formatMemoryInboxPoolSummary(shown, counts, quality)); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print memory review queue pool summary", "メモリ候補の確認キュー件数行の出力に失敗しました"), err)
 	}
 	return nil
 }
 
-func formatMemoryInboxPoolSummary(shown int, counts apptypes.MemorySourceCounts) string {
-	split := formatMemoryInboxSourceSplit(counts)
+func formatMemoryInboxPoolSummary(shown int, counts apptypes.MemorySourceCounts, quality memoryInboxQuality) string {
+	shownLabel := formatGroupedInt(shown)
+	if quality != memoryInboxQualityAny {
+		shownLabel = fmt.Sprintf("%s (quality=%s)", shownLabel, quality)
+	}
 	return fmt.Sprintf(
 		"showing %s of %s candidates%s — use --offset/--limit, --source to narrow",
-		formatGroupedInt(shown),
+		shownLabel,
 		formatGroupedInt(counts.Total()),
-		split,
+		formatMemoryInboxSourceSplit(counts),
 	)
 }
 

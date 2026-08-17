@@ -466,6 +466,9 @@ func TestMemoryInboxList_AgeAndQualityFilters(t *testing.T) {
 	if _, ok := memoryStub.listCriteria.UpdatedAfter().Value(); !ok {
 		t.Fatalf("--newer-than should set UpdatedAfter in list criteria")
 	}
+	if !strings.Contains(out, "showing 1 (quality=low) of 2 candidates") {
+		t.Fatalf("quality-filtered page must not look like the SQL pool is all low-quality:\n%s", out)
+	}
 }
 
 func TestMemoryInboxCleanup_DryRunDoesNotReject(t *testing.T) {
