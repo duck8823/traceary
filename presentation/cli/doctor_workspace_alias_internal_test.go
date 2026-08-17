@@ -25,7 +25,7 @@ func (s *doctorAliasIdentityStub) RemoveAlias(context.Context, types.SessionID, 
 	return nil
 }
 
-func TestInspectWorkspaceAliasesWarnsOnConflictPairs(t *testing.T) {
+func TestInspectWorkspaceAliasesPassesWithConflictPairCounts(t *testing.T) {
 	t.Setenv("TRACEARY_LANG", "en")
 	stub := &doctorAliasIdentityStub{report: apptypes.WorkspaceIdentityReport{
 		ConflictPairCount: 2,
@@ -37,14 +37,17 @@ func TestInspectWorkspaceAliasesWarnsOnConflictPairs(t *testing.T) {
 	if stub.limit != doctorWorkspaceAliasConflictSampleLimit {
 		t.Fatalf("Report limit = %d, want %d", stub.limit, doctorWorkspaceAliasConflictSampleLimit)
 	}
-	if check.Name != "workspace-aliases" || check.Status != doctorStatusWarn {
+	if check.Name != "workspace-aliases" || check.Status != doctorStatusPass {
 		t.Fatalf("check = %#v", check)
 	}
-	if !strings.Contains(check.Message, "unreviewed conflict pairs=2") || !strings.Contains(check.Message, "session-1 /repo") {
+	if !strings.Contains(check.Message, "conflict pairs=2") || !strings.Contains(check.Message, "session-1 /repo") {
 		t.Fatalf("message = %q", check.Message)
 	}
-	if !strings.Contains(check.FixCommand, "doctor --alias-add") || check.AutoFixAvailable {
-		t.Fatalf("FixCommand/auto = %q/%t", check.FixCommand, check.AutoFixAvailable)
+	if check.FixCommand != "" || check.AutoFixAvailable {
+		t.Fatalf("FixCommand/auto = %q/%t, want empty guided-only hint", check.FixCommand, check.AutoFixAvailable)
+	}
+	if !strings.Contains(check.Hint, "doctor --alias-add") {
+		t.Fatalf("hint = %q", check.Hint)
 	}
 }
 

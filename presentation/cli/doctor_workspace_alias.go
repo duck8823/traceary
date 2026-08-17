@@ -78,39 +78,25 @@ func (c *RootCLI) inspectWorkspaceAliases(ctx context.Context) doctorCheck {
 			Message: localizef("workspace alias review failed: %v", "workspace alias の確認に失敗しました: %v", err),
 		}
 	}
-	if identity.ConflictPairCount > 0 {
-		sample := ""
-		if len(identity.ConflictSamples) > 0 {
-			first := identity.ConflictSamples[0]
-			sample = first.SessionID + " " + first.Workspace
-		}
-		check := doctorCheck{
-			Name:   name,
-			Status: doctorStatusWarn,
-			Message: localizef(
-				"reviewed aliases=%d; unreviewed conflict pairs=%d",
-				"review 済み alias=%d; 未 review の conflict pair=%d",
-				len(identity.Aliases),
-				identity.ConflictPairCount,
-			),
-			Hint: Localize(
-				"review a pair from report workspace-identity, then doctor --alias-add --session <id> --workspace <path> --reviewed-by <operator>",
-				"report workspace-identity で pair を確認し、doctor --alias-add --session <id> --workspace <path> --reviewed-by <operator> で登録してください",
-			),
-			FixCommand: "traceary doctor --alias-add --session <id> --workspace <path> --reviewed-by <operator>",
-		}
-		if sample != "" {
-			check.Message += "; sample=" + sample
-		}
-		return check
-	}
-	return doctorCheck{
+	check := doctorCheck{
 		Name:   name,
 		Status: doctorStatusPass,
 		Message: localizef(
-			"reviewed aliases=%d; no unreviewed conflict pairs",
-			"review 済み alias=%d; 未 review の conflict pair はありません",
+			"reviewed aliases=%d; conflict pairs=%d (conflicts are not a store defect)",
+			"review 済み alias=%d; conflict pair=%d（conflict は store の欠陥ではない）",
 			len(identity.Aliases),
+			identity.ConflictPairCount,
 		),
 	}
+	if identity.ConflictPairCount > 0 {
+		check.Hint = Localize(
+			"review a pair with report workspace-identity, then doctor --alias-add --session <id> --workspace <path> --reviewed-by <operator>",
+			"report workspace-identity で pair を確認し、doctor --alias-add --session <id> --workspace <path> --reviewed-by <operator> で登録してください",
+		)
+		if len(identity.ConflictSamples) > 0 {
+			first := identity.ConflictSamples[0]
+			check.Message += "; sample=" + first.SessionID + " " + first.Workspace
+		}
+	}
+	return check
 }

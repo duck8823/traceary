@@ -32,17 +32,19 @@ Antigravity が distinct pair を多く、Codex が行を多く出すのは hook
 
 ### 2. report は行ではなく pair を数えるべきか
 
-**両方**です。observation 行の合計は残します。これは volume であり、重複排除の決定ではありません（契約どおり）。現行の `conflict` projection における distinct `(session_id, workspace)` が actionable な件数です。sample は pair あたり最新の 1 observation で、`workspace` を含むので `store workspace-alias add --session … --workspace …` を report から実行できます。
+**両方**です。observation 行の合計は残します。これは volume であり、重複排除の決定ではありません（契約どおり）。現行の `conflict` projection における distinct `(session_id, workspace)` が actionable な件数です。sample は pair あたり最新の 1 observation で、`workspace` を含むので `doctor --alias-add --session … --workspace …` を report から実行できます。管理 surface は v0.42.0（#2075）で `store workspace-alias` から移しました。
 
 行ベースの `conflict_rate` は変えません。
 
 ### 3. `store workspace-alias` はどうするか
 
-残します。review 済み alias を追加・撤回・一覧する唯一の public 経路です。既存 alias は read（`explicit_alias`）でも以後の write でも意味を持ちます。remote を path に自動正規化する、family 単位の規則を置く、は契約違反です。conflict 契約を撤回すると mechanism が凍結し、代替がありません。廃止は止めます。「失うものはない」は成立しません。
+v0.42.0（#2075）で管理 surface は `doctor --alias-add` / `--alias-remove` / `--alias-list` に移しました。alias 行と conflict 契約は変わりません。
+
+review 済み alias の mechanism は残します。追加・撤回・一覧する唯一の public 経路です。既存 alias は read（`explicit_alias`）でも以後の write でも意味を持ちます。remote を path に自動正規化する、family 単位の規則を置く、は契約違反です。conflict 契約を撤回すると mechanism が凍結し、代替がありません。
 
 ## 対象外
 
-- `store workspace-alias` の非推奨化・削除
+- review 済み alias mechanism の廃止（CLI 名 `store workspace-alias` は #2075 で畳みました）
 - live store の照会や書き換え
 - remote から checkout への自動 alias
 - 行ベースの `relationships.conflict` や `conflict_rate` の変更
