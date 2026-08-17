@@ -60,3 +60,18 @@ func (p MemoryDecayPolicy) Sources() []MemorySource {
 func (p MemoryDecayPolicy) AllowsSource(source MemorySource) bool {
 	return slices.Contains(p.sources, source)
 }
+
+// DecayGrantStart is the start of the current TTL grant. Unstamped rows
+// use created_at. Stamped rows use expires_at minus the default TTL so a
+// restore restamp is a fresh window and --older-than still shortens it.
+func DecayGrantStart(createdAt time.Time, expiresAt Optional[time.Time]) time.Time {
+	if exp, ok := expiresAt.Value(); ok {
+		return exp.UTC().Add(-DefaultMemoryDecayOlderThan)
+	}
+	return createdAt.UTC()
+}
+
+// CandidateDue reports whether the grant is older than the policy window.
+func (p MemoryDecayPolicy) CandidateDue(createdAt time.Time, expiresAt Optional[time.Time], now time.Time) bool {
+	return DecayGrantStart(createdAt, expiresAt).Before(now.UTC().Add(-p.olderThan))
+}

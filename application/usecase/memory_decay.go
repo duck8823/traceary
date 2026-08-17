@@ -101,17 +101,9 @@ func (u *memoryUsecase) Decay(ctx context.Context, criteria apptypes.MemoryDecay
 			result.Skipped["source"]++
 			continue
 		}
-		if expiresAt, ok := s.ExpiresAt().Value(); ok {
-			if now.UTC().Before(expiresAt.UTC()) {
-				result.Skipped["too_new"]++
-				continue
-			}
-		} else {
-			cutoff := now.Add(-olderThan)
-			if !s.CreatedAt().UTC().Before(cutoff) {
-				result.Skipped["too_new"]++
-				continue
-			}
+		if !policy.CandidateDue(s.CreatedAt(), s.ExpiresAt(), now) {
+			result.Skipped["too_new"]++
+			continue
 		}
 		eligible = append(eligible, s)
 	}

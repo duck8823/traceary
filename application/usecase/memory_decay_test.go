@@ -216,6 +216,46 @@ func TestMemoryUsecase_Decay_HonorsScheduledStampAfterRestore(t *testing.T) {
 	}
 }
 
+func TestMemoryUsecase_Decay_ShorterOlderThanAppliesToOriginalStamp(t *testing.T) {
+	created := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 1, 10, 0, 0, 0, 0, time.UTC)
+	id, err := domtypes.MemoryIDFrom("mem-decay-shorter")
+	if err != nil {
+		t.Fatal(err)
+	}
+	summary, err := apptypes.MemorySummaryOf(
+		id,
+		domtypes.MemoryTypeDecision,
+		domtypes.WorkspaceScopeOf(domtypes.Workspace("ws")),
+		"original stamp must honor a shorter older-than",
+		domtypes.MemoryStatusCandidate,
+		domtypes.ConfidenceLow,
+		domtypes.MemorySourceExtracted,
+		domtypes.None[domtypes.MemoryID](),
+		domtypes.Some(created.Add(domtypes.DefaultMemoryDecayOlderThan)),
+		created,
+		domtypes.None[time.Time](),
+		created,
+		created,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sut := usecase.NewMemoryUsecase(&decayRepoFake{}, &decayQueryFake{summaries: []apptypes.MemorySummary{summary}}, nil)
+	result, err := sut.Decay(context.Background(), apptypes.MemoryDecayCriteria{
+		OlderThan: 7 * 24 * time.Hour,
+		Limit:     10,
+		Apply:     false,
+		Now:       now,
+	})
+	if err != nil {
+		t.Fatalf("Decay() error = %v", err)
+	}
+	if len(result.ExpiredIDs) != 1 || result.ExpiredIDs[0] != "mem-decay-shorter" {
+		t.Fatalf("ExpiredIDs=%#v, want due under --older-than 7d", result.ExpiredIDs)
+	}
+}
+
 func TestMemoryUsecase_Restore_ExpiredToCandidate(t *testing.T) {
 	id, _ := domtypes.MemoryIDFrom("mem-restore-1")
 	now := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
