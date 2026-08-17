@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
 	apptypes "github.com/duck8823/traceary/application/types"
@@ -189,81 +188,6 @@ func writeEventNDJSON(output io.Writer, event *model.Event, fields []readFieldID
 		return xerrors.Errorf("%s: %w", Localize("failed to write JSON", "JSON 出力に失敗しました"), err)
 	}
 	return nil
-}
-
-func (c *RootCLI) newTailCommand() *cobra.Command {
-	var (
-		dbPath        string
-		limit         int
-		kind          string
-		client        string
-		agent         string
-		sessionID     string
-		repo          string
-		failuresOnly  bool
-		asJSON        bool
-		wide          bool
-		utc           bool
-		fields        []string
-		preset        string
-		color         string
-		followSession string
-	)
-
-	tailCmd := &cobra.Command{
-		Use:   "tail",
-		Short: Localize("Follow new events as they arrive", "新しいイベントを追跡表示する"),
-		Args:  noArgsLocalized(),
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return c.runTail(cmd.Context(), cmd.ErrOrStderr(), cmd.OutOrStdout(), tailCommandInput{
-				dbPath:           dbPath,
-				limit:            limit,
-				kind:             kind,
-				client:           client,
-				agent:            agent,
-				sessionID:        sessionID,
-				repo:             repo,
-				failuresOnly:     failuresOnly,
-				asJSON:           asJSON,
-				wide:             wide,
-				utc:              utc,
-				fields:           fields,
-				fieldsSet:        cmd.Flags().Changed("fields"),
-				preset:           preset,
-				presetSet:        cmd.Flags().Changed("preset"),
-				kindSet:          cmd.Flags().Changed("kind"),
-				clientSet:        cmd.Flags().Changed("client"),
-				agentSet:         cmd.Flags().Changed("agent"),
-				sessionIDSet:     cmd.Flags().Changed("session-id"),
-				repoSet:          cmd.Flags().Changed("workspace"),
-				failuresOnlySet:  cmd.Flags().Changed("failures"),
-				color:            color,
-				colorSet:         cmd.Flags().Changed("color"),
-				followSession:    followSession,
-				followSessionSet: cmd.Flags().Changed("follow-session"),
-			})
-		},
-	}
-	tailCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
-	tailCmd.Flags().IntVar(&limit, "limit", defaultTailInitialLimit, Localize("number of recent events to print before following (0 prints only new events)", "追跡開始前に表示する直近イベント数 (0 の場合は新規イベントのみ表示)"))
-	tailCmd.Flags().StringVar(&kind, "kind", "", Localize("filter by event kind (note, command_executed, reviewed, session_started, session_ended, compact_summary, prompt, transcript; alias: audit)", "イベント種別で絞り込む (note, command_executed, reviewed, session_started, session_ended, compact_summary, prompt, transcript; alias: audit)"))
-	tailCmd.Flags().StringVar(&client, "client", "", Localize("filter by client", "記録経路で絞り込む"))
-	tailCmd.Flags().StringVar(&agent, "agent", "", Localize("filter by agent", "作業主体で絞り込む"))
-	tailCmd.Flags().StringVar(&sessionID, "session-id", "", Localize("filter by session ID", "session ID で絞り込む"))
-	tailCmd.Flags().StringVar(&repo, "workspace", "", Localize("filter by auxiliary workspace identifier", "補助的な workspace 識別子で絞り込む"))
-	tailCmd.Flags().BoolVar(&failuresOnly, "failures", false, Localize("show only failed commands", "失敗したコマンドのみ表示"))
-	tailCmd.Flags().BoolVar(&asJSON, "json", false, Localize("print NDJSON output", "NDJSON 形式で出力する"))
-	tailCmd.Flags().BoolVar(&wide, "wide", false, Localize("use the legacy tab-separated format", "従来のタブ区切り形式で出力する"))
-	tailCmd.Flags().BoolVar(&utc, "utc", false, Localize("print text timestamps in UTC instead of local time", "テキスト出力のタイムスタンプを現地時刻ではなく UTC で出力する"))
-	tailCmd.Flags().StringSliceVar(&fields, "fields", nil, readFieldsFlagUsage())
-	tailCmd.Flags().StringVar(&preset, "preset", "", readPresetsFlagUsage())
-	tailCmd.Flags().StringVar(&color, "color", "", readColorFlagUsage())
-	tailCmd.Flags().StringVar(&followSession, "follow-session", "", Localize(
-		"tail events only from the given session id (prefix match, minimum 8 runes)",
-		"指定した session id のイベントだけを追跡する (先頭一致、最低 8 文字)",
-	))
-
-	return tailCmd
 }
 
 func (c *RootCLI) runTail(ctx context.Context, warnWriter io.Writer, output io.Writer, input tailCommandInput) error {

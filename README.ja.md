@@ -168,15 +168,15 @@ Traceary は補完的なビューを用意していて、「いま何が起き�
 | 目的 | コマンド | 使いどころ |
 |---|---|---|
 | command surface を確認する | `traceary` / `traceary --help` | help を表示（TTY / 非 TTY とも） |
-| いま動いているものを追う | `traceary tail` | hook が発火しているか / 失敗がリアルタイムで見えているかを確認 |
+| いま動いているものを追う | `traceary list --follow` | hook が発火しているか / 失敗がリアルタイムで見えているかを確認 |
 | ある期間の流れを俯瞰する | `traceary timeline` | アイドルギャップ区切りの作業ブロックを workspace 別のアクティビティ要約付きで表示 |
 | 生 event を直接掘る | `traceary list` / `traceary search` | kind / session / query をピンポイントで指定 |
 | 引き継ぎコンテキストで再開する | `traceary session handoff` | 整形済みの working memory を次のセッションへ |
 
-### `traceary tail`
+### `traceary list --follow`
 
 ```text
-$ traceary tail --limit 3
+$ traceary list --follow --limit 3
 07:06:44  command_executed  sess=4a70c526  ws=traceary  ls ~/.traceary 2>&1; find ~ -name "traceary…
 07:06:47  command_executed  sess=4a70c526  ws=traceary  ./traceary timeline --db-path /Users/duck88…
 07:06:52  command_executed  sess=4a70c526  ws=traceary  timeout 1 ./traceary tail --db-path /Users/…

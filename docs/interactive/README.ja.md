@@ -11,7 +11,7 @@ Traceary は次の対話向け convenience を同梱しています。
 
 - bare `traceary` は help を表示（TTY / 非 TTY とも）。旧 Tail-first cockpit entrypoint は v0.35.0 で削除
 - shell completion
-- live-follow 向けの `traceary tail`
+- live-follow 向けの `traceary list --follow`
 - 直近作業向けの `traceary report` / `traceary list` / `traceary search`
 - TTY 専用 inbox walk-through の `traceary memory inbox review`
 
@@ -56,15 +56,15 @@ traceary search --workspace github.com/duck8823/traceary
 traceary report
 ```
 
-### 4. 「いま event が書かれているか？」→ `traceary tail`
+### 4. 「いま event が書かれているか？」→ `traceary list --follow`
 
-新しい event をリアルタイムで追うときは `tail` を使います。
+新しい event をリアルタイムで追うときは `list --follow` を使います。
 hook が発火しているか、想定 workspace に書き込まれているか、失敗が起きているかを確認するのに向いています。
 
 ```sh
-traceary tail
-traceary tail --workspace github.com/duck8823/traceary --failures
-traceary tail --json
+traceary list --follow
+traceary list --follow --workspace github.com/duck8823/traceary --failures
+traceary list --follow --json
 ```
 
 ### 5. 「特定の error / command / note を探す」→ `traceary search`
@@ -116,7 +116,7 @@ traceary completion fish
 traceary completion powershell
 ```
 
-`tail` が入ったあとも、より広い CLI surface の discovery 摩擦を下げるため completion は有効にしておく価値があります。
+`list --follow` が入ったあとも、より広い CLI surface の discovery 摩擦を下げるため completion は有効にしておく価値があります。
 
 ## bare `traceary` entrypoint の方針
 
@@ -126,7 +126,7 @@ bare `traceary` は TTY / 非 TTY とも常に help を表示します。旧 Tai
 
 - bare `traceary` と `traceary --help` は help のみを表示する
 - completion generation と help の例は安定したままにする
-- automation の推奨 path は script-facing command（`list`、`search`、`tail`、`doctor --json`、`session handoff`、`memory inbox list`）
+- automation の推奨 path は script-facing command（`list`、`list --follow`、`search`、`doctor --json`、`session handoff`、`memory inbox list`）
 
 ## まだ future-facing なもの
 

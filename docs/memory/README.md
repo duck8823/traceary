@@ -379,7 +379,7 @@ That means:
 ## Recommended operator workflow
 
 1. keep raw history in the audit layer through hooks or CLI writes
-2. inspect recent work with `traceary tail`, `traceary list`, `traceary search`, or `traceary show`
+2. inspect recent work with `traceary list`, `traceary list --follow`, `traceary search`, or `traceary show`
 3. use `traceary memory store propose` for explicit facts (they land as candidates)
 4. use `traceary memory admin extract` to generate reviewable candidates from session summaries and compact summaries
 5. use `traceary session handoff` when the next agent or session should start from a compact context bundle

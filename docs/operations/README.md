@@ -22,7 +22,7 @@ Current assumptions:
 
 Connection settings applied by Traceary:
 
-- `journal_mode=WAL` — readers (e.g. `traceary tail` polling) and writers can proceed concurrently without blocking each other
+- `journal_mode=WAL` — readers (e.g. `traceary list --follow` polling) and writers can proceed concurrently without blocking each other
 - `synchronous=NORMAL` — the recommended durability setting for WAL mode; fsyncs occur at checkpoint boundaries
 - `busy_timeout=5000` — SQLite auto-retries on transient lock contention for up to 5 seconds before surfacing `SQLITE_BUSY`
 - `foreign_keys=1` — foreign-key constraints are enforced

@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"path/filepath"
@@ -415,5 +416,55 @@ func TestRootCLI_ListReturnsOfflineMigrationMaintenanceError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "traceary store init") {
 		t.Fatalf("error=%v, want store init guidance", err)
+	}
+}
+
+func TestRootCLI_ListFollowRejectsSnapshotOnlyFlags(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+	tests := []struct {
+		name       string
+		args       []string
+		wantErrHas string
+	}{
+		{name: "offset", args: []string{"list", "--follow", "--offset", "1"}, wantErrHas: "--follow cannot be combined with --offset"},
+		{name: "from", args: []string{"list", "--follow", "--from", "2026-01-01"}, wantErrHas: "--follow cannot be combined with --from"},
+		{name: "sensitive", args: []string{"list", "--follow", "--sensitive"}, wantErrHas: "--follow cannot be combined with --sensitive"},
+		{name: "source-hook", args: []string{"list", "--follow", "--source-hook", "stop"}, wantErrHas: "--follow cannot be combined with --source-hook"},
+		{name: "follow-session without follow", args: []string{"list", "--follow-session", "sess0001"}, wantErrHas: "--follow-session requires --follow"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rootCmd := cli.NewRootCLI(
+				cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+				cli.WithEvent(&eventUsecaseStub{}),
+			).Command()
+			rootCmd.SetOut(&bytes.Buffer{})
+			rootCmd.SetErr(&bytes.Buffer{})
+			rootCmd.SetArgs(append(tt.args, "--db-path", t.TempDir()+"/t.db"))
+			err := rootCmd.Execute()
+			if err == nil {
+				t.Fatalf("Execute() error = nil, want %q", tt.wantErrHas)
+			}
+			if !strings.Contains(err.Error(), tt.wantErrHas) {
+				t.Fatalf("Execute() error = %q, want substring %q", err.Error(), tt.wantErrHas)
+			}
+		})
+	}
+}
+
+func TestRootCLI_ListFollowLimitZeroUsesShippedFollowPath(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithEvent(&eventUsecaseStub{}),
+	).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetContext(ctx)
+	rootCmd.SetArgs([]string{"list", "--follow", "--limit", "0", "--db-path", t.TempDir() + "/t.db"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("list --follow --limit 0 error = %v, want nil (cancelled follow loop)", err)
 	}
 }

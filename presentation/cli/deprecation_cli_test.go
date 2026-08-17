@@ -102,6 +102,42 @@ func TestRootCLI_TopIsUnknownCommand(t *testing.T) {
 	}
 }
 
+func TestRootCLI_TailIsUnknownCommand(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "bare tail", args: []string{"tail"}},
+		{name: "tail json", args: []string{"tail", "--json"}},
+		{name: "tail help", args: []string{"tail", "--help"}},
+		{name: "tail follow-session", args: []string{"tail", "--follow-session", "sess0001"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stdout := &bytes.Buffer{}
+			stderr := &bytes.Buffer{}
+			root := cli.NewRootCLI(
+				cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+				cli.WithEvent(&eventUsecaseStub{}),
+			).Command()
+			root.SetOut(stdout)
+			root.SetErr(stderr)
+			root.SetArgs(tt.args)
+			err := root.Execute()
+			if err == nil {
+				t.Fatalf("Execute(%v) error = nil, want unknown-command error", tt.args)
+			}
+			if !strings.Contains(err.Error(), `unknown command "tail"`) {
+				t.Fatalf("Execute(%v) error = %q, want unknown command \"tail\"", tt.args, err.Error())
+			}
+			if strings.Contains(stderr.String(), "DEPRECATED:") || strings.Contains(stdout.String(), "DEPRECATED:") {
+				t.Errorf("unexpected deprecation notice:\nstdout=%s\nstderr=%s", stdout.String(), stderr.String())
+			}
+		})
+	}
+}
+
 func TestRootCLI_SessionsIsUnknownCommand(t *testing.T) {
 	t.Setenv("TRACEARY_LANG", "en")
 	tests := []struct {

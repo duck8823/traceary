@@ -40,6 +40,8 @@ func (c *RootCLI) newListCommand() *cobra.Command {
 		fields        []string
 		preset        string
 		color         string
+		follow        bool
+		followSession string
 	)
 
 	listCmd := &cobra.Command{
@@ -48,43 +50,46 @@ func (c *RootCLI) newListCommand() *cobra.Command {
 		Args:  noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runList(cmd.Context(), cmd.ErrOrStderr(), cmd.OutOrStdout(), listCommandInput{
-				dbPath:          dbPath,
-				limit:           limit,
-				offset:          offset,
-				kind:            kind,
-				client:          client,
-				agent:           agent,
-				sessionID:       sessionID,
-				repo:            repo,
-				from:            from,
-				since:           since,
-				to:              to,
-				until:           until,
-				timezone:        timezone,
-				failuresOnly:    failuresOnly,
-				sensitiveOnly:   sensitiveOnly,
-				sourceHook:      sourceHook,
-				sourceHookSet:   cmd.Flags().Changed("source-hook"),
-				asJSON:          asJSON,
-				wide:            wide,
-				utc:             utc,
-				fields:          fields,
-				fieldsSet:       cmd.Flags().Changed("fields"),
-				preset:          preset,
-				presetSet:       cmd.Flags().Changed("preset"),
-				kindSet:         cmd.Flags().Changed("kind"),
-				clientSet:       cmd.Flags().Changed("client"),
-				agentSet:        cmd.Flags().Changed("agent"),
-				sessionIDSet:    cmd.Flags().Changed("session-id"),
-				repoSet:         cmd.Flags().Changed("workspace"),
-				failuresOnlySet: cmd.Flags().Changed("failures"),
-				color:           color,
-				colorSet:        cmd.Flags().Changed("color"),
+				dbPath:           dbPath,
+				limit:            limit,
+				offset:           offset,
+				kind:             kind,
+				client:           client,
+				agent:            agent,
+				sessionID:        sessionID,
+				repo:             repo,
+				from:             from,
+				since:            since,
+				to:               to,
+				until:            until,
+				timezone:         timezone,
+				failuresOnly:     failuresOnly,
+				sensitiveOnly:    sensitiveOnly,
+				sourceHook:       sourceHook,
+				sourceHookSet:    cmd.Flags().Changed("source-hook"),
+				asJSON:           asJSON,
+				wide:             wide,
+				utc:              utc,
+				fields:           fields,
+				fieldsSet:        cmd.Flags().Changed("fields"),
+				preset:           preset,
+				presetSet:        cmd.Flags().Changed("preset"),
+				kindSet:          cmd.Flags().Changed("kind"),
+				clientSet:        cmd.Flags().Changed("client"),
+				agentSet:         cmd.Flags().Changed("agent"),
+				sessionIDSet:     cmd.Flags().Changed("session-id"),
+				repoSet:          cmd.Flags().Changed("workspace"),
+				failuresOnlySet:  cmd.Flags().Changed("failures"),
+				color:            color,
+				colorSet:         cmd.Flags().Changed("color"),
+				follow:           follow,
+				followSession:    followSession,
+				followSessionSet: cmd.Flags().Changed("follow-session"),
 			})
 		},
 	}
 	listCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
-	listCmd.Flags().IntVar(&limit, "limit", 20, Localize("number of events to display", "表示件数"))
+	listCmd.Flags().IntVar(&limit, "limit", 20, Localize("number of events to display; with --follow, 0 prints only new events", "表示件数。--follow 時は 0 で新規イベントのみ"))
 	listCmd.Flags().IntVar(&offset, "offset", 0, Localize("number of events to skip before listing", "一覧表示前にスキップする件数"))
 	listCmd.Flags().BoolVar(&sensitiveOnly, "sensitive", false, Localize("list only command audits that match sensitive-path patterns (compute-on-read; not redaction)", "sensitive-path パターンに一致した command audit のみ一覧する（compute-on-read。redaction とは別）"))
 	listCmd.Flags().StringVar(&kind, "kind", "", Localize("filter by event kind (note, command_executed, reviewed, session_started, session_ended, compact_summary, prompt, transcript; alias: audit)", "イベント種別で絞り込む (note, command_executed, reviewed, session_started, session_ended, compact_summary, prompt, transcript; alias: audit)"))
@@ -105,11 +110,69 @@ func (c *RootCLI) newListCommand() *cobra.Command {
 	listCmd.Flags().StringSliceVar(&fields, "fields", nil, readFieldsFlagUsage())
 	listCmd.Flags().StringVar(&preset, "preset", "", readPresetsFlagUsage())
 	listCmd.Flags().StringVar(&color, "color", "", readColorFlagUsage())
+	listCmd.Flags().BoolVar(&follow, "follow", false, Localize("keep printing new matching events as they arrive", "新しい一致イベントを到着順に追跡表示する"))
+	listCmd.Flags().StringVar(&followSession, "follow-session", "", Localize(
+		"with --follow, tail events only from the given session id (prefix match, minimum 8 runes)",
+		"--follow 時に指定した session id のイベントだけを追跡する (先頭一致、最低 8 文字)",
+	))
 
 	return listCmd
 }
 
+func (c *RootCLI) runListFollow(ctx context.Context, warnWriter io.Writer, output io.Writer, input listCommandInput) error {
+	if input.limit < 0 {
+		return xerrors.New(Localize("limit must be greater than or equal to 0", "limit は 0 以上である必要があります"))
+	}
+	if input.offset != 0 {
+		return xerrors.New(Localize("--follow cannot be combined with --offset", "--follow は --offset と同時に使えません"))
+	}
+	if strings.TrimSpace(input.from) != "" || strings.TrimSpace(input.since) != "" ||
+		strings.TrimSpace(input.to) != "" || strings.TrimSpace(input.until) != "" {
+		return xerrors.New(Localize("--follow cannot be combined with --from/--since/--to/--until", "--follow は --from/--since/--to/--until と同時に使えません"))
+	}
+	if input.sensitiveOnly {
+		return xerrors.New(Localize("--follow cannot be combined with --sensitive", "--follow は --sensitive と同時に使えません"))
+	}
+	if strings.TrimSpace(input.sourceHook) != "" {
+		return xerrors.New(Localize("--follow cannot be combined with --source-hook", "--follow は --source-hook と同時に使えません"))
+	}
+	return c.runTail(ctx, warnWriter, output, tailCommandInput{
+		dbPath:           input.dbPath,
+		limit:            input.limit,
+		kind:             input.kind,
+		client:           input.client,
+		agent:            input.agent,
+		sessionID:        input.sessionID,
+		repo:             input.repo,
+		failuresOnly:     input.failuresOnly,
+		asJSON:           input.asJSON,
+		wide:             input.wide,
+		utc:              input.utc,
+		location:         input.location,
+		fields:           input.fields,
+		fieldsSet:        input.fieldsSet,
+		preset:           input.preset,
+		presetSet:        input.presetSet,
+		kindSet:          input.kindSet,
+		clientSet:        input.clientSet,
+		agentSet:         input.agentSet,
+		sessionIDSet:     input.sessionIDSet,
+		repoSet:          input.repoSet,
+		failuresOnlySet:  input.failuresOnlySet,
+		color:            input.color,
+		colorSet:         input.colorSet,
+		followSession:    input.followSession,
+		followSessionSet: input.followSessionSet,
+	})
+}
+
 func (c *RootCLI) runList(ctx context.Context, warnWriter io.Writer, output io.Writer, input listCommandInput) error {
+	if input.follow {
+		return c.runListFollow(ctx, warnWriter, output, input)
+	}
+	if input.followSessionSet || strings.TrimSpace(input.followSession) != "" {
+		return xerrors.New(Localize("--follow-session requires --follow", "--follow-session には --follow が必要です"))
+	}
 	if input.limit <= 0 {
 		return xerrors.New(Localize("limit must be greater than or equal to 1", "limit は 1 以上である必要があります"))
 	}

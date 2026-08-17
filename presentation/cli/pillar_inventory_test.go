@@ -39,7 +39,7 @@ func TestRootCLI_SurfacesWithoutV036Notice(t *testing.T) {
 		args []string
 	}{
 		{name: "propose", args: []string{"memory", "store", "propose", "--db-path", "/tmp/test-traceary.db", "--type", "decision", "--fact", "Candidate"}},
-		{name: "tail", args: []string{"tail", "--help"}},
+		{name: "list follow", args: []string{"list", "--follow", "--help"}},
 		{name: "timeline", args: []string{"timeline", "--help"}},
 		{name: "handoff", args: []string{"session", "handoff", "--help"}},
 		{name: "hooks print", args: []string{"hooks", "print", "--help"}},

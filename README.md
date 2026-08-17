@@ -171,15 +171,15 @@ Traceary ships complementary inspection views so you can switch between "what's 
 | When | Command | Use it to |
 |---|---|---|
 | Discovering the command surface | `traceary` / `traceary --help` | print help (TTY and non-TTY) |
-| Following what is happening now | `traceary tail` | confirm hooks are firing, watch failures in real time |
+| Following what is happening now | `traceary list --follow` | confirm hooks are firing, watch failures in real time |
 | Understanding what happened across a span | `traceary timeline` | see gap-separated work blocks with a per-workspace activity summary |
 | Inspecting raw events directly | `traceary list` / `traceary search` | jump to an exact kind / session / query |
 | Resuming with assembled working memory | `traceary session handoff` | start a follow-up session with curated context |
 
-### `traceary tail`
+### `traceary list --follow`
 
 ```text
-$ traceary tail --limit 3
+$ traceary list --follow --limit 3
 07:06:44  command_executed  sess=4a70c526  ws=traceary  ls ~/.traceary 2>&1; find ~ -name "traceary…
 07:06:47  command_executed  sess=4a70c526  ws=traceary  ./traceary timeline --db-path /Users/duck88…
 07:06:52  command_executed  sess=4a70c526  ws=traceary  timeout 1 ./traceary tail --db-path /Users/…

@@ -290,7 +290,7 @@ Durable memory は長く残る文脈なので、抽出または保存する前�
 ## 推奨ワークフロー
 
 1. hooks や CLI で、まず audit layer に生の履歴を残す
-2. `traceary tail`、`traceary list`、`traceary search`、`traceary show` で最近の流れを確認する
+2. `traceary list`、`traceary list --follow`、`traceary search`、`traceary show` で最近の流れを確認する
 3. 明示したい事実は `traceary memory store propose` で残す（candidate で着地する）
 4. session summary や compact summary から review 用候補を作るときは `traceary memory admin extract` を使う
 5. 次のエージェントや次回 session に引き継ぐときは `traceary session handoff` を使う

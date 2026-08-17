@@ -34,7 +34,7 @@ The public surface is the operator-facing daily-use surface. Public commands kee
 Current public commands, including compatibility aliases introduced after v0.15, are grouped by intent. The shipped classification of every visible public/admin leaf is `presentation/cli/pillar_inventory.go` (#1692).
 
 - **Event recording** — `traceary log`, `traceary audit`
-- **Read / inspection** — `traceary list`, `traceary search`, `traceary tail`, `traceary timeline`, `traceary show`, `traceary context`
+- **Read / inspection** — `traceary list` (including `--follow`), `traceary search`, `traceary timeline`, `traceary show`, `traceary context`
 - **Sessions** — `traceary session start`, `traceary session end`, `traceary session run`, `traceary session handoff` (including `--compact-only`), `traceary session refine`
 - **Durable memory daily read** — `traceary memory list`, `traceary memory search`, `traceary memory show`
 - **Durable memory inbox** — `traceary memory inbox list`, `traceary memory inbox show`, `traceary memory inbox accept`, `traceary memory inbox reject`, `traceary memory inbox attach`, `traceary memory inbox cleanup`, `traceary memory inbox restore`, `traceary memory inbox review` (TTY-only)
@@ -89,10 +89,11 @@ Currently deprecated:
 
 #1692 walked every visible public/admin leaf against the two pillars (記録 = capture / summarise / compress / evict; 記憶 = consolidate and supply automatically). Hidden hook entrypoints stay plumbing (see below). The shipped table is `presentation/cli/pillar_inventory.go`; a test fails if a visible action is added without a row.
 
-A command is removed only for empty backing data, duplication, or serving no pillar. Usage counts are not grounds. Remaining groups from the #1870 97→29 keep-list were never in the v0.34 deprecation registry, so v0.35 does not delete them. Planned absorbs (`list --follow`, `list --blocks`, `hooks install --dry-run`, `memory search --all`) are not noticed until those flags exist. `replay` stays: it is the only single-file HTML export, and #1870 called usage a weak removal basis.
+A command is removed only for empty backing data, duplication, or serving no pillar. Usage counts are not grounds. Remaining groups from the #1870 97→29 keep-list were never in the v0.34 deprecation registry, so v0.35 does not delete them. Planned absorbs (`list --blocks`, `hooks install --dry-run`, `memory search --all`) are not noticed until those flags exist. `list --follow` landed in v0.42.0 (#2068). `replay` stays: it is the only single-file HTML export, and #1870 called usage a weak removal basis.
 
 Historical removal log:
 
+- Removed in v0.42.0 (#2068): `traceary tail`. Invocations fail as an unknown command with a non-zero exit and no `DEPRECATED` notice. This is an explicit policy exception to the one-minor deprecation window (owner decision 2026-08-17). Use `traceary list --follow` (same stream, filters, and rendering; `--follow-session` moved onto `list`).
 - Removed in v0.42.0 (#2061): `traceary sessions` (including `--snapshot` / `--snapshot --json`). Invocations fail as an unknown command with a non-zero exit and no `DEPRECATED` notice. This is an explicit policy exception to the one-minor deprecation window (owner decision 2026-08-17). Use `list` / `search` / `context` / `report` / `session handoff`. Internal `Session.List` remains for hook workspace canonicalization; `list_sessions.sql` is kept for that caller.
 - Removed in v0.42.0 (#2057): `traceary session latest` (including `--active`) and `traceary session list`. Invocations fail as unknown subcommands with a non-zero exit and no `DEPRECATED` notice. This is an explicit policy exception to the one-minor deprecation window (owner decision 2026-08-17). Open-session identity is delivered in hook messages (`[Traceary] Session <id>`); recent work is read with `list` / `search` / `context`; period summaries use `report`. Internal `Active` / `Latest` / `List` queries remain for handoff, hooks, context, and memory extract.
 - Removed in v0.36.0 after the v0.35 deprecation (#1692 / #1870): `traceary memory store remember`. Invocations fail as an unknown subcommand with a non-zero exit and no `DEPRECATED` notice. Use `traceary memory store propose` (`status=candidate`). The skill `traceary-memory-remember` already lands on `propose`.
