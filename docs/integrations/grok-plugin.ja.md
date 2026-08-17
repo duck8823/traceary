@@ -172,7 +172,7 @@ tag を取得して installer を再実行します。
 ```sh
 brew upgrade traceary
 git fetch --tags
-git checkout v0.23.0 # 導入済みTracearyのバージョンに置き換える
+git checkout "v$(traceary -v | awk '{print $2}')"
 ./scripts/install-grok-plugin.sh
 traceary doctor --client grok --project-dir . --json
 ```
