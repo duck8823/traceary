@@ -351,13 +351,58 @@ func TestMemory_EligibleForDecay(t *testing.T) {
 			t.Fatal("want eligible")
 		}
 	})
-	t.Run("returns false for remember-intent and manual sources regardless of age", func(t *testing.T) {
+	t.Run("returns false for remember-intent, manual, and compact-summary regardless of age", func(t *testing.T) {
 		t.Parallel()
-		for _, src := range []types.MemorySource{types.MemorySourceRememberIntent, types.MemorySourceManual} {
+		for _, src := range []types.MemorySource{types.MemorySourceRememberIntent, types.MemorySourceManual, types.MemorySourceCompactSummary} {
 			m := mustCandidate(t, src, old)
 			if m.EligibleForDecay(policy, now) {
 				t.Fatalf("source %s must not be eligible", src)
 			}
+		}
+	})
+	t.Run("uses created_at so a recent updated_at does not reset the TTL", func(t *testing.T) {
+		t.Parallel()
+		id, err := types.MemoryIDFrom("mem-decay-touched")
+		if err != nil {
+			t.Fatal(err)
+		}
+		m := model.MemoryOf(
+			id,
+			types.MemoryTypeDecision,
+			types.WorkspaceScopeOf(types.Workspace("github.com/duck8823/traceary")),
+			"fact for decay tests",
+			types.MemoryStatusCandidate,
+			types.ConfidenceLow,
+			types.MemorySourceExtracted,
+			nil, nil,
+			types.None[types.MemoryID](),
+			types.None[time.Time](),
+			old,
+			types.None[time.Time](),
+			old,
+			now,
+		)
+		if !m.EligibleForDecay(policy, now) {
+			t.Fatal("want eligible from created_at even when updated_at is now")
+		}
+	})
+	t.Run("stamps scheduled expires_at on extracted candidates", func(t *testing.T) {
+		t.Parallel()
+		m := mustCandidate(t, types.MemorySourceExtracted, old)
+		got, ok := m.ExpiresAt().Value()
+		if !ok {
+			t.Fatal("extracted candidate must stamp expires_at")
+		}
+		want := old.Add(types.DefaultMemoryDecayOlderThan)
+		if !got.Equal(want) {
+			t.Fatalf("expires_at=%s, want %s", got, want)
+		}
+	})
+	t.Run("does not stamp expires_at on remember-intent", func(t *testing.T) {
+		t.Parallel()
+		m := mustCandidate(t, types.MemorySourceRememberIntent, old)
+		if _, ok := m.ExpiresAt().Value(); ok {
+			t.Fatal("remember-intent must not carry a candidate TTL")
 		}
 	})
 	t.Run("returns false for accepted memory", func(t *testing.T) {
@@ -400,8 +445,19 @@ func TestMemory_RestoreToCandidate(t *testing.T) {
 	if m.Status() != types.MemoryStatusCandidate {
 		t.Fatalf("status = %s", m.Status())
 	}
-	if _, ok := m.ExpiresAt().Value(); ok {
-		t.Fatal("expiresAt must be cleared")
+	got, ok := m.ExpiresAt().Value()
+	if !ok {
+		t.Fatal("extracted restore must restamp expires_at")
+	}
+	if !got.After(time.Now().UTC().Add(types.DefaultMemoryDecayOlderThan - time.Minute)) {
+		t.Fatalf("restamped expires_at=%s, want ~now+30d", got)
+	}
+	policy, err := types.MemoryDecayPolicyOf(types.DefaultMemoryDecayOlderThan, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.EligibleForDecay(policy, time.Now().UTC()) {
+		t.Fatal("restored extracted candidate must not be immediately due")
 	}
 	if err := m.RestoreToCandidate(); !errors.Is(err, model.ErrInvalidMemoryState) {
 		t.Fatalf("restore non-expired err = %v", err)

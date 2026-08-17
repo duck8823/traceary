@@ -52,7 +52,7 @@ func (c *RootCLI) newMemoryDecayCommand() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&input.dbPath, "db-path", "", dbPathFlagUsage())
-	cmd.Flags().DurationVar(&input.olderThan, "older-than", domtypes.DefaultMemoryDecayOlderThan, Localize("only expire candidates not updated within this duration (default 720h)", "この duration 以上更新のない候補のみ expire (既定 720h)"))
+	cmd.Flags().DurationVar(&input.olderThan, "older-than", domtypes.DefaultMemoryDecayOlderThan, Localize("expire when the current TTL grant is older than this (default 720h); restore starts a new grant", "いまの TTL grant がこの duration より古いとき expire (既定 720h)。restore は grant をやり直す"))
 	cmd.Flags().IntVar(&input.limit, "limit", 500, Localize("maximum candidates to expire in one run", "1 回の実行で expire する最大件数"))
 	cmd.Flags().StringVar(&input.workspace, "workspace", "", Localize("filter by workspace scope", "workspace scope で絞り込む"))
 	cmd.Flags().BoolVar(&input.includeHidden, "include-hidden", false, Localize("include extracted-hidden sources (already in default policy)", "extracted-hidden を含める (既定ポリシーに含まれる)"))
@@ -117,8 +117,8 @@ func (c *RootCLI) runMemoryDecay(ctx context.Context, output io.Writer, input me
 	if result.Applied {
 		mode = "applied"
 	}
-	_, err = fmt.Fprintf(output, "memory decay (%s): scanned=%d expired=%d superseded=%d remaining=%d older_than=%s\n",
-		mode, result.Scanned, len(result.ExpiredIDs), len(result.SupersededIDs), result.RemainingAfter, result.OlderThan)
+	_, err = fmt.Fprintf(output, "memory decay (%s): scanned=%d expired=%d superseded=%d remaining=%d backfilled=%d older_than=%s\n",
+		mode, result.Scanned, len(result.ExpiredIDs), len(result.SupersededIDs), result.RemainingAfter, result.Backfilled, result.OlderThan)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print memory decay summary", "memory decay サマリの出力に失敗しました"), err)
 	}

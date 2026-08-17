@@ -71,6 +71,10 @@ func (s *memoryRepositoryStub) SaveSupersession(_ context.Context, superseded *m
 	return s.saveErr
 }
 
+func (s *memoryRepositoryStub) BackfillCandidateTTLs(context.Context, time.Duration) (int, error) {
+	return 0, nil
+}
+
 func (s *memoryRepositoryStub) FindByID(_ context.Context, memoryID domtypes.MemoryID) (domtypes.Optional[*model.Memory], error) {
 	if s.findErr != nil {
 		return domtypes.None[*model.Memory](), s.findErr

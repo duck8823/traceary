@@ -66,12 +66,28 @@ func (u *memoryUsecase) Decay(ctx context.Context, criteria apptypes.MemoryDecay
 		Scanned:       len(summaries),
 	}
 
-	// Expire pass (oldest first).
+	for _, s := range summaries {
+		if s.Status() == domtypes.MemoryStatusCandidate &&
+			domtypes.CandidateTTLApplies(s.Source()) {
+			if _, ok := s.ExpiresAt().Value(); !ok {
+				result.Backfilled++
+			}
+		}
+	}
+	if criteria.Apply && result.Backfilled > 0 {
+		n, err := u.memoryRepo.BackfillCandidateTTLs(ctx, domtypes.DefaultMemoryDecayOlderThan)
+		if err != nil {
+			return apptypes.MemoryDecayResult{}, xerrors.Errorf("failed to backfill candidate TTL stamps: %w", err)
+		}
+		result.Backfilled = n
+	}
+
+	// Expire pass (oldest created_at first — TTL is from creation, not last touch).
 	sort.SliceStable(summaries, func(i, j int) bool {
-		if summaries[i].UpdatedAt().Equal(summaries[j].UpdatedAt()) {
+		if summaries[i].CreatedAt().Equal(summaries[j].CreatedAt()) {
 			return summaries[i].MemoryID().String() < summaries[j].MemoryID().String()
 		}
-		return summaries[i].UpdatedAt().Before(summaries[j].UpdatedAt())
+		return summaries[i].CreatedAt().Before(summaries[j].CreatedAt())
 	})
 
 	eligible := make([]apptypes.MemorySummary, 0)
@@ -85,8 +101,7 @@ func (u *memoryUsecase) Decay(ctx context.Context, criteria apptypes.MemoryDecay
 			result.Skipped["source"]++
 			continue
 		}
-		cutoff := now.Add(-olderThan)
-		if !s.UpdatedAt().UTC().Before(cutoff) {
+		if !policy.CandidateDue(s.CreatedAt(), s.ExpiresAt(), now) {
 			result.Skipped["too_new"]++
 			continue
 		}

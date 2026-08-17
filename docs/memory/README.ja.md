@@ -30,11 +30,19 @@ Durable memory には、type・scope・status・confidence・evidence ref・任�
 
 既定の active-memory 系の取得では、active な accepted memory だけを対象にします。
 
+### Candidate TTL
+
+未レビューの auto-extracted 候補（`source=extracted` / `extracted-hidden`）は、提案時に `expires_at = created_at + 30 日` を刻みます。既存の `expires_at` NULL 行は `memory decay --apply`（および session-end hook / `doctor --fix` の同一経路）で backfill します。
+
+`memory decay`（既定は dry-run）は、いまの TTL grant が `--older-than`（session-end hook では `TRACEARY_MEMORY_DECAY_AFTER`）より古いとき expire します。grant の起点は未 stamp なら `created_at`、stamp 済みなら `expires_at − 30d` なので、短い operator window も効き、restore（`now+30d`）は直後に再 expire しません。`updated_at` を触っても時計は巻き戻りません。件数行の `backfilled=N` は、まだ stamp が無かった行数です。expire は非破壊（`status=expired`）で、`memory inbox restore` で戻せます。
+
+`remember-intent` / `manual` / `compact-summary` は対象外です。人の確認を待ちます。
+
 durable memory を `type` + `scope` で分類する方針にし、別軸 `block` を入れなかった理由は [Memory blocks: 評価と決定](../architecture/memory-blocks.ja.md) を参照してください。
 
 ### コンテンツ validity window
 
-すべての durable memory は、lifecycle な `status` や `memory admin expire` で記録される `expires_at` とは別に、コンテンツの有効期間 `(valid_from, valid_to)` を持ちます。
+すべての durable memory は、lifecycle な `status` や `expires_at`（candidate 中は scheduled TTL、`memory decay` / `memory admin expire` 後は expire 時刻）とは別に、コンテンツの有効期間 `(valid_from, valid_to)` を持ちます。
 
 - `valid_from` — fact が真として主張され始める時刻（既定値は `created_at`）
 - `valid_to` — fact が真でなくなる時刻（`NULL` は open-ended）

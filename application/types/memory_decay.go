@@ -26,4 +26,5 @@ type MemoryDecayResult struct {
 	Applied        bool
 	OlderThan      time.Duration
 	Scanned        int
+	Backfilled     int
 }

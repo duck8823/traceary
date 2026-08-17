@@ -1203,3 +1203,80 @@ func TestMemoryDatasource_ListUsesInjectedClockForDefaultAsOf(t *testing.T) {
 		t.Fatalf("List()[0] = %q, want %q", got, want)
 	}
 }
+
+func TestMemoryDatasource_BackfillCandidateTTLs(t *testing.T) {
+	t.Parallel()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	sut, storeManager := newMemoryDatasource(t, dbPath, memoryDatasourceTestMigrations())
+	ctx := context.Background()
+	if err := storeManager.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	scope := mustWorkspaceScope(t, "github.com/duck8823/traceary")
+	created := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	already := time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC)
+	fixtures := []*model.Memory{
+		memoryOf(t, "mem-extracted-null", types.MemoryTypeLesson, scope, "extracted null", types.MemoryStatusCandidate, types.ConfidenceLow, types.MemorySourceExtracted, nil, nil, types.None[types.MemoryID](), types.None[time.Time](), created, created),
+		memoryOf(t, "mem-hidden-null", types.MemoryTypeLesson, scope, "hidden null", types.MemoryStatusCandidate, types.ConfidenceLow, types.MemorySourceExtractedHidden, nil, nil, types.None[types.MemoryID](), types.None[time.Time](), created, created),
+		memoryOf(t, "mem-extracted-stamped", types.MemoryTypeLesson, scope, "already stamped", types.MemoryStatusCandidate, types.ConfidenceLow, types.MemorySourceExtracted, nil, nil, types.None[types.MemoryID](), types.Some(already), created, created),
+		memoryOf(t, "mem-remember", types.MemoryTypePreference, scope, "remember", types.MemoryStatusCandidate, types.ConfidenceLow, types.MemorySourceRememberIntent, nil, nil, types.None[types.MemoryID](), types.None[time.Time](), created, created),
+		memoryOf(t, "mem-compact", types.MemoryTypeLesson, scope, "compact", types.MemoryStatusCandidate, types.ConfidenceLow, types.MemorySourceCompactSummary, nil, nil, types.None[types.MemoryID](), types.None[time.Time](), created, created),
+	}
+	for _, memory := range fixtures {
+		if err := sut.Save(ctx, memory); err != nil {
+			t.Fatalf("Save(%s) error = %v", memory.MemoryID(), err)
+		}
+	}
+	stamped, err := sut.BackfillCandidateTTLs(ctx, 30*24*time.Hour)
+	if err != nil {
+		t.Fatalf("BackfillCandidateTTLs() error = %v", err)
+	}
+	if stamped != 2 {
+		t.Fatalf("stamped=%d, want 2 (extracted+hidden NULL only)", stamped)
+	}
+	for _, id := range []string{"mem-extracted-null", "mem-hidden-null"} {
+		got, err := sut.FindByID(ctx, mustMemoryID(t, id))
+		if err != nil {
+			t.Fatal(err)
+		}
+		mem, ok := got.Value()
+		if !ok {
+			t.Fatalf("%s missing after backfill", id)
+		}
+		exp, ok := mem.ExpiresAt().Value()
+		if !ok {
+			t.Fatalf("%s expires_at still NULL", id)
+		}
+		if exp.Before(created.Add(29*24*time.Hour)) || exp.After(created.Add(31*24*time.Hour)) {
+			t.Fatalf("%s expires_at=%s, want ~created+30d", id, exp)
+		}
+		if mem.Status() != types.MemoryStatusCandidate {
+			t.Fatalf("%s status=%s, backfill must not expire", id, mem.Status())
+		}
+	}
+	kept, err := sut.FindByID(ctx, mustMemoryID(t, "mem-extracted-stamped"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mem, ok := kept.Value()
+	if !ok {
+		t.Fatal("stamped row missing")
+	}
+	got, ok := mem.ExpiresAt().Value()
+	if !ok || !got.Equal(already) {
+		t.Fatalf("pre-stamped expires_at=%v %v, want %s", got, ok, already)
+	}
+	for _, id := range []string{"mem-remember", "mem-compact"} {
+		got, err := sut.FindByID(ctx, mustMemoryID(t, id))
+		if err != nil {
+			t.Fatal(err)
+		}
+		mem, ok := got.Value()
+		if !ok {
+			t.Fatalf("%s missing", id)
+		}
+		if _, present := mem.ExpiresAt().Value(); present {
+			t.Fatalf("%s must not receive a candidate TTL", id)
+		}
+	}
+}
