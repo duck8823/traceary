@@ -797,6 +797,7 @@ Each check has a severity: `PASS`, `WARN`, or `FAIL`. `WARN` means Traceary foun
 
 Additional doctor checks:
 
+- `store-capacity` reports the metadata-only capacity breakdown (database / free / WAL / top objects) from the same bounded InspectCapacity path as the former `store capacity` command. On stores ≥2 GiB the default doctor stays filesystem-metadata-only and this check is `skip` (no SQLite open, no dbstat walk).
 - `path` confirms `traceary` resolves on `PATH` and reports the directory. Missing is `FAIL`; multiple matches are `WARN`.
 - `<client>-plugin-version` compares detected installed plugin manifests/caches with the running binary version and suggests reinstalling/updating the plugin when they drift.
 - `claude-hook-cancellations` separates actionable SessionEnd cancellation markers from markers whose referenced session has subsequently ended. `doctor --fix --dry-run` previews removal of resolved markers; `doctor --fix` removes only those proven resolved and leaves active, missing-session, or unreadable evidence untouched.
@@ -898,10 +899,6 @@ Restore the pre-compact store from the rollback inode published by a successful 
 ### `traceary store archive create|restore|verify`
 
 Create, restore, or verify an offline archive segment. These are public store-administration commands; they do not replace `store compact`.
-
-### `traceary store capacity`
-
-Print a metadata-only capacity report (page/freelist/dbstat evidence). On large stores the inspection is bounded and may report `evidence=cached` or `evidence=bounded`.
 
 ### `traceary store retention files plan|apply`
 

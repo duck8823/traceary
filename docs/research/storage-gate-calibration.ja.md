@@ -24,7 +24,7 @@ gate 行は、`go run ./cmd/store-benchmark --calibrate-gates DIR` が出す
 
 生成は決定的（seed `1811`）。sample data は commit しない。writer は
 production の `EventDatasource.Save`（canonical payload codec）。計測は
-`CapacityInspector` と `OperatorCostInspector`（`traceary store capacity` と
+`CapacityInspector` と `OperatorCostInspector`（`traceary doctor` と
 `traceary doctor` と同じ）。
 
 search-index amplification（`deriveSearchProjectionCapacity`、fallback 2.16x）

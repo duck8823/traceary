@@ -87,7 +87,7 @@ var pillarInventory = []pillarInventoryEntry{
 	{Path: "store archive create", Pillar: pillarKeep, Reason: "offsite archive of the store; not folded into compact"},
 	{Path: "store archive restore", Pillar: pillarKeep, Reason: "restore an archive"},
 	{Path: "store archive verify", Pillar: pillarKeep, Reason: "verify an archive"},
-	{Path: "store capacity", Pillar: pillarKeep, Reason: "metadata-only growth diagnostics; doctor does not absorb it"},
+
 	{Path: "store compact", Pillar: pillarRecord, Reason: "compress, drop retired index, discard covered bodies, vacuum"},
 	{Path: "store compact rollback", Pillar: pillarRecord, Reason: "restore the pre-compact inode"},
 	{Path: "store retention files plan", Pillar: pillarKeep, Reason: "plan filesystem retention of backup/archive files; distinct from body retention folded into compact"},

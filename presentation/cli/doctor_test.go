@@ -582,6 +582,10 @@ func TestRootCLI_DoctorLargeStoreReturnsBoundedMetadataOnlyReport(t *testing.T) 
 	if capacity.calls != 0 {
 		t.Fatalf("large-store capacity calls=%d, want zero", capacity.calls)
 	}
+	capacityCheck := statusByName(report, "store-capacity")
+	if capacityCheck.Status != "skip" || !strings.Contains(capacityCheck.Message, "filesystem-metadata-only") {
+		t.Fatalf("store-capacity = %#v, want skip without opening SQLite", capacityCheck)
+	}
 	if codec.calls != 0 {
 		t.Fatalf("large-store payload codec calls=%d, want zero", codec.calls)
 	}

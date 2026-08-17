@@ -1430,13 +1430,13 @@ func (d *Database) SearchProjectionStatus(ctx context.Context) (s apptypes.Searc
 			s.PhysicalBytes = searchProjectionFamilyBytesFromObjects(cached.Objects)
 			s.PhysicalEvidence = apptypes.CapacityEvidence{Status: "cached", Method: "dbstat", Reason: "dbstat cache hit for unchanged store file"}
 		} else {
-			// Status never walks dbstat (#2059). store capacity refreshes the
-			// sidecar cache; a miss is immediately unavailable so parked
-			// lifecycle inspection stays in the low-second range.
+			// Status never walks dbstat (#2059). doctor InspectCapacity
+			// refreshes the sidecar cache; a miss is immediately unavailable
+			// so parked lifecycle inspection stays in the low-second range.
 			s.PhysicalEvidence = apptypes.CapacityEvidence{
 				Status: "unavailable",
 				Method: "dbstat",
-				Reason: "dbstat cache miss; run traceary store capacity to refresh",
+				Reason: "dbstat cache miss; run traceary doctor on a reviewed copy to refresh",
 			}
 		}
 	}

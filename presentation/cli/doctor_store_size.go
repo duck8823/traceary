@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
+
+	apptypes "github.com/duck8823/traceary/application/types"
 )
 
 // storeSizeWarnBytes is the on-disk size above which multi-GB cold opens
@@ -115,16 +118,28 @@ func inspectCompactRollbackCopies(dbPath string) doctorCheck {
 // part, and inspecting twice would double the cost of the whole doctor run.
 func (c *RootCLI) inspectStoreGrowthBudgetWithClock(ctx context.Context, dbPath string, snapshot storeFileSnapshot, now func() time.Time) []doctorCheck {
 	if snapshot.Err != nil {
-		return []doctorCheck{{Name: "store-size", Status: doctorStatusWarn, Message: localizef("failed to inspect SQLite store metadata: %v", "SQLite store metadataを確認できません: %v", snapshot.Err)}}
+		return []doctorCheck{
+			{Name: "store-size", Status: doctorStatusWarn, Message: localizef("failed to inspect SQLite store metadata: %v", "SQLite store metadataを確認できません: %v", snapshot.Err)},
+			unavailableStoreCapacityCheck("store metadata unavailable", snapshot.Size),
+		}
 	}
 	if !snapshot.Exists {
-		return []doctorCheck{{Name: "store-size", Status: doctorStatusPass, Message: Localize("SQLite store file does not exist yet (no size budget concern)", "SQLite ストアファイルはまだありません（サイズ予算の懸念なし）")}}
+		return []doctorCheck{
+			{Name: "store-size", Status: doctorStatusPass, Message: Localize("SQLite store file does not exist yet (no size budget concern)", "SQLite ストアファイルはまだありません（サイズ予算の懸念なし）")},
+			skippedStoreCapacityCheck("SQLite store file does not exist yet", 0),
+		}
 	}
 	if !snapshot.Regular {
-		return []doctorCheck{{Name: "store-size", Status: doctorStatusWarn, Message: Localize("SQLite store path is not a regular file", "SQLite store pathはregular fileではありません")}}
+		return []doctorCheck{
+			{Name: "store-size", Status: doctorStatusWarn, Message: Localize("SQLite store path is not a regular file", "SQLite store pathはregular fileではありません")},
+			skippedStoreCapacityCheck("SQLite store path is not a regular file", snapshot.Size),
+		}
 	}
 	if c.capacityInspector == nil {
-		return []doctorCheck{unknownStoreGrowthCheck(snapshot.Size, dbPath, "capacity inspector unavailable")}
+		return []doctorCheck{
+			unknownStoreGrowthCheck(snapshot.Size, dbPath, "capacity inspector unavailable"),
+			unavailableStoreCapacityCheck("capacity inspector unavailable", snapshot.Size),
+		}
 	}
 	inspectCtx, cancel := context.WithTimeout(ctx, doctorGrowthInspectTimeout)
 	defer cancel()
@@ -132,7 +147,10 @@ func (c *RootCLI) inspectStoreGrowthBudgetWithClock(ctx context.Context, dbPath 
 	report, err := c.capacityInspector.InspectCapacity(inspectCtx)
 	latency := now().Sub(started)
 	if err != nil {
-		return []doctorCheck{unknownStoreGrowthCheck(snapshot.Size, dbPath, "bounded capacity signals unavailable or timed out")}
+		return []doctorCheck{
+			unknownStoreGrowthCheck(snapshot.Size, dbPath, "bounded capacity signals unavailable or timed out"),
+			unavailableStoreCapacityCheck("bounded capacity signals unavailable or timed out", snapshot.Size),
+		}
 	}
 	evidence := storeGrowthEvidence{DatabaseBytes: report.DatabaseBytes, ReclaimableBytes: report.FreeBytes, MeasuredLatency: latency}
 	if evidence.DatabaseBytes == 0 {
@@ -162,7 +180,86 @@ func (c *RootCLI) inspectStoreGrowthBudgetWithClock(ctx context.Context, dbPath 
 	}
 	check := evaluateStoreGrowthBudget(evidence)
 	check.FixCommand = "traceary store compact --db-path " + shellQuote(dbPath)
-	return []doctorCheck{check, legacySearchIndexCheck(legacyBytes, dbPath)}
+	return []doctorCheck{check, storeCapacityDoctorCheck(report), legacySearchIndexCheck(legacyBytes, dbPath)}
+}
+
+func storeCapacityDoctorCheck(report apptypes.CapacityReport) doctorCheck {
+	evidence := strings.TrimSpace(report.Evidence.Status)
+	if evidence == "" {
+		evidence = "unavailable"
+	}
+	return doctorCheck{
+		Name:   "store-capacity",
+		Status: doctorStatusPass,
+		Message: localizef(
+			"capacity evidence=%s database=%s free=%s wal=%s objects=%d payload_classes=%d%s",
+			"capacity evidence=%s database=%s free=%s wal=%s objects=%d payload_classes=%d%s",
+			evidence,
+			formatByteSize(report.DatabaseBytes),
+			formatByteSize(report.FreeBytes),
+			formatByteSize(report.WALBytes),
+			len(report.Objects),
+			len(report.PayloadClasses),
+			formatCapacityObjectBreakdown(report.Objects),
+		),
+	}
+}
+
+func skippedStoreCapacityCheck(reason string, size int64) doctorCheck {
+	return doctorCheck{
+		Name:   "store-capacity",
+		Status: doctorStatusSkip,
+		Message: localizef(
+			"capacity breakdown skipped (%s); filesystem size=%s",
+			"capacity 内訳をスキップしました (%s)。filesystem size=%s",
+			reason,
+			formatByteSize(size),
+		),
+		Hint: Localize(
+			"inspect a reviewed copy with `traceary doctor` when the default path stays metadata-only",
+			"既定経路が metadata-only のときは、review 済み copy に対して `traceary doctor` を実行してください",
+		),
+	}
+}
+
+func unavailableStoreCapacityCheck(reason string, size int64) doctorCheck {
+	return doctorCheck{
+		Name:   "store-capacity",
+		Status: doctorStatusWarn,
+		Message: localizef(
+			"capacity breakdown unavailable (%s); filesystem size=%s",
+			"capacity 内訳を取得できません (%s)。filesystem size=%s",
+			reason,
+			formatByteSize(size),
+		),
+	}
+}
+
+func formatCapacityObjectBreakdown(objects []apptypes.CapacityObject) string {
+	if len(objects) == 0 {
+		return ""
+	}
+	sorted := append([]apptypes.CapacityObject(nil), objects...)
+	sort.Slice(sorted, func(i, j int) bool {
+		if sorted[i].Bytes != sorted[j].Bytes {
+			return sorted[i].Bytes > sorted[j].Bytes
+		}
+		return sorted[i].Name < sorted[j].Name
+	})
+	const maxObjects = 5
+	n := len(sorted)
+	if n > maxObjects {
+		n = maxObjects
+	}
+	parts := make([]string, 0, n)
+	for _, object := range sorted[:n] {
+		parts = append(parts, object.Name+"="+formatByteSize(object.Bytes))
+	}
+	extra := ""
+	if len(sorted) > maxObjects {
+		extra = fmt.Sprintf(" (+%d)", len(sorted)-maxObjects)
+	}
+	return " top=[" + strings.Join(parts, ",") + extra + "]"
 }
 
 // isLegacySearchIndexObject matches the migration-032 family: the two tables,

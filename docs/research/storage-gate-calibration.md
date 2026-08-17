@@ -25,7 +25,7 @@ corpus shape are now a **range** produced by `go run ./cmd/store-benchmark
 Generation is deterministic (seed `1811`). No sample data is committed. Writers
 are production `EventDatasource.Save` (canonical payload codec). Measurement
 uses `CapacityInspector` and `OperatorCostInspector` — the same inspectors as
-`traceary store capacity` and `traceary doctor`.
+`traceary doctor`.
 
 Search-index amplification (`deriveSearchProjectionCapacity`, fallback 2.16x)
 stays `unmeasured` in this harness unless a completed search-projection

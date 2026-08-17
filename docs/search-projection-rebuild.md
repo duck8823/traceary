@@ -153,7 +153,7 @@ guaranteed in advance: when a generation completes, the family is re-measured an
 measurable).
 
 `-1` means **unknown**. It never means "within budget". When a fresh
-`store capacity` dbstat cache is present, `store search-projection status`
+`doctor` InspectCapacity dbstat cache is present, `store search-projection status`
 publishes a coarse `0`/`1` against the cached family **total**
 (`physical_bytes`, `physical_evidence.status=cached`) and does not persist it.
 Status does not walk dbstat itself; a cache miss is immediately `unavailable`.

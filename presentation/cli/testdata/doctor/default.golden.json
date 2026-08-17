@@ -25,6 +25,16 @@
       "auto_fix_available": false
     },
     {
+      "name": "store-capacity",
+      "status": "skip",
+      "severity": "PASS",
+      "section": "Database",
+      "message": "capacity breakdown skipped (SQLite store file does not exist yet); filesystem size=0 B",
+      "hint": "inspect a reviewed copy with `traceary doctor` when the default path stays metadata-only",
+      "fix_command": "",
+      "auto_fix_available": false
+    },
+    {
       "name": "compact-rollback-copy",
       "status": "pass",
       "severity": "PASS",
@@ -315,6 +325,16 @@
           "auto_fix_available": false
         },
         {
+          "name": "store-capacity",
+          "status": "skip",
+          "severity": "PASS",
+          "section": "Database",
+          "message": "capacity breakdown skipped (SQLite store file does not exist yet); filesystem size=0 B",
+          "hint": "inspect a reviewed copy with `traceary doctor` when the default path stays metadata-only",
+          "fix_command": "",
+          "auto_fix_available": false
+        },
+        {
           "name": "db-write",
           "status": "pass",
           "severity": "PASS",
@@ -527,7 +547,7 @@
     }
   ],
   "summary": {
-    "pass": 24,
+    "pass": 25,
     "warn": 1,
     "fail": 0
   },

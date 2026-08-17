@@ -41,7 +41,7 @@ v0.15 以降に追加された互換 alias も含む現在の公開コマンド�
 - **durable memory store** — `traceary memory store propose`、`traceary memory store distill`
 - **durable memory decay** — `traceary memory decay`
 - **hooks** — `traceary hooks install`（`--dry-run` を含む）、`traceary hooks guide`、`traceary completion`（`bash` / `zsh` / `fish` / `powershell`）
-- **診断** — `traceary doctor`（alias `traceary status`）、`traceary report`
+- **診断** — `traceary doctor`（alias `traceary status`、additive な `store-capacity` check を含む）、`traceary report`
 - **replay / archive** — `traceary replay`
 - **bundle import / export** — `traceary bundle export`、`traceary bundle import`
 
@@ -57,7 +57,7 @@ admin コマンドは運用者向けのメンテサーフェスです。`--help`
 
 v0.35 時点の admin コマンド：
 
-- **ストア管理** — `traceary store init`、`traceary store backup create`、`traceary store backup restore`、`traceary store compact`、`traceary store compact rollback`、`traceary store archive create`、`traceary store archive restore`、`traceary store archive verify`、`traceary store capacity`、`traceary store retention files plan`、`traceary store retention files apply`、`traceary store search-projection start`、`traceary store search-projection resume`、`traceary store search-projection status`、`traceary store search-projection abort`、`traceary store search-projection probe`、`traceary store workspace-alias add`、`traceary store workspace-alias list`、`traceary store workspace-alias remove`
+- **ストア管理** — `traceary store init`、`traceary store backup create`、`traceary store backup restore`、`traceary store compact`、`traceary store compact rollback`、`traceary store archive create`、`traceary store archive restore`、`traceary store archive verify`、`traceary store retention files plan`、`traceary store retention files apply`、`traceary store search-projection start`、`traceary store search-projection resume`、`traceary store search-projection status`、`traceary store search-projection abort`、`traceary store search-projection probe`、`traceary store workspace-alias add`、`traceary store workspace-alias list`、`traceary store workspace-alias remove`
 - **セッション管理** — `traceary session gc`（stale なセッションを終了する。`session` 名前空間配下に公開セッションサブコマンドと同じ位置で登録されているが、扱いとしては admin ティアのメンテナンス入口）、`traceary session repair-one-shot`
 - **durable memory admin** — `traceary memory admin extract`、`traceary memory admin import codex`、`traceary memory admin import instructions`、`traceary memory admin export`、`traceary memory admin activate`、`traceary memory admin hygiene scan`、`traceary memory admin hygiene apply`、`traceary memory admin supersede`、`traceary memory admin expire`、`traceary memory admin set-validity`
 - **レポート管理** — `traceary report workspace-identity`
@@ -89,10 +89,11 @@ v0.35 時点の admin コマンド：
 
 #1692 は可視の public / admin leaf を 2 本の柱（記録 = 捕捉 / 要約 / 圧縮 / 破棄、記憶 = 統合して自動供給）に突き合わせました。hidden な hook 入口は plumbing のままです（後述）。出荷テーブルは `presentation/cli/pillar_inventory.go` で、可視 action を行なしで追加するとテストが失敗します。
 
-削除根拠は空の backing、重複、柱なしだけです。usage 件数は理由にしません。#1870 の 97→29 keep-list に残っているグループは v0.34 の非推奨 registry に無いので、v0.35 では削除しません。`list --follow` は v0.42.0（#2068）で入りました。`list --blocks` は v0.42.0（#2069）で入りました。`hooks install --dry-run` は v0.42.0（#2070）で入りました。`memory search --all` は v0.42.0（#2071）で入りました。`replay` は単一ファイル HTML export だけで、#1870 も usage を弱い削除根拠だと書いています。
+削除根拠は空の backing、重複、柱なしだけです。usage 件数は理由にしません。#1870 の 97→29 keep-list に残っているグループは v0.34 の非推奨 registry に無いので、v0.35 では削除しません。`list --follow` は v0.42.0（#2068）で入りました。`list --blocks` は v0.42.0（#2069）で入りました。`hooks install --dry-run` は v0.42.0（#2070）で入りました。`memory search --all` は v0.42.0（#2071）で入りました。`store capacity` は v0.42.0（#2072）で `doctor` に吸収されました。`replay` は単一ファイル HTML export だけで、#1870 も usage を弱い削除根拠だと書いています。
 
 過去の削除履歴：
 
+- v0.42.0 で削除（#2072）: `traceary store capacity`。呼び出しは unknown subcommand として非ゼロ終了し、`DEPRECATED` 通知は出しません。one-minor deprecation window の明示的なポリシー例外です（owner 決定 2026-08-17）。代わりに `traceary doctor` の additive な `store-capacity` check を使います（同じ bounded InspectCapacity 経路）。2 GiB 以上の既定 doctor は metadata-only のままで、SQLite を開かず dbstat も歩きません。
 - v0.42.0 で削除（#2071）: `traceary memory list`。呼び出しは unknown subcommand として非ゼロ終了し、`DEPRECATED` 通知は出しません。one-minor deprecation window の明示的なポリシー例外です（owner 決定 2026-08-17）。代わりに `traceary memory search --all` を使います（同じ List バックエンド、filter、既定 workspace scope、並び順、`--json`）。`--all` は query と同時に使えません。
 - v0.42.0 で削除（#2070）: `traceary hooks print`。呼び出しは unknown subcommand として非ゼロ終了し、`DEPRECATED` 通知は出しません。one-minor deprecation window の明示的なポリシー例外です（owner 決定 2026-08-17）。代わりに `traceary hooks install --dry-run` を使います（同じ生成 config バイト列。`--client` / `--traceary-bin` / `--matcher`）。
 - v0.42.0 で削除（#2069）: `traceary timeline`。呼び出しは unknown command として非ゼロ終了し、`DEPRECATED` 通知は出しません。one-minor deprecation window の明示的なポリシー例外です（owner 決定 2026-08-17）。代わりに `traceary list --blocks` を使います（同じギャップ検出ブロック、#2033 scan-cap 開示、`workspace_breakdown` JSON。`--gap` は `list` に移しました）。
