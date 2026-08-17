@@ -34,7 +34,7 @@ Only active accepted memories are returned by the default "active memory" paths.
 
 Unreviewed auto-extracted candidates (`source=extracted` or `extracted-hidden`) carry a scheduled `expires_at` of `created_at + 30 days`. The stamp is written at propose time. Existing rows with `expires_at` NULL are backfilled by `memory decay --apply` (and the same path from session-end hooks / `doctor --fix`).
 
-`memory decay` (dry-run by default) expires those candidates once they are older than `--older-than` **from `created_at`**, not `updated_at`, so a later touch does not reset the clock. The count line reports `backfilled=N` for rows that still needed a stamp. Expiry is non-destructive (`status=expired`); restore with `memory inbox restore`.
+`memory decay` (dry-run by default) expires a stamped candidate when `now >= expires_at`. Unstamped rows use `created_at + --older-than`. A later `updated_at` does not reset the clock. Restore restamps `now+30d` so a restored row is not immediately due again. The count line reports `backfilled=N` for rows that still needed a stamp. Expiry is non-destructive (`status=expired`); restore with `memory inbox restore`.
 
 `remember-intent`, `manual`, and `compact-summary` candidates are exempt — they wait for a human look.
 

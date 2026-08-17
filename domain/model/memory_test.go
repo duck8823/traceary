@@ -452,6 +452,13 @@ func TestMemory_RestoreToCandidate(t *testing.T) {
 	if !got.After(time.Now().UTC().Add(types.DefaultMemoryDecayOlderThan - time.Minute)) {
 		t.Fatalf("restamped expires_at=%s, want ~now+30d", got)
 	}
+	policy, err := types.MemoryDecayPolicyOf(types.DefaultMemoryDecayOlderThan, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.EligibleForDecay(policy, time.Now().UTC()) {
+		t.Fatal("restored extracted candidate must not be immediately due")
+	}
 	if err := m.RestoreToCandidate(); !errors.Is(err, model.ErrInvalidMemoryState) {
 		t.Fatalf("restore non-expired err = %v", err)
 	}

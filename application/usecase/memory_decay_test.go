@@ -176,6 +176,46 @@ func TestMemoryUsecase_Decay_UsesCreatedAtAndCountsUnstamped(t *testing.T) {
 	}
 }
 
+func TestMemoryUsecase_Decay_HonorsScheduledStampAfterRestore(t *testing.T) {
+	old := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	id, err := domtypes.MemoryIDFrom("mem-decay-restored")
+	if err != nil {
+		t.Fatal(err)
+	}
+	summary, err := apptypes.MemorySummaryOf(
+		id,
+		domtypes.MemoryTypeDecision,
+		domtypes.WorkspaceScopeOf(domtypes.Workspace("ws")),
+		"restored extracted keeps a fresh TTL",
+		domtypes.MemoryStatusCandidate,
+		domtypes.ConfidenceLow,
+		domtypes.MemorySourceExtracted,
+		domtypes.None[domtypes.MemoryID](),
+		domtypes.Some(now.Add(domtypes.DefaultMemoryDecayOlderThan)),
+		old,
+		domtypes.None[time.Time](),
+		old,
+		now,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sut := usecase.NewMemoryUsecase(&decayRepoFake{}, &decayQueryFake{summaries: []apptypes.MemorySummary{summary}}, nil)
+	result, err := sut.Decay(context.Background(), apptypes.MemoryDecayCriteria{
+		OlderThan: 24 * time.Hour,
+		Limit:     10,
+		Apply:     false,
+		Now:       now,
+	})
+	if err != nil {
+		t.Fatalf("Decay() error = %v", err)
+	}
+	if len(result.ExpiredIDs) != 0 {
+		t.Fatalf("ExpiredIDs=%#v, restored stamp must grant a fresh TTL", result.ExpiredIDs)
+	}
+}
+
 func TestMemoryUsecase_Restore_ExpiredToCandidate(t *testing.T) {
 	id, _ := domtypes.MemoryIDFrom("mem-restore-1")
 	now := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)

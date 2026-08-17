@@ -370,16 +370,21 @@ func (m *Memory) Expire(expiresAt time.Time) error {
 }
 
 // EligibleForDecay reports whether this memory may be auto-expired under the
-// given policy at now. Only candidates with an allowed auto-source whose
-// created_at is strictly older than the policy threshold are eligible.
-// updated_at must not reset the clock (#2062). Accepted, rejected,
-// superseded, and expired memories never decay.
+// given policy at now. Only candidates with an allowed auto-source are
+// considered. A scheduled expires_at stamp is the clock when present
+// (so restore can grant a fresh TTL without rewriting created_at).
+// Unstamped rows fall back to created_at + olderThan. updated_at must
+// not reset the clock (#2062). Accepted, rejected, superseded, and
+// expired memories never decay.
 func (m *Memory) EligibleForDecay(policy types.MemoryDecayPolicy, now time.Time) bool {
 	if m.status != types.MemoryStatusCandidate {
 		return false
 	}
 	if !policy.AllowsSource(m.source) {
 		return false
+	}
+	if expiresAt, ok := m.expiresAt.Value(); ok {
+		return !now.UTC().Before(expiresAt.UTC())
 	}
 	cutoff := now.UTC().Add(-policy.OlderThan())
 	return m.createdAt.UTC().Before(cutoff)
