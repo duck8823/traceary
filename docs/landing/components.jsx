@@ -7,11 +7,10 @@ function HeroTerminal() {
   const lines = [
     { type: 'cmd', text: 'brew install traceary' },
     { type: 'out', text: '==> Installing traceary from duck8823/traceary\n==> Pouring traceary--0.41.0.arm64_sequoia.bottle.tar.gz\n🍺  /opt/homebrew/Cellar/traceary/0.41.0: 12 files, 18.4MB' },
-    { type: 'cmd', text: 'traceary sessions --snapshot' },
+    { type: 'cmd', text: 'traceary list --limit 2' },
     { type: 'out', html: true, text:
-      '<span class="kind">RELIABILITY:</span>\n- stale_active_sessions=0 hint="ok"\n\n<span class="kind">ACTIVE SESSIONS:</span>\n' +
-      '<span class="sess">4a70c526</span> name="<span class="ws">github.com/duck8823/traceary</span> · codex" workspace=<span class="ws">github.com/duck8823/traceary</span> agent=codex client=claude started=<span class="ts">07:06:37</span> latest=<span class="ts">07:06:58</span> events=165 last=<span class="kind">transcript</span>: investigating failing tests\n' +
-      '└── <span class="sess">7c91a2bf</span> name="<span class="ws">github.com/duck8823/traceary</span> · worker" workspace=<span class="ws">github.com/duck8823/traceary</span> agent=worker client=claude started=<span class="ts">07:03:12</span> latest=<span class="ts">07:06:52</span> events=42 last=<span class="kind">command_executed</span>: go test ./presentation/cli'
+      '<span class="ts">07:06:58</span>  <span class="kind">transcript</span>  agent=codex   <span class="sess">sess=4a70c5</span>  <span class="ws">ws=traceary</span>  investigating failing tests\n' +
+      '<span class="ts">07:06:52</span>  <span class="kind">command_executed</span>  agent=worker  <span class="sess">sess=7c91a2</span>  <span class="ws">ws=traceary</span>  go test ./presentation/cli'
     },
     { type: 'cmd', text: 'traceary session handoff --compact-only' },
     { type: 'out', text: 'Investigating failing tests in application/usecase. Reproduced panic via `go test ./...`. Next: triage stacktrace.' },
@@ -91,16 +90,15 @@ function HeroTerminal() {
 
 // Inspect previews
 const inspectViews = {
-  sessions: {
-    cmd: 'traceary sessions --snapshot',
-    title: 'active session tree',
+  list: {
+    cmd: 'traceary list --limit 2',
+    title: 'recent events',
     body: (
       <>
-        <div className="term-line"><span className="term-prompt">$</span><span className="term-cmd">traceary sessions --snapshot</span></div>
+        <div className="term-line"><span className="term-prompt">$</span><span className="term-cmd">traceary list --limit 2</span></div>
         <div className="term-out" dangerouslySetInnerHTML={{__html:
-          '<span class="kind">RELIABILITY:</span>\n- stale_active_sessions=0 hint="ok"\n\n<span class="kind">ACTIVE SESSIONS:</span>\n' +
-          '<span class="sess">4a70c526</span> name="<span class="ws">github.com/duck8823/traceary</span> · codex" workspace=<span class="ws">github.com/duck8823/traceary</span> agent=codex client=claude started=<span class="ts">07:06:37</span> latest=<span class="ts">07:06:58</span> events=165 last=<span class="kind">transcript</span>: investigating failing tests\n' +
-          '└── <span class="sess">7c91a2bf</span> name="<span class="ws">github.com/duck8823/traceary</span> · worker" workspace=<span class="ws">github.com/duck8823/traceary</span> agent=worker client=claude started=<span class="ts">07:03:12</span> latest=<span class="ts">07:06:52</span> events=42 last=<span class="kind">command_executed</span>: go test ./presentation/cli'
+          '<span class="ts">07:06:58</span>  <span class="kind">transcript</span>  agent=codex   <span class="sess">sess=4a70c5</span>  <span class="ws">ws=traceary</span>  investigating failing tests\n' +
+          '<span class="ts">07:06:52</span>  <span class="kind">command_executed</span>  agent=worker  <span class="sess">sess=7c91a2</span>  <span class="ws">ws=traceary</span>  go test ./presentation/cli'
         }}/>
       </>
     )
@@ -178,9 +176,9 @@ const inspectViews = {
 };
 
 function InspectSection() {
-  const [active, setActive] = useState('sessions');
+  const [active, setActive] = useState('list');
   const items = [
-    { id: 'sessions', cmd: 'traceary sessions', desc: 'Watch active root and subagent sessions with workspace and latest activity' },
+    { id: 'list', cmd: 'traceary list', desc: 'Scan recent events with workspace, session, and kind filters' },
     { id: 'tail', cmd: 'traceary tail', desc: 'Confirm hooks are firing, watch failures in real time' },
     { id: 'timeline', cmd: 'traceary timeline', desc: 'See gap-separated work blocks with per-workspace summaries' },
     { id: 'search', cmd: 'traceary search', desc: 'Jump to an exact kind, session, or query' },

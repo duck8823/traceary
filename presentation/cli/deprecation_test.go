@@ -17,12 +17,12 @@ func TestApplyCommandDeprecation(t *testing.T) {
 	}{
 		{
 			name:       "English notice",
-			wantNotice: "DEPRECATED: this command is deprecated, use `traceary sessions` instead. Removal target: v0.35.\n",
+			wantNotice: "DEPRECATED: this command is deprecated, use `traceary list` instead. Removal target: v0.35.\n",
 		},
 		{
 			name:       "Japanese notice",
 			language:   "ja",
-			wantNotice: "DEPRECATED: このコマンドは非推奨です。代わりに `traceary sessions` を使用してください。削除予定: v0.35。\n",
+			wantNotice: "DEPRECATED: このコマンドは非推奨です。代わりに `traceary list` を使用してください。削除予定: v0.35。\n",
 		},
 	}
 
@@ -45,7 +45,7 @@ func TestApplyCommandDeprecation(t *testing.T) {
 			}
 			cmd.SetOut(&stdout)
 			cmd.SetErr(&stderr)
-			applyCommandDeprecation(cmd, "traceary sessions", "v0.35")
+			applyCommandDeprecation(cmd, "traceary list", "v0.35")
 
 			if err := cmd.Execute(); err != nil {
 				t.Fatalf("Execute() error = %v", err)

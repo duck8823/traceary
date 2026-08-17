@@ -82,7 +82,7 @@ host ごとのネイティブ連携パッケージを使いたい場合は、ま
 - `traceary` が入っていない
 - hook payload に `tool_input.command` が無い
 - まだ session ID を解決できない
-- `TRACEARY_NO_AUDIT` が truthy、または対象 tool が `traceary list --json`、`traceary sessions --snapshot --json` のような Traceary の read / self-inspection command
+- `TRACEARY_NO_AUDIT` が truthy、または対象 tool が `traceary list --json`、`traceary search --json` のような Traceary の read / self-inspection command
 
 巨大な JSON を Traceary 自身の command audit に戻したくない ad-hoc 調査では `TRACEARY_NO_AUDIT=1` を付けてください。既知の read-only self-inspection surface は既定でも skip します。一方で、`traceary log` / `traceary memory store` のような write 系 CLI は引き続き audit 対象です。
 

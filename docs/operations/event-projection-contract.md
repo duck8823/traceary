@@ -167,7 +167,7 @@ consumer contract.
 ## Response-surface scope
 
 The shared response-truncation vocabulary applies to event list, search,
-context, `top/sessions --snapshot`, and handoff recent-command projections.
+context, and handoff recent-command projections.
 Their default rune budgets may differ, but provenance and units do not. Detail
 surfaces remain explicit full-stored-body reads. A surface that cannot expose
 the shared provenance in v0.30.0 must be listed as a known compatibility gap,

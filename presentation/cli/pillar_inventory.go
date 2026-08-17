@@ -40,7 +40,6 @@ var pillarInventory = []pillarInventoryEntry{
 	{Path: "timeline", Pillar: pillarRecord, Reason: "workspace timeline of recorded work; list --blocks does not exist"},
 	{Path: "show", Pillar: pillarRecord, Reason: "show one recorded event"},
 	{Path: "context", Pillar: pillarRecord, Reason: "assemble recorded context for a session"},
-	{Path: "sessions", Pillar: pillarRecord, Reason: "sessions snapshot; v0.34 already published --snapshot as the surviving view, so the #1870 keep-list omission does not win"},
 	{Path: "session start", Pillar: pillarRecord, Reason: "open a recorded session"},
 	{Path: "session end", Pillar: pillarRecord, Reason: "close a recorded session"},
 	{Path: "session run", Pillar: pillarRecord, Reason: "run a bounded recorded session"},

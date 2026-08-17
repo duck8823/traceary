@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/duck8823/traceary/presentation/cli"
-	"github.com/google/go-cmp/cmp"
 )
 
 // Removed v0.34 no-replacement surfaces must fail as unknown commands/flags
@@ -81,8 +80,6 @@ func TestRootCLI_TopIsUnknownCommand(t *testing.T) {
 			root := cli.NewRootCLI(
 				cli.WithStoreManagement(&storeManagementUsecaseStub{}),
 				cli.WithSession(&sessionUsecaseStub{}),
-				cli.WithEvent(&topPaneEventStub{}),
-				cli.WithMemory(&memoryUsecaseStub{}),
 			).Command()
 			root.SetOut(stdout)
 			root.SetErr(stderr)
@@ -105,82 +102,37 @@ func TestRootCLI_TopIsUnknownCommand(t *testing.T) {
 	}
 }
 
-func TestRootCLI_SessionsHasNoDeprecationNotice(t *testing.T) {
-	stdout := &bytes.Buffer{}
-	stderr := &bytes.Buffer{}
-	root := cli.NewRootCLI(
-		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
-		cli.WithSession(&sessionUsecaseStub{}),
-		cli.WithEvent(&topPaneEventStub{}),
-		cli.WithMemory(&memoryUsecaseStub{}),
-	).Command()
-	root.SetOut(stdout)
-	root.SetErr(stderr)
-	root.SetArgs([]string{"sessions", "--db-path", "/tmp/traceary-deprecation-test.db", "--snapshot"})
-	if err := root.Execute(); err != nil {
-		t.Fatalf("Execute() error = %v", err)
-	}
-	if diff := cmp.Diff("", stderr.String()); diff != "" {
-		t.Errorf("stderr notice mismatch (-want +got):\n%s", diff)
-	}
-}
-
-func TestRootCLI_SessionsBareMatchesSnapshot(t *testing.T) {
-	run := func(args ...string) (string, string, error) {
-		stdout := &bytes.Buffer{}
-		stderr := &bytes.Buffer{}
-		root := cli.NewRootCLI(
-			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
-			cli.WithSession(&sessionUsecaseStub{}),
-			cli.WithEvent(&topPaneEventStub{}),
-			cli.WithMemory(&memoryUsecaseStub{}),
-		).Command()
-		root.SetOut(stdout)
-		root.SetErr(stderr)
-		root.SetArgs(args)
-		err := root.Execute()
-		return stdout.String(), stderr.String(), err
-	}
-
-	bareStdout, bareStderr, err := run("sessions", "--db-path", "/tmp/traceary-sessions-bare.db")
-	if err != nil {
-		t.Fatalf("bare sessions error = %v", err)
-	}
-	snapshotStdout, snapshotStderr, err := run("sessions", "--db-path", "/tmp/traceary-sessions-bare.db", "--snapshot")
-	if err != nil {
-		t.Fatalf("sessions --snapshot error = %v", err)
-	}
-	if diff := cmp.Diff(snapshotStdout, bareStdout); diff != "" {
-		t.Errorf("bare sessions stdout differs from snapshot (-snapshot +bare):\n%s", diff)
-	}
-	if diff := cmp.Diff("", bareStderr+snapshotStderr); diff != "" {
-		t.Errorf("sessions emitted stderr (-want +got):\n%s", diff)
-	}
-}
-
-func TestRootCLI_SessionsValidationRequiresSnapshot(t *testing.T) {
+func TestRootCLI_SessionsIsUnknownCommand(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
 	tests := []struct {
 		name string
 		args []string
-		want string
 	}{
-		{name: "json", args: []string{"sessions", "--json"}, want: "--json requires --snapshot"},
-		{name: "ai profile", args: []string{"sessions", "--profile", "ai"}, want: "--profile ai requires --snapshot --json"},
+		{name: "bare sessions", args: []string{"sessions"}},
+		{name: "sessions snapshot", args: []string{"sessions", "--snapshot"}},
+		{name: "sessions snapshot json", args: []string{"sessions", "--snapshot", "--json"}},
+		{name: "sessions help", args: []string{"sessions", "--help"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			stdout := &bytes.Buffer{}
+			stderr := &bytes.Buffer{}
 			root := cli.NewRootCLI(
 				cli.WithStoreManagement(&storeManagementUsecaseStub{}),
 				cli.WithSession(&sessionUsecaseStub{}),
-				cli.WithEvent(&topPaneEventStub{}),
-				cli.WithMemory(&memoryUsecaseStub{}),
 			).Command()
-			root.SetOut(&bytes.Buffer{})
-			root.SetErr(&bytes.Buffer{})
+			root.SetOut(stdout)
+			root.SetErr(stderr)
 			root.SetArgs(tt.args)
 			err := root.Execute()
-			if err == nil || !strings.Contains(err.Error(), tt.want) {
-				t.Fatalf("Execute() error = %v, want %q", err, tt.want)
+			if err == nil {
+				t.Fatalf("Execute(%v) error = nil, want unknown-command error", tt.args)
+			}
+			if !strings.Contains(err.Error(), `unknown command "sessions"`) {
+				t.Fatalf("Execute(%v) error = %q, want unknown command \"sessions\"", tt.args, err.Error())
+			}
+			if strings.Contains(stderr.String(), "DEPRECATED:") || strings.Contains(stdout.String(), "DEPRECATED:") {
+				t.Errorf("unexpected deprecation notice:\nstdout=%s\nstderr=%s", stdout.String(), stderr.String())
 			}
 		})
 	}

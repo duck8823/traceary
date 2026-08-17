@@ -71,7 +71,7 @@ session 解決ルール:
 
 command audit の input/output payload は、解決後の上限を超えると保存前に切り詰められます。上限の優先順位は `--max-*-bytes` flag、`TRACEARY_MAX_AUDIT_*_BYTES`、`~/.config/traceary/config.json` の `audit.max_*_bytes`、組み込み既定値です。切り詰め後も head / tail の文脈、構造化された `input_truncated` / `output_truncated` metadata、`original_bytes` marker は残ります。省略された byte は `traceary show` でも復元できません。
 
-**read 面**（`sessions --snapshot --json`、list 系の recent-command ペイン）では、大きい host-tool payload（`Edit` / `Write` / `Read` / shell）を tool-aware な compact summary（tool 名、path、rune 数、content hash、head/tail、`traceary show <event_id>` の retrieval hint）に投影します。これは presentation 時の投影のみで、永続化された raw 本体と `traceary show` はフル fidelity のままです。
+**read 面**（`list`、`search`、`context`、handoff の recent-command ペイン）では、大きい host-tool payload（`Edit` / `Write` / `Read` / shell）を tool-aware な compact summary（tool 名、path、rune 数、content hash、head/tail、`traceary show <event_id>` の retrieval hint）に投影します。これは presentation 時の投影のみで、永続化された raw 本体と `traceary show` はフル fidelity のままです。
 
 command string も、保存前に組み込みの best-effort secret redactor を通ります。`input_redacted` / `output_redacted` は input/output payload の redaction だけを表し、command redaction 専用 flag はまだ出しません。
 
@@ -83,7 +83,7 @@ session 解決ルールは `traceary log` と同じです。
 
 ### bare `traceary`
 
-subcommand なしの `traceary` は TTY / 非 TTY とも常に help を表示します。旧 operator cockpit（`traceary tui` / `traceary dashboard` と、それを開いていた bare TTY 既定動作）は v0.34 の非推奨期間を経て v0.35.0 で削除されました。`traceary list`、`traceary sessions --snapshot [--json]`、`traceary doctor --json`、`traceary session handoff`、`traceary memory inbox list` などの明示的な read command を使ってください。root は `traceary --db-path … <subcommand>` が有効なままになるよう `--db-path` を受け付けます。cockpit 専用だった `--reset-state` は削除済みです。孤立した local state ファイル `~/.local/state/traceary/cockpit.json`（または `$XDG_STATE_HOME/traceary/cockpit.json`）は手動で削除して安全です。
+subcommand なしの `traceary` は TTY / 非 TTY とも常に help を表示します。旧 operator cockpit（`traceary tui` / `traceary dashboard` と、それを開いていた bare TTY 既定動作）は v0.34 の非推奨期間を経て v0.35.0 で削除されました。`traceary list`、`traceary search`、`traceary doctor --json`、`traceary session handoff`、`traceary memory inbox list` などの明示的な read command を使ってください。root は `traceary --db-path … <subcommand>` が有効なままになるよう `--db-path` を受け付けます。cockpit 専用だった `--reset-state` は削除済みです。孤立した local state ファイル `~/.local/state/traceary/cockpit.json`（または `$XDG_STATE_HOME/traceary/cockpit.json`）は手動で削除して安全です。
 
 ### `traceary list`
 
@@ -125,7 +125,7 @@ subcommand なしの `traceary` は TTY / 非 TTY とも常に help を表示し
 
 > コンパクト表示の session ID (`sess=<先頭8文字>`) は人間が目視する前提の短縮形です。機械処理には `--wide --utc` または `--json` を利用してください。
 
-`--fields ts,kind,message` でコンパクトカラムの順序を上書きできます (優先順位: `--fields` > preset fields > config.json の `read.fields` > 組み込み既定値)。`--fields` は `--wide` と併用できません。利用可能フィールドは `traceary list` の説明を参照してください。`--preset <name>` で保存済みビューを適用できます（built-in: `failures` / `prompts-only` / `compact-summaries`、user-defined は `read.presets`）。`--follow-session <prefix>`（8 文字以上）で 1 つの session に tail を絞れます。`traceary sessions --snapshot` の出力から session id の先頭を貼り付ければそのまま使えます。
+`--fields ts,kind,message` でコンパクトカラムの順序を上書きできます (優先順位: `--fields` > preset fields > config.json の `read.fields` > 組み込み既定値)。`--fields` は `--wide` と併用できません。利用可能フィールドは `traceary list` の説明を参照してください。`--preset <name>` で保存済みビューを適用できます（built-in: `failures` / `prompts-only` / `compact-summaries`、user-defined は `read.presets`）。`--follow-session <prefix>`（8 文字以上）で 1 つの session に tail を絞れます。`traceary list` / `traceary search` の出力から session id の先頭を貼り付ければそのまま使えます。
 
 主な flag:
 
@@ -774,83 +774,6 @@ deadline の経過がキャンセルより優先され、続いて signal によ
 このコマンドはデフォルトでは dry-run です。修復を適用するには、バックアップと
 検証済みの evidence manifest が必要です。
 
-<a id="traceary-top"></a>
-
-### `traceary sessions`
-
-active sessions (root → child) / 直近の失敗 / 直近の `command_executed` / メモリ候補の確認キュー / cleanup が必要かもしれない stale durable memory をまとめた Sessions snapshot を一回出力します。bare の `traceary sessions` はどの caller でも `traceary sessions --snapshot` とバイト単位で同一です。旧ライブ対話 dashboard は v0.34 の非推奨期間を経て v0.35.0 で削除されました（#1765 / #1766）。旧互換 alias の `traceary top` も v0.34 の非推奨期間を経て v0.35.0 で削除されました（#1688 / #1690）。代わりに `traceary sessions` を使ってください。スタンドアロンの `traceary session tree` / `session lineage` も v0.35.0 で削除されました（#1869）。
-
-テキスト snapshot は先頭の `RELIABILITY` セクションに続いて `ACTIVE SESSIONS` / `RECENT FAILURES` / `RECENT COMMANDS` / `CANDIDATE MEMORIES (count=N remember_intent=M)` / `STALE MEMORIES (count=N)` の各セクションに分かれ、空のセクションも安定した empty-state 行を 1 行出すためヘッダーは常に出力されます。最新 activity が `--idle` より古い session は `idle` 接尾辞で示しますが、非表示にはしません。JSON snapshot（`--snapshot --json`）は `sessions` / `failures` / `recent_commands` / `candidates` (`{ count, remember_intent_count, items }`) / `stale_memories` (`{ count, items }`) / `reliability` を持つ envelope オブジェクトでラップされています。`reliability.memory` には scan した candidate window の hygiene 構成をまとめた `candidate_hygiene` オブジェクト (`stale_count` / `duplicate_count` / `fragment_like_count` / `extracted_hidden_count` / `likely_actionable_count`) も含まれます。4 つの flag count は独立した診断軸で重複し得ます。`likely_actionable_count` はそのいずれにも該当しない候補の補集合です。`accepted_count` / `candidate_count` と同様に `scan_limit_reached` が true のときは scan したサンプルを反映します。`duplicate_count` は完全一致 (同一 scope・memory type・fact。extraction の dedupe key に一致) のみで、類似 duplicate は `traceary memory admin hygiene scan` が担当します。各セクションの行上限は snapshot 既定どおり (failures 50 / recent commands 50 / candidates 25 / stale memories 25) で、session セクションは引き続き `--limit` を使用します。
-
-### operator と AI-safe な JSON profile
-
-`--snapshot --json` の既定はフルの **operator** envelope（snapshot 各セクション + body の truncate）です。agent の resume / handoff では次を使ってください:
-
-```sh
-traceary sessions --snapshot --json --profile ai
-```
-
-`ai` profile は bound された envelope を返します:
-
-- JSON に `profile: "ai"`
-- session の identity と `latest_event_id`、および retrieval hint（`traceary show <event_id>`）。大きい latest-event body は載せない
-- failure / recent-command は ID + kind + retrieval hint の小さなサンプル（raw body なし）
-- memory candidate / stale の件数と reliability hygiene のみ（candidate fact 配列なし）
-- session / 各ペインの上限をより厳しくする（既定の operator profile は変更しない）
-
-人間・dashboard・完全な script には operator snapshot を、agent が次の一手を決めるときは `--profile ai` を使います。
-
-snapshot 例:
-
-```sh
-traceary sessions --snapshot
-```
-
-```text
-RELIABILITY:
-- stale_active_sessions=0 hint="ok"
-- memory_counts accepted=3 candidate=1 accepted_ratio=75% hint="review memory candidates with `traceary memory inbox review` and cleanup old candidates with `traceary memory inbox cleanup --dry-run`"
-- candidate_age count=1 oldest=2026-04-10T12:00:00Z newest=2026-04-10T12:00:00Z avg_age=6h0m hint="prioritize older memory candidates first"
-- large_payloads count=0 recent_commands=0 recent_failures=0 sampled=2 body_limit=500 hint="inspect full payloads with `traceary show <event_id>`; keep command output concise for handoff/top surfaces"
-
-ACTIVE SESSIONS:
-4a70c526 name="github.com/duck8823/traceary · codex" workspace=github.com/duck8823/traceary agent=codex client=claude started=07:06:37 latest=07:06:58 events=165 last=transcript: investigating failing tests
-└── 7c91a2bf name="github.com/duck8823/traceary · worker" workspace=github.com/duck8823/traceary agent=worker client=claude started=07:03:12 latest=07:06:52 events=42 last=command_executed: go test ./presentation/cli
-
-RECENT FAILURES:
-07:06:58 command_executed go test ./presentation/cli [exit=1]
-
-RECENT COMMANDS:
-07:06:52 command_executed go build ./...
-
-CANDIDATE MEMORIES (count=1 remember_intent=1):
-mem-1 preference prefer table-driven subtests
-
-STALE MEMORIES (count=1):
-mem-stale-1 decision workspace:duck8823/traceary superseded superseded rollout note
-```
-
-active session の列:
-
-- `name` — raw metadata の前に挿入される operator 向け表示名。`label`、`summary`、`workspace · agent`、workspace、agent、短い session id の順で fallback する。Go の `%q` と同じ quote / escape を使い、message と同じ truncate rule で短縮する
-- `workspace` — 短縮した workspace path。truncate 時は末尾を保持して repo 識別子が読めるようにする
-- `agent` — 最も具体的な agent / subagent role
-- `client` — 記録 client
-- `started` — session 開始時刻
-- `latest` — latest event 時刻
-- `events` — event 件数
-- `last` — latest event を `<kind>: <message>` で表示。event が無い場合は `-`（message は改行 / 制御文字を scrub し、80 runes で truncate）
-- `idle` — latest activity が `--idle` より古い場合に付与
-
-主な flag:
-
-- `--workspace`
-- `--client`
-- `--agent`
-- `--idle <duration>` — threshold より古い行を非表示にせず dim 表示
-- `--snapshot --json` — sessions 専用 snapshot contract で `sessions` / `failures` / `recent_commands` / `candidates` (`{ count, remember_intent_count, items }`) / `stale_memories` (`{ count, items }`) / `reliability` の envelope を一回限り出力します。各 session node には標準の session フィールドに加えて `latest_event_kind` / `latest_event_message` / `latest_event_id` / `latest_event_at` が含まれます。`latest_event_message` は共有の 500 rune body cap で truncate され（noisy な command/tool payload を次の agent context に再増幅させないため）、cut された場合は `latest_event_message_truncated` / `latest_event_message_length` / `latest_event_message_bytes` が追加されます。full body は `traceary show <latest_event_id>` で明示的に取得します。`reliability.large_payloads` には bounded な `samples` 配列が加わり、各 sample は body-safe な metadata（`event_id` / `kind` / `source` / `message_length` / `message_bytes` / `first_line` / `retrieval_hint`）のみで full body は含みません。failures と recent_commands は標準 event JSON（同じく body cap 済み）、memory candidates は durable memory summary JSON と同じ shape を再利用します。stale memories は durable memory summary に `reason` を加えた shape です
-- `--limit`
-
 ### `traceary session refine <session-id>`
 
 エージェントが書いたセッション要約（L2 refinement）を保存します。
@@ -873,7 +796,7 @@ Traceary は要約テキストを合成しません。渡された内容を保�
 
 ### Session status の値
 
-`sessions --snapshot` の JSON `status` フィールドは以下のいずれかを表示します。
+内部 session 行（hooks、handoff、context）は次の status 値を使います。
 
 | Status | 意味 |
 |--------|------|
@@ -882,7 +805,7 @@ Traceary は要約テキストを合成しません。渡された内容を保�
 | `ended` | end marker があり、その後にイベントがない。 |
 | `ended_with_late_events` | end marker があるが、同じ session で後続イベントが到着した。end marker は `session_ended` イベント由来、または `session gc` が `ended_at` を直接書き込んだものの場合がある。 |
 
-active-only snapshot は `active` / `ended_with_late_events` と（`--allow-stale` 指定時の）`stale` を残します。`ended_with_late_events` は、session が既に close されているのに workspace の直近イベントが存在するとき `sessions --snapshot` が 0 件を返さないようにするための値です（例: Codex のような host が session を早期に close したが会話は継続していた場合）。
+これらの値を出していた公開 `sessions --snapshot` は v0.42.0 で削除されました（#2061）。`ended_with_late_events` は、host が session を早期に close したあとでも後続 workspace イベントがあるとき、hook / handoff 解決が session を見失わないための値です（例: Codex）。
 
 ## Hooks と診断
 

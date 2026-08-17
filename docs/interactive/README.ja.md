@@ -12,7 +12,7 @@ Traceary は次の対話向け convenience を同梱しています。
 - bare `traceary` は help を表示（TTY / 非 TTY とも）。旧 Tail-first cockpit entrypoint は v0.35.0 で削除
 - shell completion
 - live-follow 向けの `traceary tail`
-- Sessions snapshot view としての `traceary sessions` / `traceary sessions --snapshot`（ライブ対話 dashboard は v0.35.0 で削除済み）
+- 直近作業向けの `traceary report` / `traceary list` / `traceary search`
 - TTY 専用 inbox walk-through の `traceary memory inbox review`
 
 つまり interactive read path は `list` / `search` のような one-shot snapshot に限定されません。
@@ -29,7 +29,7 @@ bare `traceary`（および `traceary --help`）は常に help を表示しま�
 traceary
 traceary --help
 traceary list
-traceary sessions --snapshot
+traceary search
 traceary doctor --json
 ```
 
@@ -46,23 +46,15 @@ traceary list --workspace github.com/duck8823/traceary --client codex
 
 <a id="3-which-sessions-are-running-right-now--traceary-top"></a>
 
-### 3. 「いま動いている session は？」→ `traceary sessions`
+### 3. 「いま動いている session は？」→ `traceary list` / `report`
 
-Sessions snapshot view には `sessions`（`sessions --snapshot` とバイト単位で同一）を使います。ライブ multi-pane dashboard は v0.34 の非推奨期間を経て v0.35.0 で削除されました。テキスト snapshot は次の 5 セクションです。
-
-- **sessions** — active session tree（workspace、agent role、最新 event 時刻、最新 event を `<kind>: <message>`）
-- **failures** — 直近の失敗した `command_executed`
-- **commands** — 直近の `command_executed`
-- **candidates** — remember-intent 優先の memory review queue 候補
-- **stale memories** — cleanup が必要かもしれない accepted memory
+`traceary sessions` は v0.42.0 で削除されました。open session の ID は hook メッセージ（`[Traceary] Session <id>`）で渡ります。直近の作業は `list` / `search` / `context`、期間サマリーは `report` です。
 
 ```sh
-traceary sessions
-traceary sessions --workspace github.com/duck8823/traceary
-traceary sessions --snapshot --json
+traceary list --limit 20
+traceary search --workspace github.com/duck8823/traceary
+traceary report
 ```
-
-bare の `sessions` と `sessions --snapshot` は同じテキストを出力します。テキスト snapshot は先頭の `RELIABILITY` に続いて `ACTIVE SESSIONS` / `RECENT FAILURES` / `RECENT COMMANDS` / `CANDIDATE MEMORIES (count=N remember_intent=M)` / `STALE MEMORIES (count=N)`、JSON snapshot（`--snapshot --json`）は `sessions` / `failures` / `recent_commands` / `candidates` (`{ count, remember_intent_count, items }`) / `stale_memories` (`{ count, items }`) / `reliability` を持つ envelope です。旧互換 alias の `traceary top` は v0.35.0 で削除されました。代わりに `traceary sessions` を使ってください。
 
 ### 4. 「いま event が書かれているか？」→ `traceary tail`
 
@@ -134,7 +126,7 @@ bare `traceary` は TTY / 非 TTY とも常に help を表示します。旧 Tai
 
 - bare `traceary` と `traceary --help` は help のみを表示する
 - completion generation と help の例は安定したままにする
-- automation の推奨 path は script-facing command（`sessions --snapshot`、`tail`、`doctor --json`、`session handoff`、`memory inbox list`）
+- automation の推奨 path は script-facing command（`list`、`search`、`tail`、`doctor --json`、`session handoff`、`memory inbox list`）
 
 ## まだ future-facing なもの
 

@@ -1798,25 +1798,8 @@ func TestRootCLI_HookSessionCommand_CodexMultiTurnSessionStaysActive(t *testing.
 		}
 	}
 
-	// Active-session reads must include the ongoing session: the
-	// row-based snapshot (sessions --snapshot) and the event-based
-	// Active query (used by hooks / context / handoff) have to agree.
-	snapshotOut := &bytes.Buffer{}
-	snapshotCmd := newTestRootCLI(
-		cli.WithStoreManagement(storeUC),
-		cli.WithSession(sessionUC),
-		cli.WithDatabasePathSetter(db.SetPath),
-	).Command()
-	snapshotCmd.SetOut(snapshotOut)
-	snapshotCmd.SetErr(&bytes.Buffer{})
-	snapshotCmd.SetArgs([]string{"sessions", "--snapshot", "--json", "--db-path", dbPath, "--workspace", "github.com/duck8823/traceary"})
-	if err := snapshotCmd.Execute(); err != nil {
-		t.Fatalf("Execute(sessions --snapshot --json) error = %v", err)
-	}
-	if !strings.Contains(snapshotOut.String(), `"session_id": "codex-multi-turn"`) {
-		t.Fatalf("sessions --snapshot should include the ongoing codex session, got: %s", snapshotOut.String())
-	}
-
+	// Active-session reads must include the ongoing session (hooks /
+	// context / handoff use SessionUsecase.Active).
 	active, err := sessionUC.Active(context.Background(), apptypes.NewSessionLookupCriteriaBuilder().
 		Workspace(types.Workspace("github.com/duck8823/traceary")).
 		Build())
@@ -3612,28 +3595,6 @@ func TestRootCLI_HookSubagentStopCommand_LazySynthesisKeepsParentAgent(t *testin
 	}
 	if parentPlanEvents != 0 {
 		t.Fatalf("parent claude/Plan events = %d, want 0", parentPlanEvents)
-	}
-
-	stdout := &bytes.Buffer{}
-	sessionsCmd := newTestRootCLI(
-		cli.WithStoreManagement(storeUC),
-		cli.WithSession(sessionUC),
-		cli.WithDatabasePathSetter(db.SetPath),
-	).Command()
-	sessionsCmd.SetOut(stdout)
-	sessionsCmd.SetErr(&bytes.Buffer{})
-	sessionsCmd.SetArgs([]string{"sessions", "--snapshot", "--json", "--db-path", dbPath})
-	if err := sessionsCmd.Execute(); err != nil {
-		t.Fatalf("Execute(sessions --snapshot --json) error = %v", err)
-	}
-	output := stdout.String()
-	if !strings.Contains(output, `"agents": [
-        "claude"
-      ]`) {
-		t.Fatalf("sessions JSON parent agents should stay claude only, got: %s", output)
-	}
-	if strings.Contains(output, `"session_id": "parent-session:sub:toolu_plan"`) {
-		t.Fatalf("sessions JSON should prune ended synthesized Plan child, got: %s", output)
 	}
 }
 

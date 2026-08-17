@@ -34,7 +34,7 @@ The public surface is the operator-facing daily-use surface. Public commands kee
 Current public commands, including compatibility aliases introduced after v0.15, are grouped by intent. The shipped classification of every visible public/admin leaf is `presentation/cli/pillar_inventory.go` (#1692).
 
 - **Event recording** — `traceary log`, `traceary audit`
-- **Read / inspection** — `traceary list`, `traceary search`, `traceary tail`, `traceary timeline`, `traceary show`, `traceary context`, `traceary sessions` (and `traceary sessions --snapshot` / `--snapshot --json`)
+- **Read / inspection** — `traceary list`, `traceary search`, `traceary tail`, `traceary timeline`, `traceary show`, `traceary context`
 - **Sessions** — `traceary session start`, `traceary session end`, `traceary session run`, `traceary session handoff` (including `--compact-only`), `traceary session refine`
 - **Durable memory daily read** — `traceary memory list`, `traceary memory search`, `traceary memory show`
 - **Durable memory inbox** — `traceary memory inbox list`, `traceary memory inbox show`, `traceary memory inbox accept`, `traceary memory inbox reject`, `traceary memory inbox attach`, `traceary memory inbox cleanup`, `traceary memory inbox restore`, `traceary memory inbox review` (TTY-only)
@@ -45,11 +45,9 @@ Current public commands, including compatibility aliases introduced after v0.15,
 - **Replay / archive** — `traceary replay`
 - **Bundle import / export** — `traceary bundle export`, `traceary bundle import`
 
-The `traceary doctor` JSON envelope (`sections` / `summary` / `exit_code` / per-check fields), `traceary sessions --snapshot --json` envelope (`sessions` / `failures` / `recent_commands` / `candidates` / `stale_memories`), `traceary timeline --json` (`workspace_breakdown`), and the structured-text `traceary session handoff` field labels are all part of the public contract. They are golden-tested under `presentation/cli/testdata/` — see [JSON and snapshot contract tests](./operations/json-contract-tests.md) for the contract test workflow.
+The `traceary doctor` JSON envelope (`sections` / `summary` / `exit_code` / per-check fields), `traceary timeline --json` (`workspace_breakdown`), and the structured-text `traceary session handoff` field labels are all part of the public contract. They are golden-tested under `presentation/cli/testdata/` — see [JSON and snapshot contract tests](./operations/json-contract-tests.md) for the contract test workflow.
 
 `traceary doctor` defaults to exit code `0` for all-pass reports, `1` when any check fails, and `2` for warning-only reports. Automation that treats warnings as operator-visible drift but not a broken install should pass `--warnings-ok`; in that mode warning-only reports exit `0`, failures still exit `1`, and the JSON `summary` / per-check severities remain unchanged.
-
-The v0.19.0 text snapshot for `traceary sessions --snapshot` intentionally inserts `name="..."` before the raw `workspace=` / `agent=` metadata for readability; scripts that need a stable machine contract should prefer the unchanged `--json` envelope or parse text fields by key rather than by position.
 
 > Public commands that are TTY-only (currently `traceary memory inbox review`) document the TTY requirement explicitly and exit with a non-zero code that names the scripted fallback when stdin/stdout is not a TTY. Adding a new TTY-only public command requires a documented batch fallback path.
 
@@ -91,11 +89,12 @@ Currently deprecated:
 
 #1692 walked every visible public/admin leaf against the two pillars (記録 = capture / summarise / compress / evict; 記憶 = consolidate and supply automatically). Hidden hook entrypoints stay plumbing (see below). The shipped table is `presentation/cli/pillar_inventory.go`; a test fails if a visible action is added without a row.
 
-A command is removed only for empty backing data, duplication, or serving no pillar. Usage counts are not grounds. Remaining groups from the #1870 97→29 keep-list were never in the v0.34 deprecation registry, so v0.35 does not delete them. Planned absorbs (`list --follow`, `list --blocks`, `hooks install --dry-run`, `memory search --all`) are not noticed until those flags exist. `sessions --snapshot` stays because the v0.34 announcement already published it. `replay` stays: it is the only single-file HTML export, and #1870 called usage a weak removal basis.
+A command is removed only for empty backing data, duplication, or serving no pillar. Usage counts are not grounds. Remaining groups from the #1870 97→29 keep-list were never in the v0.34 deprecation registry, so v0.35 does not delete them. Planned absorbs (`list --follow`, `list --blocks`, `hooks install --dry-run`, `memory search --all`) are not noticed until those flags exist. `replay` stays: it is the only single-file HTML export, and #1870 called usage a weak removal basis.
 
 Historical removal log:
 
-- Removed in v0.42.0 (#2057): `traceary session latest` (including `--active`) and `traceary session list`. Invocations fail as unknown subcommands with a non-zero exit and no `DEPRECATED` notice. This is an explicit policy exception to the one-minor deprecation window (owner decision 2026-08-17). Open-session identity is delivered in hook messages (`[Traceary] Session <id>`); recent work is read with `list` / `search` / `context`; period summaries use `report`. Internal `Active` / `Latest` / `List` queries remain for handoff, hooks, context, memory extract, and `sessions --snapshot`.
+- Removed in v0.42.0 (#2061): `traceary sessions` (including `--snapshot` / `--snapshot --json`). Invocations fail as an unknown command with a non-zero exit and no `DEPRECATED` notice. This is an explicit policy exception to the one-minor deprecation window (owner decision 2026-08-17). Use `list` / `search` / `context` / `report` / `session handoff`. Internal `Session.List` remains for hook workspace canonicalization; `list_sessions.sql` is kept for that caller.
+- Removed in v0.42.0 (#2057): `traceary session latest` (including `--active`) and `traceary session list`. Invocations fail as unknown subcommands with a non-zero exit and no `DEPRECATED` notice. This is an explicit policy exception to the one-minor deprecation window (owner decision 2026-08-17). Open-session identity is delivered in hook messages (`[Traceary] Session <id>`); recent work is read with `list` / `search` / `context`; period summaries use `report`. Internal `Active` / `Latest` / `List` queries remain for handoff, hooks, context, and memory extract.
 - Removed in v0.36.0 after the v0.35 deprecation (#1692 / #1870): `traceary memory store remember`. Invocations fail as an unknown subcommand with a non-zero exit and no `DEPRECATED` notice. Use `traceary memory store propose` (`status=candidate`). The skill `traceary-memory-remember` already lands on `propose`.
 - Removed in v0.36.0 (#1704): `traceary session active`. Invocations fail as an unknown subcommand with a non-zero exit and no `DEPRECATED` notice. Use `traceary session latest --active` (same stale defaults: 24h, `--stale-after`, `--allow-stale`). `--stale-after` and `--allow-stale` without `--active` are rejected. This is a same-minor fold onto an existing command: the behaviour is unchanged, only the spelling.
 - Removed in v0.35.0 (#1872): the store-size reduction command family is folded into `traceary store compact`. Invocations fail as unknown commands with a non-zero exit and no `DEPRECATED` notice. Removed: `traceary store gc`, `traceary store dedupe` / `content-events`, `traceary store retention plan|apply|restore` (raw-body retention; `store retention files` remains), `traceary store payload-rehearsal` (`preview|run|resume|scrub|rollback`), `traceary store payload-backfill` (`preview|run|resume|status`), `traceary store search-retire`, and `traceary store compact plan|apply|resume|status`. Use `traceary store compact` (optional `--force`, `--keep-days`) and `traceary store compact rollback RUN_ID`. `traceary store search-projection` is unchanged. The old file is the archive until rollback is discarded.
@@ -188,7 +187,7 @@ A change does not require a deprecation window when it is purely additive:
 - adding a new public subcommand,
 - adding a new optional flag,
 - adding a new optional field at the end of a JSON object (consumers must tolerate unknown fields),
-- adding a new section to `traceary doctor` or a new pane to the canonical `traceary sessions --snapshot` surface.
+- adding a new section to `traceary doctor`.
 
 Removing or renaming any of those is a breaking change and goes through the deprecation flow.
 

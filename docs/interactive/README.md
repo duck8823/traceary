@@ -12,7 +12,7 @@ Traceary now ships these baseline interactive conveniences:
 - bare `traceary` prints help (TTY and non-TTY); the former Tail-first cockpit entrypoint was removed in v0.35.0
 - shell completion
 - `traceary tail` for live-follow inspection
-- `traceary sessions` / `traceary sessions --snapshot` for the Sessions snapshot view (the live interactive dashboard was removed in v0.35.0)
+- `traceary report` / `traceary list` / `traceary search` for recent work
 - `traceary memory inbox review` for TTY-only inbox walk-through
 
 That means the interactive read path is no longer limited to one-shot snapshots such as `list` and `search`.
@@ -29,7 +29,7 @@ Bare `traceary` (and `traceary --help`) always prints help. Prefer explicit read
 traceary
 traceary --help
 traceary list
-traceary sessions --snapshot
+traceary search
 traceary doctor --json
 ```
 
@@ -46,23 +46,15 @@ traceary list --workspace github.com/duck8823/traceary --client codex
 
 <a id="3-which-sessions-are-running-right-now--traceary-top"></a>
 
-### 3. "Which sessions are running right now?" → `traceary sessions`
+### 3. "Which sessions are running right now?" → `traceary list` / `report`
 
-Use `sessions` (byte-identical to `sessions --snapshot`) for the Sessions snapshot view. The live multi-pane dashboard was removed in v0.35.0 after the v0.34 deprecation window. The text snapshot covers five sections:
-
-- **sessions** — active session tree (workspace, agent role, latest event time, latest event as `<kind>: <message>`)
-- **failures** — recent failed `command_executed` events
-- **commands** — recent `command_executed` events
-- **candidates** — memory review queue candidates ordered by remember-intent priority
-- **stale memories** — accepted memories that may need cleanup
+`traceary sessions` was removed in v0.42.0. Open-session identity arrives in hook messages (`[Traceary] Session <id>`). For recent work use `list` / `search` / `context`; for a period digest use `report`.
 
 ```sh
-traceary sessions
-traceary sessions --workspace github.com/duck8823/traceary
-traceary sessions --snapshot --json
+traceary list --limit 20
+traceary search --workspace github.com/duck8823/traceary
+traceary report
 ```
-
-Bare `sessions` and `sessions --snapshot` print the same text: the snapshot starts with `RELIABILITY`, then prints `ACTIVE SESSIONS`, `RECENT FAILURES`, `RECENT COMMANDS`, `CANDIDATE MEMORIES (count=N remember_intent=M)`, and `STALE MEMORIES (count=N)` sections. The JSON snapshot (`--snapshot --json`) is wrapped in an envelope with `sessions`, `failures`, `recent_commands`, `candidates` (`{ count, remember_intent_count, items }`), `stale_memories` (`{ count, items }`), and `reliability` keys. The former `traceary top` compatibility alias was removed in v0.35.0; use `traceary sessions` instead.
 
 ### 4. "Is the system writing events right now?" → `traceary tail`
 
@@ -134,7 +126,7 @@ The compatibility contract is:
 
 - Bare `traceary` and `traceary --help` print help only.
 - Completion generation and help examples must remain stable.
-- Script-facing commands (`sessions --snapshot`, `tail`, `doctor --json`, `session handoff`, `memory inbox list`) remain the recommended automation path.
+- Script-facing commands (`list`, `search`, `tail`, `doctor --json`, `session handoff`, `memory inbox list`) remain the recommended automation path.
 
 ## Still future-facing
 
