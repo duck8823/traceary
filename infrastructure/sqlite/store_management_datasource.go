@@ -102,7 +102,7 @@ func (d *StoreManagementDatasource) Initialize(ctx context.Context) error {
 }
 
 // InitializeAuthorized applies data-dependent offline migrations. Only
-// `traceary store init` uses this path.
+// `traceary doctor --fix` uses this path.
 func (d *StoreManagementDatasource) InitializeAuthorized(ctx context.Context) error {
 	if err := d.db.initializeAuthorized(ctx); err != nil {
 		return xerrors.Errorf("failed to apply authorized store migrations: %w", err)
@@ -300,7 +300,7 @@ func (d *StoreManagementDatasource) RestoreBackup(ctx context.Context, inputPath
 		var required *apptypes.OfflineMigrationsRequiredError
 		if errors.As(initErr, &required) {
 			// The backup is already in place. Rolling it back would discard
-			// the only copy of a legacy store that still needs `store init`.
+			// the only copy of a legacy store that still needs doctor --fix.
 			slog.Info("restored store requires operator-authorized migrations", "versions", required.Versions)
 			return nil
 		}

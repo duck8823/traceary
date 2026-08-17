@@ -115,6 +115,16 @@
       "auto_fix_available": false
     },
     {
+      "name": "offline-migrations",
+      "status": "pass",
+      "severity": "PASS",
+      "section": "Database",
+      "message": "no pending data-dependent migrations",
+      "hint": "",
+      "fix_command": "",
+      "auto_fix_available": false
+    },
+    {
       "name": "audit-reliability",
       "status": "skip",
       "severity": "PASS",
@@ -385,6 +395,16 @@
           "auto_fix_available": false
         },
         {
+          "name": "offline-migrations",
+          "status": "pass",
+          "severity": "PASS",
+          "section": "Database",
+          "message": "no pending data-dependent migrations",
+          "hint": "",
+          "fix_command": "",
+          "auto_fix_available": false
+        },
+        {
           "name": "audit-reliability",
           "status": "skip",
           "severity": "PASS",
@@ -547,7 +567,7 @@
     }
   ],
   "summary": {
-    "pass": 25,
+    "pass": 26,
     "warn": 1,
     "fail": 0
   },

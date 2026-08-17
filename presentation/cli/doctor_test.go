@@ -586,6 +586,13 @@ func TestRootCLI_DoctorLargeStoreReturnsBoundedMetadataOnlyReport(t *testing.T) 
 	if capacityCheck.Status != "skip" || !strings.Contains(capacityCheck.Message, "filesystem-metadata-only") {
 		t.Fatalf("store-capacity = %#v, want skip without opening SQLite", capacityCheck)
 	}
+	offline := statusByName(report, "offline-migrations")
+	if offline.Status != "skip" || !strings.Contains(offline.Message, "filesystem-metadata-only") {
+		t.Fatalf("offline-migrations = %#v, want skip without opening SQLite", offline)
+	}
+	if store.authorizedCalled {
+		t.Fatal("large-store doctor --fix called InitializeAuthorized with no pending versions")
+	}
 	if codec.calls != 0 {
 		t.Fatalf("large-store payload codec calls=%d, want zero", codec.calls)
 	}
@@ -714,8 +721,15 @@ func TestRootCLI_DoctorLargeStoreReportsHookSpoolMetadataWithoutPayloadReads(t *
 	if store.initCalled {
 		t.Fatal("large-store doctor initialized SQLite, want metadata-only outcome")
 	}
+	if store.previewCalls != 0 {
+		t.Fatalf("large-store default doctor previewed offline migrations %d times, want 0", store.previewCalls)
+	}
 	if events.listCalls != 0 {
 		t.Fatalf("large-store doctor listed %d events, want no event/payload reads", events.listCalls)
+	}
+	offline := statusByName(report, "offline-migrations")
+	if offline.Status != "skip" || !strings.Contains(offline.Message, "filesystem-metadata-only") {
+		t.Fatalf("offline-migrations = %#v, want skip without opening SQLite", offline)
 	}
 
 	spool := statusByName(report, "hook-spool")

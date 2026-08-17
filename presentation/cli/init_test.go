@@ -2,57 +2,84 @@ package cli_test
 
 import (
 	"bytes"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/google/go-cmp/cmp"
-
+	"github.com/duck8823/traceary/application/usecase"
+	sqliteinfra "github.com/duck8823/traceary/infrastructure/sqlite"
 	"github.com/duck8823/traceary/presentation/cli"
 )
 
-func TestRootCLI_InitCommand(t *testing.T) {
-	t.Parallel()
-
-	dbPath := filepath.Join(t.TempDir(), "traceary.db")
-	stub := &storeManagementUsecaseStub{}
-	stdout := &bytes.Buffer{}
-	stderr := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(cli.WithStoreManagement(stub)).Command()
-	rootCmd.SetOut(stdout)
-	rootCmd.SetErr(stderr)
-	rootCmd.SetArgs([]string{"store", "init", "--db-path", dbPath})
-
-	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("Execute() error = %v", err)
-	}
-	if !stub.initCalled {
-		t.Fatalf("Run() was not called")
-	}
-	wantOutput := "Initialized: " + dbPath + "\n"
-	if diff := cmp.Diff(wantOutput, stdout.String()); diff != "" {
-		t.Fatalf("stdout mismatch (-want +got):\n%s", diff)
-	}
-}
-
-func TestRootCLI_InitCommandPrintsPendingOfflineMigrations(t *testing.T) {
-	t.Parallel()
+func TestRootCLI_DoctorFixAppliesAuthorizedOfflineMigrations(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
 	stub := &storeManagementUsecaseStub{previewOffline: []int64{35, 45}}
 	stdout := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(cli.WithStoreManagement(stub)).Command()
+	rootCmd := newTestRootCLI(cli.WithStoreManagement(stub)).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
-	rootCmd.SetArgs([]string{"store", "init", "--db-path", dbPath})
+	rootCmd.SetArgs([]string{"doctor", "--fix", "--warnings-ok", "--json", "--db-path", dbPath})
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
-	got := stdout.String()
-	if !strings.Contains(got, "35, 45") {
-		t.Fatalf("stdout = %q, want pending versions", got)
+	if !stub.authorizedCalled {
+		t.Fatal("InitializeAuthorized was not called")
 	}
-	if !strings.Contains(got, "Initialized: "+dbPath) {
-		t.Fatalf("stdout = %q, want initialized path", got)
+	if !strings.Contains(stdout.String(), `"applied data-dependent migrations: 35, 45"`) && !strings.Contains(stdout.String(), "applied data-dependent migrations: 35, 45") {
+		t.Fatalf("stdout = %q, want applied versions", stdout.String())
+	}
+}
+
+func TestRootCLI_DoctorFixDryRunDoesNotApplyOfflineMigrations(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	stub := &storeManagementUsecaseStub{previewOffline: []int64{35, 45}}
+	stdout := &bytes.Buffer{}
+	rootCmd := newTestRootCLI(cli.WithStoreManagement(stub)).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"doctor", "--fix", "--dry-run", "--warnings-ok", "--json", "--db-path", dbPath})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if stub.authorizedCalled {
+		t.Fatal("dry-run must not call InitializeAuthorized")
+	}
+	if !strings.Contains(stdout.String(), "would apply data-dependent migrations 35, 45") {
+		t.Fatalf("stdout = %q, want dry-run versions", stdout.String())
+	}
+}
+
+func TestRootCLI_DoctorCreatesFreshEmptyStore(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	if _, err := os.Stat(dbPath); !os.IsNotExist(err) {
+		t.Fatalf("precondition: store must not exist yet: %v", err)
+	}
+	db := sqliteinfra.NewDatabase(dbPath, os.DirFS(filepath.Join("..", "..", "schema", "sqlite", "migrations")))
+	storeUC := usecase.NewStoreManagementUsecase(sqliteinfra.NewStoreManagementDatasource(db))
+	stdout := &bytes.Buffer{}
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(storeUC),
+		cli.WithDatabasePathSetter(db.SetPath),
+	).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"doctor", "--db-path", dbPath, "--warnings-ok", "--json"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v\nstdout=%s", err, stdout.String())
+	}
+	if _, err := os.Stat(dbPath); err != nil {
+		t.Fatalf("doctor must create the empty store: %v", err)
+	}
+	got := stdout.String()
+	if !strings.Contains(got, `"name": "db-write"`) || !strings.Contains(got, "initialized SQLite store") {
+		t.Fatalf("stdout = %s, want db-write initialized", got)
+	}
+	if !strings.Contains(got, `"name": "offline-migrations"`) || !strings.Contains(got, "no pending data-dependent migrations") {
+		t.Fatalf("stdout = %s, want offline-migrations pass", got)
 	}
 }
 
@@ -108,71 +135,5 @@ func TestResolveDBPath(t *testing.T) {
 				t.Fatalf("ResolveDBPath() path = %q, want absolute path", got)
 			}
 		})
-	}
-}
-
-func TestRootCLI_InitCommand_UsesTracearyDBPathEnv(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "traceary.db")
-	t.Setenv("TRACEARY_DB_PATH", dbPath)
-
-	stub := &storeManagementUsecaseStub{}
-	stdout := &bytes.Buffer{}
-	stderr := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI(cli.WithStoreManagement(stub)).Command()
-	rootCmd.SetOut(stdout)
-	rootCmd.SetErr(stderr)
-	rootCmd.SetArgs([]string{"store", "init"})
-
-	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("Execute() error = %v", err)
-	}
-	wantOutput := "Initialized: " + dbPath + "\n"
-	if diff := cmp.Diff(wantOutput, stdout.String()); diff != "" {
-		t.Fatalf("stdout mismatch (-want +got):\n%s", diff)
-	}
-}
-
-func TestRootCLI_InitHelp_ExplainsOptionalBootstrap(t *testing.T) {
-	t.Parallel()
-
-	stdout := &bytes.Buffer{}
-	stderr := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI().Command()
-	rootCmd.SetOut(stdout)
-	rootCmd.SetErr(stderr)
-	rootCmd.SetArgs([]string{"store", "init", "--help"})
-
-	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("Execute() error = %v", err)
-	}
-
-	output := stdout.String()
-	if !strings.Contains(output, "Other traceary commands create the DB and apply migrations on demand.") {
-		t.Fatalf("stdout = %q, want init help to mention automatic DB creation", output)
-	}
-	if !strings.Contains(output, "Use `traceary store init` when you want to verify the DB path or write permissions before a session starts.") {
-		t.Fatalf("stdout = %q, want init help to mention explicit bootstrap purpose under the new canonical path", output)
-	}
-	if !strings.Contains(output, "SQLite DB path (env: TRACEARY_DB_PATH)") {
-		t.Fatalf("stdout = %q, want English db-path help", output)
-	}
-}
-
-func TestRootCLI_InitHelp_CanUseJapaneseFlagHelp(t *testing.T) {
-	t.Setenv("TRACEARY_LANG", "ja")
-
-	stdout := &bytes.Buffer{}
-	stderr := &bytes.Buffer{}
-	rootCmd := cli.NewRootCLI().Command()
-	rootCmd.SetOut(stdout)
-	rootCmd.SetErr(stderr)
-	rootCmd.SetArgs([]string{"store", "init", "--help"})
-
-	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("Execute() error = %v", err)
-	}
-
-	if !strings.Contains(stdout.String(), "SQLite DB パス (env: TRACEARY_DB_PATH)") {
-		t.Fatalf("stdout = %q, want Japanese db-path help", stdout.String())
 	}
 }

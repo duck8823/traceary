@@ -784,6 +784,7 @@ text 出力は `Environment`、`Database`、`Plugins`、`Hooks` の安定した 
 追加の doctor check:
 
 - `store-capacity`: 旧 `store capacity` と同じ bounded InspectCapacity 経路で、メタデータのみの容量内訳（database / free / WAL / 上位オブジェクト）を出します。2 GiB 以上の既定 doctor は filesystem-metadata-only のままで、この check は `skip` です（SQLite を開かず、dbstat も歩きません）。
+- `offline-migrations`: 保留中のデータ依存 migration（035, 045）を報告します。空ストアは first write または `doctor` で自動初期化します。適用は `doctor --fix` です（数分かかることがあります）。2 GiB 以上の既定 doctor はこの check を skip し、SQLite を開きません。
 - `path`: `PATH` 上の `traceary` 解決先と directory を確認します。見つからない場合は `FAIL`、複数見つかる場合は `WARN` です。
 - `<client>-plugin-version`: 検出した plugin manifest / cache の version と実行中 binary version を比較し、不一致なら plugin の reinstall / update を促します。
 - `claude-hook-cancellations`: 対応が必要な SessionEnd cancellation marker と、参照先 session が後から終了した marker を分けて表示します。`doctor --fix --dry-run` は解決済み marker の削除を preview し、`doctor --fix` は終了済みと確認できた marker だけを削除します。active、session 不明、unreadable な証跡は削除しません。
@@ -832,11 +833,7 @@ alias:
 
 ## Store 管理 (`traceary store ...`)
 
-store 管理コマンドは `store` namespace に集約されています。旧 top-level の `traceary init` / `traceary backup` / `traceary gc` alias は v0.14.0 で削除されました。実行すると Cobra の unknown-command エラーになります（`traceary store init` / `traceary store backup ...` / `traceary store compact` を使ってください）。これらの alias は v0.9.0 から v0.13.x まで deprecation 通知付きで動作していました。詳細は [CLI 安定性と非推奨ポリシー](../cli-stability.ja.md) を参照してください。
-
-### `traceary store init`
-
-DB 作成と migration 適用を明示的に先行実行します。通常コマンドでも必要に応じて初期化されるため、必須ではありません。
+store 管理コマンドは `store` namespace に集約されています。旧 top-level の `traceary init` / `traceary backup` / `traceary gc` alias は v0.14.0 で削除されました。`traceary store init` は v0.42.0 で削除されました。空ストアは `traceary doctor` / first write で暗黙初期化します。データ依存 offline migration は `traceary doctor --fix` です。詳細は [CLI 安定性と非推奨ポリシー](../cli-stability.ja.md) を参照してください。
 
 ### `traceary store backup create`
 

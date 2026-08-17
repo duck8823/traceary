@@ -21,7 +21,7 @@ traceary store backup create --output /tmp/traceary-backup.db
 - `--db-path`: 既定以外の DB をバックアップしたいとき
 - `--force`: 既存のバックアップファイルを上書きしたいとき
 
-`store backup create` は source DB が既に存在する前提です。まだ何も記録していない場合は、先に `traceary store init` や通常の logging flow で DB を作ってください。
+`store backup create` は source DB が既に存在する前提です。まだ何も記録していない場合は、先に通常の logging flow または `traceary doctor` で DB を作ってください。
 
 ## バックアップから復元する
 
@@ -35,7 +35,7 @@ traceary store backup restore --input /tmp/traceary-backup.db --force
 - `--force`: 既存の destination DB を上書きしたいとき
 - `--yes`: 対話端末で既存 destination DB を上書きするときの確認を省略したいとき
 
-復元では、まず backup file を destination path にコピーし、その後に通常の store initialization flow を通して newer migration を自動適用します。
+復元では、まず backup file を destination path にコピーし、その後に通常の store initialization flow を通して newer non-offline migration を自動適用します。データ依存 offline migration は `traceary doctor --fix` です。
 `--force` を使う場合、restore は destination DB を破壊的に置き換える操作として扱い、必要なら先に新しい backup を取ってください。
 対話端末では、`--yes` を付けない限り、上書き前に Traceary が確認を求めます。
 

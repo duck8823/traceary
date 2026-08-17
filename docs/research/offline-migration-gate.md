@@ -8,14 +8,17 @@
 
 **Issue:** #1852
 
+**Supersession:** the authorized apply path moved from `traceary store init`
+to `traceary doctor --fix` in v0.42.0 (#2076). Implicit refuse is unchanged.
+
 ## Decision
 
 `migrate()` reads `MigrationExecutionClass`. A `data_dependent_offline`
 migration is not applied on implicit store open when the store already has
-source events. The error names the pending versions and `traceary store init`.
+source events. The error names the pending versions and `traceary doctor --fix`.
 The store is not modified at the refused migration.
 
-`traceary store init` is the only operator-authorized apply path. No new
+`traceary doctor --fix` is the only operator-authorized apply path. No new
 command. A new empty store still reaches the current schema on implicit open.
 
 041 and 042 are `constant_in_place`: they copy projection bookkeeping, not
@@ -36,7 +39,7 @@ the store is behind.
 ## Outcome
 
 - v0.33.1-shaped store + events: implicit open fails, ledger stays at 34.
-- Same store + `store init`: reaches the current version.
+- Same store + `doctor --fix`: reaches the current version.
 - Empty store: implicit open reaches the current version.
 - After 041/042 reclassification, implicit open applies them and stops at 045.
 - Interrupted 045: ledger stays at 44; the next implicit open fails immediately.

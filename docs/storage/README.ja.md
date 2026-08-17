@@ -12,7 +12,7 @@ Traceary は、ローカル状態を 1 つの SQLite DB ファイルに保存し
 - file permission: parent directory は `0700`、DB file は `0600` で作成
 - 外部のホスト型サービスは使わない: CLI / hooks は同じローカル SQLite ファイルを読み書きする
 
-`traceary store init` は任意です。ストアが必要なコマンドは、必要に応じて DB を作成し、migration を自動適用します。
+ストアは必要になったときに作成されます。ストアが必要なコマンドは DB を作り、暗黙の migration を適用します。データ依存の offline migration は `traceary doctor --fix` が必要です。
 
 ## 現在の schema
 
@@ -151,8 +151,9 @@ Durable memory に紐づく artifact ref です。
 ## migration と互換性
 
 - migration は `schema/sqlite/migrations` からバイナリに埋め込みます
-- 通常コマンドの実行前に store initialization が走るため、upgrade 時も migration は自動適用されます
-- backup restore では、まず SQLite file をコピーし、その後に store initialization を再実行して newer migration を適用します
+- 通常コマンドの実行前に store initialization が走るため、upgrade 時も non-offline migration は自動適用されます
+- データ依存 offline migration（035, 045）は暗黙には適用しません。`traceary doctor --fix` を使います
+- backup restore では、まず SQLite file をコピーし、その後に store initialization を再実行して newer non-offline migration を適用します
 - migration `000028` は不変な `run_lineages` と `usage_observation_runs` table を追加します。v27 usage row は書き換えず、attribution 欠落は unknown のままです
 
 任意の手動 schema edit との後方互換は保証しません。持ち運べるコピーが必要な場合は、DB を直接編集する代わりに `traceary store backup create` を使ってください。

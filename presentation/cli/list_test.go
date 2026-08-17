@@ -414,8 +414,8 @@ func TestRootCLI_ListReturnsOfflineMigrationMaintenanceError(t *testing.T) {
 	if !errors.As(err, &required) {
 		t.Fatalf("error=%v, want OfflineMigrationsRequiredError", err)
 	}
-	if !strings.Contains(err.Error(), "traceary store init") {
-		t.Fatalf("error=%v, want store init guidance", err)
+	if !strings.Contains(err.Error(), "traceary doctor --fix") {
+		t.Fatalf("error=%v, want doctor --fix guidance", err)
 	}
 }
 

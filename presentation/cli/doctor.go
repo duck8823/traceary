@@ -198,12 +198,22 @@ func (c *RootCLI) runDoctor(ctx context.Context, output io.Writer, input doctorC
 		return c.runStoreWorkspaceAliasList(ctx, output, input.dbPath, input.asJSON)
 	}
 
+	var authorizedFix *doctorFixLog
+	if input.fix {
+		if fixLog, recorded := c.applyAuthorizedStoreInit(ctx, input); recorded {
+			authorizedFix = &fixLog
+		}
+	}
+
 	report, err := c.buildDoctorReport(ctx, input)
 	if err != nil {
 		return err
 	}
 	if input.fix {
 		fixes := c.applyDoctorFixes(ctx, report, input.dryRun)
+		if authorizedFix != nil {
+			fixes = append([]doctorFixLog{*authorizedFix}, fixes...)
+		}
 		after, err := c.buildDoctorReport(ctx, input)
 		if err != nil {
 			// The remediation has already happened. Preserve its exact result
@@ -360,6 +370,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		if c.workspaceIdentity != nil {
 			report.Checks = append(report.Checks, skippedWorkspaceAliasesCheck())
 		}
+		report.Checks = append(report.Checks, skippedOfflineMigrationsCheck())
 		// hook-state-residue is owned by appendFilesystemHostDoctorChecks on
 		// this path; appending it here would print and --fix it twice.
 		// Host package identity (installed plugin/manifest version, native
@@ -396,6 +407,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 			Status:  doctorStatusFail,
 			Message: localizef("failed to initialize the SQLite store: %v", "SQLite ストアの初期化に失敗しました: %v", err),
 		})
+		report.Checks = append(report.Checks, c.inspectOfflineMigrations(ctx))
 	} else {
 		report.Checks = append(report.Checks, doctorCheck{
 			Name:    "db-write",
@@ -406,6 +418,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		report.Checks = append(report.Checks, c.inspectSearchProjectionParked(ctx))
 		report.Checks = append(report.Checks, c.inspectStaleActiveSessions(ctx))
 		report.Checks = append(report.Checks, c.inspectArchiveRetention(ctx, resolvedDBPath))
+		report.Checks = append(report.Checks, c.inspectOfflineMigrations(ctx))
 		if c.workspaceIdentity != nil {
 			report.Checks = append(report.Checks, c.inspectWorkspaceAliases(ctx))
 		}
