@@ -207,6 +207,15 @@ func classifyExtractionNoise(fact string) []string {
 	if isTransientStatus(trimmed) {
 		reasons = append(reasons, extractionNoiseTransientStatus)
 	}
+	if isInstructionEcho(trimmed) {
+		reasons = append(reasons, extractionNoiseInstructionEcho)
+	}
+	if isMidSentenceFragment(trimmed) {
+		reasons = append(reasons, extractionNoiseMidSentenceFragment)
+	}
+	if isPayloadEcho(trimmed) {
+		reasons = append(reasons, extractionNoisePayloadEcho)
+	}
 	if len(reasons) == 0 {
 		return nil
 	}

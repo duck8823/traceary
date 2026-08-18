@@ -189,8 +189,8 @@ func (u *memoryExtractionUsecase) Extract(ctx context.Context, criteria apptypes
 		}
 		source := spec.source
 		hiddenByQuality := spec.signalScore < extractionVisibleScoreThreshold ||
-			(len(spec.lowQualityReasons) > 0 && !spec.intent.explicitRemember)
-		if hiddenByQuality && !spec.intent.explicitRemember {
+			shouldHideLowQuality(spec.lowQualityReasons, spec.intent.explicitRemember)
+		if hiddenByQuality {
 			// Preserve audit-first gating for every auto-extracted source,
 			// including compact-summary. Source-specific candidates should not
 			// bypass the low-quality/noise routing just because their source was
@@ -445,7 +445,7 @@ func (u *memoryExtractionUsecase) Explain(ctx context.Context, criteria apptypes
 			decision.Reason = "below_visible_threshold"
 			continue
 		}
-		if len(candidate.lowQualityReasons) > 0 && !candidate.explicitRemember {
+		if shouldHideLowQuality(candidate.lowQualityReasons, candidate.explicitRemember) {
 			decision.Decision = "hidden"
 			decision.Reason = "low_quality:" + strings.Join(candidate.lowQualityReasons, ",")
 			continue

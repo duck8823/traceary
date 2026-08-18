@@ -8,6 +8,7 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 ## [Unreleased]
 
 ### Fixed
+- **Extraction hides instruction-echo, mid-sentence fragments, and JSON payload echoes (#2112)** — numbered/bulleted imperative list items, lowercase clause continuations, and JSON object/array literals route to `extracted-hidden`. Payload echoes stay hidden even on remember-intent; other remember-intent facts stay visible.
 - **Fresh/empty stores no longer WARN on first-run projection maintenance (#2113)** — `no source events to project` and `amplification sample below minimum` log at DEBUG when the store has no generation and no sample. The same conditions stay WARN on a populated store.
 - **Root unknown-command errors and `--index-family-bytes` help follow `ui.language` (#2114)** — `traceary nosuchcmd` uses the same catalog as unknown subcommands (suggestions stay). `store compact --help` no longer leaves `--index-family-bytes` in English-only.
 - **`doctor --fix` drains transient dead-letter requeue under the 45s wall (#2109)** — the 200-record batch cap remains, but batches loop until the spool is empty or the fixer wall clock is exhausted. `--dry-run` previews the full planned requeue count. Fixes-line counters are unchanged.
