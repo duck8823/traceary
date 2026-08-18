@@ -138,23 +138,31 @@ func compactionRunAt(phase domain.CompactionPhase) domain.CompactionRun {
 
 type reclaimOrderRecorder struct {
 	faultBuilder
-	leased            *bool
-	inspected         bool
-	inspectedUnleased bool
-	reclaim           application.CommandBodyReclaim
+	leased             *bool
+	inspected          bool
+	inspectedUnleased  bool
+	inspectHasDeadline bool
+	reclaim            application.CommandBodyReclaim
 }
 
-func (b *reclaimOrderRecorder) InspectCommandBodyReclaim(context.Context, string) (application.CommandBodyReclaim, error) {
+func (b *reclaimOrderRecorder) InspectCommandBodyReclaim(ctx context.Context, _ string) (application.CommandBodyReclaim, error) {
 	b.inspected = true
+	_, b.inspectHasDeadline = ctx.Deadline()
 	if b.leased == nil || !*b.leased {
 		b.inspectedUnleased = true
 	}
 	return b.reclaim, nil
 }
 
-type orderLease struct{ leased *bool }
+type orderLease struct {
+	leased          *bool
+	acquireDeadline *bool
+}
 
-func (l orderLease) AcquireExclusive(context.Context, string) (func(), error) {
+func (l orderLease) AcquireExclusive(ctx context.Context, _ string) (func(), error) {
+	if l.acquireDeadline != nil {
+		_, *l.acquireDeadline = ctx.Deadline()
+	}
 	if l.leased != nil {
 		*l.leased = true
 	}
@@ -182,6 +190,34 @@ func TestCompactMeasuresCommandBodyReclaimAfterExclusiveLease(t *testing.T) {
 	}
 	if !leased {
 		t.Fatal("AcquireExclusive was not called")
+	}
+}
+
+func TestCompact_ExclusiveWaitDeadlineDoesNotBoundRewrite(t *testing.T) {
+	dir := t.TempDir()
+	source := dir + "/store.db"
+	if err := os.WriteFile(source, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	leased := false
+	acquireDeadline := false
+	recorder := &reclaimOrderRecorder{
+		leased:  &leased,
+		reclaim: application.CommandBodyReclaim{Rows: 1, Bytes: 1},
+	}
+	svc := NewStoreCompactionUsecase(source, &faultJournal{run: compactionRunAt(domain.CompactionCommitted)}, recorder, faultFiles{}, orderLease{
+		leased:          &leased,
+		acquireDeadline: &acquireDeadline,
+	})
+	_, _ = svc.Compact(context.Background(), application.CompactInput{Source: source})
+	if !acquireDeadline {
+		t.Fatal("AcquireExclusive should see the exclusive-wait deadline")
+	}
+	if !recorder.inspected {
+		t.Fatal("InspectCommandBodyReclaim was not called")
+	}
+	if recorder.inspectHasDeadline {
+		t.Fatal("rewrite must not inherit the exclusive-wait deadline")
 	}
 }
 
