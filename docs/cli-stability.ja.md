@@ -39,7 +39,6 @@ v0.15 以降に追加された互換 alias も含む現在の公開コマンド�
 - **durable memory 日常 read** — `traceary memory search`（`--all` を含む）、`traceary memory show`
 - **durable memory inbox** — `traceary memory inbox list`、`traceary memory inbox show`、`traceary memory inbox accept`、`traceary memory inbox reject`、`traceary memory inbox attach`、`traceary memory inbox cleanup`、`traceary memory inbox restore`、`traceary memory inbox review`（TTY のみ）
 - **durable memory store** — `traceary memory store propose`、`traceary memory store distill`
-- **durable memory decay** — `traceary memory decay`
 - **hooks** — `traceary hooks install`（`--dry-run` を含む）、`traceary hooks guide`、`traceary completion`（`bash` / `zsh` / `fish` / `powershell`）
 - **診断** — `traceary doctor`（alias `traceary status`、additive な `store-capacity` check を含む）、`traceary report`
 - **bundle import / export** — `traceary bundle export`、`traceary bundle import`
@@ -93,6 +92,7 @@ v0.35 時点の admin コマンド：
 
 過去の削除履歴：
 
+- v0.43.0 で削除（#2123）: `traceary memory decay`。呼び出しは unknown subcommand として非ゼロ終了し、`DEPRECATED` 通知は出しません。one-minor deprecation window の明示的なポリシー例外です（owner 決定 2026-08-18、#2108）。session-end hook は `TRACEARY_MEMORY_DECAY` が on（既定）なら `TRACEARY_MEMORY_DECAY_AFTER` の窓で decay します。手動 trigger は `traceary doctor --fix`。復元は `traceary memory inbox restore` です。
 - v0.43.0 で削除（#2122）: `traceary session gc` と `traceary session repair-one-shot`。呼び出しは unknown subcommand として非ゼロ終了し、`DEPRECATED` 通知は出しません。admin ティアなので operator 向け案内で足ります。未終了の stale session は hook の opportunistic GC と `traceary doctor --fix`（既定 24h。独自 `--stale-after` は廃止）が終了します。過去の one-shot 行はそのまま残り、evidence-manifest 修復の吸収先はありません。
 - v0.42.0 で削除（#2077）: `traceary store search-projection`（start/resume/status/abort/probe）。呼び出しは unknown subcommand として非ゼロ終了し、`DEPRECATED` 通知は出しません。one-minor deprecation window の明示的なポリシー例外です（owner 決定 2026-08-17）。parked 復旧は `traceary doctor --fix`。新しい世代または進行中 rebuild の resume は `traceary store compact --projection-rebuild`（同じ budget flag）。abort は `traceary store compact --projection-abort`。lifecycle / 予算の確認は `traceary doctor` のままです。
 - v0.42.0 で削除（#2078）: `traceary replay`。呼び出しは unknown command として非ゼロ終了し、`DEPRECATED` 通知は出しません。one-minor deprecation window の明示的なポリシー例外です（owner 決定 2026-08-17）。単一ファイル HTML export として残すとした以前の記述を上書きします。期間の読み取りは `traceary report` / `traceary context` / `traceary list`、機械可搬コピーは `traceary bundle export` です。

@@ -52,14 +52,14 @@ func (c *RootCLI) inspectMemoryInboxSaturation(ctx context.Context) doctorCheck 
 			count, memoryInboxSaturationWarnThreshold,
 		),
 		Hint: Localize(
-			"preview with `traceary memory decay --older-than 720h` then apply with `--apply`; restore mis-expired rows via `traceary memory inbox restore`",
-			"`traceary memory decay --older-than 720h` で preview し `--apply` で実行。誤 expire は `traceary memory inbox restore` で復元",
+			"preview with `traceary doctor --fix --dry-run`; apply via `traceary doctor --fix`. Session-end hooks also decay when TRACEARY_MEMORY_DECAY is on (default). Restore mis-expired rows via `traceary memory inbox restore`",
+			"`traceary doctor --fix --dry-run` で preview し `traceary doctor --fix` で適用。session-end hook も TRACEARY_MEMORY_DECAY が on（既定）なら decay する。誤 expire は `traceary memory inbox restore` で復元",
 		),
-		FixCommand:       "traceary memory decay --apply",
+		FixCommand:       "traceary doctor --fix",
 		AutoFixAvailable: true,
 		FixFunc: func(ctx context.Context, dryRun bool) (string, error) {
 			if dryRun {
-				return Localize("would run memory decay --apply (limit 500)", "memory decay --apply を実行します (limit 500)"), nil
+				return Localize("would apply memory decay (limit 500)", "memory decay を適用します (limit 500)"), nil
 			}
 			result, err := c.memory.Decay(ctx, apptypes.MemoryDecayCriteria{
 				OlderThan: domtypes.DefaultMemoryDecayOlderThan,

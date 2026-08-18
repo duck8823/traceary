@@ -66,7 +66,6 @@ var pillarInventory = []pillarInventoryEntry{
 	{Path: "memory inbox review", Pillar: pillarMemory, Reason: "TTY review of the memory review queue"},
 	{Path: "memory store propose", Pillar: pillarMemory, Reason: "write a candidate; the skill-facing remember path"},
 	{Path: "memory store distill", Pillar: pillarMemory, Reason: "operator-authored accepted fact from existing candidates"},
-	{Path: "memory decay", Pillar: pillarMemory, Reason: "expire stale auto-extracted candidates; distinct from inbox cleanup reject"},
 	{Path: "memory admin extract", Pillar: pillarMemory, Reason: "extract candidates from a recorded session"},
 	{Path: "memory admin import codex", Pillar: pillarMemory, Reason: "import host Codex memories as candidates"},
 	{Path: "memory admin import instructions", Pillar: pillarMemory, Reason: "import host instruction bullets as candidates"},

@@ -877,10 +877,6 @@ GC 適格行を版付き archive package に export するか、package を検�
 
 portable な session/memory bundle を export / import します。契約は `docs/cli-stability.md` を参照してください。
 
-### `traceary memory decay`
-
-古い durable memory を expire / supersede します。まず preview し、scan を確認してから apply フラグを使います。
-
 ## Integration コマンド
 
 > `integration` コマンド subtree 全体（`integration` 親と `codex` group）は v0.20.0 時点で `traceary --help` から非表示になり、v0.21.0 で完全削除予定です。以下は移行メモとしてのみ掲載しています。非表示の stub は引き続き非ゼロで終了し、Codex 公式の `/plugins` flow を案内します。

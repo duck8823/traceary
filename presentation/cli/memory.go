@@ -25,7 +25,6 @@ func (c *RootCLI) newMemoryCommand() *cobra.Command {
 	memoryCmd.AddCommand(c.newMemoryInboxCommand())
 	memoryCmd.AddCommand(c.newMemoryStoreCommand())
 	memoryCmd.AddCommand(c.newMemoryAdminCommand())
-	memoryCmd.AddCommand(c.newMemoryDecayCommand())
 	return memoryCmd
 }
 
