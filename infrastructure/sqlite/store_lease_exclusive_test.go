@@ -43,6 +43,63 @@ func TestAcquireExclusive_TimesOutWhileSharedConnHeld(t *testing.T) {
 	}
 }
 
+func TestCoordinatedOpen_FailsFastWhenThisProcessHoldsExclusive(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "store.db")
+	release, err := (StoreLeaseCoordinator{}).AcquireExclusive(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	started := time.Now()
+	db := openCoordinatedDB(path, sqliteDSN(path))
+	defer func() { _ = db.Close() }()
+	err = db.PingContext(context.Background())
+	if err == nil {
+		t.Fatal("coordinated ping succeeded while this process holds exclusive")
+	}
+	if !strings.Contains(err.Error(), "self-deadlock") || !strings.Contains(err.Error(), storeLeaseSuffix) {
+		t.Fatalf("error should name self-deadlock and lock path, got %v", err)
+	}
+	if time.Since(started) > time.Second {
+		t.Fatalf("self-deadlock took %s, want fail-fast", time.Since(started))
+	}
+}
+
+func TestSharedLease_TimesOutWhileExclusiveHeldOnOtherFd(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "store.db")
+	lockPath, err := canonicalLeasePath(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := acquireAdvisoryLease(context.Background(), lockPath, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = raw.Close() }()
+
+	var reports int
+	SetSharedLeaseWaitReporter(func(time.Duration, string) { reports++ })
+	t.Cleanup(func() { SetSharedLeaseWaitReporter(nil) })
+	orig := exclusiveLeaseWaitInterval
+	exclusiveLeaseWaitInterval = 15 * time.Millisecond
+	t.Cleanup(func() { exclusiveLeaseWaitInterval = orig })
+
+	ctx, cancel := context.WithTimeout(context.Background(), 80*time.Millisecond)
+	defer cancel()
+	db := openCoordinatedDB(path, sqliteDSN(path))
+	defer func() { _ = db.Close() }()
+	err = db.PingContext(ctx)
+	if err == nil {
+		t.Fatal("shared lease acquired while exclusive flock was held")
+	}
+	if !strings.Contains(err.Error(), "lsof") || !strings.Contains(err.Error(), storeLeaseSuffix) {
+		t.Fatalf("error should name lock path and lsof, got %v", err)
+	}
+	if reports == 0 {
+		t.Fatal("expected shared wait reporter while blocked")
+	}
+}
+
 func TestAcquireExclusive_WaitReporterFires(t *testing.T) {
 	orig := exclusiveLeaseWaitInterval
 	exclusiveLeaseWaitInterval = 15 * time.Millisecond

@@ -33,6 +33,9 @@ func validateStoreLinkIdentity(path string) error {
 }
 
 func acquireAdvisoryLease(ctx context.Context, path string, exclusive bool) (advisoryLease, error) {
+	if !exclusive && processHoldsExclusiveLease(path) {
+		return nil, selfDeadlockError(path)
+	}
 	fd, err := syscall.Open(path, syscall.O_CREAT|syscall.O_RDWR|syscall.O_CLOEXEC|syscall.O_NOFOLLOW, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("open store lease: %w", err)
@@ -63,12 +66,16 @@ func acquireAdvisoryLease(ctx context.Context, path string, exclusive bool) (adv
 			_ = file.Close()
 			return nil, fmt.Errorf("acquire store lease: %w", err)
 		}
-		if exclusive {
-			now := time.Now()
-			if reporter := exclusiveLeaseWaitReporter; reporter != nil && now.Sub(lastWait) >= exclusiveLeaseWaitInterval {
-				reporter(now.Sub(started), path)
-				lastWait = now
+		now := time.Now()
+		if now.Sub(lastWait) >= exclusiveLeaseWaitInterval {
+			reporter := sharedLeaseWaitReporter
+			if exclusive {
+				reporter = exclusiveLeaseWaitReporter
 			}
+			if reporter != nil {
+				reporter(now.Sub(started), path)
+			}
+			lastWait = now
 		}
 		select {
 		case <-ctx.Done():

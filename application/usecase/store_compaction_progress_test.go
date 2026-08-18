@@ -2,14 +2,22 @@ package usecase
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
+	"github.com/duck8823/traceary/application"
 	"github.com/duck8823/traceary/domain"
 )
 
 type recordProgress struct {
 	phases  []domain.CompactionPhase
+	windows []string
 	watches int
+}
+
+func (r *recordProgress) OnWindow(name string) {
+	r.windows = append(r.windows, name)
 }
 
 func (r *recordProgress) OnPhase(phase domain.CompactionPhase, _ uint64) {
@@ -37,5 +45,25 @@ func TestBindCompactionProgress_ReportsPhaseAndBuildWatch(t *testing.T) {
 	}
 	if progress.watches == 0 {
 		t.Fatalf("WatchBuild was not called; phases=%v", progress.phases)
+	}
+}
+
+func TestCompact_ReportsPreCopyWindows(t *testing.T) {
+	source := filepath.Join(t.TempDir(), "store.db")
+	if err := os.WriteFile(source, []byte("not-a-real-store"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	progress := &recordProgress{}
+	svc := NewStoreCompactionUsecase(source, &faultJournal{run: compactionRunAt(domain.CompactionCommitted)}, faultBuilder{}, faultFiles{}, faultLease{})
+	BindCompactionProgress(svc, progress)
+	_, _ = svc.Compact(context.Background(), application.CompactInput{Source: source})
+	want := []string{"inspect_gate", "exclusive_lease", "inspect_reclaim", "plan"}
+	if len(progress.windows) < len(want) {
+		t.Fatalf("windows=%v, want at least %v", progress.windows, want)
+	}
+	for i, name := range want {
+		if progress.windows[i] != name {
+			t.Fatalf("windows[%d]=%q, want %q (all=%v)", i, progress.windows[i], name, progress.windows)
+		}
 	}
 }

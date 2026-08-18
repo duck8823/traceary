@@ -12,6 +12,16 @@ import (
 	"github.com/duck8823/traceary/domain"
 )
 
+func TestCLICompactionProgress_OnWindowWritesPreCopyToken(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	p := newCLICompactionProgress(&buf)
+	p.OnWindow("inspect_reclaim")
+	if buf.String() != "compact: inspect_reclaim\n" {
+		t.Fatalf("window line = %q", buf.String())
+	}
+}
+
 func TestCLICompactionProgress_OnPhaseWritesStderrOnlyShape(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
