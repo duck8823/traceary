@@ -42,7 +42,12 @@ const (
 	// one minute belongs to a process that did not finish its normal
 	// success/failure transition and is safe to make replayable.
 	hookSpoolInflightStaleAge = time.Minute
-	hookSpoolDeadDirName      = "dead"
+	// hookSpoolTmpStaleAge is how old a write-rename leftover (*.tmp) must
+	// be before doctor counts it as stale_inflight. The publish window is
+	// seconds; one hour is a generous bound so a live writer is never
+	// counted (#2115).
+	hookSpoolTmpStaleAge = time.Hour
+	hookSpoolDeadDirName = "dead"
 	// Dead-letter is append-only unless the operator asks doctor --fix to
 	// prune files older than the retention window (#2007).
 	hookSpoolDeadWarnCount    = 100
@@ -895,36 +900,52 @@ func inspectHookSpoolFilesystemStats(now time.Time) (hookSpoolFilesystemStats, e
 		return stats, xerrors.Errorf("failed to read hook spool directory: %w", err)
 	}
 	for _, entry := range entries {
-		name := entry.Name()
-		path := filepath.Join(dir, name)
-		if entry.IsDir() {
-			if name != hookSpoolDeadDirName {
-				continue
-			}
-			deadCount, deadBytes, deadErr := countDirJSONEntries(path)
-			if deadErr != nil {
-				return stats, deadErr
-			}
-			stats.DeadCount = deadCount
-			stats.DeadBytes = deadBytes
-			continue
-		}
-		info, infoErr := entry.Info()
-		if infoErr != nil {
-			return stats, xerrors.Errorf("failed to inspect hook spool entry: %w", infoErr)
-		}
-		switch {
-		case strings.HasSuffix(name, ".json"):
-			stats.PendingCount++
-			stats.PendingBytes += info.Size()
-		case strings.HasSuffix(name, ".inflight"):
-			if now.Sub(info.ModTime()) >= hookSpoolInflightStaleAge {
-				stats.StaleInflightCount++
-				stats.StaleInflightBytes += info.Size()
-			}
+		if addErr := addHookSpoolFilesystemEntry(&stats, dir, entry, now); addErr != nil {
+			return stats, addErr
 		}
 	}
 	return stats, nil
+}
+
+func addHookSpoolFilesystemEntry(stats *hookSpoolFilesystemStats, dir string, entry os.DirEntry, now time.Time) error {
+	name := entry.Name()
+	path := filepath.Join(dir, name)
+	if entry.IsDir() {
+		if name != hookSpoolDeadDirName {
+			return nil
+		}
+		deadCount, deadBytes, deadErr := countDirJSONEntries(path)
+		if deadErr != nil {
+			return deadErr
+		}
+		stats.DeadCount = deadCount
+		stats.DeadBytes = deadBytes
+		return nil
+	}
+	info, infoErr := entry.Info()
+	if infoErr != nil {
+		// A write-rename can remove *.tmp between ReadDir and Info.
+		if os.IsNotExist(infoErr) && strings.HasSuffix(name, ".tmp") {
+			return nil
+		}
+		return xerrors.Errorf("failed to inspect hook spool entry: %w", infoErr)
+	}
+	switch {
+	case strings.HasSuffix(name, ".json"):
+		stats.PendingCount++
+		stats.PendingBytes += info.Size()
+	case strings.HasSuffix(name, ".inflight"):
+		if now.Sub(info.ModTime()) >= hookSpoolInflightStaleAge {
+			stats.StaleInflightCount++
+			stats.StaleInflightBytes += info.Size()
+		}
+	case strings.HasSuffix(name, ".tmp"):
+		if now.Sub(info.ModTime()) >= hookSpoolTmpStaleAge {
+			stats.StaleInflightCount++
+			stats.StaleInflightBytes += info.Size()
+		}
+	}
+	return nil
 }
 
 func countDirJSONEntries(dir string) (int, int64, error) {
@@ -1113,6 +1134,50 @@ func pruneHookSpoolDeadLetters(now time.Time, dryRun bool) (pruned, remaining in
 	return pruned, remaining, nil
 }
 
+func pruneHookSpoolOrphanTmpFiles(now time.Time, dryRun bool) (pruned, remaining int, err error) {
+	dir, err := hookSpoolDir()
+	if err != nil {
+		return 0, 0, err
+	}
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return 0, 0, nil
+	}
+	if err != nil {
+		return 0, 0, xerrors.Errorf("failed to read hook spool directory: %w", err)
+	}
+	cutoff := now.Add(-hookSpoolDeadRetention)
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".tmp") {
+			continue
+		}
+		info, infoErr := entry.Info()
+		if infoErr != nil {
+			if os.IsNotExist(infoErr) {
+				continue
+			}
+			return pruned, remaining, xerrors.Errorf("failed to inspect hook spool tmp file: %w", infoErr)
+		}
+		if !info.ModTime().Before(cutoff) {
+			continue
+		}
+		if pruned >= hookSpoolDeadPruneLimit {
+			remaining++
+			continue
+		}
+		if dryRun {
+			pruned++
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		if removeErr := os.Remove(path); removeErr != nil && !os.IsNotExist(removeErr) {
+			return pruned, remaining, xerrors.Errorf("failed to prune orphan hook spool tmp file: %w", removeErr)
+		}
+		pruned++
+	}
+	return pruned, remaining, nil
+}
+
 // inspectHookSpoolFilesystemMetadata builds a doctor check from directory
 // metadata only (entry counts + byte sizes). Safe on the large-store early
 // path: no SQLite open. Fix reads last_error envelope fields only.
@@ -1152,8 +1217,8 @@ func inspectHookSpoolFilesystemMetadata() doctorCheck {
 			formatByteSize(stats.DeadBytes),
 		),
 		Hint: Localize(
-			"metadata-only counts from the hook spool directory (no payload bodies). Pending records drain on later hook invocations. `traceary doctor --fix` requeues transient dead letters and prunes files older than 14 days without opening SQLite.",
-			"hook spool ディレクトリのメタデータのみの件数です（payload body は読みません）。未処理 record は後続 hook で drain されます。`traceary doctor --fix` は SQLite を開かず transient dead-letter を再キューし、14 日より古いファイルを prune します。",
+			"metadata-only counts from the hook spool directory (no payload bodies). Pending records drain on later hook invocations. `traceary doctor --fix` requeues transient dead letters and prunes dead-letter files and orphan *.tmp leftovers older than 14 days without opening SQLite.",
+			"hook spool ディレクトリのメタデータのみの件数です（payload body は読みません）。未処理 record は後続 hook で drain されます。`traceary doctor --fix` は SQLite を開かず transient dead-letter を再キューし、14 日より古い dead-letter と orphan *.tmp を prune します。",
 		),
 	}
 	if status == doctorStatusWarn {
@@ -1179,29 +1244,36 @@ func fixHookSpoolDeadLettersFilesystem(ctx context.Context, now time.Time, dryRu
 	if err != nil {
 		return doctorFixResult{}, err
 	}
+	prunedTmp, _, err := pruneHookSpoolOrphanTmpFiles(now, dryRun)
+	if err != nil {
+		return doctorFixResult{}, err
+	}
 	if dryRun {
 		return doctorFixResult{Action: localizef(
-			"would requeue %d transient dead-letter(s), skip %d non-transient, and prune %d aged dead-letter file(s)",
-			"transient dead-letter %d 件を再キューし、非 transient %d 件をスキップし、古い dead-letter %d 件を prune します",
+			"would requeue %d transient dead-letter(s), skip %d non-transient, prune %d aged dead-letter file(s), and prune %d orphan tmp file(s)",
+			"transient dead-letter %d 件を再キューし、非 transient %d 件をスキップし、古い dead-letter %d 件と orphan tmp %d 件を prune します",
 			requeued,
 			skippedNontransient,
 			pruned,
+			prunedTmp,
 		)}, nil
 	}
 	return doctorFixResult{
 		Action: localizef(
-			"requeued=%d skipped_nontransient=%d pruned_dead=%d dead_remaining=%d",
-			"requeued=%d skipped_nontransient=%d pruned_dead=%d dead_remaining=%d",
+			"requeued=%d skipped_nontransient=%d pruned_dead=%d dead_remaining=%d pruned_tmp=%d",
+			"requeued=%d skipped_nontransient=%d pruned_dead=%d dead_remaining=%d pruned_tmp=%d",
 			requeued,
 			skippedNontransient,
 			pruned,
 			deadRemaining,
+			prunedTmp,
 		),
 		Metrics: map[string]int{
 			"requeued":             requeued,
 			"skipped_nontransient": skippedNontransient,
 			"pruned_dead":          pruned,
 			"dead_remaining":       deadRemaining,
+			"pruned_tmp":           prunedTmp,
 		},
 	}, nil
 }
@@ -1289,7 +1361,7 @@ func (c *RootCLI) inspectHookSpoolDiagnosticsFromScan(
 	if statsErr != nil {
 		return doctorCheck{Name: name, Status: doctorStatusFail, Message: localizef("failed to inspect hook spool metadata: %v", "hook spool メタデータの検査に失敗しました: %v", statsErr)}
 	}
-	if len(records) == 0 && len(unreadable) == 0 && stats.DeadCount == 0 {
+	if len(records) == 0 && len(unreadable) == 0 && stats.DeadCount == 0 && stats.StaleInflightCount == 0 {
 		return doctorCheck{Name: name, Status: doctorStatusPass, Message: Localize("no pending hook spool records found", "未処理の hook spool record はありません")}
 	}
 	structuredFix := func(ctx context.Context, dryRun bool) (doctorFixResult, error) {
@@ -1306,14 +1378,19 @@ func (c *RootCLI) inspectHookSpoolDiagnosticsFromScan(
 		if err != nil {
 			return doctorFixResult{}, err
 		}
+		prunedTmp, _, err := pruneHookSpoolOrphanTmpFiles(now, dryRun)
+		if err != nil {
+			return doctorFixResult{}, err
+		}
 		if dryRun {
 			return doctorFixResult{Action: localizef(
-				"would requeue %d transient dead-letter(s), skip %d non-transient, drain up to %d pending hook spool record(s), and prune %d aged dead-letter file(s)",
-				"transient dead-letter %d 件を再キューし、非 transient %d 件をスキップし、未処理 hook spool record 最大 %d 件を drain し、古い dead-letter %d 件を prune します",
+				"would requeue %d transient dead-letter(s), skip %d non-transient, drain up to %d pending hook spool record(s), prune %d aged dead-letter file(s), and prune %d orphan tmp file(s)",
+				"transient dead-letter %d 件を再キューし、非 transient %d 件をスキップし、未処理 hook spool record 最大 %d 件を drain し、古い dead-letter %d 件と orphan tmp %d 件を prune します",
 				requeued,
 				skippedNontransient,
 				min(pending+requeued, 200),
 				pruned,
+				prunedTmp,
 			)}, nil
 		}
 		limit := min(pending+requeued, 200)
@@ -1323,8 +1400,8 @@ func (c *RootCLI) inspectHookSpoolDiagnosticsFromScan(
 		}
 		return doctorFixResult{
 			Action: localizef(
-				"drained hook spool: requeued=%d skipped_nontransient=%d replayed=%d failed=%d unreadable=%d remaining=%d; pruned_dead=%d dead_remaining=%d",
-				"hook spool を drain しました: requeued=%d skipped_nontransient=%d replayed=%d failed=%d unreadable=%d remaining=%d; pruned_dead=%d dead_remaining=%d",
+				"drained hook spool: requeued=%d skipped_nontransient=%d replayed=%d failed=%d unreadable=%d remaining=%d; pruned_dead=%d dead_remaining=%d pruned_tmp=%d",
+				"hook spool を drain しました: requeued=%d skipped_nontransient=%d replayed=%d failed=%d unreadable=%d remaining=%d; pruned_dead=%d dead_remaining=%d pruned_tmp=%d",
 				requeued,
 				skippedNontransient,
 				result.Replayed,
@@ -1333,6 +1410,7 @@ func (c *RootCLI) inspectHookSpoolDiagnosticsFromScan(
 				result.Remaining,
 				pruned,
 				deadRemaining,
+				prunedTmp,
 			),
 			Metrics: map[string]int{
 				"requeued":             requeued,
@@ -1343,6 +1421,7 @@ func (c *RootCLI) inspectHookSpoolDiagnosticsFromScan(
 				"unreadable":           result.Unreadable,
 				"pruned_dead":          pruned,
 				"dead_remaining":       deadRemaining,
+				"pruned_tmp":           prunedTmp,
 			},
 		}, nil
 	}
@@ -1351,21 +1430,21 @@ func (c *RootCLI) inspectHookSpoolDiagnosticsFromScan(
 		latest = fmt.Sprintf("client=%s command=%s action=%s created_at=%s path=%s", emptyAsDash(records[0].Client), emptyAsDash(records[0].Command), emptyAsDash(records[0].Action), records[0].CreatedAt.Format(time.RFC3339Nano), records[0].Path)
 	}
 	status := doctorStatusPass
-	if len(records) > 0 || len(unreadable) > 0 || hookSpoolDeadOverThreshold(stats) {
+	if len(records) > 0 || len(unreadable) > 0 || hookSpoolDeadOverThreshold(stats) || stats.StaleInflightCount > 0 {
 		status = doctorStatusWarn
 	}
 	message := localizef(
-		"found %d pending hook spool record(s), %d terminal dead-letter record(s), and %d unreadable record(s); latest %s",
-		"未処理の hook spool record が %d 件、terminal dead-letter が %d 件、読めない record が %d 件あります。latest %s",
-		len(records), stats.DeadCount, len(unreadable), latest,
+		"found %d pending hook spool record(s), %d terminal dead-letter record(s), %d unreadable record(s), and %d stale inflight file(s); latest %s",
+		"未処理の hook spool record が %d 件、terminal dead-letter が %d 件、読めない record が %d 件、stale inflight が %d 件あります。latest %s",
+		len(records), stats.DeadCount, len(unreadable), stats.StaleInflightCount, latest,
 	)
 	check := doctorCheck{
 		Name:    name,
 		Status:  status,
 		Message: message,
 		Hint: Localize(
-			"records are drained automatically on later hook invocations (bounded batch). After 3 failed attempts a record is retained under spool/dead/. Run `traceary doctor --fix` to requeue transient dead letters, drain pending records, and prune dead-letter files older than 14 days. Doctor never deletes dead-letter files without --fix.",
-			"record は後続 hook 呼び出し時に bounded batch で自動 drain されます。3 回失敗すると spool/dead/ に保持されます。`traceary doctor --fix` で transient dead-letter を再キューし、未処理を drain し、14 日より古い dead-letter を prune します。--fix なしでは dead-letter を削除しません。",
+			"records are drained automatically on later hook invocations (bounded batch). After 3 failed attempts a record is retained under spool/dead/. Run `traceary doctor --fix` to requeue transient dead letters, drain pending records, and prune dead-letter files and orphan *.tmp leftovers older than 14 days. Doctor never deletes those files without --fix.",
+			"record は後続 hook 呼び出し時に bounded batch で自動 drain されます。3 回失敗すると spool/dead/ に保持されます。`traceary doctor --fix` で transient dead-letter を再キューし、未処理を drain し、14 日より古い dead-letter と orphan *.tmp を prune します。--fix なしではそれらを削除しません。",
 		),
 	}
 	if status == doctorStatusWarn {
