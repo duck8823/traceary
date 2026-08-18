@@ -1021,6 +1021,7 @@ func TestInspectHookSpoolDiagnostics_FixReportsUnreadableRemaining(t *testing.T)
 		"unreadable":           1,
 		"pruned_dead":          0,
 		"dead_remaining":       0,
+		"pruned_tmp":           0,
 	}
 	if !reflect.DeepEqual(result.Metrics, wantMetrics) {
 		t.Fatalf("metrics=%v, want %v", result.Metrics, wantMetrics)
@@ -2292,5 +2293,176 @@ func TestRequeueHookSpoolRecord_ClassifiedUnreplayableErrorsIncrementTowardDeadL
 				t.Fatalf("dead-lettered poison still in batch: %#v", batch)
 			}
 		})
+	}
+}
+
+func writeHookSpoolTmp(t *testing.T, spoolDir, name, body string, age time.Duration) string {
+	t.Helper()
+	if err := os.MkdirAll(spoolDir, 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	path := filepath.Join(spoolDir, name)
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("WriteFile %s: %v", name, err)
+	}
+	if age > 0 {
+		at := time.Now().Add(-age)
+		if err := os.Chtimes(path, at, at); err != nil {
+			t.Fatalf("Chtimes %s: %v", name, err)
+		}
+	}
+	return path
+}
+
+type disappearedSpoolEntry struct{ name string }
+
+func (e disappearedSpoolEntry) Name() string               { return e.name }
+func (e disappearedSpoolEntry) IsDir() bool                { return false }
+func (e disappearedSpoolEntry) Type() os.FileMode          { return 0 }
+func (e disappearedSpoolEntry) Info() (os.FileInfo, error) { return nil, os.ErrNotExist }
+
+func TestInspectHookSpoolFilesystemStats_CountsAgedTmpAsStaleInflight(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	spoolDir := filepath.Join(stateDir, "spool")
+	fresh := writeHookSpoolTmp(t, spoolDir, "fresh.json.tmp", "fresh-tmp\n", 0)
+	aged := writeHookSpoolTmp(t, spoolDir, "aged.json.tmp", "aged-tmp-body\n", hookSpoolTmpStaleAge+time.Minute)
+
+	stats, err := inspectHookSpoolFilesystemStats(time.Now().UTC())
+	if err != nil {
+		t.Fatalf("inspectHookSpoolFilesystemStats: %v", err)
+	}
+	if stats.StaleInflightCount != 1 || stats.PendingCount != 0 {
+		t.Fatalf("stats=%+v, want stale_inflight=1 pending=0", stats)
+	}
+	if stats.StaleInflightBytes != int64(len("aged-tmp-body\n")) {
+		t.Fatalf("stale bytes=%d, want aged tmp size", stats.StaleInflightBytes)
+	}
+
+	check := inspectHookSpoolFilesystemMetadata()
+	if check.Status != doctorStatusWarn {
+		t.Fatalf("status=%q, want warn", check.Status)
+	}
+	if !strings.Contains(check.Message, "stale_inflight=1") {
+		t.Fatalf("message=%q, want stale_inflight=1", check.Message)
+	}
+	if _, err := os.Stat(fresh); err != nil {
+		t.Fatalf("fresh tmp must remain: %v", err)
+	}
+	if _, err := os.Stat(aged); err != nil {
+		t.Fatalf("aged-but-under-retention tmp must remain until 14d prune: %v", err)
+	}
+}
+
+func TestPruneHookSpoolOrphanTmpFiles_RemovesAgedFilesOnlyOnFix(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	spoolDir := filepath.Join(stateDir, "spool")
+	fresh := writeHookSpoolTmp(t, spoolDir, "fresh.json.tmp", "fresh\n", time.Second)
+	stale := writeHookSpoolTmp(t, spoolDir, "hour-old.json.tmp", "hour\n", hookSpoolTmpStaleAge+time.Minute)
+	prunable := writeHookSpoolTmp(t, spoolDir, "july.json.tmp", "july-orphan\n", hookSpoolDeadRetention+24*time.Hour)
+
+	dryPruned, _, err := pruneHookSpoolOrphanTmpFiles(time.Now().UTC(), true)
+	if err != nil {
+		t.Fatalf("dry-run prune: %v", err)
+	}
+	if dryPruned != 1 {
+		t.Fatalf("dry-run pruned=%d, want 1", dryPruned)
+	}
+	for _, path := range []string{fresh, stale, prunable} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("dry-run must not delete %s: %v", path, err)
+		}
+	}
+
+	pruned, remaining, err := pruneHookSpoolOrphanTmpFiles(time.Now().UTC(), false)
+	if err != nil {
+		t.Fatalf("prune: %v", err)
+	}
+	if pruned != 1 || remaining != 0 {
+		t.Fatalf("pruned=%d remaining=%d, want 1 and 0", pruned, remaining)
+	}
+	if _, err := os.Stat(prunable); !os.IsNotExist(err) {
+		t.Fatalf("14d tmp must be removed, stat err=%v", err)
+	}
+	if _, err := os.Stat(fresh); err != nil {
+		t.Fatalf("fresh tmp must be kept: %v", err)
+	}
+	if _, err := os.Stat(stale); err != nil {
+		t.Fatalf("1h tmp must be kept until 14d: %v", err)
+	}
+
+	check := inspectHookSpoolFilesystemMetadata()
+	if !check.AutoFixAvailable || check.StructuredFixFunc == nil {
+		t.Fatal("stale tmp must expose doctor --fix")
+	}
+	result, err := check.StructuredFixFunc(context.Background(), false)
+	if err != nil {
+		t.Fatalf("StructuredFixFunc: %v", err)
+	}
+	if result.Metrics["pruned_tmp"] != 0 {
+		t.Fatalf("second fix pruned_tmp=%d, want 0", result.Metrics["pruned_tmp"])
+	}
+}
+
+func TestFixHookSpoolDeadLettersFilesystem_PrunesRetentionAgedTmp(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	spoolDir := filepath.Join(stateDir, "spool")
+	july := writeHookSpoolTmp(t, spoolDir, "20260716T000000.000000000Z-grok.json.tmp", "grok-orphan\n", hookSpoolDeadRetention+time.Hour)
+	july2 := writeHookSpoolTmp(t, spoolDir, "20260722T000000.000000000Z-kimi.json.tmp", "kimi-orphan\n", hookSpoolDeadRetention+2*time.Hour)
+	fresh := writeHookSpoolTmp(t, spoolDir, "now.json.tmp", "now\n", 0)
+
+	stats, err := inspectHookSpoolFilesystemStats(time.Now().UTC())
+	if err != nil {
+		t.Fatalf("inspectHookSpoolFilesystemStats: %v", err)
+	}
+	if stats.StaleInflightCount != 2 {
+		t.Fatalf("stats=%+v, want stale_inflight=2", stats)
+	}
+
+	result, err := fixHookSpoolDeadLettersFilesystem(context.Background(), time.Now().UTC(), true)
+	if err != nil {
+		t.Fatalf("dry-run fix: %v", err)
+	}
+	if !strings.Contains(result.Action, "orphan tmp") {
+		t.Fatalf("dry-run action=%q, want orphan tmp preview", result.Action)
+	}
+	if _, err := os.Stat(july); err != nil {
+		t.Fatalf("dry-run must keep july tmp: %v", err)
+	}
+
+	result, err = fixHookSpoolDeadLettersFilesystem(context.Background(), time.Now().UTC(), false)
+	if err != nil {
+		t.Fatalf("fix: %v", err)
+	}
+	if result.Metrics["pruned_tmp"] != 2 {
+		t.Fatalf("metrics=%v, want pruned_tmp=2", result.Metrics)
+	}
+	if !strings.Contains(result.Action, "pruned_tmp=2") {
+		t.Fatalf("action=%q, want pruned_tmp=2", result.Action)
+	}
+	if _, err := os.Stat(july); !os.IsNotExist(err) {
+		t.Fatalf("july tmp must be removed, stat err=%v", err)
+	}
+	if _, err := os.Stat(july2); !os.IsNotExist(err) {
+		t.Fatalf("july2 tmp must be removed, stat err=%v", err)
+	}
+	if _, err := os.Stat(fresh); err != nil {
+		t.Fatalf("fresh tmp must remain: %v", err)
+	}
+}
+
+func TestAddHookSpoolFilesystemEntry_ToleratesDisappearedTmp(t *testing.T) {
+	t.Parallel()
+	var stats hookSpoolFilesystemStats
+	if err := addHookSpoolFilesystemEntry(&stats, t.TempDir(), disappearedSpoolEntry{name: "gone.json.tmp"}, time.Now().UTC()); err != nil {
+		t.Fatalf("disappeared tmp must be skipped: %v", err)
+	}
+	if stats != (hookSpoolFilesystemStats{}) {
+		t.Fatalf("stats=%+v, want zero", stats)
+	}
+	if err := addHookSpoolFilesystemEntry(&stats, t.TempDir(), disappearedSpoolEntry{name: "gone.json"}, time.Now().UTC()); err == nil {
+		t.Fatal("disappeared non-tmp must fail")
 	}
 }
