@@ -46,6 +46,9 @@ func LocalizeCobraExecuteError(err error) error {
 	if err == nil {
 		return nil
 	}
+	if !isJapaneseCLI() {
+		return err
+	}
 	match := cobraUnknownCommandPattern.FindStringSubmatch(err.Error())
 	if match == nil {
 		return err

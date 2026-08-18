@@ -29,6 +29,18 @@ func TestLocalizeCobraExecuteError_JapaneseUnknownCommandKeepsSuggestions(t *tes
 	}
 }
 
+func TestLocalizeCobraExecuteError_LeavesEnglishWording(t *testing.T) {
+	t.Setenv(cliLanguageEnvKey, "en")
+	resetConfiguredCLILanguageCacheForTest()
+	t.Cleanup(resetConfiguredCLILanguageCacheForTest)
+
+	in := errors.New("unknown command \"nosuchcmd\" for \"traceary\"\n\nDid you mean this?\n\tsearch")
+	got := LocalizeCobraExecuteError(in)
+	if got != in {
+		t.Fatalf("English unknown-command error rewritten: %v", got)
+	}
+}
+
 func TestLocalizeCobraExecuteError_LeavesOtherErrors(t *testing.T) {
 	in := xerrors.New("database query failed")
 	if got := LocalizeCobraExecuteError(in); got != in {
