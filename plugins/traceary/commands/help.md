@@ -19,7 +19,7 @@ Use these commands when the user needs setup or verification:
 
 ```bash
 traceary version
-traceary hooks guide --client codex
+traceary hooks install --dry-run --client codex
 traceary doctor --client codex --json
 traceary --help
 ```

@@ -847,7 +847,7 @@ func checkClaude(root, version string) error {
 		return err
 	}
 	if err := requireAbsent(root, "integrations/claude-plugin/skills/traceary-help",
-		"Claude traceary-help skill must be removed (CLI --help / doctor / hooks guide cover orientation)"); err != nil {
+		"Claude traceary-help skill must be removed (CLI --help / doctor / hooks install --dry-run cover orientation)"); err != nil {
 		return err
 	}
 	return nil

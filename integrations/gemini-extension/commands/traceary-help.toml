@@ -12,7 +12,7 @@ Workflow:
    - `traceary-memory-remember` — explicit durable-memory proposes
 4. If the user asks for setup or verification steps, prefer these commands:
    - `traceary version`
-   - `traceary hooks guide --client gemini`
+   - `traceary hooks install --dry-run --client gemini`
    - `traceary doctor --client gemini --json`
    - `traceary --help`
 5. Keep the answer concise and actionable. Do not invent MCP-only skill workflows.

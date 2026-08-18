@@ -736,6 +736,53 @@ func executeHooksPrintWithoutTracearyBin(
 	return &settings
 }
 
+func TestRootCLI_HooksInstallDryRunNamesExpectedPathOnStderr(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+	homeDir := t.TempDir()
+	cli.SetUserHomeDirFunc(func() (string, error) {
+		return homeDir, nil
+	})
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+
+	tests := []struct {
+		name       string
+		client     string
+		wantSuffix string
+	}{
+		{name: "claude", client: "claude", wantSuffix: filepath.Join(cwd, ".claude", "settings.json")},
+		{name: "antigravity alias", client: "agy", wantSuffix: filepath.Join(cwd, ".agents", "hooks.json")},
+		{name: "kimi append target", client: "kimi", wantSuffix: filepath.Join(homeDir, ".kimi-code", "config.toml")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rootCmd := newTestRootCLI().Command()
+			stdout := &bytes.Buffer{}
+			stderr := &bytes.Buffer{}
+			rootCmd.SetOut(stdout)
+			rootCmd.SetErr(stderr)
+			rootCmd.SetArgs([]string{"hooks", "install", "--dry-run", "--client", tt.client, "--traceary-bin", "traceary"})
+			if execErr := rootCmd.Execute(); execErr != nil {
+				t.Fatalf("Execute() error = %v", execErr)
+			}
+			wantLine := "Expected config path: " + tt.wantSuffix + "\n"
+			if stderr.String() != wantLine {
+				t.Fatalf("stderr = %q, want %q", stderr.String(), wantLine)
+			}
+			if strings.Contains(stdout.String(), "Expected config path:") {
+				t.Fatalf("stdout must stay pasteable config, got %q", stdout.String())
+			}
+			if strings.TrimSpace(stdout.String()) == "" {
+				t.Fatal("stdout is empty, want generated config")
+			}
+		})
+	}
+}
+
 func TestRootCLI_HooksInstallDryRunRejectsWriteFlags(t *testing.T) {
 	t.Setenv("TRACEARY_LANG", "en")
 	tests := []struct {

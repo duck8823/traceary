@@ -116,13 +116,6 @@ type hooksInstallCommandInput struct {
 	dryRun      bool
 }
 
-// hooksGuideCommandInput is the resolved input to `traceary hooks guide`.
-type hooksGuideCommandInput struct {
-	client     string
-	projectDir string
-	outputPath string
-}
-
 // listCommandInput is the resolved input to the `traceary list` command.
 type listCommandInput struct {
 	dbPath       string

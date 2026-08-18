@@ -211,10 +211,12 @@ or a version mismatch, follow [Migrating a stale Gemini-imported plugin](#migrat
 ## Setup guide
 
 ```sh
-traceary hooks guide --client antigravity --project-dir .
+traceary hooks install --dry-run --client antigravity
+traceary hooks install --client antigravity --project-dir .
+traceary doctor --client antigravity --json
 ```
 
-This prints the install command, the doctor command, the expected config path, and the Antigravity-specific notes (PreInvocation session model, Stop turn boundary, run_command pairing).
+`--dry-run` names the expected workspace path (`.agents/hooks.json`) on stderr and prints the pasteable hook-group document on stdout. Antigravity-specific notes (PreInvocation session model, Stop turn boundary, run_command pairing) are in this page and in [hooks README](../hooks/README.md).
 
 ## Doctor
 

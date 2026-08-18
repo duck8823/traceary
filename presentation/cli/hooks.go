@@ -26,7 +26,6 @@ func (c *RootCLI) newHooksCommand() *cobra.Command {
 		Short: Localize("Generate hook configuration examples", "hook 設定例を生成する"),
 	}
 	hooksCmd.AddCommand(c.newHooksInstallCommand())
-	hooksCmd.AddCommand(c.newHooksGuideCommand())
 	hooksCmd.AddCommand(c.newHooksHelperCommand())
 
 	return hooksCmd
@@ -49,8 +48,8 @@ func (c *RootCLI) newHooksInstallCommand() *cobra.Command {
 		Use:   "install --client <claude|codex|gemini|antigravity|grok|kimi>",
 		Short: Localize("Write hook configuration examples to the standard config path", "標準の設定パスへ hook 設定例を書き出す"),
 		Long: Localize(
-			"Generate hook configuration for a supported client and write it to the standard config path.\nSupported clients: claude, codex, gemini, antigravity, grok, kimi.\nAliases: claude-code, codex-cli, gemini-cli, agy, antigravity-cli, grok-build, grok-cli, kimi-code, kimi-cli.\nGrok writes project hooks to .grok/hooks/traceary.json; use --global for ~/.grok/hooks/traceary.json.\nKimi is recognized as a native client identity, but write-path `hooks install` is not available: the Traceary Kimi plugin (kimi.plugin.json) will be the distribution path. `hooks install --dry-run --client kimi` exposes the currently empty boundary.\nUse --dry-run to print the generated config without writing any file (pasteable; same bytes as the former `hooks print`).\nUse --global to write to the user-level config (~/.claude/settings.json for Claude, ~/.gemini/settings.json for Gemini, ~/.gemini/config/hooks.json for Antigravity; Antigravity's workspace path is .agents/hooks.json). Codex hooks are already user-level, so --global is a no-op there.\nUse --upgrade for a non-destructive migration: only Traceary-managed entries are replaced, user-added entries are preserved, and a summary of added / refreshed / unchanged events is printed. Re-running --upgrade on an already up-to-date config is a no-op.",
-			"対応 client 向けの hook 設定を生成し、標準の設定パスへ書き出します。\n対応 client: claude, codex, gemini, antigravity, grok, kimi。\nalias: claude-code, codex-cli, gemini-cli, agy, antigravity-cli, grok-build, grok-cli, kimi-code, kimi-cli。\nGrok の project hook は .grok/hooks/traceary.json に書き込み、--global では ~/.grok/hooks/traceary.json に書き込みます。\nKimi は native client 識別子として認識されますが、書き込み経路の `hooks install` は利用できません。Traceary Kimi plugin (kimi.plugin.json) が配布経路です。`hooks install --dry-run --client kimi` は現時点の空の境界を表示します。\n--dry-run はファイルを書かずに生成済み config を出力します（貼り付け可能。旧 `hooks print` と同じバイト列）。\n--global を指定すると user-level 設定に書き込みます (Claude は ~/.claude/settings.json、Gemini は ~/.gemini/settings.json、Antigravity は ~/.gemini/config/hooks.json; Antigravity の workspace パスは .agents/hooks.json)。Codex の hook は元から user-level なため --global は効果ありません。\n--upgrade を指定すると非破壊マイグレーションになります (Traceary 管理分のみ置換、ユーザー追加の hook は保持、追加 / 更新 / 変更なしの内訳を表示)。既に最新の設定に対して再実行しても no-op です。",
+			"Generate hook configuration for a supported client and write it to the standard config path.\nSupported clients: claude, codex, gemini, antigravity, grok, kimi.\nAliases: claude-code, codex-cli, gemini-cli, agy, antigravity-cli, grok-build, grok-cli, kimi-code, kimi-cli.\nGrok writes project hooks to .grok/hooks/traceary.json; use --global for ~/.grok/hooks/traceary.json.\nKimi is recognized as a native client identity, but write-path `hooks install` is not available: the Traceary Kimi plugin (kimi.plugin.json) will be the distribution path. `hooks install --dry-run --client kimi` exposes the currently empty boundary.\nUse --dry-run to print the generated config without writing any file (pasteable; same bytes as the former `hooks print`). Stderr prints `Expected config path: <resolved>` so you know where a write would land; stdout stays the config only.\nUse --global to write to the user-level config (~/.claude/settings.json for Claude, ~/.gemini/settings.json for Gemini, ~/.gemini/config/hooks.json for Antigravity; Antigravity's workspace path is .agents/hooks.json). Codex hooks are already user-level, so --global is a no-op there.\nUse --upgrade for a non-destructive migration: only Traceary-managed entries are replaced, user-added entries are preserved, and a summary of added / refreshed / unchanged events is printed. Re-running --upgrade on an already up-to-date config is a no-op.",
+			"対応 client 向けの hook 設定を生成し、標準の設定パスへ書き出します。\n対応 client: claude, codex, gemini, antigravity, grok, kimi。\nalias: claude-code, codex-cli, gemini-cli, agy, antigravity-cli, grok-build, grok-cli, kimi-code, kimi-cli。\nGrok の project hook は .grok/hooks/traceary.json に書き込み、--global では ~/.grok/hooks/traceary.json に書き込みます。\nKimi は native client 識別子として認識されますが、書き込み経路の `hooks install` は利用できません。Traceary Kimi plugin (kimi.plugin.json) が配布経路です。`hooks install --dry-run --client kimi` は現時点の空の境界を表示します。\n--dry-run はファイルを書かずに生成済み config を出力します（貼り付け可能。旧 `hooks print` と同じバイト列）。stderr に `想定 config path: <resolved>` を出し、stdout は config だけにします。\n--global を指定すると user-level 設定に書き込みます (Claude は ~/.claude/settings.json、Gemini は ~/.gemini/settings.json、Antigravity は ~/.gemini/config/hooks.json; Antigravity の workspace パスは .agents/hooks.json)。Codex の hook は元から user-level なため --global は効果ありません。\n--upgrade を指定すると非破壊マイグレーションになります (Traceary 管理分のみ置換、ユーザー追加の hook は保持、追加 / 更新 / 変更なしの内訳を表示)。既に最新の設定に対して再実行しても no-op です。",
 		),
 		Example: strings.Join([]string{
 			"  traceary hooks install --client claude --project-dir .",
@@ -62,7 +61,7 @@ func (c *RootCLI) newHooksInstallCommand() *cobra.Command {
 		}, "\n"),
 		Args: noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return c.runHooksInstall(cmd.Context(), cmd.OutOrStdout(), hooksInstallCommandInput{
+			return c.runHooksInstall(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(), hooksInstallCommandInput{
 				client:      client,
 				projectDir:  projectDir,
 				tracearyBin: tracearyBin,
@@ -83,7 +82,7 @@ func (c *RootCLI) newHooksInstallCommand() *cobra.Command {
 	installCmd.Flags().BoolVar(&force, "force", false, Localize("overwrite the file if it already exists (mutually exclusive with --upgrade)", "既存ファイルがある場合でも上書きする (--upgrade とは排他)"))
 	installCmd.Flags().BoolVar(&upgrade, "upgrade", false, Localize("non-destructive migration: merge only Traceary-managed entries and print a summary of added / refreshed / unchanged events (mutually exclusive with --force)", "非破壊マイグレーション: Traceary 管理分のみマージし、追加 / 更新 / 変更なしの内訳を表示 (--force とは排他)"))
 	installCmd.Flags().StringVar(&matcher, "matcher", "", Localize("Claude PostToolUse matcher preset: minimal (Bash + mcp__.*), default (+ built-in tool list), all (+ .*). Ignored for other clients. When the Claude Code plugin is active, install skips writing to settings.json unless --force is also set; otherwise the plugin's own hooks.json stays in control and this flag has no effect.", "Claude PostToolUse matcher preset: minimal (Bash + mcp__.*), default (+ 組み込み tool 列), all (+ .*)。他 client では無視されます。Claude Code plugin が有効な場合、--force を付けない限り install は settings.json 書き込みをスキップするため、plugin 配布の hooks.json が優先されて本フラグは効きません。"))
-	installCmd.Flags().BoolVar(&dryRun, "dry-run", false, Localize("print the generated hook configuration without writing any file", "ファイルを書かずに生成した hook 設定を出力する"))
+	installCmd.Flags().BoolVar(&dryRun, "dry-run", false, Localize("print the generated hook configuration without writing any file; stderr names the expected config path", "ファイルを書かずに生成した hook 設定を出力する。stderr に想定 config path を出す"))
 
 	return installCmd
 }
@@ -129,6 +128,7 @@ func (c *RootCLI) runHooksPrint(
 func (c *RootCLI) runHooksInstallDryRun(
 	ctx context.Context,
 	output io.Writer,
+	errOutput io.Writer,
 	input hooksInstallCommandInput,
 ) error {
 	if input.force {
@@ -146,6 +146,12 @@ func (c *RootCLI) runHooksInstallDryRun(
 	if strings.TrimSpace(input.projectDir) != "" {
 		return xerrors.New(Localize("--dry-run cannot be combined with --project-dir", "--dry-run は --project-dir と同時に使えません"))
 	}
+	if err := requireHooksClient(input.client); err != nil {
+		return err
+	}
+	if err := c.printHooksInstallExpectedPath(errOutput, input.client); err != nil {
+		return err
+	}
 	return c.runHooksPrint(ctx, output, hooksPrintCommandInput{
 		client:      input.client,
 		tracearyBin: input.tracearyBin,
@@ -153,13 +159,54 @@ func (c *RootCLI) runHooksInstallDryRun(
 	})
 }
 
+func (c *RootCLI) printHooksInstallExpectedPath(errOutput io.Writer, client string) error {
+	if errOutput == nil {
+		errOutput = os.Stderr
+	}
+	resolvedPath, err := c.resolveHooksDryRunExpectedPath(client)
+	if err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to resolve expected config path", "想定 config path の解決に失敗しました"), err)
+	}
+	if _, err := fmt.Fprintln(errOutput, localizef("Expected config path: %s", "想定 config path: %s", resolvedPath)); err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to print expected config path", "想定 config path の出力に失敗しました"), err)
+	}
+	return nil
+}
+
+func (c *RootCLI) resolveHooksDryRunExpectedPath(client string) (string, error) {
+	resolvedClient, err := c.hooksOrchestrator.NormalizeClient(client)
+	if err != nil {
+		return "", xerrors.Errorf("failed to normalize client: %w", err)
+	}
+	// Kimi write-path install stays fail-closed. Dry-run still names the
+	// documented manual-append target so six-client setup does not need
+	// `hooks guide`.
+	if resolvedClient == "kimi" {
+		home, homeErr := userHomeDirFunc()
+		if homeErr != nil {
+			return "", xerrors.Errorf("failed to resolve user home: %w", homeErr)
+		}
+		return filepath.Join(home, ".kimi-code", "config.toml"), nil
+	}
+	projectDir, err := resolveHooksProjectDir("")
+	if err != nil {
+		return "", err
+	}
+	resolvedPath, err := c.hooksOrchestrator.ResolveInstallPath(resolvedClient, projectDir, types.None[string]())
+	if err != nil {
+		return "", xerrors.Errorf("failed to resolve install path: %w", err)
+	}
+	return resolvedPath, nil
+}
+
 func (c *RootCLI) runHooksInstall(
 	ctx context.Context,
 	output io.Writer,
+	errOutput io.Writer,
 	input hooksInstallCommandInput,
 ) error {
 	if input.dryRun {
-		return c.runHooksInstallDryRun(ctx, output, input)
+		return c.runHooksInstallDryRun(ctx, output, errOutput, input)
 	}
 	if err := requireHooksClient(input.client); err != nil {
 		return err

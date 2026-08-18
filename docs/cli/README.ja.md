@@ -734,7 +734,7 @@ interactive 利用向けの shell completion script を生成します。
 
 対応クライアントの標準設定パスに生成済み hook 設定を書き出します。
 
-`--dry-run` はファイルを書かずに生成 config を出力します（旧 `hooks print` と同じバイト列）。`--force` / `--upgrade` / `--output` / `--project-dir` / `--global` とは同時に使えません。
+`--dry-run` はファイルを書かずに生成 config を stdout に出します（旧 `hooks print` と同じバイト列）。stderr にカレントディレクトリ基準の `想定 config path: <resolved>` を出します。`--force` / `--upgrade` / `--output` / `--project-dir` / `--global` とは同時に使えません。
 
 主な flag:
 
@@ -745,16 +745,6 @@ interactive 利用向けの shell completion script を生成します。
 - `--global` (user-level 設定へ書き込む。`--output` とは排他)
 - `--force`
 - `--dry-run`
-
-### `traceary hooks guide`
-
-対応クライアントごとの install / check / verify 手順を出力します。
-
-主な flag:
-
-- `--client`
-- `--project-dir`
-- `--output`
 
 ### `traceary doctor`
 
