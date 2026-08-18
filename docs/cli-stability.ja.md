@@ -46,6 +46,8 @@ v0.15 以降に追加された互換 alias も含む現在の公開コマンド�
 
 `traceary doctor` の JSON envelope（`sections` / `summary` / `exit_code` / 各 check のフィールド）、`traceary list --blocks --json`（`workspace_breakdown`。旧 `traceary timeline --json`）、`traceary context --handoff` の構造化テキストのフィールドラベル（旧 `traceary session handoff`）はいずれも公開契約の一部です。これらは `presentation/cli/testdata/` で golden test により固定されています。詳細は [JSON / snapshot contract test](./operations/json-contract-tests.ja.md) を参照してください。
 
+`traceary store compact --projection-rebuild` の stdout は 2 つの JSON 形です。分岐は additive な `result_kind`（start/置き換えは `generation`、hash 一致 resume は `run`）で行い、フィールド推測はしません。`--projection-abort` は別の abandon オブジェクトで、`result_kind` はありません。
+
 `traceary doctor` は既定で、全 check が pass なら exit code `0`、1 件でも fail があれば `1`、warning-only report なら `2` で終了します。warning を operator-visible な drift として見たいが、壊れた install だけを失敗扱いにしたい automation では `--warnings-ok` を指定してください。この場合 warning-only report は `0`、failure は引き続き `1` で終了し、JSON の `summary` と各 check の severity は変わりません。
 
 > TTY 必須の公開コマンド（現状は `traceary memory inbox review`）は TTY 要件を明示し、stdin/stdout が TTY でないときは非ゼロ終了コードでスクリプト用フォールバックを案内します。新しい TTY-only 公開コマンドを追加するときも、必ず batch / scripted フォールバック経路を文書化してください。

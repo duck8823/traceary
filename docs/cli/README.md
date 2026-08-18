@@ -881,6 +881,8 @@ Plan or apply file-retention actions for host-side archive and backup artifacts.
 
 Start a new search-projection generation (or resume one that is already rebuilding) with the former start budget flags, or abandon an incomplete generation. Parked recovery is `traceary doctor --fix`. Lifecycle and budget inspection stay on `traceary doctor` (`search-projection-parked` / `search-projection-budget`). Catch-up on large stores is paged and may park when it cannot advance.
 
+`--projection-rebuild` stdout is JSON. Start and hash-mismatch replace emit a generation object (`result_kind=generation`). A matching-hash resume emits a run-result object (`result_kind=run`). Branch on `result_kind`; do not sniff fields. `--projection-abort` is a separate abandon object.
+
 ### `traceary session gc`
 
 Close stale still-open sessions. Admin-tier maintenance under the `session` namespace.

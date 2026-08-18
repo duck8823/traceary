@@ -175,6 +175,14 @@ type SearchProjectionRunResult struct {
 	StopReason          string                   `json:"stop_reason"`
 	ElapsedMilliseconds int64                    `json:"elapsed_milliseconds"`
 }
+
+// Discriminator values for store compact --projection-rebuild JSON.
+// Branch on result_kind; do not sniff structural fields.
+const (
+	SearchProjectionResultKindGeneration = "generation"
+	SearchProjectionResultKindRun        = "run"
+)
+
 type SearchProjectionAbandonResult struct {
 	GenerationID     string `json:"generation_id"`
 	State            string `json:"state"`

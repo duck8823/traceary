@@ -8,6 +8,7 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 ## [Unreleased]
 
 ### Fixed
+- **`store compact --projection-rebuild` JSON carries `result_kind` (#2111)** — start/replace emit `generation`; matching-hash resume emits `run`. Existing fields stay. Branch on `result_kind`; do not sniff the shape. `--projection-abort` is unchanged.
 - **Default `doctor` reports O(1) reclaimable pages and projection generation on ≥2 GiB stores (#2110)** — `mode=ro` reads `page_count` / `page_size` / `freelist_count` plus the `search_projection_state` singleton. `store-size` no longer calls growth unknown when those pragmas answer it. `store-capacity` stays skip; event bodies, dbstat, and migrations stay unread. Invalid sparse fixtures fail-soft.
 - **`store compact` exclusive lease acquisition times out instead of polling forever (#2120)** — default wait is 60s with a named lock-path error and stderr wait lines. An idle same-process shared flock still blocks exclusive until that pool is closed; the timeout makes the hang fail fast.
 - **`store compact` prints phase and replica-build progress on stderr (#2119)** — each journal phase emits a line; the build phase reports replica bytes versus the destination estimate about every 10s. stdout JSON is unchanged.

@@ -20,7 +20,7 @@ func (c *RootCLI) runStoreSearchProjectionStart(ctx context.Context, output io.W
 	if err != nil {
 		return err
 	}
-	return json.NewEncoder(output).Encode(got)
+	return encodeProjectionRebuildGeneration(output, got)
 }
 
 func (c *RootCLI) runStoreSearchProjectionRebuild(ctx context.Context, output io.Writer, budget apptypes.SearchProjectionBudget) error {
@@ -51,7 +51,7 @@ func (c *RootCLI) runStoreSearchProjectionResumeUntil(ctx context.Context, outpu
 	if err != nil {
 		return err
 	}
-	return json.NewEncoder(output).Encode(got)
+	return encodeProjectionRebuildRun(output, got)
 }
 
 func (c *RootCLI) runStoreSearchProjectionAbort(ctx context.Context, output io.Writer) error {
@@ -78,6 +78,30 @@ func (c *RootCLI) runStoreSearchProjectionInspect(ctx context.Context, output io
 
 func defaultProjectionRunOptions() apptypes.SearchProjectionRunOptions {
 	return apptypes.SearchProjectionRunOptions{MaxBatches: 100, TotalWallTime: 10 * time.Minute}
+}
+
+type projectionRebuildGenerationJSON struct {
+	ResultKind string `json:"result_kind"`
+	apptypes.SearchProjectionGeneration
+}
+
+type projectionRebuildRunJSON struct {
+	ResultKind string `json:"result_kind"`
+	apptypes.SearchProjectionRunResult
+}
+
+func encodeProjectionRebuildGeneration(output io.Writer, got apptypes.SearchProjectionGeneration) error {
+	return json.NewEncoder(output).Encode(projectionRebuildGenerationJSON{
+		ResultKind:                 apptypes.SearchProjectionResultKindGeneration,
+		SearchProjectionGeneration: got,
+	})
+}
+
+func encodeProjectionRebuildRun(output io.Writer, got apptypes.SearchProjectionRunResult) error {
+	return json.NewEncoder(output).Encode(projectionRebuildRunJSON{
+		ResultKind:                apptypes.SearchProjectionResultKindRun,
+		SearchProjectionRunResult: got,
+	})
 }
 
 type storeProjectionBudgetInput struct {

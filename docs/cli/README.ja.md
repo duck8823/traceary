@@ -872,6 +872,8 @@ GC 適格行を版付き archive package に export するか、package を検�
 
 新しい search-projection 世代を開始する（または既に rebuilding なら resume する）か、未完了世代を破棄します。parked 復旧は `traceary doctor --fix`。lifecycle と予算判定は `traceary doctor`（`search-projection-parked` / `search-projection-budget`）のままです。大きいストアの catch-up は page され、進まないときは park します。
 
+`--projection-rebuild` の stdout は JSON です。start と hash 不一致の置き換えは generation オブジェクト（`result_kind=generation`）。一致 resume は run-result オブジェクト（`result_kind=run`）。分岐は `result_kind` で行い、フィールド推測はしません。`--projection-abort` は別の abandon オブジェクトです。
+
 ### `traceary session gc`
 
 stale な未終了 session を閉じます。`session` 名前空間配下の admin 向け入口です。

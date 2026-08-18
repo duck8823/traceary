@@ -46,6 +46,8 @@ Current public commands, including compatibility aliases introduced after v0.15,
 
 The `traceary doctor` JSON envelope (`sections` / `summary` / `exit_code` / per-check fields), `traceary list --blocks --json` (`workspace_breakdown`; formerly `traceary timeline --json`), and the structured-text `traceary context --handoff` field labels (formerly `traceary session handoff`) are all part of the public contract. They are golden-tested under `presentation/cli/testdata/` — see [JSON and snapshot contract tests](./operations/json-contract-tests.md) for the contract test workflow.
 
+`traceary store compact --projection-rebuild` stdout is two JSON shapes. Branch on the additive `result_kind` field (`generation` for start/replace, `run` for a matching-hash resume). Do not sniff structural fields. `--projection-abort` is a separate abandon object and has no `result_kind`.
+
 `traceary doctor` defaults to exit code `0` for all-pass reports, `1` when any check fails, and `2` for warning-only reports. Automation that treats warnings as operator-visible drift but not a broken install should pass `--warnings-ok`; in that mode warning-only reports exit `0`, failures still exit `1`, and the JSON `summary` / per-check severities remain unchanged.
 
 > Public commands that are TTY-only (currently `traceary memory inbox review`) document the TTY requirement explicitly and exit with a non-zero code that names the scripted fallback when stdin/stdout is not a TTY. Adding a new TTY-only public command requires a documented batch fallback path.
