@@ -250,6 +250,9 @@ func run() error {
 		cli.WithStoreCompactionFactory(func(path string) application.StoreCompactionUsecase {
 			journal := &sqlite.CompactionFileJournal{Dir: filepath.Join(filepath.Dir(path), ".traceary-compaction")}
 			builder := &sqlite.SQLiteCompactionBuilder{}
+			sqlite.SetExclusiveLeaseWaitReporter(func(waited time.Duration, lockPath string) {
+				_, _ = fmt.Fprintf(os.Stderr, "compact: waiting for exclusive store lease (%s) on %s\n", waited.Round(time.Second), lockPath)
+			})
 			svc := usecase.NewStoreCompactionUsecase(path, journal, builder, sqlite.StoreReplacementFiles{CallerHoldsExclusiveLease: true}, sqlite.StoreLeaseCoordinator{})
 			usecase.BindCompactionWorkCover(svc, compactWorkCover(migrationsSubFS))
 			return svc

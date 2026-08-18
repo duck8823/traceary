@@ -52,6 +52,8 @@ func acquireAdvisoryLease(ctx context.Context, path string, exclusive bool) (adv
 	}
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
+	started := time.Now()
+	lastWait := started
 	for {
 		err = syscall.Flock(fd, mode)
 		if err == nil {
@@ -60,6 +62,13 @@ func acquireAdvisoryLease(ctx context.Context, path string, exclusive bool) (adv
 		if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EAGAIN) {
 			_ = file.Close()
 			return nil, fmt.Errorf("acquire store lease: %w", err)
+		}
+		if exclusive {
+			now := time.Now()
+			if reporter := exclusiveLeaseWaitReporter; reporter != nil && now.Sub(lastWait) >= exclusiveLeaseWaitInterval {
+				reporter(now.Sub(started), path)
+				lastWait = now
+			}
 		}
 		select {
 		case <-ctx.Done():
