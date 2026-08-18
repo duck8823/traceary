@@ -253,6 +253,9 @@ func run() error {
 			sqlite.SetExclusiveLeaseWaitReporter(func(waited time.Duration, lockPath string) {
 				_, _ = fmt.Fprintf(os.Stderr, "compact: waiting for exclusive store lease (%s) on %s\n", waited.Round(time.Second), lockPath)
 			})
+			sqlite.SetSharedLeaseWaitReporter(func(waited time.Duration, lockPath string) {
+				_, _ = fmt.Fprintf(os.Stderr, "traceary: waiting for shared store lease (%s) on %s\n", waited.Round(time.Second), lockPath)
+			})
 			svc := usecase.NewStoreCompactionUsecase(path, journal, builder, sqlite.StoreReplacementFiles{CallerHoldsExclusiveLease: true}, sqlite.StoreLeaseCoordinator{})
 			usecase.BindCompactionWorkCover(svc, compactWorkCover(migrationsSubFS))
 			return svc

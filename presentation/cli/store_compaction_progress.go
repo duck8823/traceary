@@ -21,6 +21,13 @@ func newCLICompactionProgress(w io.Writer) cliCompactionProgress {
 	return cliCompactionProgress{w: w, now: time.Now}
 }
 
+func (p cliCompactionProgress) OnWindow(name string) {
+	if p.w == nil || name == "" {
+		return
+	}
+	_, _ = fmt.Fprintf(p.w, "compact: %s\n", name)
+}
+
 func (p cliCompactionProgress) OnPhase(phase domain.CompactionPhase, destinationBytes uint64) {
 	if p.w == nil {
 		return

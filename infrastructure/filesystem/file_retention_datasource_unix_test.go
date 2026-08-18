@@ -38,13 +38,14 @@ func TestFileRetentionLiveGenerationHonorsContextWhileExclusiveLeaseHeld(t *test
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
 	started := time.Now()
-	if _, err := fileRetentionLiveGeneration(ctx, "backup", path); !errors.Is(err, context.DeadlineExceeded) {
+	_, liveErr := fileRetentionLiveGeneration(ctx, "backup", path)
+	if liveErr == nil || !strings.Contains(liveErr.Error(), "self-deadlock") {
 		release()
-		t.Fatalf("live generation error=%v, want deadline", err)
+		t.Fatalf("live generation error=%v, want same-process self-deadlock", liveErr)
 	}
 	if time.Since(started) > time.Second {
 		release()
-		t.Fatal("live generation did not cancel promptly")
+		t.Fatal("live generation did not fail promptly")
 	}
 	release()
 	if _, err := fileRetentionLiveGeneration(context.Background(), "backup", path); err != nil {

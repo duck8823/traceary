@@ -60,6 +60,7 @@ func (u *storeCompactionUsecase) Compact(ctx context.Context, in application.Com
 		return application.CompactResult{}, fmt.Errorf("compaction store binding mismatch")
 	}
 	cutoff := application.CompactCutoff(in.Now, in.KeepDays)
+	u.reportWindow("inspect_gate")
 	if setter, ok := u.builder.(compactFilterSetter); ok {
 		filter := application.CompactFilter{Cutoff: cutoff, WorkDir: strings.TrimSpace(in.WorkDir)}
 		if in.Force && u.cover != nil {
@@ -85,6 +86,7 @@ func (u *storeCompactionUsecase) Compact(ctx context.Context, in application.Com
 	if beforeErr != nil {
 		return application.CompactResult{}, fmt.Errorf("stat compaction source: %w", beforeErr)
 	}
+	u.reportWindow("exclusive_lease")
 	release, err := u.lease.AcquireExclusive(ctx, u.expectedStore)
 	if err != nil {
 		return application.CompactResult{}, err
@@ -92,6 +94,7 @@ func (u *storeCompactionUsecase) Compact(ctx context.Context, in application.Com
 	defer release()
 	// Measure after the exclusive lease so released_* matches the work-copy
 	// clear. A pre-lease SUM can miss a writer that lands before the copy.
+	u.reportWindow("inspect_reclaim")
 	var reclaim application.CommandBodyReclaim
 	if inspector, ok := u.builder.(application.CommandBodyReclaimInspector); ok {
 		measured, inspectErr := inspector.InspectCommandBodyReclaim(ctx, source)
@@ -114,6 +117,7 @@ func (u *storeCompactionUsecase) Compact(ctx context.Context, in application.Com
 	if strings.TrimSpace(in.WorkDir) != "" {
 		strategy = application.CompactStrategyExternal
 	}
+	u.reportWindow("plan")
 	run, err := u.compactLeased(ctx, source)
 	if err != nil {
 		if isInsufficientCompactionSpace(err) && strategy != application.CompactStrategyInPlace {
@@ -318,7 +322,20 @@ func (u *storeCompactionUsecase) planLeased(ctx context.Context, source string) 
 	if err := u.journal.Create(ctx, planned); err != nil {
 		return domain.CompactionRun{}, err
 	}
+	if u.progress != nil {
+		u.progress.OnPhase(planned.Phase, planned.Resources.DestinationBytes)
+	}
 	return planned, nil
+}
+
+type compactionWindowProgress interface {
+	OnWindow(name string)
+}
+
+func (u *storeCompactionUsecase) reportWindow(name string) {
+	if w, ok := u.progress.(compactionWindowProgress); ok {
+		w.OnWindow(name)
+	}
 }
 
 func (u *storeCompactionUsecase) Apply(ctx context.Context, id string) (domain.CompactionRun, error) {

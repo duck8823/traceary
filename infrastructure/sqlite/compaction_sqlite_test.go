@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -174,6 +175,47 @@ func TestStoreCompactionSmallAllocatedShapeE2E(t *testing.T) {
 	}
 	if restored.Inode != original.Inode {
 		t.Fatalf("original inode not restored: %d != %d", restored.Inode, original.Inode)
+	}
+}
+
+func TestCompact_CompletesWhileOtherProcessWaitsForSharedLease(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	source := filepath.Join(dir, "source.db")
+	db, err := sql.Open("sqlite", directSQLiteRWDSNCreate(source))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TABLE sample(id INTEGER PRIMARY KEY, body BLOB); INSERT INTO sample(body) VALUES(zeroblob(65536)),('queryable')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	journal := &CompactionFileJournal{Dir: filepath.Join(dir, "journal")}
+	service := usecase.NewStoreCompactionUsecase(source, journal, SQLiteCompactionBuilder{}, StoreReplacementFiles{CallerHoldsExclusiveLease: true}, StoreLeaseCoordinator{})
+	done := make(chan error, 1)
+	go func() {
+		_, compactErr := service.Compact(ctx, application.CompactInput{Source: source})
+		done <- compactErr
+	}()
+	time.Sleep(50 * time.Millisecond)
+	cmd := exec.Command(os.Args[0], "-test.run=^TestStoreLeaseHelperProcess$")
+	cmd.Env = append(os.Environ(), "TRACEARY_STORE_LEASE_HELPER=1", "TRACEARY_STORE_LEASE_PATH="+source)
+	if startErr := cmd.Start(); startErr != nil {
+		t.Fatal(startErr)
+	}
+	defer func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	}()
+	select {
+	case compactErr := <-done:
+		if compactErr != nil {
+			t.Fatalf("Compact: %v", compactErr)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("Compact stalled while another process waited for a shared lease")
 	}
 }
 

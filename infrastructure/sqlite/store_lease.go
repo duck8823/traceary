@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sync"
@@ -15,16 +16,35 @@ const storeLeaseSuffix = ".traceary.lock"
 
 // exclusiveLeaseAcquireTimeout bounds exclusive flock polling when the
 // caller did not set a deadline. A same-process idle shared lease used
-// to wait forever (#2120).
+// to wait forever (#2120). Shared acquire uses the same default (#2149).
 const exclusiveLeaseAcquireTimeout = 60 * time.Second
+
+const sharedLeaseAcquireTimeout = exclusiveLeaseAcquireTimeout
+
+// errStoreLeaseSelfDeadlock is returned when this process already holds
+// the exclusive lease and then requests a shared flock on a second fd.
+// flock is per open file description; that poll can never succeed (#2149).
+var errStoreLeaseSelfDeadlock = errors.New("store lease self-deadlock")
 
 var exclusiveLeaseWaitInterval = 10 * time.Second
 
 var exclusiveLeaseWaitReporter func(waited time.Duration, lockPath string)
 
+var sharedLeaseWaitReporter func(waited time.Duration, lockPath string)
+
+// exclusiveHeldByProcess tracks lock paths whose exclusive fd is held
+// by this process. Connect consults it before polling LOCK_SH.
+var exclusiveHeldByProcess sync.Map
+
 // SetExclusiveLeaseWaitReporter installs a stderr-style waiter hook.
 func SetExclusiveLeaseWaitReporter(fn func(waited time.Duration, lockPath string)) {
 	exclusiveLeaseWaitReporter = fn
+}
+
+// SetSharedLeaseWaitReporter installs a stderr-style waiter hook for
+// shared flock polling.
+func SetSharedLeaseWaitReporter(fn func(waited time.Duration, lockPath string)) {
+	sharedLeaseWaitReporter = fn
 }
 
 func bindExclusiveLeaseDeadline(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -32,6 +52,22 @@ func bindExclusiveLeaseDeadline(ctx context.Context) (context.Context, context.C
 		return ctx, func() {}
 	}
 	return context.WithTimeout(ctx, exclusiveLeaseAcquireTimeout)
+}
+
+func bindSharedLeaseDeadline(ctx context.Context) (context.Context, context.CancelFunc) {
+	if _, hasDeadline := ctx.Deadline(); hasDeadline {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, sharedLeaseAcquireTimeout)
+}
+
+func processHoldsExclusiveLease(lockPath string) bool {
+	_, ok := exclusiveHeldByProcess.Load(lockPath)
+	return ok
+}
+
+func selfDeadlockError(lockPath string) error {
+	return fmt.Errorf("%w on %s: this process already holds the exclusive lease", errStoreLeaseSelfDeadlock, lockPath)
 }
 
 func canonicalStorePath(path string) (string, error) {
@@ -77,8 +113,14 @@ func (StoreLeaseCoordinator) AcquireExclusive(ctx context.Context, path string) 
 		_ = lease.Close()
 		return nil, err
 	}
+	exclusiveHeldByProcess.Store(lockPath, struct{}{})
 	var once sync.Once
-	return func() { once.Do(func() { _ = lease.Close() }) }, nil
+	return func() {
+		once.Do(func() {
+			exclusiveHeldByProcess.Delete(lockPath)
+			_ = lease.Close()
+		})
+	}, nil
 }
 
 func probeStoreLeaseCapability(ctx context.Context, path string) error {
@@ -123,9 +165,14 @@ func (c *storeLeaseConnector) Connect(ctx context.Context) (driver.Conn, error) 
 	if err := validateStoreLinkIdentity(c.storePath); err != nil {
 		return nil, err
 	}
+	if processHoldsExclusiveLease(c.lockPath) {
+		return nil, selfDeadlockError(c.lockPath)
+	}
+	ctx, cancel := bindSharedLeaseDeadline(ctx)
+	defer cancel()
 	lease, err := acquireAdvisoryLease(ctx, c.lockPath, false)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("wait for shared store lease on %s: %w; inspect holders with lsof %s", c.lockPath, err, c.lockPath)
 	}
 	conn, err := c.driver.Open(c.dsn)
 	if err != nil {
