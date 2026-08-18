@@ -115,6 +115,7 @@ func TestRootCLI_HookAntigravityStopReplayUsesStableDeliveryLedger(t *testing.T)
 		t.Fatalf("delivery attempts accepted/exact/conflict = %d/%d/%d, want 2/2/0", accepted, exact, conflicts)
 	}
 
+	setTracearyPathToCurrentExecutableAt(t, filepath.Join(t.TempDir(), "bin"))
 	reportCmd := newTestRootCLI(
 		cli.WithStoreManagement(storeUC),
 		cli.WithWorkspaceIdentity(identityUC),

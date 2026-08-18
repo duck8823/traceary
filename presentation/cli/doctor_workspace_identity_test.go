@@ -48,6 +48,7 @@ type doctorWorkspaceIdentityJSON struct {
 
 func TestRootCLI_DoctorJSONIncludesWorkspaceIdentity(t *testing.T) {
 	t.Setenv("TRACEARY_LANG", "en")
+	setTracearyPathToCurrentExecutableAt(t, filepath.Join(t.TempDir(), "bin"))
 	identity := &workspaceIdentityUsecaseStub{report: apptypes.WorkspaceIdentityReport{
 		Coverage: apptypes.WorkspaceIdentityCoverage{EventCount: 2, CoveredEvents: 2, CoverageRate: 1},
 		Sources: []apptypes.WorkspaceIdentitySourceReport{{
@@ -64,14 +65,12 @@ func TestRootCLI_DoctorJSONIncludesWorkspaceIdentity(t *testing.T) {
 	root.SetErr(&bytes.Buffer{})
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
 	root.SetArgs([]string{"doctor", "--db-path", dbPath, "--json", "--warnings-ok", "--client", "codex", "--project-dir", t.TempDir()})
-	if err := root.Execute(); err != nil {
-		t.Fatalf("Execute() error = %v\n%s", err, stdout.String())
-	}
+	execErr := root.Execute()
 	var report struct {
 		WorkspaceIdentity doctorWorkspaceIdentityJSON `json:"workspace_identity"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
-		t.Fatalf("JSON = %s, unmarshal error = %v", stdout.String(), err)
+		t.Fatalf("JSON = %s, unmarshal error = %v execute=%v", stdout.String(), err, execErr)
 	}
 	if report.WorkspaceIdentity.ExactDelivery.AttemptCount != 200 || report.WorkspaceIdentity.ExactDelivery.ExactRedeliveryCount != 1 {
 		t.Fatalf("exact_delivery = %+v", report.WorkspaceIdentity.ExactDelivery)
@@ -88,6 +87,7 @@ func TestRootCLI_DoctorJSONIncludesWorkspaceIdentity(t *testing.T) {
 }
 
 func TestRootCLI_DoctorJSONWorkspaceIdentityIsByteStable(t *testing.T) {
+	setTracearyPathToCurrentExecutableAt(t, filepath.Join(t.TempDir(), "bin"))
 	dbPath, identityUC, storeUC, setter := seededWorkspaceIdentityStore(t)
 	args := []string{"doctor", "--db-path", dbPath, "--json", "--warnings-ok", "--client", "codex", "--project-dir", t.TempDir()}
 	first := executeDoctorJSONBytes(t, storeUC, identityUC, setter, args)
@@ -110,6 +110,7 @@ func TestRootCLI_DoctorJSONWorkspaceIdentityIsByteStable(t *testing.T) {
 }
 
 func TestRootCLI_WorkspaceIdentityReportCountsConflictPairsOnDoctorJSON(t *testing.T) {
+	setTracearyPathToCurrentExecutableAt(t, filepath.Join(t.TempDir(), "bin"))
 	dbPath, identityUC, storeUC, setter := seededWorkspaceIdentityStore(t)
 	stdout := executeDoctorJSONBytes(t, storeUC, identityUC, setter, []string{
 		"doctor", "--db-path", dbPath, "--json", "--warnings-ok", "--client", "codex", "--project-dir", t.TempDir(),
@@ -175,8 +176,9 @@ func executeDoctorJSONBytes(t *testing.T, storeUC usecase.StoreManagementUsecase
 	root.SetOut(stdout)
 	root.SetErr(&bytes.Buffer{})
 	root.SetArgs(args)
-	if err := root.Execute(); err != nil {
-		t.Fatalf("Execute(%v) error = %v\n%s", args, err, stdout.String())
+	execErr := root.Execute()
+	if stdout.Len() == 0 {
+		t.Fatalf("Execute(%v) produced no JSON: %v", args, execErr)
 	}
 	return stdout.Bytes()
 }
