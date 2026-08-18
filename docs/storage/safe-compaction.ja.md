@@ -39,6 +39,15 @@ run中にopenerが現れたことを意味し、runは中止されます。
 
 このsidecar recoveryは`store compact`に限られます。
 
+`hook memory-extract-worker` は Extract job のあいだ shared store lease を保持します。
+次の job を始める前に、lease file の隣にある内部 compact-pending marker を見ます。
+marker があるときは新しい job を始めません。実行中の job は最後まで走り、worker は
+残ジョブを spool に残して終了します。compact は exclusive lease 待ちの前にこの
+marker を書き、lease 解放時に消します。exclusive timeout のエラーは、`lsof` が
+見えるとき holder の pid と command を含みます。extract worker を kill しないで
+ください。backoff で空きができます。spool を空にしたいときだけ `doctor --fix` です。
+
+
 退役済み検索インデックスは work copy 上で DROP します。source に残っていても
 compact は拒否しません。詳細は
 [`search-retirement.ja.md`](../operations/search-retirement.ja.md) を参照して

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -560,6 +561,39 @@ func TestInspectHookMemoryExtractDiagnostics_FixFuncDrains(t *testing.T) {
 	}
 	if launched != 1 {
 		t.Fatalf("launched = %d", launched)
+	}
+}
+
+func TestRunHookMemoryExtractWorker_BacksOffWhenCompactPending(t *testing.T) {
+	t.Setenv(hookStateDirEnvKey, t.TempDir())
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	request := hookMemoryExtractRequest{
+		SessionID:      types.SessionID("backoff-pending"),
+		Workspace:      types.Workspace("traceary"),
+		DBPath:         dbPath,
+		SourceBoundary: "session_end",
+	}
+	path, err := enqueueHookMemoryExtract(request, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+	marker, err := storeCompactPendingMarkerPath(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(marker, []byte(strconv.Itoa(os.Getpid())+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	root := &RootCLI{}
+	if err := root.runHookMemoryExtractWorker(context.Background(), path); err != nil {
+		t.Fatalf("pending worker must no-op, got %v", err)
+	}
+	got, err := readHookMemoryExtractJob(path)
+	if err != nil {
+		t.Fatalf("read after: %v", err)
+	}
+	if got.Attempts != 0 {
+		t.Fatalf("backoff must not consume an attempt, attempts=%d", got.Attempts)
 	}
 }
 
