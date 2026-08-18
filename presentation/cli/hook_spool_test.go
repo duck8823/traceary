@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -1701,6 +1702,135 @@ func TestRequeueHookSpoolDeadLetters_MovesTransientAndKeepsPoison(t *testing.T) 
 	}
 	if pendingJSON != 2 {
 		t.Fatalf("pending JSON count=%d, want 2", pendingJSON)
+	}
+}
+
+func writeTransientDeadLetter(t *testing.T, deadDir, name string) {
+	t.Helper()
+	record := hookSpoolRecord{
+		SchemaVersion: hookSpoolSchemaVersion,
+		Command:       "usage",
+		Client:        "kimi",
+		Payload:       `{"sentinel":"PRIVATE-BODY"}`,
+		CreatedAt:     time.Now().UTC(),
+		AttemptCount:  hookSpoolRetryLimit,
+		LastError:     "failed to ping SQLite DB: context deadline exceeded",
+	}
+	encoded, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(deadDir, name), append(encoded, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRequeueHookSpoolDeadLettersUntil_DrainsBeyondBatchLimitWithinBudget(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	deadDir := filepath.Join(stateDir, "spool", hookSpoolDeadDirName)
+	if err := os.MkdirAll(deadDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	const extra = 17
+	total := hookSpoolDeadRequeueLimit + extra
+	for i := 0; i < total; i++ {
+		writeTransientDeadLetter(t, deadDir, fmt.Sprintf("t-%04d.json", i))
+	}
+	writeDead := hookSpoolRecord{
+		SchemaVersion: hookSpoolSchemaVersion,
+		Command:       "usage",
+		Client:        "claude",
+		Payload:       `{}`,
+		CreatedAt:     time.Now().UTC(),
+		AttemptCount:  hookSpoolRetryLimit,
+		LastError:     "invalid Claude usage JSON event",
+	}
+	encoded, err := json.Marshal(writeDead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(deadDir, "poison.json"), append(encoded, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	dryRequeued, drySkipped, _, err := requeueHookSpoolDeadLettersUntil(context.Background(), time.Now().UTC(), true)
+	if err != nil {
+		t.Fatalf("dry-run: %v", err)
+	}
+	if dryRequeued != total || drySkipped != 1 {
+		t.Fatalf("dry-run requeued=%d skipped=%d, want %d and 1", dryRequeued, drySkipped, total)
+	}
+	if entries, err := os.ReadDir(deadDir); err != nil || len(entries) != total+1 {
+		t.Fatalf("dry-run must leave dead files, n=%d err=%v", len(entries), err)
+	}
+
+	requeued, skipped, remaining, err := requeueHookSpoolDeadLettersUntil(context.Background(), time.Now().UTC(), false)
+	if err != nil {
+		t.Fatalf("requeue: %v", err)
+	}
+	if requeued != total || skipped != 1 || remaining != 1 {
+		t.Fatalf("requeued=%d skipped=%d remaining=%d, want %d, 1, 1", requeued, skipped, remaining, total)
+	}
+}
+
+func TestRequeueHookSpoolDeadLettersUntil_StopsWhenWallClockExpires(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	deadDir := filepath.Join(stateDir, "spool", hookSpoolDeadDirName)
+	if err := os.MkdirAll(deadDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	total := hookSpoolDeadRequeueLimit + 40
+	for i := 0; i < total; i++ {
+		writeTransientDeadLetter(t, deadDir, fmt.Sprintf("t-%04d.json", i))
+	}
+
+	origin := time.Date(2026, 8, 18, 0, 0, 0, 0, time.UTC)
+	calls := 0
+	hookSpoolDeadRequeueClock = func() time.Time {
+		calls++
+		// deadline is taken from the first call; the third call is the
+		// start of the second batch and must be past the 45s wall.
+		if calls >= 3 {
+			return origin.Add(hookSpoolDeadRequeueDoctorWall + time.Second)
+		}
+		return origin
+	}
+	t.Cleanup(func() { hookSpoolDeadRequeueClock = nil })
+
+	requeued, _, remaining, err := requeueHookSpoolDeadLettersUntil(context.Background(), origin, false)
+	if err != nil {
+		t.Fatalf("requeue: %v", err)
+	}
+	if requeued != hookSpoolDeadRequeueLimit {
+		t.Fatalf("requeued=%d, want first batch only (%d)", requeued, hookSpoolDeadRequeueLimit)
+	}
+	if remaining != total-hookSpoolDeadRequeueLimit {
+		t.Fatalf("remaining=%d, want %d", remaining, total-hookSpoolDeadRequeueLimit)
+	}
+}
+
+func TestFixHookSpoolDeadLettersFilesystem_DryRunPreviewsFullDrain(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	deadDir := filepath.Join(stateDir, "spool", hookSpoolDeadDirName)
+	if err := os.MkdirAll(deadDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	total := hookSpoolDeadRequeueLimit + 9
+	for i := 0; i < total; i++ {
+		writeTransientDeadLetter(t, deadDir, fmt.Sprintf("t-%04d.json", i))
+	}
+	result, err := fixHookSpoolDeadLettersFilesystem(context.Background(), time.Now().UTC(), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(result.Action, fmt.Sprintf("would requeue %d transient", total)) {
+		t.Fatalf("dry-run action=%q, want full planned count %d", result.Action, total)
+	}
+	if entries, err := os.ReadDir(deadDir); err != nil || len(entries) != total {
+		t.Fatalf("dry-run must leave files, n=%d err=%v", len(entries), err)
 	}
 }
 

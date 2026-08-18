@@ -50,6 +50,10 @@ const (
 	hookSpoolDeadRetention    = 14 * 24 * time.Hour
 	hookSpoolDeadPruneLimit   = 200
 	hookSpoolDeadRequeueLimit = 200
+	// hookSpoolDeadRequeueDoctorWall bounds one doctor --fix requeue drain.
+	// The per-batch cap stays hookSpoolDeadRequeueLimit; the loop continues
+	// while headroom remains, matching hook-state residue / extract queue.
+	hookSpoolDeadRequeueDoctorWall = 45 * time.Second
 	// Claimed paths are pending/*.json.claim-<rand> so listHookSpoolRecordPaths
 	// (suffix .json only) cannot pick them up while another process owns them.
 	hookSpoolClaimMarker = ".claim-"
@@ -951,7 +955,54 @@ func hookSpoolDeadOverThreshold(stats hookSpoolFilesystemStats) bool {
 	return stats.DeadCount >= hookSpoolDeadWarnCount || stats.DeadBytes >= hookSpoolDeadWarnBytes
 }
 
+// hookSpoolDeadRequeueClock is the wall clock used by doctor --fix requeue
+// loops. Tests replace it; production leaves it nil so time.Now.UTC is used.
+var hookSpoolDeadRequeueClock func() time.Time
+
+func hookSpoolDeadRequeueNow() time.Time {
+	if hookSpoolDeadRequeueClock != nil {
+		return hookSpoolDeadRequeueClock()
+	}
+	return time.Now().UTC()
+}
+
 func requeueHookSpoolDeadLetters(ctx context.Context, now time.Time, dryRun bool) (requeued, skipped, remaining int, err error) {
+	return requeueHookSpoolDeadLettersLimited(ctx, now, dryRun, hookSpoolDeadRequeueLimit)
+}
+
+// requeueHookSpoolDeadLettersUntil loops bounded requeue batches until the
+// dead-letter directory has no remaining transients or the doctor wall clock
+// is exhausted. Dry-run counts every requeueable record in one pass (no cap)
+// so the preview is the full planned drain, not the first batch.
+func requeueHookSpoolDeadLettersUntil(ctx context.Context, now time.Time, dryRun bool) (requeued, skipped, remaining int, err error) {
+	if dryRun {
+		return requeueHookSpoolDeadLettersLimited(ctx, now, true, 0)
+	}
+	deadline := hookSpoolDeadRequeueNow().Add(hookSpoolDeadRequeueDoctorWall)
+	for {
+		if err := ctx.Err(); err != nil {
+			return requeued, skipped, remaining, xerrors.Errorf("hook spool dead-letter requeue cancelled: %w", err)
+		}
+		if !hookSpoolDeadRequeueNow().Before(deadline) {
+			// Dry-run unlimited counts leftover transients as requeued, not
+			// remaining. Fold them back so remaining is files still in dead/.
+			wouldRequeue, leftoverSkipped, leftoverRemaining, inspectErr := requeueHookSpoolDeadLettersLimited(ctx, now, true, 0)
+			return requeued, leftoverSkipped, leftoverRemaining + wouldRequeue, inspectErr
+		}
+		batchRequeued, batchSkipped, batchRemaining, batchErr := requeueHookSpoolDeadLettersLimited(ctx, now, false, hookSpoolDeadRequeueLimit)
+		requeued += batchRequeued
+		skipped = batchSkipped
+		remaining = batchRemaining
+		if batchErr != nil {
+			return requeued, skipped, remaining, batchErr
+		}
+		if batchRequeued == 0 {
+			return requeued, skipped, remaining, nil
+		}
+	}
+}
+
+func requeueHookSpoolDeadLettersLimited(ctx context.Context, now time.Time, dryRun bool, limit int) (requeued, skipped, remaining int, err error) {
 	dir, err := hookSpoolDir()
 	if err != nil {
 		return 0, 0, 0, err
@@ -984,7 +1035,7 @@ func requeueHookSpoolDeadLetters(ctx context.Context, now time.Time, dryRun bool
 			remaining++
 			continue
 		}
-		if requeued >= hookSpoolDeadRequeueLimit {
+		if limit > 0 && requeued >= limit {
 			remaining++
 			continue
 		}
@@ -1120,7 +1171,7 @@ func inspectHookSpoolFilesystemMetadata() doctorCheck {
 }
 
 func fixHookSpoolDeadLettersFilesystem(ctx context.Context, now time.Time, dryRun bool) (doctorFixResult, error) {
-	requeued, skippedNontransient, _, err := requeueHookSpoolDeadLetters(ctx, now, dryRun)
+	requeued, skippedNontransient, _, err := requeueHookSpoolDeadLettersUntil(ctx, now, dryRun)
 	if err != nil {
 		return doctorFixResult{}, err
 	}
@@ -1247,7 +1298,7 @@ func (c *RootCLI) inspectHookSpoolDiagnosticsFromScan(
 		if err != nil {
 			return doctorFixResult{}, err
 		}
-		requeued, skippedNontransient, _, err := requeueHookSpoolDeadLetters(ctx, now, dryRun)
+		requeued, skippedNontransient, _, err := requeueHookSpoolDeadLettersUntil(ctx, now, dryRun)
 		if err != nil {
 			return doctorFixResult{}, err
 		}
