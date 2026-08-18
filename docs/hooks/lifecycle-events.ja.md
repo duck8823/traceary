@@ -59,7 +59,7 @@
 ### `session_ended`
 
 - `sessions` 行の終了境界として記録される。
-- Claude / Gemini は専用の `SessionEnd` を持つ。Codex は `SessionEnd` を公開しておらず、`Stop` は assistant 応答ごとに発火する turn 境界（セッション終了ではない）であるため、Codex session は明示的な信号 (`traceary session end`) または stale GC (`traceary session gc`) でのみ終了する（[host-coverage.ja.md](./host-coverage.ja.md) と #1170 参照）。
+- Claude / Gemini は専用の `SessionEnd` を持つ。Codex は `SessionEnd` を公開しておらず、`Stop` は assistant 応答ごとに発火する turn 境界（セッション終了ではない）であるため、Codex session は明示的な信号 (`traceary session end`) または stale GC（hook の opportunistic GC / `traceary doctor --fix`）でのみ終了する（[host-coverage.ja.md](./host-coverage.ja.md) と #1170 参照）。
 - best-effort: ホストが hook を発火させずに終了するケース（kill -9、シェルクラッシュ）もあり、dangling session は L2 reconciliation で吸収し、長時間アイドルな open session は stale GC で閉じる。
 
 #### Traceary が終了を確定できる完結型セッション
@@ -78,9 +78,8 @@ terminal reason に先行することはできません。
 子プロセスの正常終了は、競合する deadline またはキャンセルより優先されます。
 Unix では、子プロセスが非ゼロで終了したことを確認できる場合、その結果は
 failure のままです。非 Unix のフォールバックでは、その終了と supervisor による
-終了を区別できない場合、保守的に context の結果を使用します。古い単発セッションは、
-[`traceary session repair-one-shot`](../operations/one-shot-repair.ja.md) を使用して
-調査および修復できます。
+終了を区別できない場合、保守的に context の結果を使用します。旧 [`session repair-one-shot`](../operations/one-shot-repair.ja.md)
+は v0.43.0 (#2122) で廃止され、idle session は hook の opportunistic GC と `traceary doctor --fix` が終了します。
 
 ## Antigravity（v0.21.1+）
 

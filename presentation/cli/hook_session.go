@@ -273,7 +273,8 @@ func (c *RootCLI) runHookSession(
 		// keep the session row open and the hook state intact so later
 		// prompts and tool audits resolve to the same session. A session
 		// now ends via an explicit end signal (hook end action,
-		// `traceary session end`) or stale GC (`traceary session gc`).
+		// `traceary session end`) or stale GC (hook opportunistic GC /
+		// `traceary doctor --fix`).
 		sessionID := types.SessionID(hookPayloadString(payload, "session_id", ""))
 		if sessionID == "" {
 			var err error

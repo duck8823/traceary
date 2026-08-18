@@ -19,6 +19,9 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 - **Root unknown-command errors and `--index-family-bytes` help follow `ui.language` (#2114)** — `traceary nosuchcmd` uses the same catalog as unknown subcommands (suggestions stay). `store compact --help` no longer leaves `--index-family-bytes` in English-only.
 - **`doctor --fix` drains transient dead-letter requeue under the 45s wall (#2109)** — the 200-record batch cap remains, but batches loop until the spool is empty or the fixer wall clock is exhausted. `--dry-run` previews the full planned requeue count. Fixes-line counters are unchanged.
 
+### Removed
+- **`traceary session gc` and `traceary session repair-one-shot` (#2122)** — both fail as unknown subcommands (non-zero, no `DEPRECATED` notice). Stale still-open sessions are closed by hook opportunistic GC and `traceary doctor --fix` (24h window). The custom `--stale-after` knob is gone. Historical one-shot rows stay as recorded.
+
 ### Docs
 - Host update paths for Gemini, Antigravity, and Codex match the v0.42 dogfood workarounds (#2116). Gemini uses `scripts/install-gemini-extension.sh` (tag-pinned, `--consent`, uninstall-first). Antigravity documents rsync / `agy plugin install`. Codex documents headless `codex plugin add` and the local-path `marketplace upgrade` limitation.
 - README quickstart samples no longer show the removed `timeline` / `tail` commands (#2117). Use `list --blocks` / `list --follow`.

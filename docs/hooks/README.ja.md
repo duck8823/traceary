@@ -257,7 +257,7 @@ SQLite concurrency の前提、PPID ベース hook state の注意点、その�
 2. `traceary` が `PATH` に無いなら、`--traceary-bin` 付きで config を再生成して絶対パスへ固定する
 3. Codex session を開始し、`traceary list --limit 10` を確認する
 
-Codex の `Stop` は assistant 応答ごとに発火するため、Traceary は turn 境界の transcript として記録し session は開いたままにします (#1170)。Codex session は明示的な終了 (`traceary session end`) または activity-aware stale GC で終了します。GC は通常の hook start 後にデータベースごと最大 6 時間に 1 回自動実行され、`traceary session gc` は手動・定期実行のフォールバックとして利用できます。
+Codex の `Stop` は assistant 応答ごとに発火するため、Traceary は turn 境界の transcript として記録し session は開いたままにします (#1170)。Codex session は明示的な終了 (`traceary session end`) または activity-aware stale GC で終了します。GC は通常の hook start 後にデータベースごと最大 6 時間に 1 回自動実行され、手動・定期実行のフォールバックは `traceary doctor --fix` です。
 
 終了まで監督できる単発実行には `traceary session run -- codex exec ...` を使います。Traceary がプロセスを監督して終了理由を 1 回だけ確定し、`Stop` をセッション終了とは解釈しません。詳細は [ライフサイクルイベント](./lifecycle-events.ja.md#traceary-が終了を確定できる完結型セッション) を参照してください。
 

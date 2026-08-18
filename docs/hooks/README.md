@@ -257,7 +257,7 @@ For SQLite concurrency expectations, PPID-based hook state caveats, and other kn
 2. Ensure `traceary` is available in `PATH`, or regenerate the config with `--traceary-bin` so it uses a pinned binary path.
 3. Start a Codex session and inspect `traceary list --limit 10`.
 
-Codex `Stop` fires after every assistant response, so Traceary records it as a turn-boundary transcript and keeps the session open (#1170). A Codex session ends via an explicit signal (`traceary session end`) or activity-aware stale GC. GC runs automatically after normal hook starts at most once every six hours per database; `traceary session gc` remains available for manual or scheduled fallback.
+Codex `Stop` fires after every assistant response, so Traceary records it as a turn-boundary transcript and keeps the session open (#1170). A Codex session ends via an explicit signal (`traceary session end`) or activity-aware stale GC. GC runs automatically after normal hook starts at most once every six hours per database; `traceary doctor --fix` is the manual or scheduled fallback.
 
 For bounded invocations, `traceary session run -- codex exec ...` is the explicit alternative. Traceary supervises the process and records one authoritative terminal reason without interpreting `Stop` as session completion. See [Lifecycle Events](./lifecycle-events.md#authoritative-one-shot-sessions).
 

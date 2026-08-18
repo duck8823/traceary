@@ -687,10 +687,9 @@ deadline の経過がキャンセルより優先され、続いて signal によ
 上記の terminal-reason taxonomy は、コマンド監査の `--failure-reason` enum とは
 異なります。
 
-古い単発セッションの調査と修復には、
-[`traceary session repair-one-shot`](../operations/one-shot-repair.ja.md) を使用します。
-このコマンドはデフォルトでは dry-run です。修復を適用するには、バックアップと
-検証済みの evidence manifest が必要です。
+旧 [`session repair-one-shot`](../operations/one-shot-repair.ja.md) は
+v0.43.0 (#2122) で廃止されました。idle session は hook の opportunistic GC と
+`traceary doctor --fix` が終了します。
 
 ### `traceary session refine <session-id>`
 
@@ -721,7 +720,7 @@ Traceary は要約テキストを合成しません。渡された内容を保�
 | `active` | end marker がなく stale window 内。 |
 | `stale` | end marker がないが stale window（default 24h）より前に開始。 |
 | `ended` | end marker があり、その後にイベントがない。 |
-| `ended_with_late_events` | end marker があるが、同じ session で後続イベントが到着した。end marker は `session_ended` イベント由来、または `session gc` が `ended_at` を直接書き込んだものの場合がある。 |
+| `ended_with_late_events` | end marker があるが、同じ session で後続イベントが到着した。end marker は `session_ended` イベント由来、または stale-session close が `ended_at` を直接書き込んだものの場合がある。 |
 
 これらの値を出していた公開 `sessions --snapshot` は v0.42.0 で削除されました（#2061）。`ended_with_late_events` は、host が session を早期に close したあとでも後続 workspace イベントがあるとき、hook / handoff 解決が session を見失わないための値です（例: Codex）。
 
@@ -873,14 +872,6 @@ GC 適格行を版付き archive package に export するか、package を検�
 新しい search-projection 世代を開始する（または既に rebuilding なら resume する）か、未完了世代を破棄します。parked 復旧は `traceary doctor --fix`。lifecycle と予算判定は `traceary doctor`（`search-projection-parked` / `search-projection-budget`）のままです。大きいストアの catch-up は page され、進まないときは park します。
 
 `--projection-rebuild` の stdout は JSON です。start と hash 不一致の置き換えは generation オブジェクト（`result_kind=generation`）。一致 resume は run-result オブジェクト（`result_kind=run`）。分岐は `result_kind` で行い、フィールド推測はしません。`--projection-abort` は別の abandon オブジェクトです。
-
-### `traceary session gc`
-
-stale な未終了 session を閉じます。`session` 名前空間配下の admin 向け入口です。
-
-### `traceary session repair-one-shot`
-
-レビュー済みの one-shot session-repair 証拠ファイル（`--evidence-file`）を適用します。`--apply` で書き込み、無いときは dry preview です。
 
 ### `traceary bundle export|import`
 

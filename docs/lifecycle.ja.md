@@ -38,7 +38,7 @@ SessionStart → [UserPromptSubmit → PostToolUse → Stop]*
 | PostToolUse | `command_executed` | ツール実行 |
 | Stop | `transcript` | 各 turn の最終 assistant メッセージ。セッション終了ではなく turn 境界 (#1170) |
 
-**制限**: host レベルのセッション終了信号なし — Codex は assistant 応答ごとに `Stop` を fire するため、Codex session は明示的な終了 (`traceary session end`) または stale GC (`traceary session gc`) まで開いたままになります。`compact` hook はなく、failure 専用イベントもありません。
+**制限**: host レベルのセッション終了信号なし — Codex は assistant 応答ごとに `Stop` を fire するため、Codex session は明示的な終了 (`traceary session end`) または stale GC（hook の opportunistic GC / `traceary doctor --fix`）まで開いたままになります。`compact` hook はなく、failure 専用イベントもありません。
 
 ### Gemini CLI (Tier 3: 基本対応) — *レガシー互換*
 
@@ -70,7 +70,7 @@ SessionStart → [AfterTool]* → SessionEnd
 | PostToolUse (`run_command`) | `command_executed` | 同一 step の `PreToolUse` のコマンドと突き合わせて監査を記録（step の `error` 付き） |
 | Stop | `transcript` | ホストが `Stop` を発行した場合の `transcriptPath` の turn transcript と turn 境界。セッションは閉じない (#1170) |
 
-**制限**: `SessionStart` がなく（最初の信号は `PreInvocation`）、host のセッション終了信号もありません — Codex 同様 `Stop` は execution 単位の turn 境界なので、Antigravity session は明示的な終了 (`traceary session end`) または stale GC (`traceary session gc`) まで開いたままです。audit 対象は `run_command` tool のみで、`transcriptPath` からの prompt/transcript 抽出は best-effort です。現在の interactive と headless `agy --print` は Stop を発行し、`antigravity-event-coverage` が recent DB 証拠から実行時の欠落を検出します。詳細は [capture matrix](./integrations/antigravity.ja.md) を参照してください。
+**制限**: `SessionStart` がなく（最初の信号は `PreInvocation`）、host のセッション終了信号もありません — Codex 同様 `Stop` は execution 単位の turn 境界なので、Antigravity session は明示的な終了 (`traceary session end`) または stale GC（hook の opportunistic GC / `traceary doctor --fix`）まで開いたままです。audit 対象は `run_command` tool のみで、`transcriptPath` からの prompt/transcript 抽出は best-effort です。現在の interactive と headless `agy --print` は Stop を発行し、`antigravity-event-coverage` が recent DB 証拠から実行時の欠落を検出します。詳細は [capture matrix](./integrations/antigravity.ja.md) を参照してください。
 
 > **v0.21 注**: Gemini CLI はレガシー互換パスです。後継ホストの Antigravity は v0.21.1 で Traceary のサポート対象 hook クライアントになりました（v0.21.0 は capability 診断のみ）。詳細は [Antigravity 統合状況](./integrations/antigravity.ja.md) を参照してください。
 
@@ -78,16 +78,15 @@ SessionStart → [AfterTool]* → SessionEnd
 
 単発セッションは、`traceary session run` が監視対象の子プロセスを起動した時点で
 開始します。通常の完了を所有するのは wrapper だけであり、型付きの terminal
-reason を記録してセッションを終了します。古いセッションは
-`traceary session gc` で終了できます。証拠に基づく修正が必要な古い単発レコードは、
-[`traceary session repair-one-shot`](operations/one-shot-repair.ja.md) で処理できます。
+reason を記録してセッションを終了します。古いセッションは hook の
+opportunistic GC と `traceary doctor --fix`（24h 窓）が終了します。旧
+[`session repair-one-shot`](operations/one-shot-repair.ja.md) は v0.43.0 (#2122) で廃止されました。
 
 | ライフサイクル遷移 | 所有者 | 結果 |
 | --- | --- | --- |
 | 単発セッションを開始 | `traceary session run` | 監視対象の単発セッションを作成 |
 | 単発セッションを終了 | 単発 wrapper | 型付きの terminal reason を記録 |
-| 古いセッションを終了 | `traceary session gc` | 古いセッションの終了処理を実行 |
-| 古い単発セッションを修復 | `traceary session repair-one-shot` | 証拠に裏付けられた修復を適用 |
+| 古いセッションを終了 | hook の opportunistic GC / `traceary doctor --fix` | 古いセッションの終了処理を実行 |
 
 ## イベント種別
 

@@ -350,8 +350,8 @@ func (u *sessionUsecase) End(ctx context.Context, client types.Client, agent typ
 	// Best-effort: a parent session ending should not leave its open
 	// descendant sub-sessions dangling with ended_at IS NULL, since
 	// Active() would keep preferring a leaked child for
-	// up to the gc stale window. `session gc` remains the backstop for
-	// anything this misses.
+	// up to the gc stale window. Hook opportunistic GC and
+	// `doctor --fix` remain the backstop for anything this misses.
 	u.endOpenDescendants(ctx, resolvedSessionID, event.CreatedAt())
 	if err := u.writeEndRefinement(ctx, resolvedSessionID, event.EventID(), summary, "cli:session-end"); err != nil {
 		return nil, err
@@ -362,8 +362,8 @@ func (u *sessionUsecase) End(ctx context.Context, client types.Client, agent typ
 
 // endOpenDescendants closes still-open sub-sessions transitively parented by
 // sessionID, now that sessionID itself has ended. Failures are logged rather
-// than surfaced: the parent boundary already committed, and `session gc`
-// closes anything left behind.
+// than surfaced: the parent boundary already committed, and hook
+// opportunistic GC / `doctor --fix` close anything left behind.
 func (u *sessionUsecase) endOpenDescendants(ctx context.Context, sessionID types.SessionID, endedAt time.Time) {
 	queue := []types.SessionID{sessionID}
 	visited := map[types.SessionID]struct{}{sessionID: {}}

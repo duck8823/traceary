@@ -65,7 +65,7 @@ Traceary は `idle` payload だけを受け入れ、`total_input_tokens` と `to
 ## 制限事項
 
 - **`SessionStart` が無い。** conversation 単位で最初に発火するのは `PreInvocation`（毎回のモデル呼び出し前に発火）なので、Traceary はこれを `conversationId` を key にした冪等な session 開始/更新として使います。
-- **`Stop` は execution 単位の境界であり session 終了ではない**（Codex と同じモデル — #1170）。session 行は開いたままで（memory auto-extract は発火）、`traceary session end` または stale GC（`traceary session gc`）でのみ終了します。
+- **`Stop` は execution 単位の境界であり session 終了ではない**（Codex と同じモデル — #1170）。session 行は開いたままで（memory auto-extract は発火）、`traceary session end` または stale GC（hook の opportunistic GC / `traceary doctor --fix`）でのみ終了します。
 - **audit 対象は `run_command` tool 呼び出しのみ。** `PostToolUse` は `stepIdx`/`error` のみを持ち command args を持たないため、args を持つ `PreToolUse` と step 単位で突き合わせます。`run_command` 以外の tool は何も記録しません。
 - **prompt 本文は直接の hook field ではありません。** 公開 hook payload は `transcriptPath` を提供します。Traceary は Stop 時に最新の `USER_INPUT` / `USER_EXPLICIT` 行を復元します。
 - **transcript 抽出は best effort。** 文書化された `transcriptPath` のファイルは `transcript.jsonl` です。Traceary は現在の CLI の `MODEL` / `*_RESPONSE` 行と従来の nested/flat 形式を処理し、thinking/text を分離して保持します。未知の形式は黙ってスキップします。

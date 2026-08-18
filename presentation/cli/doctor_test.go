@@ -1976,8 +1976,8 @@ func TestRootCLI_DoctorStaleActiveSessions(t *testing.T) {
 		if !strings.Contains(check.Message, "3") {
 			t.Fatalf("expected message to surface the stale count, got %q", check.Message)
 		}
-		if !strings.Contains(check.FixCommand, "session gc") {
-			t.Fatalf("FixCommand = %q, want a `session gc` remediation", check.FixCommand)
+		if !strings.Contains(check.FixCommand, "doctor --fix") {
+			t.Fatalf("FixCommand = %q, want a `doctor --fix` remediation", check.FixCommand)
 		}
 		if !strings.Contains(check.Hint, "--dry-run") {
 			t.Fatalf("expected hint to mention --dry-run preview, got %q", check.Hint)

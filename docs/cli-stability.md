@@ -59,7 +59,6 @@ Admin commands are operator-facing maintenance surfaces. They are still listed i
 Admin commands as of v0.35:
 
 - **Store administration** — `traceary store backup create`, `traceary store backup restore`, `traceary store compact` (including `--archive`, `--archive-verify`, `--archive-restore`, `--retention-plan`, `--retention-apply`, `--projection-rebuild`, `--projection-abort`), `traceary store compact rollback`
-- **Session administration** — `traceary session gc` (closes stale sessions; visible under the `session` namespace and registered alongside the public session subcommands, but treated as an admin-tier maintenance entrypoint), `traceary session repair-one-shot`
 - **Durable memory admin** — `traceary memory admin extract`, `traceary memory admin import codex`, `traceary memory admin import instructions`, `traceary memory admin export`, `traceary memory admin activate`, `traceary memory admin hygiene scan`, `traceary memory admin hygiene apply`, `traceary memory admin supersede`, `traceary memory admin expire`, `traceary memory admin set-validity`
 - **Report administration** — `traceary report workspace-identity`
 
@@ -94,6 +93,7 @@ A command is removed only for empty backing data, duplication, or serving no pil
 
 Historical removal log:
 
+- Removed in v0.43.0 (#2122): `traceary session gc` and `traceary session repair-one-shot`. Invocations fail as unknown subcommands with a non-zero exit and no `DEPRECATED` notice. Admin-tier leaves; operator-flow notice is sufficient. Stale still-open sessions are closed by hook opportunistic GC and `traceary doctor --fix` (default 24h window; the custom `--stale-after` knob is gone). Historical one-shot rows stay as recorded; there is no absorb destination for evidence-manifest repair.
 - Removed in v0.42.0 (#2077): `traceary store search-projection` (start/resume/status/abort/probe). Invocations fail as an unknown subcommand with a non-zero exit and no `DEPRECATED` notice. This is an explicit policy exception to the one-minor deprecation window (owner decision 2026-08-17). Parked recovery is `traceary doctor --fix`. A new generation or an in-flight rebuild resume is `traceary store compact --projection-rebuild` (same budget flags). Abort is `traceary store compact --projection-abort`. Lifecycle/budget inspection stays on `traceary doctor`.
 - Removed in v0.42.0 (#2078): `traceary replay`. Invocations fail as an unknown command with a non-zero exit and no `DEPRECATED` notice. This is an explicit policy exception to the one-minor deprecation window (owner decision 2026-08-17) and supersedes the earlier note that replay stayed as the only single-file HTML export. Use `traceary report` / `traceary context` / `traceary list` for period reading, and `traceary bundle export` for a machine-portable copy.
 

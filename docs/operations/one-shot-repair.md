@@ -1,8 +1,10 @@
-# Evidence-backed one-shot session repair
+# Evidence-backed one-shot session repair (retired)
 
 [日本語](./one-shot-repair.ja.md)
 
-`traceary session repair-one-shot` repairs historical sessions whose supervising process completed but whose terminal boundary was not recorded. It is intentionally narrower than `session gc`: repair requires explicit per-session process-exit evidence and assigns a typed terminal reason. It never infers one-shot execution from transcript text, idle time, workspace membership, or a missing end hook.
+> Retired in v0.43.0 (#2122). `traceary session repair-one-shot` is an unknown subcommand (non-zero, no `DEPRECATED` notice). Historical one-shot rows stay as recorded. Ongoing idle sessions are closed by hook opportunistic GC and `traceary doctor --fix` (24h window). This page is kept for archaeology.
+
+`traceary session repair-one-shot` repaired historical sessions whose supervising process completed but whose terminal boundary was not recorded. It was intentionally narrower than `session gc`: repair required explicit per-session process-exit evidence and assigned a typed terminal reason. It never inferred one-shot execution from transcript text, idle time, workspace membership, or a missing end hook.
 
 ## Evidence manifest
 
@@ -37,9 +39,9 @@ One invocation accepts at most 50,000 entries. Session IDs are limited to 1,024 
 
 ## Dry-run first
 
-Dry-run is the default:
+Dry-run was the default. Historical invocation (no longer a command):
 
-```sh
+```text
 traceary session repair-one-shot \
   --evidence-file ./one-shot-evidence.json \
   --stale-after 24h \
@@ -61,9 +63,9 @@ An old row stored as `interactive` is not selected automatically. It participate
 
 ## Apply and rollback
 
-Apply requires a new backup path:
+Apply required a new backup path. Historical invocation (no longer a command):
 
-```sh
+```text
 traceary session repair-one-shot \
   --evidence-file ./one-shot-evidence.json \
   --stale-after 24h \

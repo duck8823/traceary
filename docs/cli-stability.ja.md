@@ -59,7 +59,6 @@ admin コマンドは運用者向けのメンテサーフェスです。`--help`
 v0.35 時点の admin コマンド：
 
 - **ストア管理** — `traceary store backup create`、`traceary store backup restore`、`traceary store compact`（`--archive`、`--archive-verify`、`--archive-restore`、`--retention-plan`、`--retention-apply`、`--projection-rebuild`、`--projection-abort` を含む）、`traceary store compact rollback`
-- **セッション管理** — `traceary session gc`（stale なセッションを終了する。`session` 名前空間配下に公開セッションサブコマンドと同じ位置で登録されているが、扱いとしては admin ティアのメンテナンス入口）、`traceary session repair-one-shot`
 - **durable memory admin** — `traceary memory admin extract`、`traceary memory admin import codex`、`traceary memory admin import instructions`、`traceary memory admin export`、`traceary memory admin activate`、`traceary memory admin hygiene scan`、`traceary memory admin hygiene apply`、`traceary memory admin supersede`、`traceary memory admin expire`、`traceary memory admin set-validity`
 - **レポート管理** — `traceary report workspace-identity`
 
@@ -94,6 +93,7 @@ v0.35 時点の admin コマンド：
 
 過去の削除履歴：
 
+- v0.43.0 で削除（#2122）: `traceary session gc` と `traceary session repair-one-shot`。呼び出しは unknown subcommand として非ゼロ終了し、`DEPRECATED` 通知は出しません。admin ティアなので operator 向け案内で足ります。未終了の stale session は hook の opportunistic GC と `traceary doctor --fix`（既定 24h。独自 `--stale-after` は廃止）が終了します。過去の one-shot 行はそのまま残り、evidence-manifest 修復の吸収先はありません。
 - v0.42.0 で削除（#2077）: `traceary store search-projection`（start/resume/status/abort/probe）。呼び出しは unknown subcommand として非ゼロ終了し、`DEPRECATED` 通知は出しません。one-minor deprecation window の明示的なポリシー例外です（owner 決定 2026-08-17）。parked 復旧は `traceary doctor --fix`。新しい世代または進行中 rebuild の resume は `traceary store compact --projection-rebuild`（同じ budget flag）。abort は `traceary store compact --projection-abort`。lifecycle / 予算の確認は `traceary doctor` のままです。
 - v0.42.0 で削除（#2078）: `traceary replay`。呼び出しは unknown command として非ゼロ終了し、`DEPRECATED` 通知は出しません。one-minor deprecation window の明示的なポリシー例外です（owner 決定 2026-08-17）。単一ファイル HTML export として残すとした以前の記述を上書きします。期間の読み取りは `traceary report` / `traceary context` / `traceary list`、機械可搬コピーは `traceary bundle export` です。
 

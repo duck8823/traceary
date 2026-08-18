@@ -200,7 +200,6 @@ func run() error {
 	storeManagementUsecase := usecase.NewStoreManagementUsecase(storeManagementDatasource)
 	fileRetentionDatasource := filesystem.NewFileRetentionDatasource()
 	fileRetentionUsecase := usecase.NewFileRetentionUsecase(fileRetentionDatasource, fileRetentionDatasource)
-	oneShotRepairUsecase := usecase.NewOneShotRepairUsecase(storeManagementDatasource, storeManagementDatasource)
 	workspaceIdentityUsecase := usecase.NewWorkspaceIdentityUsecase(workspaceIdentityDatasource, workspaceIdentityDatasource, types.SystemClock{})
 
 	hooksOrchestrator := filesystem.NewHooksOrchestrator(map[string]application.HooksClientHandler{
@@ -259,7 +258,6 @@ func run() error {
 			return svc
 		}),
 		cli.WithFileRetention(fileRetentionUsecase),
-		cli.WithOneShotRepair(oneShotRepairUsecase),
 		cli.WithWorkspaceIdentity(workspaceIdentityUsecase),
 		cli.WithHooksOrchestrator(hooksOrchestrator),
 		cli.WithHooksInspector(hooksInspector),

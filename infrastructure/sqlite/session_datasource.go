@@ -834,7 +834,7 @@ func scanSessionSummary(ctx context.Context, q queryRowContexter, row interface 
 		// A session whose latest event arrived after its end marker is reported
 		// as ended_with_late_events so snapshots surface it instead of dropping
 		// it. The end marker can come from a session_ended event or from
-		// `session gc` writing ended_at directly without a matching event.
+		// stale-session close writing ended_at directly without a matching event.
 		if latestEventAt.After(t) {
 			status = types.SessionStatusEndedWithLateEvents.String()
 		} else {

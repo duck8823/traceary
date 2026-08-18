@@ -41,7 +41,7 @@ type SessionOrphanRangeRepository interface {
 	//      (#1724). A recorded marker (source 1) for the same session is
 	//      skipped in favour of this source when this source also matches,
 	//      the same way source 1 already defers to source 2.
-	// staleAfter is the same activity window as session gc (default 24h); it
+	// staleAfter is the same activity window as doctor/hook stale GC (default 24h); it
 	// bounds sources 1 and 2. retentionCutoff bounds source 3; the zero value
 	// disables source 3 entirely (callers that do not know the compact
 	// retention cutoff keep today's two-source behaviour unchanged).
