@@ -623,13 +623,13 @@ func (c *RootCLI) inspectStaleActiveSessions(ctx context.Context) doctorCheck {
 			),
 		}
 	}
-	fixCommand := "traceary session gc --stale-after 24h"
+	fixCommand := "traceary doctor --fix"
 	return doctorCheck{
 		Name:   checkName,
 		Status: doctorStatusWarn,
 		Hint: Localize(
-			"preview with `traceary session gc --stale-after 24h --dry-run`, apply via `traceary doctor --fix` or drop --dry-run; opportunistic hook GC also drains on session start (detached from soft deadline)",
-			"`traceary session gc --stale-after 24h --dry-run` でプレビューし、`traceary doctor --fix` または --dry-run なしで適用。hook の session start でも soft deadline から切り離して drain します",
+			"preview with `traceary doctor --fix --dry-run`, apply via `traceary doctor --fix`; opportunistic hook GC also drains on session start (detached from soft deadline)",
+			"`traceary doctor --fix --dry-run` でプレビューし、`traceary doctor --fix` で適用。hook の session start でも soft deadline から切り離して drain します",
 		),
 		FixCommand:       fixCommand,
 		AutoFixAvailable: true,
@@ -652,8 +652,8 @@ func (c *RootCLI) inspectStaleActiveSessions(ctx context.Context) doctorCheck {
 			), nil
 		},
 		Message: localizef(
-			"%d active session(s) have no activity within %s; they shadow the default host context retrieval. Run `%s` (or `traceary doctor --fix`); hook starts also drain with a dedicated timeout.",
-			"%d 件の active session は %s の間活動がなく、host context 取得の既定動作を阻害します。`%s`（または `traceary doctor --fix`）を実行してください。hook start でも専用 timeout で drain します。",
+			"%d active session(s) have no activity within %s; they shadow the default host context retrieval. Run `%s`; hook starts also drain with a dedicated timeout.",
+			"%d 件の active session は %s の間活動がなく、host context 取得の既定動作を阻害します。`%s` を実行してください。hook start でも専用 timeout で drain します。",
 			count,
 			defaultActiveSessionStaleAfter,
 			fixCommand,

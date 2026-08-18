@@ -25,7 +25,6 @@ type RootCLI struct {
 	orphanConsolidation        usecase.OrphanConsolidationUsecase
 	consolidationPressure      usecase.ConsolidationPressureUsecase
 	sessionWakeSummary         queryservice.SessionWakeSummaryQueryService
-	oneShotRepair              usecase.OneShotRepairUsecase
 	memory                     usecase.MemoryUsecase
 	bundle                     usecase.BundleUsecase
 	codexUsage                 usecase.CodexUsageCaptureUsecase
@@ -140,11 +139,6 @@ func WithConsolidationPressure(consolidationPressure usecase.ConsolidationPressu
 // WithSessionWakeSummary injects the read-only wake-injection summary query.
 func WithSessionWakeSummary(sessionWakeSummary queryservice.SessionWakeSummaryQueryService) RootCLIOption {
 	return func(c *RootCLI) { c.sessionWakeSummary = sessionWakeSummary }
-}
-
-// WithOneShotRepair injects the evidence-backed historical repair use case.
-func WithOneShotRepair(repair usecase.OneShotRepairUsecase) RootCLIOption {
-	return func(c *RootCLI) { c.oneShotRepair = repair }
 }
 
 // WithMemory injects the MemoryUsecase used by durable-memory commands.

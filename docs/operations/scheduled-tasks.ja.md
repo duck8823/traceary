@@ -47,10 +47,10 @@ Traceary のメンテナンス作業のうち、低頻度でバックグラウ�
 hook を無効化している場合や、新しい agent session を長期間開始しない端末では、次の command を日次フォールバックとして登録してください。
 
 ```sh
-traceary session gc --stale-after 24h
+traceary doctor --fix
 ```
 
-導入時は先に `--dry-run` で確認します。`traceary doctor --json` を実行し、次の通常 hook start または定期実行後に `stale-active-sessions` check が `pass` になることを確認してください。この command は冪等で、`ended_at` と安全側の終了理由 `legacy_unknown` だけを設定します。session event は削除しません。
+導入時は先に `traceary doctor --fix --dry-run` で確認します。`traceary doctor --json` を実行し、次の通常 hook start または定期実行後に `stale-active-sessions` check が `pass` になることを確認してください。fixer は冪等で、`ended_at` と安全側の終了理由 `legacy_unknown` だけを設定します。session event は削除しません。廃止した `session gc --stale-after` の独自窓はなく、既定は 24h です。
 
 ## 運用ルール
 

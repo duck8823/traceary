@@ -42,8 +42,6 @@ var pillarInventory = []pillarInventoryEntry{
 	{Path: "session end", Pillar: pillarRecord, Reason: "close a recorded session"},
 	{Path: "session run", Pillar: pillarRecord, Reason: "run a bounded recorded session"},
 	{Path: "session refine", Pillar: pillarRecord, Reason: "store the L2 summary that makes transcript bodies discardable"},
-	{Path: "session gc", Pillar: pillarRecord, Reason: "close stale sessions (evict)"},
-	{Path: "session repair-one-shot", Pillar: pillarRecord, Reason: "repair one-shot classification of recorded sessions"},
 	{Path: "hooks install", Pillar: pillarRecord, Reason: "enable automatic capture; --dry-run absorbs the former hooks print preview"},
 	{Path: "hooks guide", Pillar: pillarKeep, Reason: "operator documentation for hook setup; not itself capture or memory"},
 	{Path: "report", Pillar: pillarRecord, Reason: "period digest of recorded work"},

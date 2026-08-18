@@ -47,10 +47,10 @@ Normal hook activity already runs activity-aware stale-session GC after session 
 If hooks are disabled or the workstation goes for long periods without starting an agent session, schedule this command once per day as a fallback:
 
 ```sh
-traceary session gc --stale-after 24h
+traceary doctor --fix
 ```
 
-Use `--dry-run` first when adopting the task. Verify with `traceary doctor --json`: the `stale-active-sessions` check should become `pass` after the next normal hook start or scheduled run. The command is idempotent and only sets `ended_at` plus the conservative `legacy_unknown` terminal reason; it does not delete session events.
+Use `traceary doctor --fix --dry-run` first when adopting the task. Verify with `traceary doctor --json`: the `stale-active-sessions` check should become `pass` after the next normal hook start or scheduled run. The fixer is idempotent and only sets `ended_at` plus the conservative `legacy_unknown` terminal reason; it does not delete session events. The retired `session gc --stale-after` knob is gone; the window is the default 24h.
 
 ## Conventions
 

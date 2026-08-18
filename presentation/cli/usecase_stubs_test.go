@@ -355,30 +355,6 @@ type sessionUsecaseStub struct {
 	}
 }
 
-type oneShotRepairUsecaseStub struct {
-	params       apptypes.OneShotRepairParams
-	applyParams  apptypes.OneShotRepairApplyParams
-	result       apptypes.OneShotRepairResult
-	err          error
-	calls        int
-	previewCalls int
-	applyCalls   int
-}
-
-func (s *oneShotRepairUsecaseStub) Preview(_ context.Context, params apptypes.OneShotRepairParams) (apptypes.OneShotRepairResult, error) {
-	s.calls++
-	s.previewCalls++
-	s.params = params
-	return s.result, s.err
-}
-
-func (s *oneShotRepairUsecaseStub) Apply(_ context.Context, params apptypes.OneShotRepairApplyParams) (apptypes.OneShotRepairResult, error) {
-	s.calls++
-	s.applyCalls++
-	s.applyParams = params
-	return s.result, s.err
-}
-
 func (s *sessionUsecaseStub) Start(_ context.Context, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, parentSessionID types.SessionID) (*model.Event, error) {
 	s.startCall.client = client
 	s.startCall.agent = agent

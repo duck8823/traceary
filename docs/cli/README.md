@@ -695,9 +695,9 @@ Usage-capture failure exits with code `1`.
 The terminal-reason taxonomy above is distinct from the command-audit
 `--failure-reason` enum.
 
-Use [`traceary session repair-one-shot`](../operations/one-shot-repair.md) to
-inspect and repair stale one-shot sessions. The command is dry-run by default;
-applying a repair requires a backup and a validated evidence manifest.
+The former [`session repair-one-shot`](../operations/one-shot-repair.md) leaf
+was retired in v0.43.0 (#2122). Idle sessions are closed by hook opportunistic
+GC and `traceary doctor --fix`.
 
 ### `traceary session refine <session-id>`
 
@@ -728,7 +728,7 @@ Internal session rows (hooks, handoff, context) still use these status values:
 | `active` | No end marker and within the stale window. |
 | `stale` | No end marker but started before the stale window (default 24h). |
 | `ended` | Has an end marker and no events after it. |
-| `ended_with_late_events` | Has an end marker but later events arrived under the same session. The end marker can come from a `session_ended` event or from `session gc` writing `ended_at` directly. |
+| `ended_with_late_events` | Has an end marker but later events arrived under the same session. The end marker can come from a `session_ended` event or from stale-session close writing `ended_at` directly. |
 
 The former public `sessions --snapshot` view of these values was removed in v0.42.0 (#2061). `ended_with_late_events` still lets hook / handoff resolution keep a closed host session when later workspace events exist — for example when a host such as Codex closed the session early but the conversation kept going.
 
@@ -882,14 +882,6 @@ Plan or apply file-retention actions for host-side archive and backup artifacts.
 Start a new search-projection generation (or resume one that is already rebuilding) with the former start budget flags, or abandon an incomplete generation. Parked recovery is `traceary doctor --fix`. Lifecycle and budget inspection stay on `traceary doctor` (`search-projection-parked` / `search-projection-budget`). Catch-up on large stores is paged and may park when it cannot advance.
 
 `--projection-rebuild` stdout is JSON. Start and hash-mismatch replace emit a generation object (`result_kind=generation`). A matching-hash resume emits a run-result object (`result_kind=run`). Branch on `result_kind`; do not sniff fields. `--projection-abort` is a separate abandon object.
-
-### `traceary session gc`
-
-Close stale still-open sessions. Admin-tier maintenance under the `session` namespace.
-
-### `traceary session repair-one-shot`
-
-Apply a reviewed one-shot session-repair evidence file (`--evidence-file`). `--apply` writes; without it the command is a dry preview.
 
 ### `traceary bundle export|import`
 

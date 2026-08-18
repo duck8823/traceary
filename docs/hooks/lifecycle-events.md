@@ -59,7 +59,7 @@ All event bodies pass through built-in secret redaction plus operator-configured
 ### `session_ended`
 
 - Marks the close boundary of a session row.
-- Claude / Gemini use a dedicated `SessionEnd` hook. Codex exposes no `SessionEnd` and its `Stop` fires after every assistant response (a turn boundary, not a session end), so a Codex session ends only via an explicit signal (`traceary session end`) or stale GC (`traceary session gc`) — see [host-coverage.md](./host-coverage.md) and #1170.
+- Claude / Gemini use a dedicated `SessionEnd` hook. Codex exposes no `SessionEnd` and its `Stop` fires after every assistant response (a turn boundary, not a session end), so a Codex session ends only via an explicit signal (`traceary session end`) or stale GC (hook opportunistic GC / `traceary doctor --fix`) — see [host-coverage.md](./host-coverage.md) and #1170.
 - Best-effort: hosts may exit without firing the hook (kill -9, crashed shell). L2 reconciliation tolerates dangling sessions, and stale GC closes long-idle open sessions.
 
 #### Authoritative one-shot sessions
@@ -78,8 +78,8 @@ its terminal reason.
 A clean child exit wins over a racing deadline or cancellation. On Unix, a
 child's proven non-zero exit remains a failure; the non-Unix fallback uses the
 context result conservatively when it cannot distinguish that exit from
-supervisor termination. Stale one-shot sessions can be inspected and repaired
-with [`traceary session repair-one-shot`](../operations/one-shot-repair.md).
+supervisor termination. The former [`session repair-one-shot`](../operations/one-shot-repair.md)
+leaf was retired in v0.43.0 (#2122); idle sessions are closed by hook opportunistic GC and `traceary doctor --fix`.
 
 ## Antigravity (v0.21.1+)
 

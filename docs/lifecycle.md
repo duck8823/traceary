@@ -38,7 +38,7 @@ SessionStart → [UserPromptSubmit → PostToolUse → Stop]*
 | PostToolUse | `command_executed` | Tool execution |
 | Stop | `transcript` | Final assistant message of each turn; a turn boundary, not a session end (#1170) |
 
-**Limitations**: No host-level session-end signal — Codex fires `Stop` after every assistant response, so a Codex session stays open until an explicit end (`traceary session end`) or stale GC (`traceary session gc`). No `compact` hooks, no failure-specific events.
+**Limitations**: No host-level session-end signal — Codex fires `Stop` after every assistant response, so a Codex session stays open until an explicit end (`traceary session end`) or stale GC (hook opportunistic GC / `traceary doctor --fix`). No `compact` hooks, no failure-specific events.
 
 ### Gemini CLI (Tier 3: Basic) — *legacy compatibility*
 
@@ -70,7 +70,7 @@ SessionStart → [AfterTool]* → SessionEnd
 | PostToolUse (`run_command`) | `command_executed` | Pairs the command from `PreToolUse` for the same step and records the audit (with step `error`) |
 | Stop | `transcript` | Turn transcript from `transcriptPath` plus a turn boundary when the host emits `Stop`; does not close the session (#1170) |
 
-**Limitations**: No `SessionStart` (first signal is `PreInvocation`) and no host session-end signal — like Codex, `Stop` is a per-execution turn boundary, so an Antigravity session stays open until an explicit end (`traceary session end`) or stale GC (`traceary session gc`). Only `run_command` tool calls are audited; prompt/transcript extraction from `transcriptPath` is best effort. Current interactive and headless `agy --print` runs emit Stop; `antigravity-event-coverage` checks recent database evidence for runtime gaps. See the [capture matrix](./integrations/antigravity.md).
+**Limitations**: No `SessionStart` (first signal is `PreInvocation`) and no host session-end signal — like Codex, `Stop` is a per-execution turn boundary, so an Antigravity session stays open until an explicit end (`traceary session end`) or stale GC (hook opportunistic GC / `traceary doctor --fix`). Only `run_command` tool calls are audited; prompt/transcript extraction from `transcriptPath` is best effort. Current interactive and headless `agy --print` runs emit Stop; `antigravity-event-coverage` checks recent database evidence for runtime gaps. See the [capture matrix](./integrations/antigravity.md).
 
 > **v0.21 note**: Gemini CLI is the legacy compatibility path. The successor host, Antigravity, became a supported Traceary hook client in v0.21.1 (capability diagnostics only in v0.21.0). See [Antigravity integration status](./integrations/antigravity.md).
 
@@ -78,17 +78,16 @@ SessionStart → [AfterTool]* → SessionEnd
 
 A one-shot session starts when `traceary session run` launches its supervised
 child process. The wrapper is the sole owner of normal completion and ends
-the session with a typed terminal reason. Stale sessions can be closed by
-`traceary session gc`; stale one-shot records that require evidence-based
-correction can be handled by
-[`traceary session repair-one-shot`](operations/one-shot-repair.md).
+the session with a typed terminal reason. Stale sessions are closed by hook
+opportunistic GC and `traceary doctor --fix` (24h window). The former
+[`session repair-one-shot`](operations/one-shot-repair.md) leaf was retired in
+v0.43.0 (#2122).
 
 | Lifecycle transition | Owner | Result |
 | --- | --- | --- |
 | Start a one-shot session | `traceary session run` | Creates the supervised one-shot session |
 | End a one-shot session | One-shot wrapper | Records the typed terminal reason |
-| Close a stale session | `traceary session gc` | Performs stale-session closure |
-| Repair a stale one-shot session | `traceary session repair-one-shot` | Applies an evidence-backed repair |
+| Close a stale session | hook opportunistic GC / `traceary doctor --fix` | Performs stale-session closure |
 
 ## Event Kinds
 

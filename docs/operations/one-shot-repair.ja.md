@@ -1,8 +1,10 @@
-# 証拠に基づく完結型セッション修復
+# 証拠に基づく完結型セッション修復（廃止）
 
 [English](./one-shot-repair.md)
 
-`traceary session repair-one-shot` は、監督対象プロセスは完了したものの終了境界を記録できなかった過去セッションを修復する。`session gc` より対象を厳しく限定し、セッションごとの明示的なプロセス終了証拠と型付き終了理由を必須にする。transcript 本文、idle 時間、workspace 所属、end hook の欠落だけから完結型実行を推測しない。
+> v0.43.0 (#2122) で廃止。`traceary session repair-one-shot` は unknown subcommand です（非ゼロ、`DEPRECATED` なし）。過去の one-shot 行はそのまま残ります。進行中の idle session は hook の opportunistic GC と `traceary doctor --fix`（24h 窓）が終了します。このページは記録用です。
+
+`traceary session repair-one-shot` は、監督対象プロセスは完了したものの終了境界を記録できなかった過去セッションを修復していた。`session gc` より対象を厳しく限定し、セッションごとの明示的なプロセス終了証拠と型付き終了理由を必須にしていた。transcript 本文、idle 時間、workspace 所属、end hook の欠落だけから完結型実行を推測しなかった。
 
 ## 証拠 manifest
 
