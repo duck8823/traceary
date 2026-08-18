@@ -40,7 +40,7 @@ v0.15 以降に追加された互換 alias も含む現在の公開コマンド�
 - **durable memory inbox** — `traceary memory inbox list`、`traceary memory inbox show`、`traceary memory inbox accept`、`traceary memory inbox reject`、`traceary memory inbox attach`、`traceary memory inbox cleanup`、`traceary memory inbox restore`、`traceary memory inbox review`（TTY のみ）
 - **durable memory store** — `traceary memory store propose`、`traceary memory store distill`
 - **hooks** — `traceary hooks install`（`--dry-run` を含む）、`traceary hooks guide`、`traceary completion`（`bash` / `zsh` / `fish` / `powershell`）
-- **診断** — `traceary doctor`（alias `traceary status`、additive な `store-capacity` check を含む）、`traceary report`
+- **診断** — `traceary doctor`（alias `traceary status`、additive な `store-capacity` check と `--json` の `workspace_identity` ブロックを含む）、`traceary report`
 - **bundle import / export** — `traceary bundle export`、`traceary bundle import`
 
 `traceary doctor` の JSON envelope（`sections` / `summary` / `exit_code` / 各 check のフィールド）、`traceary list --blocks --json`（`workspace_breakdown`。旧 `traceary timeline --json`）、`traceary context --handoff` の構造化テキストのフィールドラベル（旧 `traceary session handoff`）はいずれも公開契約の一部です。これらは `presentation/cli/testdata/` で golden test により固定されています。詳細は [JSON / snapshot contract test](./operations/json-contract-tests.ja.md) を参照してください。
@@ -59,8 +59,6 @@ v0.35 時点の admin コマンド：
 
 - **ストア管理** — `traceary store backup create`、`traceary store backup restore`、`traceary store compact`（`--archive`、`--archive-verify`、`--archive-restore`、`--retention-plan`、`--retention-apply`、`--projection-rebuild`、`--projection-abort` を含む）、`traceary store compact rollback`
 - **durable memory admin** — `traceary memory admin extract`、`traceary memory admin import codex`、`traceary memory admin import instructions`、`traceary memory admin export`、`traceary memory admin activate`、`traceary memory admin hygiene scan`、`traceary memory admin hygiene apply`、`traceary memory admin supersede`、`traceary memory admin expire`、`traceary memory admin set-validity`
-- **レポート管理** — `traceary report workspace-identity`
-
 ### plumbing / hidden / deprecated コマンド (v0.15)
 
 これらは `traceary --help` から非表示です。v0.15 の hidden surface は 2 種類あります。
@@ -92,13 +90,14 @@ v0.35 時点の admin コマンド：
 
 過去の削除履歴：
 
+- v0.43.0 で削除（#2124）: `traceary report workspace-identity`。呼び出しは unknown subcommand として非ゼロ終了し、`DEPRECATED` 通知は出しません。admin ティアなので operator 向け案内で足ります。代わりに `traceary doctor --json`（`workspace_identity` ブロック: coverage、conflict pair、sources、samples、aliases、導出 `exact_delivery`）。text doctor は `workspace-aliases` の hint 以外そのまま。2 GiB 以上の既定 doctor は filesystem-metadata-only のままでブロックを出しません。`traceary report` 本体は残ります。任意の `--include-heuristic` 本文スキャンは吸収しません。
 - v0.43.0 で削除（#2123）: `traceary memory decay`。呼び出しは unknown subcommand として非ゼロ終了し、`DEPRECATED` 通知は出しません。one-minor deprecation window の明示的なポリシー例外です（owner 決定 2026-08-18、#2108）。session-end hook は `TRACEARY_MEMORY_DECAY` が on（既定）なら `TRACEARY_MEMORY_DECAY_AFTER` の窓で decay します。手動 trigger は `traceary doctor --fix`。復元は `traceary memory inbox restore` です。
 - v0.43.0 で削除（#2122）: `traceary session gc` と `traceary session repair-one-shot`。呼び出しは unknown subcommand として非ゼロ終了し、`DEPRECATED` 通知は出しません。admin ティアなので operator 向け案内で足ります。未終了の stale session は hook の opportunistic GC と `traceary doctor --fix`（既定 24h。独自 `--stale-after` は廃止）が終了します。過去の one-shot 行はそのまま残り、evidence-manifest 修復の吸収先はありません。
 - v0.42.0 で削除（#2077）: `traceary store search-projection`（start/resume/status/abort/probe）。呼び出しは unknown subcommand として非ゼロ終了し、`DEPRECATED` 通知は出しません。one-minor deprecation window の明示的なポリシー例外です（owner 決定 2026-08-17）。parked 復旧は `traceary doctor --fix`。新しい世代または進行中 rebuild の resume は `traceary store compact --projection-rebuild`（同じ budget flag）。abort は `traceary store compact --projection-abort`。lifecycle / 予算の確認は `traceary doctor` のままです。
 - v0.42.0 で削除（#2078）: `traceary replay`。呼び出しは unknown command として非ゼロ終了し、`DEPRECATED` 通知は出しません。one-minor deprecation window の明示的なポリシー例外です（owner 決定 2026-08-17）。単一ファイル HTML export として残すとした以前の記述を上書きします。期間の読み取りは `traceary report` / `traceary context` / `traceary list`、機械可搬コピーは `traceary bundle export` です。
 
 - v0.42.0 で削除（#2076）: `traceary store init`。呼び出しは unknown subcommand として非ゼロ終了し、`DEPRECATED` 通知は出しません。one-minor deprecation window の明示的なポリシー例外です（owner 決定 2026-08-17）。空ストアは first write または `traceary doctor` で自動初期化します。データ依存 offline migration は `traceary doctor --fix` で適用します（数分かかることがあります）。2 GiB 以上の既定 doctor は filesystem metadata のみです。
-- v0.42.0 で削除（#2075）: `traceary store workspace-alias`（add/list/remove）。呼び出しは unknown subcommand として非ゼロ終了し、`DEPRECATED` 通知は出しません。one-minor deprecation window の明示的なポリシー例外です（owner 決定 2026-08-17）。代わりに `traceary doctor --alias-add` / `--alias-remove` / `--alias-list` を使います（同じ review 済み alias 行。add は `--session`、`--workspace`、`--reviewed-by` が必要）。`doctor --fix` は alias を自動作成しません。既存 alias 行と `report workspace-identity` の grouping は変わりません。
+- v0.42.0 で削除（#2075）: `traceary store workspace-alias`（add/list/remove）。呼び出しは unknown subcommand として非ゼロ終了し、`DEPRECATED` 通知は出しません。one-minor deprecation window の明示的なポリシー例外です（owner 決定 2026-08-17）。代わりに `traceary doctor --alias-add` / `--alias-remove` / `--alias-list` を使います（同じ review 済み alias 行。add は `--session`、`--workspace`、`--reviewed-by` が必要）。`doctor --fix` は alias を自動作成しません。既存 alias 行と `doctor --json` の `workspace_identity` grouping は変わりません。
 - v0.42.0 で削除（#2074）: `traceary store archive`（create/verify/restore、`--delete-after-verify` を含む）と `traceary store retention`（`files plan` / `files apply`）。呼び出しは unknown subcommand として非ゼロ終了し、`DEPRECATED` 通知は出しません。one-minor deprecation window の明示的なポリシー例外です（owner 決定 2026-08-17）。代わりに `traceary store compact --archive` / `--archive-verify` / `--archive-restore`（同じ verify-before-delete）と `traceary store compact --retention-plan` / `--retention-apply`（同じ immutable plan と `--confirm-plan-id`）を使います。既定の compact rewrite は変わりません。hook の `archive_then_gc` は内部で usecase を呼びます。
 - v0.42.0 で削除（#2073）: `traceary session handoff`（`--compact-only` を含む）。呼び出しは unknown subcommand として非ゼロ終了し、`DEPRECATED` 通知は出しません。one-minor deprecation window の明示的なポリシー例外です（owner 決定 2026-08-17）。代わりに `traceary context --handoff`（同じ TRACEARY HANDOFF フィールドラベル）または `traceary context --compact-only`（同じ再開サマリー。`--recent` 未指定時は 3）を使います。既定の `context` は生イベント + `--json` のままです。内部の `ContextUsecase.Handoff` と hook の `printCompactSummaryWithOptions` は残します。
 - v0.42.0 で削除（#2072）: `traceary store capacity`。呼び出しは unknown subcommand として非ゼロ終了し、`DEPRECATED` 通知は出しません。one-minor deprecation window の明示的なポリシー例外です（owner 決定 2026-08-17）。代わりに `traceary doctor` の additive な `store-capacity` check を使います（同じ bounded InspectCapacity 経路）。2 GiB 以上の既定 doctor は metadata-only のままで、SQLite を開かず dbstat も歩きません。

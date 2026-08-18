@@ -766,6 +766,7 @@ text 出力は `Environment`、`Database`、`Plugins`、`Hooks` の安定した 
 追加の doctor check:
 
 - `store-capacity`: 旧 `store capacity` と同じ bounded InspectCapacity 経路で、メタデータのみの容量内訳（database / free / WAL / 上位オブジェクト）を出します。2 GiB 以上の既定 doctor は filesystem-metadata-only のままで、この check は `skip` です（SQLite を開かず、dbstat も歩きません）。
+- `doctor --json` に additive な `workspace_identity` ブロック（coverage、conflict pair、sources、samples、aliases、導出 `exact_delivery`）を載せ、旧 `report workspace-identity` を置き換えます。text は既存の `workspace-aliases` check のままです。2 GiB 以上の既定 doctor はこのブロックを出さず、identity のために SQLite を開きません。
 - `offline-migrations`: 保留中のデータ依存 migration（035, 045）を報告します。空ストアは first write または `doctor` で自動初期化します。適用は `doctor --fix` です（数分かかることがあります）。2 GiB 以上の既定 doctor はこの check を skip し、SQLite を開きません。
 - `path`: `PATH` 上の `traceary` 解決先と directory を確認します。見つからない場合は `FAIL`、複数見つかる場合は `WARN` です。
 - `<client>-plugin-version`: 検出した plugin manifest / cache の version と実行中 binary version を比較し、不一致なら plugin の reinstall / update を促します。
@@ -933,11 +934,6 @@ sessions、events、commands、usage は、1つの読み取り専用トランザ
 テキストレポートでは、このマップを `terminal=...` として表示します。
 `unavailable_observations` は、usage カウンターがすべて利用できない observation の
 件数です。これには、カウンターの合計から除外された observation も含まれます。
-
-### `traceary report workspace-identity`
-
-本文を含めずに、ワークスペース帰属の網羅率、関係と競合率、安定 ID による完全再送率を表示します。observation 行数は volume のまま残し、`conflict_pair_count` が actionable な単位（現行 conflict projection の distinct `(session_id, workspace)`）です。sample は pair あたり最新 1 行で `workspace` を含むので、report から `doctor --alias-add` を実行できます。履歴上の本文・時間窓候補は既定で測定しません。`--include-heuristic` を使うと上限付き dry-run を明示的に要求でき、必要に応じて `--heuristic-limit`（既定 5,000 件）または `--strict` を指定できます。JSON のヒューリスティック `measurement_state` は `not_requested`、`partial`、`complete`、`failed` のいずれかで、exact delivery とは独立しています。自動化と QA では `--json` と `--conflict-sample-limit` を利用できます。
-store の初期化または migration が必要な場合は、先に `traceary doctor` を実行してください。report 自体は読み取り専用です。意味は [workspace-conflict の意味](../research/workspace-conflict-meaning.ja.md) を見てください。
 
 ### `traceary doctor --alias-add` / `--alias-remove` / `--alias-list`
 

@@ -20,6 +20,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 - **`doctor --fix` が transient dead-letter 再キューを 45 秒の壁時計内で続けて drain する (#2109)** — 1 バッチ 200 件の上限は残し、スプールが空になるか壁時計が尽きるまでループする。`--dry-run` は計画件数を全件出す。Fixes 行のカウンタ形式は変えない。
 
 ### Removed
+- **`traceary report workspace-identity` (#2124)** — unknown subcommand（非ゼロ、`DEPRECATED` なし）。`doctor --json` に `workspace_identity` ブロックを足す（coverage、conflict pair、sources、samples、aliases、導出 `exact_delivery`）。text doctor は `workspace-aliases` の hint 以外そのまま。2 GiB 以上の既定 doctor は SQLite identity 照会を skip する。`report` 本体は残る。任意の `--include-heuristic` 本文スキャンは leaf と一緒に消える。
 - **`traceary memory decay` (#2123)** — unknown subcommand（非ゼロ、`DEPRECATED` なし。owner 例外は #2108）。session-end hook は `TRACEARY_MEMORY_DECAY` が on（既定）なら decay する。手動 trigger は `traceary doctor --fix`。復元は `memory inbox restore`。
 - **`traceary session gc` と `traceary session repair-one-shot` (#2122)** — どちらも unknown subcommand（非ゼロ、`DEPRECATED` なし）。未終了の stale session は hook の opportunistic GC と `traceary doctor --fix`（24h 窓）が終了する。独自 `--stale-after` は廃止。過去の one-shot 行はそのまま残る。
 

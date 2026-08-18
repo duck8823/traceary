@@ -33,7 +33,7 @@ func TestInspectWorkspaceAliasesPassesWithConflictPairCounts(t *testing.T) {
 		Aliases:           []apptypes.WorkspaceAliasSummary{{SessionID: "session-0", Workspace: "/old"}},
 	}}
 	root := NewRootCLI(WithWorkspaceIdentity(stub))
-	check := root.inspectWorkspaceAliases(context.Background())
+	check := root.inspectWorkspaceAliases(context.Background(), nil)
 	if stub.limit != doctorWorkspaceAliasConflictSampleLimit {
 		t.Fatalf("Report limit = %d, want %d", stub.limit, doctorWorkspaceAliasConflictSampleLimit)
 	}
@@ -56,7 +56,7 @@ func TestInspectWorkspaceAliasesPassesWithoutConflicts(t *testing.T) {
 	root := NewRootCLI(WithWorkspaceIdentity(&doctorAliasIdentityStub{
 		report: apptypes.WorkspaceIdentityReport{Aliases: []apptypes.WorkspaceAliasSummary{{SessionID: "s", Workspace: "/w"}}},
 	}))
-	check := root.inspectWorkspaceAliases(context.Background())
+	check := root.inspectWorkspaceAliases(context.Background(), nil)
 	if check.Status != doctorStatusPass || !strings.Contains(check.Message, "reviewed aliases=1") {
 		t.Fatalf("check = %#v", check)
 	}

@@ -59,13 +59,13 @@ func skippedWorkspaceAliasesCheck() doctorCheck {
 		Name:   "workspace-aliases",
 		Status: doctorStatusSkip,
 		Message: Localize(
-			"default doctor is filesystem-metadata-only for stores at or above 2 GiB; use report workspace-identity or doctor --alias-list on a reviewed copy",
-			"2 GiB 以上の store では default doctor は filesystem metadata のみです。report workspace-identity か、review 済み copy で doctor --alias-list を使ってください",
+			"default doctor is filesystem-metadata-only for stores at or above 2 GiB; use doctor --json or doctor --alias-list on a reviewed copy",
+			"2 GiB 以上の store では default doctor は filesystem metadata のみです。review 済み copy で doctor --json か doctor --alias-list を使ってください",
 		),
 	}
 }
 
-func (c *RootCLI) inspectWorkspaceAliases(ctx context.Context) doctorCheck {
+func (c *RootCLI) inspectWorkspaceAliases(ctx context.Context, report *doctorReport) doctorCheck {
 	const name = "workspace-aliases"
 	if c.workspaceIdentity == nil {
 		return skippedWorkspaceAliasesCheck()
@@ -77,6 +77,9 @@ func (c *RootCLI) inspectWorkspaceAliases(ctx context.Context) doctorCheck {
 			Status:  doctorStatusWarn,
 			Message: localizef("workspace alias review failed: %v", "workspace alias の確認に失敗しました: %v", err),
 		}
+	}
+	if report != nil {
+		report.WorkspaceIdentity = newDoctorWorkspaceIdentity(identity)
 	}
 	check := doctorCheck{
 		Name:   name,
@@ -90,8 +93,8 @@ func (c *RootCLI) inspectWorkspaceAliases(ctx context.Context) doctorCheck {
 	}
 	if identity.ConflictPairCount > 0 {
 		check.Hint = Localize(
-			"review a pair with report workspace-identity, then doctor --alias-add --session <id> --workspace <path> --reviewed-by <operator>",
-			"report workspace-identity で pair を確認し、doctor --alias-add --session <id> --workspace <path> --reviewed-by <operator> で登録してください",
+			"review a pair in doctor --json workspace_identity.conflict_samples, then doctor --alias-add --session <id> --workspace <path> --reviewed-by <operator>",
+			"doctor --json の workspace_identity.conflict_samples で pair を確認し、doctor --alias-add --session <id> --workspace <path> --reviewed-by <operator> で登録してください",
 		)
 		if len(identity.ConflictSamples) > 0 {
 			first := identity.ConflictSamples[0]

@@ -4,6 +4,8 @@
 
 Status: design contract for v0.30.0 implementation issues #1435 and #1429.
 
+Machine-readable inspection is `traceary doctor --json` (`workspace_identity`). The former `report workspace-identity` leaf is retired (#2124).
+
 ## Requirement summary
 
 Traceary currently stores `workspace` on both sessions and events, but the two values do not have an explicit semantic distinction.

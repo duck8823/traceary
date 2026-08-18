@@ -123,9 +123,9 @@ Possible but not actively tuned:
 
 ## Workspace identity release QA
 
-Run `traceary doctor` once to initialize/migrate the store, then run `traceary report workspace-identity` to inspect attribution coverage, current workspace relationships, and stable-ID hook delivery outcomes by client and hook. The report itself does not migrate or advance provenance catch-up. `--json` is suitable for release QA. Conflict samples contain identifiers only; event bodies are never included.
+Run `traceary doctor --json` to inspect attribution coverage, current workspace relationships, and stable-ID hook delivery outcomes by client and hook (`workspace_identity`). Doctor initializes or migrates a small store first; the identity block does not advance provenance catch-up. Conflict samples contain identifiers only; event bodies are never included. On stores ≥2 GiB the default doctor stays filesystem-metadata-only and omits the block — use a reviewed copy below that threshold.
 
-The default report reads only body-free exact-delivery and workspace projections. It deliberately separates `exact_delivery` (proven stable host-ID outcomes, with a target below 1%) from `heuristic_candidates`, whose `measurement_state` is `not_requested` unless the operator passes `--include-heuristic`. Explicit heuristic measurement reads at most `--heuristic-limit` prompt/transcript bodies (default 5,000) and reports `partial`, `complete`, or `failed`; it never changes the exact metrics. `sample_available=false` means no runtime delivery attempts have been measured yet.
+The default block is body-free. Derived `exact_delivery` (proven stable host-ID outcomes, target below 1%) is included. Historical body/time-window heuristic measurement is not part of this surface. `sample_available=false` means no runtime delivery attempts have been measured yet.
 
 Reviewed conflicts can be reclassified without changing canonical session provenance:
 

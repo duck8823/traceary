@@ -252,7 +252,7 @@ migration `000023` は `hook_delivery_attempts` を追加します。各行が�
 
 `session_workspace_aliases` は運用者が明示的に確認した情報を保持します。別名は `sessions.workspace`、`events.workspace`、観測時点の関係を一切書き換えません。読み取り projection だけが、確認情報と一致する保存済み競合を `explicit_alias` に変更するため、別名の削除で完全に元へ戻せます。
 
-`traceary report workspace-identity` は読み取り専用で、migration や provenance catch-up を実行しません。先に `traceary doctor` で store を初期化または migrate してください。未準備の store では案内付きで失敗します。既定経路はイベント本文を読み込みません。observation 行の関係件数は volume のまま残し、`conflict_pair_count` は現行 conflict の distinct `(session_id, workspace)`、conflict sample は pair あたり最新 1 行で `workspace` を含みます。`--include-heuristic` を指定した場合だけ、正の `--heuristic-limit` を `MaxScanRows` として既存の dedupe 計画を `Apply=false` で呼び出します。本文を含まない件数取得により、上限付きの `partial` サンプルと `complete` 測定を区別します。上限付き apply は拒否されるため、クリーンアップは引き続き別の全件対象・明示的・可逆なコマンドです。意味は [workspace-conflict の意味](../research/workspace-conflict-meaning.ja.md) を見てください。
+`traceary doctor --json` が同じ本文なし identity フィールドを `workspace_identity` で出します。ブロック自体は provenance catch-up を実行しません。observation 行の関係件数は volume のまま残し、`conflict_pair_count` は現行 conflict の distinct `(session_id, workspace)`、conflict sample は pair あたり最新 1 行で `workspace` を含みます。2 GiB 以上の既定 doctor はこのブロックを出しません（filesystem-metadata-only）。意味は [workspace-conflict の意味](../research/workspace-conflict-meaning.ja.md) を見てください。
 
 ## ペイロード codec バックフィル
 

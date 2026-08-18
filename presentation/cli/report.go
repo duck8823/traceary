@@ -39,7 +39,18 @@ func (c *RootCLI) newReportCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "report",
 		Short: Localize("Period-scoped retrospective digest (sessions, coverage, failures, commands, usage)", "期間指定の振り返りダイジェスト（sessions / coverage / failures / commands / usage）"),
-		Args:  noArgsLocalized(),
+		Args: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return nil
+			}
+			// After #2124 the workspace-identity leaf is gone. Extra tokens
+			// must fail as an unknown subcommand, not as leftover positionals.
+			return xerrors.Errorf("%s", Localizef(
+				"unknown subcommand %q for %q; run %q for available commands",
+				"%q は %q の不明なサブコマンドです。利用可能なコマンドは %q を参照してください",
+				args[0], cmd.CommandPath(), cmd.CommandPath()+" --help",
+			))
+		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runReport(cmd.Context(), cmd.OutOrStdout(), reportCommandInput{
 				dbPath: dbPath, workspace: workspace, from: from, since: since,
@@ -63,7 +74,6 @@ func (c *RootCLI) newReportCommand() *cobra.Command {
 	cmd.Flags().IntVar(&legacyLimit, "limit", 0, Localize("deprecated alias for --page-size", "--page-size の非推奨 alias"))
 	_ = cmd.Flags().MarkDeprecated("limit", Localize("use --page-size; use --result-cap only for an explicit partial aggregate", "--page-size を使ってください。部分集計を明示する場合だけ --result-cap を使います"))
 	cmd.Flags().BoolVar(&asJSON, "json", false, Localize("emit JSON", "JSON で出力する"))
-	cmd.AddCommand(c.newWorkspaceIdentityReportCommand())
 	return cmd
 }
 

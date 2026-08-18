@@ -14,7 +14,7 @@ A workspace `conflict` is an operator-reviewable pair `(session_id, effective wo
 
 It is not a store defect and not a reason to retire the reviewed-alias mechanism. The classifier is doing what the contract says: remote identities and local paths stay distinct until an operator reviews them; two unrelated local trees stay distinct.
 
-`report workspace-identity` keeps observation-row counts as volume. It now also reports **distinct conflict pairs** and samples **one row per pair** (with the workspace) so the remedy is reachable.
+`doctor --json` `workspace_identity` keeps observation-row counts as volume. It now also reports **distinct conflict pairs** and samples **one row per pair** (with the workspace) so the remedy is reachable.
 
 ## Answers
 

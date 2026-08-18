@@ -20,6 +20,7 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 - **`doctor --fix` drains transient dead-letter requeue under the 45s wall (#2109)** — the 200-record batch cap remains, but batches loop until the spool is empty or the fixer wall clock is exhausted. `--dry-run` previews the full planned requeue count. Fixes-line counters are unchanged.
 
 ### Removed
+- **`traceary report workspace-identity` (#2124)** — invocations fail as an unknown subcommand (non-zero, no `DEPRECATED` notice). `doctor --json` adds a `workspace_identity` block (coverage, conflict pairs, sources, samples, aliases, derived `exact_delivery`). Text doctor is unchanged except the `workspace-aliases` hint. Large-store default doctor still skips the SQLite identity query. `report` itself stays. The optional `--include-heuristic` body scan is gone with the leaf.
 - **`traceary memory decay` (#2123)** — invocations fail as an unknown subcommand (non-zero, no `DEPRECATED` notice; owner exception in #2108). Session-end hooks apply decay when `TRACEARY_MEMORY_DECAY` is on (default). The operator trigger is `traceary doctor --fix`. Recovery is `memory inbox restore`.
 - **`traceary session gc` and `traceary session repair-one-shot` (#2122)** — both fail as unknown subcommands (non-zero, no `DEPRECATED` notice). Stale still-open sessions are closed by hook opportunistic GC and `traceary doctor --fix` (24h window). The custom `--stale-after` knob is gone. Historical one-shot rows stay as recorded.
 
