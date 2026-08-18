@@ -3,6 +3,7 @@ package cli_test
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,10 +14,12 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	_ "modernc.org/sqlite"
 
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
+	infra "github.com/duck8823/traceary/infrastructure/sqlite"
 	"github.com/duck8823/traceary/presentation/cli"
 )
 
@@ -618,6 +621,119 @@ func TestRootCLI_DoctorLargeStoreReturnsBoundedMetadataOnlyReport(t *testing.T) 
 	if residueFixes > 1 {
 		t.Fatalf("hook-state-residue fix ran %d times, want at most 1", residueFixes)
 	}
+	generation := statusByName(report, "search-projection-generation")
+	if generation.Status != "skip" {
+		t.Fatalf("search-projection-generation = %#v, want skip on invalid sparse fixture", generation)
+	}
+}
+
+func TestRootCLI_DoctorLargeStoreReportsO1PageAndProjectionSignals(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+	setTracearyPathToCurrentExecutable(t)
+	largeStore := writeValidSparseLargeStore(t)
+	store := &storeManagementUsecaseStub{}
+	events := &eventUsecaseStub{}
+	capacity := &panicCapacityInspector{}
+	codec := &panicPayloadCodecInspector{}
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(store),
+		cli.WithEvent(events),
+		cli.WithCapacityInspector(capacity),
+		cli.WithPageMetadataInspector(infra.NewPageMetadataInspector()),
+		cli.WithPayloadCodecInspector(codec),
+	).Command()
+	stdout := &bytes.Buffer{}
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"doctor", "--db-path", largeStore, "--json", "--warnings-ok"})
+
+	started := time.Now()
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("O(1) large-store doctor took %s, want <= 1s", elapsed)
+	}
+	report := decodeDoctorReport(t, stdout.Bytes())
+	if report.Mode != "metadata_only_large_store" {
+		t.Fatalf("report.Mode = %q, want metadata_only_large_store", report.Mode)
+	}
+	if store.initCalled {
+		t.Fatal("large-store doctor initialized SQLite")
+	}
+	if events.listCalls != 0 {
+		t.Fatalf("large-store doctor listed %d events", events.listCalls)
+	}
+	if capacity.calls != 0 {
+		t.Fatalf("large-store capacity calls=%d, want zero", capacity.calls)
+	}
+	size := statusByName(report, "store-size")
+	if strings.Contains(size.Message, "unknown") || strings.Contains(size.Message, "不明") {
+		t.Fatalf("store-size still unknown: %#v", size)
+	}
+	if !strings.Contains(size.Message, "reclaimable=") {
+		t.Fatalf("store-size = %#v, want reclaimable bytes", size)
+	}
+	capacityCheck := statusByName(report, "store-capacity")
+	if capacityCheck.Status != "skip" || !strings.Contains(capacityCheck.Message, "filesystem-metadata-only") {
+		t.Fatalf("store-capacity = %#v, want skip", capacityCheck)
+	}
+	generation := statusByName(report, "search-projection-generation")
+	if generation.Status != "pass" || !strings.Contains(generation.Message, "generation=gen-o1") || !strings.Contains(generation.Message, "state=complete") {
+		t.Fatalf("search-projection-generation = %#v", generation)
+	}
+	if generation.Section != "Database" {
+		t.Fatalf("search-projection-generation section = %q", generation.Section)
+	}
+	diag := statusByName(report, "large-store-diagnostics")
+	if diag.Status != "warn" || !strings.Contains(diag.Message, "were not read") {
+		t.Fatalf("large-store-diagnostics = %#v", diag)
+	}
+	assertDoctorCheckNamesUnique(t, report)
+}
+
+func writeValidSparseLargeStore(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "valid-large.db")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("Open sqlite fixture: %v", err)
+	}
+	statements := []string{
+		`PRAGMA journal_mode=WAL`,
+		`CREATE TABLE scratch (payload BLOB)`,
+		`INSERT INTO scratch(payload) VALUES (zeroblob(65536))`,
+		`DELETE FROM scratch`,
+		`CREATE TABLE search_projection_state (
+			singleton INTEGER PRIMARY KEY CHECK (singleton=1),
+			active_generation_id TEXT,
+			state TEXT,
+			phase TEXT
+		)`,
+		`INSERT INTO search_projection_state(singleton, active_generation_id, state, phase)
+		 VALUES (1, 'gen-o1', 'complete', 'idle')`,
+	}
+	for index, statement := range statements {
+		if _, execErr := db.Exec(statement); execErr != nil {
+			_ = db.Close()
+			t.Fatalf("exec fixture statement %d: %v", index, execErr)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("Close sqlite fixture: %v", err)
+	}
+	file, err := os.OpenFile(path, os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatalf("OpenFile for truncate: %v", err)
+	}
+	if err := file.Truncate(2 << 30); err != nil {
+		_ = file.Close()
+		t.Fatalf("Truncate() error = %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("Close truncated fixture: %v", err)
+	}
+	return path
 }
 
 func TestRootCLI_DoctorJSONIncludesOperatorCost(t *testing.T) {

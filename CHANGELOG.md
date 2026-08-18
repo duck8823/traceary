@@ -8,6 +8,7 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 ## [Unreleased]
 
 ### Fixed
+- **Default `doctor` reports O(1) reclaimable pages and projection generation on ≥2 GiB stores (#2110)** — `mode=ro` reads `page_count` / `page_size` / `freelist_count` plus the `search_projection_state` singleton. `store-size` no longer calls growth unknown when those pragmas answer it. `store-capacity` stays skip; event bodies, dbstat, and migrations stay unread. Invalid sparse fixtures fail-soft.
 - **`store compact` exclusive lease acquisition times out instead of polling forever (#2120)** — default wait is 60s with a named lock-path error and stderr wait lines. An idle same-process shared flock still blocks exclusive until that pool is closed; the timeout makes the hang fail fast.
 - **`store compact` prints phase and replica-build progress on stderr (#2119)** — each journal phase emits a line; the build phase reports replica bytes versus the destination estimate about every 10s. stdout JSON is unchanged.
 - **Extraction hides instruction-echo, mid-sentence fragments, and JSON payload echoes (#2112)** — numbered/bulleted imperative list items, lowercase clause continuations, and JSON object/array literals route to `extracted-hidden`. Payload echoes stay hidden even on remember-intent; other remember-intent facts stay visible.

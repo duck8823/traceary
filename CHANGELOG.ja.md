@@ -8,6 +8,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 ## [Unreleased]
 
 ### Fixed
+- **既定の `doctor` が 2 GiB 以上のストアで O(1) の回収可能ページと projection generation を出す (#2110)** — `mode=ro` で `page_count` / `page_size` / `freelist_count` と `search_projection_state` singleton だけ読む。pragma が答えるとき `store-size` は growth unknown にしない。`store-capacity` は skip のまま。event body、dbstat、migration は読まない。不正な sparse fixture は fail-soft。
 - **`store compact` の排他 lease 取得が無限待ちせずタイムアウトする (#2120)** — 既定 60 秒、lock パス付きエラー、stderr に待ち行。同一プロセスの idle 共有 flock はプールを閉じるまで排他を塞ぐが、ハングは fail-fast になる。
 - **`store compact` が stderr に phase と replica 構築進捗を出す (#2119)** — journal の phase ごとに 1 行。構築中は約 10 秒ごとに replica バイト対 destination 見積もり。stdout JSON は変えない。
 - **抽出が instruction-echo・文途中フラグメント・JSON payload echo を hidden にする (#2112)** — 番号/箇条書きの命令、小文字で始まる節の続き、JSON の object/array リテラルは `extracted-hidden`。payload echo は remember-intent でも hidden。それ以外の remember-intent は表示のまま。

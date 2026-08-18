@@ -225,7 +225,7 @@ func TestStoreSnapshotSurvivesDeleteAfterSingleStat(t *testing.T) {
 	if !isLargeStoreForBoundedDoctor(snapshot) {
 		t.Fatal("snapshot lost large-store decision after delete")
 	}
-	check := boundedLargeStoreDoctorCheck(snapshot, "/tmp/other store.db")
+	check := boundedLargeStoreDoctorCheck(snapshot, "/tmp/other store.db", false)
 	if check.Status != doctorStatusWarn || !strings.Contains(check.Message, "were not read") {
 		t.Fatalf("check=%#v", check)
 	}
@@ -245,6 +245,51 @@ func TestStoreGrowthMessageDistinguishesUnknownAndMeasuredZeroFree(t *testing.T)
 	}
 	if !strings.Contains(zero.Message, "free=0 B") {
 		t.Fatalf("zero=%q", zero.Message)
+	}
+}
+
+func TestEvaluateLargeStoreGrowthBudgetReportsReclaimable(t *testing.T) {
+	pass := evaluateLargeStoreGrowthBudget(3<<30, storeGrowthEvidence{
+		DatabaseBytes:           3 << 30,
+		ReclaimableBytes:        64 << 20,
+		FilesystemFreeBytes:     20 << 30,
+		FilesystemFreeAvailable: true,
+	})
+	if pass.Status != doctorStatusPass || !strings.Contains(pass.Message, "reclaimable=64.0 MiB") {
+		t.Fatalf("pass=%#v", pass)
+	}
+	if strings.Contains(pass.Message, "unknowable") || strings.Contains(pass.Message, "不明") {
+		t.Fatalf("pass still treats growth as unknown: %q", pass.Message)
+	}
+	warn := evaluateLargeStoreGrowthBudget(3<<30, storeGrowthEvidence{
+		DatabaseBytes:           3 << 30,
+		ReclaimableBytes:        400 << 20,
+		FilesystemFreeBytes:     20 << 30,
+		FilesystemFreeAvailable: true,
+	})
+	if warn.Status != doctorStatusWarn || !strings.Contains(warn.Message, "reclaimable") {
+		t.Fatalf("warn=%#v", warn)
+	}
+	if !strings.Contains(warn.Message, "reclaimable=400.0 MiB") {
+		t.Fatalf("warn message = %q", warn.Message)
+	}
+}
+
+func TestLargeStoreSizeCheckFailSoftWhenInspectorErrors(t *testing.T) {
+	snapshot := storeFileSnapshot{Size: 2 << 30, Regular: true, Exists: true}
+	check := largeStoreSizeCheck(snapshot, "/tmp/large.db", apptypes.StorePageMetadata{}, errLargeStorePageMetadataUnavailable)
+	if check.Status != doctorStatusWarn || !strings.Contains(check.Message, "unknown") {
+		t.Fatalf("check=%#v", check)
+	}
+	generation := largeStoreProjectionGenerationCheck(apptypes.StorePageMetadata{}, errLargeStorePageMetadataUnavailable)
+	if generation.Status != doctorStatusSkip {
+		t.Fatalf("generation=%#v", generation)
+	}
+}
+
+func TestDoctorSectionNameForCheckMapsProjectionGenerationToDatabase(t *testing.T) {
+	if got := doctorSectionNameForCheck("search-projection-generation"); got != "Database" {
+		t.Fatalf("section=%q", got)
 	}
 }
 
