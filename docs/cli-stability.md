@@ -39,7 +39,7 @@ Current public commands, including compatibility aliases introduced after v0.15,
 - **Durable memory daily read** — `traceary memory search` (including `--all`), `traceary memory show`
 - **Durable memory inbox** — `traceary memory inbox list`, `traceary memory inbox show`, `traceary memory inbox accept`, `traceary memory inbox reject`, `traceary memory inbox attach`, `traceary memory inbox cleanup`, `traceary memory inbox restore`, `traceary memory inbox review` (TTY-only)
 - **Durable memory store** — `traceary memory store propose`, `traceary memory store distill`
-- **Hooks** — `traceary hooks install` (including `--dry-run`), `traceary hooks guide`, `traceary completion` (`bash` / `zsh` / `fish` / `powershell`)
+- **Hooks** — `traceary hooks install` (including `--dry-run`), `traceary completion` (`bash` / `zsh` / `fish` / `powershell`)
 - **Diagnostics** — `traceary doctor` (alias `traceary status`, including the additive `store-capacity` check and `--json` `workspace_identity` block), `traceary report`
 - **Bundle import / export** — `traceary bundle export`, `traceary bundle import`
 
@@ -90,6 +90,7 @@ A command is removed only for empty backing data, duplication, or serving no pil
 
 Historical removal log:
 
+- Removed in v0.43.0 (#2125): `traceary hooks guide`. Invocations fail as an unknown subcommand with a non-zero exit and no `DEPRECATED` notice. This is an explicit policy exception to the one-minor deprecation window (owner decision 2026-08-18, recorded in #2108). Use `traceary hooks install --dry-run` (stderr names `Expected config path: <resolved>`; stdout stays the pasteable config) plus `docs/hooks/README.md` for client notes. `traceary hooks install --client <c>` writes the file.
 - Removed in v0.43.0 (#2124): `traceary report workspace-identity`. Invocations fail as an unknown subcommand with a non-zero exit and no `DEPRECATED` notice. Admin-tier leaf; operator-flow notice is sufficient. Use `traceary doctor --json` (`workspace_identity` block: coverage, conflict pairs, sources, samples, aliases, derived `exact_delivery`). Text-mode doctor is unchanged except the `workspace-aliases` hint. Large-store default doctor stays filesystem-metadata-only and omits the block. `traceary report` itself stays. The optional `--include-heuristic` body scan is not absorbed.
 - Removed in v0.43.0 (#2123): `traceary memory decay`. Invocations fail as an unknown subcommand with a non-zero exit and no `DEPRECATED` notice. This is an explicit policy exception to the one-minor deprecation window (owner decision 2026-08-18, recorded in #2108). Session-end hooks apply decay when `TRACEARY_MEMORY_DECAY` is on (default) with window `TRACEARY_MEMORY_DECAY_AFTER`. The operator trigger is `traceary doctor --fix`. Recovery is `traceary memory inbox restore`.
 - Removed in v0.43.0 (#2122): `traceary session gc` and `traceary session repair-one-shot`. Invocations fail as unknown subcommands with a non-zero exit and no `DEPRECATED` notice. Admin-tier leaves; operator-flow notice is sufficient. Stale still-open sessions are closed by hook opportunistic GC and `traceary doctor --fix` (default 24h window; the custom `--stale-after` knob is gone). Historical one-shot rows stay as recorded; there is no absorb destination for evidence-manifest repair.

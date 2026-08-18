@@ -116,9 +116,9 @@ payload の `prompt` フィールドをそのまま記録し、redaction は適�
 
 ### CLI で設定を出力する
 
-`traceary hooks install --dry-run --client <claude|codex|gemini>` は、貼り付け用の config を出力します。`claude-code`, `codex-cli`, `gemini-cli` も alias として使えます。
+`traceary hooks install --dry-run --client <claude|codex|gemini|antigravity|grok|kimi>` は、貼り付け用の config を出力します。`claude-code`, `codex-cli`, `gemini-cli`, `agy`, `grok-cli`, `kimi-cli` も alias として使えます。
 
-まず install / check / verify の流れだけ確認したい場合は、`traceary hooks guide --client <claude|codex|gemini>` を使ってください。
+`--dry-run` は stdout に config、stderr に `想定 config path: <resolved>` を出します。書き込みは `traceary hooks install --client <c>`、確認は `traceary doctor --client <c>`、host を動かした後の検証は `traceary list --limit 10` です。client ごとの注記は下の節にあります。
 
 例:
 

@@ -39,7 +39,7 @@ v0.15 以降に追加された互換 alias も含む現在の公開コマンド�
 - **durable memory 日常 read** — `traceary memory search`（`--all` を含む）、`traceary memory show`
 - **durable memory inbox** — `traceary memory inbox list`、`traceary memory inbox show`、`traceary memory inbox accept`、`traceary memory inbox reject`、`traceary memory inbox attach`、`traceary memory inbox cleanup`、`traceary memory inbox restore`、`traceary memory inbox review`（TTY のみ）
 - **durable memory store** — `traceary memory store propose`、`traceary memory store distill`
-- **hooks** — `traceary hooks install`（`--dry-run` を含む）、`traceary hooks guide`、`traceary completion`（`bash` / `zsh` / `fish` / `powershell`）
+- **hooks** — `traceary hooks install`（`--dry-run` を含む）、`traceary completion`（`bash` / `zsh` / `fish` / `powershell`）
 - **診断** — `traceary doctor`（alias `traceary status`、additive な `store-capacity` check と `--json` の `workspace_identity` ブロックを含む）、`traceary report`
 - **bundle import / export** — `traceary bundle export`、`traceary bundle import`
 
@@ -90,6 +90,7 @@ v0.35 時点の admin コマンド：
 
 過去の削除履歴：
 
+- v0.43.0 で削除（#2125）: `traceary hooks guide`。呼び出しは unknown subcommand として非ゼロ終了し、`DEPRECATED` 通知は出しません。one-minor deprecation window の明示的なポリシー例外です（owner 決定 2026-08-18、#2108）。代わりに `traceary hooks install --dry-run`（stderr が `想定 config path: <resolved>` を出し、stdout は貼り付け可能な config のまま）と `docs/hooks/README.ja.md` の client 注記を使います。書き込みは `traceary hooks install --client <c>` です。
 - v0.43.0 で削除（#2124）: `traceary report workspace-identity`。呼び出しは unknown subcommand として非ゼロ終了し、`DEPRECATED` 通知は出しません。admin ティアなので operator 向け案内で足ります。代わりに `traceary doctor --json`（`workspace_identity` ブロック: coverage、conflict pair、sources、samples、aliases、導出 `exact_delivery`）。text doctor は `workspace-aliases` の hint 以外そのまま。2 GiB 以上の既定 doctor は filesystem-metadata-only のままでブロックを出しません。`traceary report` 本体は残ります。任意の `--include-heuristic` 本文スキャンは吸収しません。
 - v0.43.0 で削除（#2123）: `traceary memory decay`。呼び出しは unknown subcommand として非ゼロ終了し、`DEPRECATED` 通知は出しません。one-minor deprecation window の明示的なポリシー例外です（owner 決定 2026-08-18、#2108）。session-end hook は `TRACEARY_MEMORY_DECAY` が on（既定）なら `TRACEARY_MEMORY_DECAY_AFTER` の窓で decay します。手動 trigger は `traceary doctor --fix`。復元は `traceary memory inbox restore` です。
 - v0.43.0 で削除（#2122）: `traceary session gc` と `traceary session repair-one-shot`。呼び出しは unknown subcommand として非ゼロ終了し、`DEPRECATED` 通知は出しません。admin ティアなので operator 向け案内で足ります。未終了の stale session は hook の opportunistic GC と `traceary doctor --fix`（既定 24h。独自 `--stale-after` は廃止）が終了します。過去の one-shot 行はそのまま残り、evidence-manifest 修復の吸収先はありません。

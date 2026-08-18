@@ -116,9 +116,9 @@ The hook exits successfully without recording anything when:
 
 ### Generate config from CLI
 
-Use `traceary hooks install --dry-run --client <claude|codex|gemini>` when you want a ready-to-paste config. `claude-code`, `codex-cli`, and `gemini-cli` are accepted aliases.
+Use `traceary hooks install --dry-run --client <claude|codex|gemini|antigravity|grok|kimi>` when you want a ready-to-paste config. Aliases such as `claude-code`, `codex-cli`, `gemini-cli`, `agy`, `grok-cli`, and `kimi-cli` are accepted.
 
-If you want the install/check/verify flow first, run `traceary hooks guide --client <claude|codex|gemini>`.
+`--dry-run` prints the config on stdout and `Expected config path: <resolved>` on stderr. Then write with `traceary hooks install --client <c>`, check with `traceary doctor --client <c>`, and verify events with `traceary list --limit 10` after you use the host. Per-client notes are in the sections below.
 
 Examples:
 

@@ -204,10 +204,12 @@ agy plugin install integrations/antigravity-plugin
 ## セットアップガイド
 
 ```sh
-traceary hooks guide --client antigravity --project-dir .
+traceary hooks install --dry-run --client antigravity
+traceary hooks install --client antigravity --project-dir .
+traceary doctor --client antigravity --json
 ```
 
-install command、doctor command、想定 config path、および Antigravity 固有の注記（PreInvocation の session モデル、Stop の turn 境界、run_command の突き合わせ）を表示します。
+`--dry-run` は stderr に想定 workspace パス（`.agents/hooks.json`）を出し、stdout に貼り付け可能な hook-group 文書を出します。Antigravity 固有の注記（PreInvocation の session モデル、Stop の turn 境界、run_command の突き合わせ）はこのページと [hooks README](../hooks/README.ja.md) にあります。
 
 ## Doctor
 

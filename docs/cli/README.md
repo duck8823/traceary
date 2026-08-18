@@ -742,7 +742,7 @@ Generate shell completion scripts for interactive use.
 
 Install generated hook configuration into the standard client config path.
 
-`--dry-run` prints the generated config without writing any file (the former `hooks print` bytes). It is incompatible with `--force`, `--upgrade`, `--output`, `--project-dir`, and `--global`.
+`--dry-run` prints the generated config on stdout without writing any file (the former `hooks print` bytes). Stderr prints `Expected config path: <resolved>` for the client default of the current working directory. It is incompatible with `--force`, `--upgrade`, `--output`, `--project-dir`, and `--global`.
 
 Useful flags:
 
@@ -753,16 +753,6 @@ Useful flags:
 - `--global` (write to the user-level config; mutually exclusive with `--output`)
 - `--force`
 - `--dry-run`
-
-### `traceary hooks guide`
-
-Print the recommended install/check/verify steps for a supported client.
-
-Useful flags:
-
-- `--client`
-- `--project-dir`
-- `--output`
 
 ### `traceary doctor`
 
