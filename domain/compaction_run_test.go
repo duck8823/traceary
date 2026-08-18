@@ -57,6 +57,34 @@ func TestCompactionRunRecoveryActionsRejectUnknownAndDecideCrashRecovery(t *test
 	}
 }
 
+func TestCompactionRunShouldAbandonForStaleSource(t *testing.T) {
+	t.Parallel()
+	source := StoreFileIdentity{Device: 1, Inode: 2, Size: 10, ModUnix: 100}
+	moved := source
+	moved.ModUnix = 200
+	run := CompactionRun{Phase: CompactionCandidatePrepared, SourceIdentity: source}
+	if !run.ShouldAbandonForStaleSource(moved) {
+		t.Fatal("pre-publication stale source must abandon")
+	}
+	if run.ShouldAbandonForStaleSource(source) {
+		t.Fatal("matching source must not abandon")
+	}
+	run.Phase = CompactionSwapIntent
+	if run.ShouldAbandonForStaleSource(moved) {
+		t.Fatal("swap_intent must never auto-abandon")
+	}
+	if !CompactionAbandoned.IsTerminal() || CompactionCandidatePrepared.IsTerminal() {
+		t.Fatal("abandoned is terminal; candidate_prepared is not")
+	}
+	got, err := (CompactionRun{Phase: CompactionCandidatePrepared}).Advance(CompactionAbandoned, time.Now())
+	if err != nil || got.Phase != CompactionAbandoned {
+		t.Fatalf("advance to abandoned: %q %v", got.Phase, err)
+	}
+	if _, err := (CompactionRun{Phase: CompactionSwapIntent}).Advance(CompactionAbandoned, time.Now()); err == nil {
+		t.Fatal("swap_intent must not advance to abandoned")
+	}
+}
+
 func TestCompactionRunNextActionOwnsNormalDecision(t *testing.T) {
 	action, err := (CompactionRun{Phase: CompactionScrubInProgress}).NextAction()
 	if err != nil {

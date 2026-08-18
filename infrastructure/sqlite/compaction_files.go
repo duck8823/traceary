@@ -302,8 +302,7 @@ func (j *PreparedStoreUpgradeFileJournal) FindInFlight(ctx context.Context, sour
 		if run.Operation != "" && run.Operation != domain.PreparedStoreUpgradeOperationCompaction {
 			continue
 		}
-		switch run.Phase {
-		case domain.CompactionCommitted, domain.CompactionRolledBack:
+		if run.Phase.IsTerminal() {
 			continue
 		}
 		if match.ID != "" {
@@ -702,6 +701,34 @@ func (f PreparedStoreUpgradeFiles) RemoveOwnedPartialCandidate(ctx context.Conte
 		if err := f.recoveryHook("after_dir_sync"); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func (f PreparedStoreUpgradeFiles) InspectStoreFile(ctx context.Context, path string) (domain.StoreFileIdentity, error) {
+	if err := ctx.Err(); err != nil {
+		return domain.StoreFileIdentity{}, err
+	}
+	return inspectRegularFile(path)
+}
+
+func (f PreparedStoreUpgradeFiles) RemoveAbandonedCandidate(ctx context.Context, run domain.CompactionRun) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !run.Phase.IsPrePublication() {
+		return errors.New("abandoned candidate cleanup is not authorized after publication")
+	}
+	if run.CandidatePath != ownedCandidatePath(run) {
+		return errors.New("candidate path is not owned by run")
+	}
+	if _, rollbackExists, err := inspectOptionalRegularFile(run.RollbackPath); err != nil {
+		return err
+	} else if rollbackExists {
+		return errors.New("rollback path exists during pre-publication abandon")
+	}
+	if err := os.Remove(run.CandidatePath); err != nil && !os.IsNotExist(err) {
+		return err
 	}
 	return nil
 }

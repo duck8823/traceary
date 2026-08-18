@@ -611,4 +611,95 @@ func prepareCompactionCandidateForResumeTest(ctx context.Context, t *testing.T, 
 	return run, journal
 }
 
+func TestStoreCompactionAbandonsStaleCandidatePreparedAndReplans(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	source := filepath.Join(dir, "source.db")
+	db, err := sql.Open("sqlite", directSQLiteRWDSNCreate(source))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TABLE sample(id INTEGER PRIMARY KEY, body TEXT); INSERT INTO sample(body) VALUES('keep')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	stale, journal := prepareCompactionCandidateForResumeTest(ctx, t, source, dir)
+	if _, err := os.Stat(stale.CandidatePath); err != nil {
+		t.Fatalf("expected leftover candidate marker: %v", err)
+	}
+	moved := time.Now().Add(2 * time.Second)
+	if err := os.Chtimes(source, moved, moved); err != nil {
+		t.Fatal(err)
+	}
+	svc := usecase.NewStoreCompactionUsecase(source, journal, SQLiteCompactionBuilder{}, StoreReplacementFiles{CallerHoldsExclusiveLease: true}, StoreLeaseCoordinator{})
+	result, err := svc.Compact(ctx, application.CompactInput{Source: source, Now: time.Now()})
+	if err != nil {
+		t.Fatalf("Compact after stale candidate_prepared: %v", err)
+	}
+	if result.Run.Phase != domain.CompactionCommitted {
+		t.Fatalf("phase=%s, want committed", result.Run.Phase)
+	}
+	if result.Run.ID == stale.ID {
+		t.Fatal("fresh plan reused the abandoned run id")
+	}
+	abandoned, err := journal.Load(ctx, stale.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if abandoned.Phase != domain.CompactionAbandoned {
+		t.Fatalf("stale journal phase=%s, want abandoned", abandoned.Phase)
+	}
+	if _, err := os.Stat(stale.CandidatePath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("abandoned candidate must be removed, stat err=%v", err)
+	}
+}
+
+func TestStoreCompactionDoesNotAbandonSwapIntent(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	source := filepath.Join(dir, "source.db")
+	if err := os.WriteFile(source, []byte("source"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run := domain.CompactionRun{
+		ID:             "0123456789abcdef0123456789abcdef",
+		SourcePath:     source,
+		CandidatePath:  source + ".compact-0123456789abcdef0123456789abcdef",
+		RollbackPath:   source + ".rollback-0123456789abcdef0123456789abcdef",
+		Phase:          domain.CompactionSwapIntent,
+		SourceIdentity: domain.StoreFileIdentity{Device: 1, Inode: 1, Size: 6},
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+	}
+	journal := &findingPhaseJournal{run: run}
+	svc := usecase.NewStoreCompactionUsecase(source, journal, SQLiteCompactionBuilder{}, StoreReplacementFiles{CallerHoldsExclusiveLease: true}, StoreLeaseCoordinator{})
+	if _, err := svc.AbandonStalePrePublication(ctx, source); err != nil {
+		t.Fatal(err)
+	}
+	if journal.run.Phase != domain.CompactionSwapIntent {
+		t.Fatalf("phase=%s, swap_intent must stay", journal.run.Phase)
+	}
+}
+
+type findingPhaseJournal struct {
+	run domain.CompactionRun
+}
+
+func (j *findingPhaseJournal) Create(context.Context, domain.CompactionRun) error { return nil }
+func (j *findingPhaseJournal) Load(context.Context, string) (domain.CompactionRun, error) {
+	return j.run, nil
+}
+func (j *findingPhaseJournal) Append(_ context.Context, run domain.CompactionRun) error {
+	j.run = run
+	return nil
+}
+func (j *findingPhaseJournal) FindInFlight(context.Context, string) (domain.CompactionRun, error) {
+	if j.run.Phase.IsTerminal() {
+		return domain.CompactionRun{}, os.ErrNotExist
+	}
+	return j.run, nil
+}
+
 func directSQLiteRWDSNCreate(path string) string { return "file:" + path }

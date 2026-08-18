@@ -28,6 +28,9 @@ const (
 	PreparedStoreUpgradeRollbackSwapIntent    PreparedStoreUpgradePhase = "rollback_swap_intent"
 	PreparedStoreUpgradeRollbackSwapped       PreparedStoreUpgradePhase = "rollback_swapped"
 	PreparedStoreUpgradeRolledBack            PreparedStoreUpgradePhase = "rolled_back"
+	// PreparedStoreUpgradeAbandoned is a terminal pre-publication exit.
+	// The source inode was never swapped; the candidate may be removed.
+	PreparedStoreUpgradeAbandoned PreparedStoreUpgradePhase = "abandoned"
 )
 
 // StoreFileIdentity fences every destructive filesystem action.
@@ -284,10 +287,10 @@ type PreparedStoreUpgradeRun struct {
 }
 
 var preparedStoreUpgradeTransitions = map[PreparedStoreUpgradePhase][]PreparedStoreUpgradePhase{
-	PreparedStoreUpgradePlanned:               {PreparedStoreUpgradeCopyIntent},
-	PreparedStoreUpgradeCopyIntent:            {PreparedStoreUpgradeCandidatePrepared},
-	PreparedStoreUpgradeCopyRetryIntent:       {PreparedStoreUpgradeCandidatePrepared},
-	PreparedStoreUpgradeCandidatePrepared:     {PreparedStoreUpgradeCopyComplete, PreparedStoreUpgradeCopyRetryIntent},
+	PreparedStoreUpgradePlanned:               {PreparedStoreUpgradeCopyIntent, PreparedStoreUpgradeAbandoned},
+	PreparedStoreUpgradeCopyIntent:            {PreparedStoreUpgradeCandidatePrepared, PreparedStoreUpgradeAbandoned},
+	PreparedStoreUpgradeCopyRetryIntent:       {PreparedStoreUpgradeCandidatePrepared, PreparedStoreUpgradeAbandoned},
+	PreparedStoreUpgradeCandidatePrepared:     {PreparedStoreUpgradeCopyComplete, PreparedStoreUpgradeCopyRetryIntent, PreparedStoreUpgradeAbandoned},
 	PreparedStoreUpgradeCopyComplete:          {PreparedStoreUpgradeCandidateSyncIntent},
 	PreparedStoreUpgradeCandidateSyncIntent:   {PreparedStoreUpgradeCandidateSynced},
 	PreparedStoreUpgradeCandidateSynced:       {PreparedStoreUpgradeScrubInProgress},
@@ -300,6 +303,34 @@ var preparedStoreUpgradeTransitions = map[PreparedStoreUpgradePhase][]PreparedSt
 	PreparedStoreUpgradeCommitted:             {PreparedStoreUpgradeRollbackSwapIntent},
 	PreparedStoreUpgradeRollbackSwapIntent:    {PreparedStoreUpgradeRollbackSwapped},
 	PreparedStoreUpgradeRollbackSwapped:       {PreparedStoreUpgradeRolledBack},
+}
+
+// IsTerminal reports whether the journal no longer requires resume.
+func (p PreparedStoreUpgradePhase) IsTerminal() bool {
+	switch p {
+	case PreparedStoreUpgradeCommitted, PreparedStoreUpgradeRolledBack, PreparedStoreUpgradeAbandoned:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsPrePublication is the window where abandoning is unconditionally safe:
+// the rollback inode was never created and the source inode was never swapped.
+func (p PreparedStoreUpgradePhase) IsPrePublication() bool {
+	switch p {
+	case PreparedStoreUpgradePlanned, PreparedStoreUpgradeCopyIntent, PreparedStoreUpgradeCopyRetryIntent, PreparedStoreUpgradeCandidatePrepared:
+		return true
+	default:
+		return false
+	}
+}
+
+// ShouldAbandonForStaleSource is true when a pre-publication journal is fenced
+// to a source identity that no longer matches the live file (typically mtime
+// after a later writer). Publication phases must not take this exit.
+func (r PreparedStoreUpgradeRun) ShouldAbandonForStaleSource(current StoreFileIdentity) bool {
+	return r.Phase.IsPrePublication() && current != (StoreFileIdentity{}) && current != r.SourceIdentity
 }
 
 // Advance rejects skipped or backward protocol transitions.
