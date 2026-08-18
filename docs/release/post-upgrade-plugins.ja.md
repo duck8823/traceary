@@ -36,9 +36,9 @@ release 済みバイナリを更新するたびに、次を実行してくださ
 | Host | 更新 | 有効化 | version 検証 | 許可する skip |
 |---|---|---|---|---|
 | Claude Code | Claude Code 内で `claude plugins update <Traceary marketplace key>`。正確な key は `traceary doctor --client claude --json` の `FixCommand` を使います。 | 更新済み package を読み込むため、Claude Code を再起動するか新しい process を開始します。 | `traceary doctor --client claude --json` の `claude-plugin-version` が `pass`。 | Claude Code / Traceary package を意図的に導入していない場合だけ `--skip claude='理由'`。 |
-| Codex | `traceary -v` と一致する checkout の `plugins/traceary/` から再導入します。Codex plugin 文書も参照してください。 | `/plugins` で refresh / reinstall してから、新しい Codex session を開始します。 | `traceary doctor --client codex --json` の `codex-plugin-version` が `pass`。 | Codex / Traceary package を意図的に導入していない場合だけ `--skip codex='理由'`。 |
-| Gemini CLI（レガシー extension） | `gemini extensions update traceary`、その後 managed hook generation を更新（下記参照）。 | Gemini CLI を再起動します。 | `traceary doctor --client gemini --json` の `gemini-plugin-version` と `gemini-config` がどちらも `pass`。 | レガシー extension を意図的に導入していない場合だけ `--skip gemini='理由'`。 |
-| Antigravity | 下記の安全な dual path 手順を行ってから、`agy plugin install integrations/antigravity-plugin`。 | Antigravity を終了して開き直すか、新しい CLI session を開始します。 | `traceary doctor --client antigravity --json` のすべての `antigravity-plugin-version` が `pass`。一方が pass で、もう一方が version のない不完全 twin なら、後者の `skip` は許可されます。 | Antigravity / Traceary package を意図的に導入していない場合だけ `--skip antigravity='理由'`。 |
+| Codex | marketplace clone で `traceary -v` と一致する tag を `git checkout` し、`codex plugin add traceary@traceary-marketplace`。local-path marketplace では `codex plugin marketplace upgrade` は "No configured Git marketplaces" になるので使わない。対話の `/plugins` は従来どおり有効。 | add（または `/plugins` refresh）のあと新しい Codex session を開始します。 | `traceary doctor --client codex --json` の `codex-plugin-version` が `pass`。 | Codex / Traceary package を意図的に導入していない場合だけ `--skip codex='理由'`。 |
+| Gemini CLI（レガシー extension） | `./scripts/install-gemini-extension.sh`（uninstall + `install --consent`、tag pin）。その後 managed hook generation を更新（下記参照）。 | Gemini CLI を再起動します。 | `traceary doctor --client gemini --json` の `gemini-plugin-version` と `gemini-config` がどちらも `pass`。 | レガシー extension を意図的に導入していない場合だけ `--skip gemini='理由'`。 |
+| Antigravity | `traceary -v` と一致する checkout から `rsync -a --delete integrations/antigravity-plugin/` を `~/.gemini/config/plugins/traceary/`（と、あればレガシー `~/.gemini/antigravity-cli/plugins/traceary/`）へ、または `agy plugin install integrations/antigravity-plugin`。doctor がまだ stale twin を出す場合は下記の dual path 手順。 | Antigravity を終了して開き直すか、新しい CLI session を開始します。 | `traceary doctor --client antigravity --json` のすべての `antigravity-plugin-version` が `pass`。一方が pass で、もう一方が version のない不完全 twin なら、後者の `skip` は許可されます。 | Antigravity / Traceary package を意図的に導入していない場合だけ `--skip antigravity='理由'`。 |
 | Grok Build | `./scripts/install-grok-plugin.sh`。 | Grok Build を再起動するか、新しい session を開始します。 | `traceary doctor --client grok --json` の `grok-plugin` が `pass`。 | Grok Build / Traceary package を意図的に導入していない場合だけ `--skip grok='理由'`。 |
 | Kimi Code | `./scripts/install-kimi-plugin.sh`。installer は新しい generation を stage し、managed `traceary` symlink を atomic に切り替え、install record を保持します。 | `/plugins reload` を実行するか、**新しい Kimi session を開始**します。 | `traceary doctor --client kimi --json` の `kimi-plugin-version` と native `kimi-plugin` が健全。 | Kimi Code / Traceary package を意図的に導入していない場合だけ `--skip kimi='理由'`。 |
 
@@ -46,9 +46,9 @@ doctor が正確な非対話コマンドを `FixCommand` に出す場合は、�
 
 ## Gemini managed hook generation の更新
 
-`gemini extensions update traceary` は `~/.gemini/extensions/traceary/` 内の extension パッケージを更新しますが、`~/.gemini/settings.json` 内にすでに存在する Traceary 管理の hook エントリは**書き換えません**。それらのエントリは古い hook generation によって書かれたものであり、timeout が古い値のまま残ることがあります（例: 現行の 10000 ms に対して 5000 ms）。Doctor はこれを `gemini-config=warn` として `installed=…ms desired=…ms` のドリフトメッセージと共に報告します。
+`./scripts/install-gemini-extension.sh` は `~/.gemini/extensions/traceary/` 内の extension パッケージを入れ直します（uninstall のあと `install --consent`、実行中 CLI の tag に pin）。`~/.gemini/settings.json` 内にすでに存在する Traceary 管理の hook エントリは**書き換えません**。それらのエントリは古い hook generation によって書かれたものであり、timeout が古い値のまま残ることがあります（例: 現行の 10000 ms に対して 5000 ms）。Doctor はこれを `gemini-config=warn` として `installed=…ms desired=…ms` のドリフトメッセージと共に報告します。
 
-`gemini extensions update traceary` を実行したあと、次のコマンドを実行してください。
+ローカル install に `gemini extensions update traceary` を使わないでください。対話プロンプトで止まります。スクリプトのあと、次を実行してください。
 
 ```sh
 # プレビュー — Traceary 管理エントリへの変更内容だけを表示します。

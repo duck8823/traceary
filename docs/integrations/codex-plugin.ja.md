@@ -182,14 +182,27 @@ apply path は必要に応じて target directory/file を作成し、管理ブ�
 
 ## 更新
 
-リポジトリを更新して、次回 Codex が `/plugins` をリフレッシュした時に新しいバージョンを取り込みます。
+対話更新: `traceary -v` と一致する checkout を pull したあと、Codex の `/plugins` で refresh / reinstall します。
+
+headless 更新（CLI 更新後に実際に通る経路）:
+
+```sh
+# marketplace clone — 実行中 CLI の tag と揃える
+cd ~/.codex/plugins/marketplaces/traceary-plugins   # または自分の marketplace root
+git fetch --tags
+git checkout "v$(traceary -v | awk '{print $2}')"
+codex plugin add traceary@traceary-marketplace
+```
+
+marketplace root が Git remote ではなく **local path** のとき、`codex plugin marketplace upgrade` は "No configured Git marketplaces" と返します。install 失敗ではありません。clone 内で `git pull` / `git checkout <tag>` したあと `codex plugin add traceary@traceary-marketplace` を使ってください。
+
+marketplace clone ではなく作業 tree から入れる場合:
 
 ```sh
 cd ~/src/traceary
 git pull --ff-only
+# 続けて同じ headless add、または対話セッションの /plugins
 ```
-
-plugin を一度外して入れ直したい場合は `/plugins` 画面から再インストールできます。
 
 ## Doctor と smoke test
 

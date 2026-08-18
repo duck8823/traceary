@@ -194,14 +194,31 @@ the cross-host strategy comparison and `invalid` recovery steps.
 
 ## Update
 
-Refresh the repository and let Codex pick up the new plugin version on the next `/plugins` refresh:
+Interactive refresh: pull the checkout that matches `traceary -v`, then use Codex `/plugins` to refresh or reinstall.
+
+Headless refresh (the path that actually works after a CLI upgrade):
+
+```sh
+# Marketplace clone — checkout that matches the running CLI tag
+cd ~/.codex/plugins/marketplaces/traceary-plugins   # or your marketplace root
+git fetch --tags
+git checkout "v$(traceary -v | awk '{print $2}')"
+codex plugin add traceary@traceary-marketplace
+```
+
+`codex plugin marketplace upgrade` answers "No configured Git marketplaces"
+when the marketplace root is a **local path** rather than a Git remote. That
+is expected; do not treat it as a missing install. Use `git pull` / `git
+checkout <tag>` in the clone plus `codex plugin add
+traceary@traceary-marketplace` instead.
+
+If you develop from a working tree instead of the marketplace clone:
 
 ```sh
 cd ~/src/traceary
 git pull --ff-only
+# then the same headless add, or /plugins in an interactive session
 ```
-
-If you need to bounce the plugin, `/plugins` also exposes a reinstall entry for the currently installed version.
 
 ## Doctor and smoke test
 

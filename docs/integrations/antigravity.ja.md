@@ -179,6 +179,28 @@ alias `agy` と `antigravity-cli` は canonical な `antigravity` client に解�
 
 代わりに、同梱の plugin（[`integrations/antigravity-plugin/`](../../integrations/antigravity-plugin/)）を導入できます。同じ `traceary` hook グループに加え、公式 Antigravity スキーマに従う version 付き `plugin.json`、共有 skill 4 件（[skills](./skills.ja.md)）、任意適用の `permissions.example.json` fragment を同梱しています。workspace または user-level の Traceary hook 経路を同時に残さないでください。
 
+## Update
+
+Antigravity に `extensions update` 相当はありません。`brew upgrade traceary`（または CLI の更新）のあと、`traceary -v` と一致する checkout（`git checkout vX.Y.Z` またはその tag の clone）から packaged plugin を入れ直します。
+
+```sh
+# 現行 Antigravity が読む共有 plugin ディレクトリ
+rsync -a --delete integrations/antigravity-plugin/ ~/.gemini/config/plugins/traceary/
+
+# レガシーな CLI 専用コピーがあればそれも置き換える
+if [ -d ~/.gemini/antigravity-cli/plugins/traceary ]; then
+  rsync -a --delete integrations/antigravity-plugin/ ~/.gemini/antigravity-cli/plugins/traceary/
+fi
+```
+
+同じ checkout から次でもよいです。
+
+```sh
+agy plugin install integrations/antigravity-plugin
+```
+
+`doctor --client antigravity` がまだ stale な Gemini 形パッケージや version 不一致を出す場合は、[古い Gemini import の plugin を移行する](#古い-gemini-import-の-plugin-を移行する) と [post-upgrade plugin refresh](../release/post-upgrade-plugins.ja.md#antigravity-stale-dual-path-remediation) の dual-path 手順に従ってください。packaged plugin ではなく hooks だけの経路を使っているときだけ `traceary hooks install --client antigravity --upgrade` を再実行します。
+
 ## セットアップガイド
 
 ```sh
