@@ -7,6 +7,9 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ## [Unreleased]
 
+### Fixed
+- **`doctor --fix` drains transient dead-letter requeue under the 45s wall (#2109)** — the 200-record batch cap remains, but batches loop until the spool is empty or the fixer wall clock is exhausted. `--dry-run` previews the full planned requeue count. Fixes-line counters are unchanged.
+
 ## [v0.42.0] - 2026-08-17
 
 ### Fixed
