@@ -30,4 +30,5 @@ const (
 	CompactionRollbackSwapIntent    = PreparedStoreUpgradeRollbackSwapIntent
 	CompactionRollbackSwapped       = PreparedStoreUpgradeRollbackSwapped
 	CompactionRolledBack            = PreparedStoreUpgradeRolledBack
+	CompactionAbandoned             = PreparedStoreUpgradeAbandoned
 )

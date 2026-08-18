@@ -8,6 +8,7 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 ## [Unreleased]
 
 ### Fixed
+- **Interrupted `store compact` no longer bricks the next run (#2118)** — a pre-publication journal (`planned` / `copy_intent` / `copy_retry_intent` / `candidate_prepared`) whose source identity has moved is abandoned (candidate removed) and the same invocation plans fresh. `doctor` WARNs on in-flight journals; `--fix` applies the same abandon. `swap_intent` and later are unchanged. SIGINT during build best-effort journals `abandoned`.
 - **`doctor` counts orphan hook-spool `*.tmp` leftovers as `stale_inflight` and prunes them after 14 days (#2115)** — files older than 1h enter the existing counter; `doctor --fix` / `--dry-run` add `pruned_tmp=`. Fresh write-rename temps are neither counted nor deleted.
 - **`store compact --projection-rebuild` JSON carries `result_kind` (#2111)** — start/replace emit `generation`; matching-hash resume emits `run`. Existing fields stay. Branch on `result_kind`; do not sniff the shape. `--projection-abort` is unchanged.
 - **Default `doctor` reports O(1) reclaimable pages and projection generation on ≥2 GiB stores (#2110)** — `mode=ro` reads `page_count` / `page_size` / `freelist_count` plus the `search_projection_state` singleton. `store-size` no longer calls growth unknown when those pragmas answer it. `store-capacity` stays skip; event bodies, dbstat, and migrations stay unread. Invalid sparse fixtures fail-soft.

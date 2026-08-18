@@ -39,6 +39,9 @@ func (*compactionCLIStub) Status(context.Context, string) (domain.CompactionRun,
 func (*compactionCLIStub) Rollback(context.Context, string) (domain.CompactionRun, error) {
 	return domain.CompactionRun{}, nil
 }
+func (*compactionCLIStub) AbandonStalePrePublication(context.Context, string) (domain.CompactionRun, error) {
+	return domain.CompactionRun{}, nil
+}
 
 func TestStoreCompactUsesDedicatedPathBoundComposition(t *testing.T) {
 	stub := &compactionCLIStub{}

@@ -195,11 +195,17 @@ func isInsufficientCompactionSpace(err error) bool {
 func (u *storeCompactionUsecase) compactLeased(ctx context.Context, source string) (domain.CompactionRun, error) {
 	if finder, ok := u.journal.(application.CompactionInFlightFinder); ok {
 		existing, findErr := finder.FindInFlight(ctx, source)
-		if findErr == nil && existing.ID != "" && existing.Phase != domain.CompactionCommitted && existing.Phase != domain.CompactionRolledBack {
-			if err := u.validateBinding(existing); err != nil {
-				return existing, err
+		if findErr == nil && existing.ID != "" && !existing.Phase.IsTerminal() {
+			abandoned, abandonErr := u.abandonIfStalePrePublication(ctx, existing)
+			if abandonErr != nil {
+				return existing, abandonErr
 			}
-			return u.resumeLeased(ctx, existing)
+			if !abandoned {
+				if err := u.validateBinding(existing); err != nil {
+					return existing, err
+				}
+				return u.resumeLeased(ctx, existing)
+			}
 		}
 		if findErr != nil && !errors.Is(findErr, os.ErrNotExist) {
 			return domain.CompactionRun{}, findErr
@@ -210,6 +216,79 @@ func (u *storeCompactionUsecase) compactLeased(ctx context.Context, source strin
 		return planned, err
 	}
 	return u.applyLeased(ctx, planned)
+}
+
+func (u *storeCompactionUsecase) AbandonStalePrePublication(ctx context.Context, source string) (domain.CompactionRun, error) {
+	if filepath.Clean(source) != u.expectedStore {
+		return domain.CompactionRun{}, fmt.Errorf("compaction store binding mismatch")
+	}
+	release, err := u.lease.AcquireExclusive(ctx, u.expectedStore)
+	if err != nil {
+		return domain.CompactionRun{}, err
+	}
+	defer release()
+	finder, ok := u.journal.(application.CompactionInFlightFinder)
+	if !ok {
+		return domain.CompactionRun{}, nil
+	}
+	existing, findErr := finder.FindInFlight(ctx, source)
+	if findErr != nil {
+		if errors.Is(findErr, os.ErrNotExist) {
+			return domain.CompactionRun{}, nil
+		}
+		return domain.CompactionRun{}, findErr
+	}
+	if err := u.validateBinding(existing); err != nil {
+		return existing, err
+	}
+	abandoned, err := u.abandonIfStalePrePublication(ctx, existing)
+	if err != nil {
+		return existing, err
+	}
+	if !abandoned {
+		return domain.CompactionRun{}, nil
+	}
+	loaded, loadErr := u.journal.Load(ctx, existing.ID)
+	if loadErr != nil {
+		return existing, loadErr
+	}
+	return loaded, nil
+}
+
+func (u *storeCompactionUsecase) abandonIfStalePrePublication(ctx context.Context, existing domain.CompactionRun) (bool, error) {
+	if !existing.Phase.IsPrePublication() {
+		return false, nil
+	}
+	cleanup, ok := u.files.(application.CompactionPrePublicationCleanup)
+	if !ok {
+		return false, nil
+	}
+	current, err := cleanup.InspectStoreFile(ctx, existing.SourcePath)
+	if err != nil {
+		return false, err
+	}
+	if !existing.ShouldAbandonForStaleSource(current) {
+		return false, nil
+	}
+	if _, err := u.abandonPrePublication(ctx, existing); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (u *storeCompactionUsecase) abandonPrePublication(ctx context.Context, run domain.CompactionRun) (domain.CompactionRun, error) {
+	if !run.Phase.IsPrePublication() {
+		return run, fmt.Errorf("cannot abandon compaction in phase %q", run.Phase)
+	}
+	// SIGINT / deadline already cancelled ctx; journal append and unlink
+	// must still run so the next invocation does not resume this corpse.
+	abandonCtx := context.WithoutCancel(ctx)
+	if cleanup, ok := u.files.(application.CompactionPrePublicationCleanup); ok {
+		if err := cleanup.RemoveAbandonedCandidate(abandonCtx, run); err != nil {
+			return run, err
+		}
+	}
+	return u.advance(abandonCtx, run, domain.CompactionAbandoned)
 }
 
 func (u *storeCompactionUsecase) Plan(ctx context.Context, source string) (domain.CompactionRun, error) {
@@ -304,6 +383,11 @@ func (u *storeCompactionUsecase) applyLeased(ctx context.Context, run domain.Com
 				stop()
 			} else {
 				err = u.builder.Build(ctx, run.SourcePath, run.CandidatePath)
+			}
+			if err != nil && ctx.Err() != nil {
+				if _, abandonErr := u.abandonPrePublication(ctx, run); abandonErr != nil {
+					return run, fmt.Errorf("%w (also failed to abandon: %v)", err, abandonErr)
+				}
 			}
 			if err == nil {
 				run, err = u.advance(ctx, run, domain.CompactionCopyComplete)

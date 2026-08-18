@@ -55,7 +55,7 @@ func inspectStoreFileSnapshot(path string, stat func(string) (os.FileInfo, error
 
 func (c *RootCLI) inspectStoreGrowthBudget(ctx context.Context, dbPath string, snapshot storeFileSnapshot) []doctorCheck {
 	checks := c.inspectStoreGrowthBudgetWithClock(ctx, dbPath, snapshot, time.Now)
-	return append(checks, inspectCompactRollbackCopies(dbPath))
+	return append(checks, inspectCompactRollbackCopies(dbPath), c.inspectCompactInFlight(dbPath, time.Now()))
 }
 
 // inspectCompactRollbackCopies reports leftover <db>.rollback-<run> files.

@@ -358,6 +358,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		// open SQLite. Large stores are the ones most likely to still hold
 		// a source-sized rollback inode (#1827).
 		report.Checks = append(report.Checks, inspectCompactRollbackCopies(resolvedDBPath))
+		report.Checks = append(report.Checks, c.inspectCompactInFlight(resolvedDBPath, time.Now()))
 		report.Checks = append(report.Checks, buildOperatorCostCheck(residentCost))
 		report.Checks = append(report.Checks, inspectTracearyOnPath())
 		report.Checks = append(report.Checks, boundedLargeStoreDoctorCheck(snapshot, resolvedDBPath, pageErr == nil))

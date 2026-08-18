@@ -66,7 +66,7 @@ func TestInspectStoreGrowthBudgetSeparatesRetiredIndexFromProjection(t *testing.
 		},
 	}}}
 	checks := root.inspectStoreGrowthBudget(context.Background(), path, inspectStoreFileSnapshot(path, os.Stat))
-	if len(checks) != 4 {
+	if len(checks) != 5 {
 		t.Fatalf("checks=%#v", checks)
 	}
 	if checks[1].Name != "store-capacity" || !strings.Contains(checks[1].Message, "top=[") {
@@ -74,6 +74,9 @@ func TestInspectStoreGrowthBudgetSeparatesRetiredIndexFromProjection(t *testing.
 	}
 	if checks[3].Name != "compact-rollback-copy" || checks[3].Status != doctorStatusPass {
 		t.Fatalf("rollback check=%#v", checks[3])
+	}
+	if checks[4].Name != "compact-in-flight" || checks[4].Status != doctorStatusPass {
+		t.Fatalf("in-flight check=%#v", checks[4])
 	}
 	legacy := checks[2]
 	if legacy.Name != "legacy-search-index" || legacy.Status != doctorStatusWarn {

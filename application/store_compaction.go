@@ -83,9 +83,21 @@ type StoreCompactionUsecase interface {
 	Resume(context.Context, string) (domain.CompactionRun, error)
 	Status(context.Context, string) (domain.CompactionRun, error)
 	Rollback(context.Context, string) (domain.CompactionRun, error)
+	// AbandonStalePrePublication journals abandoned and removes the
+	// candidate when an in-flight run is strictly pre-publication and the
+	// live source identity no longer matches the journal fence.
+	AbandonStalePrePublication(context.Context, string) (domain.CompactionRun, error)
 }
 
 // CompactionInFlightFinder locates a non-terminal journal for a store.
 type CompactionInFlightFinder interface {
 	FindInFlight(context.Context, string) (domain.CompactionRun, error)
+}
+
+// CompactionPrePublicationCleanup inspects the live source and removes an
+// abandoned candidate without requiring the journaled source identity to
+// still match (the mismatch is why abandon is needed).
+type CompactionPrePublicationCleanup interface {
+	InspectStoreFile(context.Context, string) (domain.StoreFileIdentity, error)
+	RemoveAbandonedCandidate(context.Context, domain.CompactionRun) error
 }

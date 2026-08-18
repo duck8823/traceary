@@ -8,6 +8,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 ## [Unreleased]
 
 ### Fixed
+- **中断した `store compact` が次の実行を壊さない (#2118)** — publication 前 journal（`planned` / `copy_intent` / `copy_retry_intent` / `candidate_prepared`）で source identity が動いていれば abandon（candidate 削除）し、同じ呼び出しで新規 plan。`doctor` は進行中 journal を WARN、`--fix` は同じ abandon。`swap_intent` 以降は変えない。構築中の SIGINT は best-effort で `abandoned` を journal する。
 - **`doctor` が hook-spool の orphan `*.tmp` を `stale_inflight` に数え、14 日超を prune する (#2115)** — 1 時間超は既存カウンタへ。`doctor --fix` / `--dry-run` に `pruned_tmp=` を追加。直後の write-rename 一時ファイルは数えも消しもしない。
 - **`store compact --projection-rebuild` の JSON に `result_kind` を付ける (#2111)** — start/置き換えは `generation`、hash 一致 resume は `run`。既存フィールドはそのまま。分岐は `result_kind`。`--projection-abort` は変えない。
 - **既定の `doctor` が 2 GiB 以上のストアで O(1) の回収可能ページと projection generation を出す (#2110)** — `mode=ro` で `page_count` / `page_size` / `freelist_count` と `search_projection_state` singleton だけ読む。pragma が答えるとき `store-size` は growth unknown にしない。`store-capacity` は skip のまま。event body、dbstat、migration は読まない。不正な sparse fixture は fail-soft。
