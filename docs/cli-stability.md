@@ -39,7 +39,6 @@ Current public commands, including compatibility aliases introduced after v0.15,
 - **Durable memory daily read** — `traceary memory search` (including `--all`), `traceary memory show`
 - **Durable memory inbox** — `traceary memory inbox list`, `traceary memory inbox show`, `traceary memory inbox accept`, `traceary memory inbox reject`, `traceary memory inbox attach`, `traceary memory inbox cleanup`, `traceary memory inbox restore`, `traceary memory inbox review` (TTY-only)
 - **Durable memory store** — `traceary memory store propose`, `traceary memory store distill`
-- **Durable memory decay** — `traceary memory decay`
 - **Hooks** — `traceary hooks install` (including `--dry-run`), `traceary hooks guide`, `traceary completion` (`bash` / `zsh` / `fish` / `powershell`)
 - **Diagnostics** — `traceary doctor` (alias `traceary status`, including the additive `store-capacity` check), `traceary report`
 - **Bundle import / export** — `traceary bundle export`, `traceary bundle import`
@@ -93,6 +92,7 @@ A command is removed only for empty backing data, duplication, or serving no pil
 
 Historical removal log:
 
+- Removed in v0.43.0 (#2123): `traceary memory decay`. Invocations fail as an unknown subcommand with a non-zero exit and no `DEPRECATED` notice. This is an explicit policy exception to the one-minor deprecation window (owner decision 2026-08-18, recorded in #2108). Session-end hooks apply decay when `TRACEARY_MEMORY_DECAY` is on (default) with window `TRACEARY_MEMORY_DECAY_AFTER`. The operator trigger is `traceary doctor --fix`. Recovery is `traceary memory inbox restore`.
 - Removed in v0.43.0 (#2122): `traceary session gc` and `traceary session repair-one-shot`. Invocations fail as unknown subcommands with a non-zero exit and no `DEPRECATED` notice. Admin-tier leaves; operator-flow notice is sufficient. Stale still-open sessions are closed by hook opportunistic GC and `traceary doctor --fix` (default 24h window; the custom `--stale-after` knob is gone). Historical one-shot rows stay as recorded; there is no absorb destination for evidence-manifest repair.
 - Removed in v0.42.0 (#2077): `traceary store search-projection` (start/resume/status/abort/probe). Invocations fail as an unknown subcommand with a non-zero exit and no `DEPRECATED` notice. This is an explicit policy exception to the one-minor deprecation window (owner decision 2026-08-17). Parked recovery is `traceary doctor --fix`. A new generation or an in-flight rebuild resume is `traceary store compact --projection-rebuild` (same budget flags). Abort is `traceary store compact --projection-abort`. Lifecycle/budget inspection stays on `traceary doctor`.
 - Removed in v0.42.0 (#2078): `traceary replay`. Invocations fail as an unknown command with a non-zero exit and no `DEPRECATED` notice. This is an explicit policy exception to the one-minor deprecation window (owner decision 2026-08-17) and supersedes the earlier note that replay stayed as the only single-file HTML export. Use `traceary report` / `traceary context` / `traceary list` for period reading, and `traceary bundle export` for a machine-portable copy.

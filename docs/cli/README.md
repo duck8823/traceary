@@ -887,10 +887,6 @@ Start a new search-projection generation (or resume one that is already rebuildi
 
 Export or import a portable session/memory bundle. See `docs/cli-stability.md` for the supported contract.
 
-### `traceary memory decay`
-
-Expire or supersede aged durable memories. Preview-first; use the documented apply flags only after reviewing the scan.
-
 ## Integration commands
 
 > The entire `integration` command subtree (the `integration` parent and the `codex` group) is hidden from `traceary --help` as of v0.20.0 and is scheduled for full removal in v0.21.0. The entries below are kept only as migration notes; the hidden stubs still exit non-zero with a pointer to Codex's official `/plugins` flow.

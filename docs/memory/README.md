@@ -32,9 +32,9 @@ Only active accepted memories are returned by the default "active memory" paths.
 
 ### Candidate TTL
 
-Unreviewed auto-extracted candidates (`source=extracted` or `extracted-hidden`) carry a scheduled `expires_at` of `created_at + 30 days`. The stamp is written at propose time. Existing rows with `expires_at` NULL are backfilled by `memory decay --apply` (and the same path from session-end hooks / `doctor --fix`).
+Unreviewed auto-extracted candidates (`source=extracted` or `extracted-hidden`) carry a scheduled `expires_at` of `created_at + 30 days`. The stamp is written at propose time. Existing rows with `expires_at` NULL are backfilled by the same decay path used on session-end hooks and `traceary doctor --fix`.
 
-`memory decay` (dry-run by default) expires when the current TTL grant is older than `--older-than` (or `TRACEARY_MEMORY_DECAY_AFTER` on the session-end hook). The grant starts at `created_at` for unstamped rows, or at `expires_at − 30d` for stamped ones, so a shorter operator window still works and restore (`now+30d`) is not immediately due. A later `updated_at` does not reset the clock. The count line reports `backfilled=N` for rows that still needed a stamp. Expiry is non-destructive (`status=expired`); restore with `memory inbox restore`.
+Session-end hooks apply decay when `TRACEARY_MEMORY_DECAY` is on (default) with window `TRACEARY_MEMORY_DECAY_AFTER`. `traceary doctor --fix` is the operator trigger. The grant starts at `created_at` for unstamped rows, or at `expires_at − 30d` for stamped ones, so restore (`now+30d`) is not immediately due. A later `updated_at` does not reset the clock. Expiry is non-destructive (`status=expired`); restore with `memory inbox restore`.
 
 `remember-intent`, `manual`, and `compact-summary` candidates are exempt — they wait for a human look.
 
@@ -42,7 +42,7 @@ See also [Memory blocks: evaluation and decision](../architecture/memory-blocks.
 
 ### Content validity window
 
-Every durable memory carries a content validity window `(valid_from, valid_to)` distinct from the lifecycle `status` and from `expires_at` (scheduled candidate TTL while `status=candidate`, or the expire-event timestamp after `memory decay` / `memory admin expire`):
+Every durable memory carries a content validity window `(valid_from, valid_to)` distinct from the lifecycle `status` and from `expires_at` (scheduled candidate TTL while `status=candidate`, or the expire-event timestamp after hook/`doctor --fix` decay / `memory admin expire`):
 
 - `valid_from` — when the fact starts being asserted (defaults to `created_at`)
 - `valid_to` — when the fact stops being asserted (`NULL` means open-ended)

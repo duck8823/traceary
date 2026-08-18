@@ -317,6 +317,41 @@ func TestRootCLI_MemoryListIsUnknownSubcommand(t *testing.T) {
 	}
 }
 
+func TestRootCLI_MemoryDecayIsUnknownSubcommand(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+	tests := []struct {
+		name       string
+		args       []string
+		wantErrHas string
+	}{
+		{name: "bare decay", args: []string{"memory", "decay"}, wantErrHas: `unknown subcommand "decay"`},
+		{name: "decay apply", args: []string{"memory", "decay", "--apply"}, wantErrHas: "unknown flag: --apply"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stdout := &bytes.Buffer{}
+			stderr := &bytes.Buffer{}
+			root := cli.NewRootCLI(
+				cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+				cli.WithMemory(&memoryUsecaseStub{}),
+			).Command()
+			root.SetOut(stdout)
+			root.SetErr(stderr)
+			root.SetArgs(tt.args)
+			err := root.Execute()
+			if err == nil {
+				t.Fatalf("Execute(%v) error = nil, want %q", tt.args, tt.wantErrHas)
+			}
+			if !strings.Contains(err.Error(), tt.wantErrHas) {
+				t.Fatalf("Execute(%v) error = %q, want substring %q", tt.args, err.Error(), tt.wantErrHas)
+			}
+			if strings.Contains(err.Error(), "DEPRECATED:") || strings.Contains(stderr.String(), "DEPRECATED:") || strings.Contains(stdout.String(), "DEPRECATED:") {
+				t.Errorf("unexpected deprecation notice:\nerr=%v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
+			}
+		})
+	}
+}
+
 func TestRootCLI_HooksPrintIsUnknownSubcommand(t *testing.T) {
 	t.Setenv("TRACEARY_LANG", "en")
 	tests := []struct {
