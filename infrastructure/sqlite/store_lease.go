@@ -103,13 +103,19 @@ func (StoreLeaseCoordinator) AcquireExclusive(ctx context.Context, path string) 
 		return nil, err
 	}
 	lockPath := canonical + storeLeaseSuffix
+	_ = writeCompactPendingMarker(canonical)
 	ctx, cancel := bindExclusiveLeaseDeadline(ctx)
 	defer cancel()
 	lease, err := acquireAdvisoryLease(ctx, lockPath, true)
 	if err != nil {
+		clearCompactPendingMarker(canonical)
+		if holders := describeStoreLeaseHolders(lockPath); holders != "" {
+			return nil, fmt.Errorf("wait for exclusive store lease on %s: %w; held by %s", lockPath, err, holders)
+		}
 		return nil, fmt.Errorf("wait for exclusive store lease on %s: %w; inspect holders with lsof %s", lockPath, err, lockPath)
 	}
 	if err := validateStoreLinkIdentity(canonical); err != nil {
+		clearCompactPendingMarker(canonical)
 		_ = lease.Close()
 		return nil, err
 	}
@@ -118,6 +124,7 @@ func (StoreLeaseCoordinator) AcquireExclusive(ctx context.Context, path string) 
 	return func() {
 		once.Do(func() {
 			exclusiveHeldByProcess.Delete(lockPath)
+			clearCompactPendingMarker(canonical)
 			_ = lease.Close()
 		})
 	}, nil

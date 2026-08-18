@@ -38,8 +38,12 @@ func TestAcquireExclusive_TimesOutWhileSharedConnHeld(t *testing.T) {
 	defer cancel()
 	if _, err := (StoreLeaseCoordinator{}).AcquireExclusive(ctx, path); err == nil {
 		t.Fatal("exclusive lease acquired while a shared conn was held")
-	} else if !strings.Contains(err.Error(), "lsof") || !strings.Contains(err.Error(), storeLeaseSuffix) {
-		t.Fatalf("error should name lock path and lsof, got %v", err)
+	} else if !strings.Contains(err.Error(), storeLeaseSuffix) {
+		t.Fatalf("error should name lock path, got %v", err)
+	} else if !strings.Contains(err.Error(), "held by") && !strings.Contains(err.Error(), "lsof") {
+		t.Fatalf("error should name holder or lsof, got %v", err)
+	} else if strings.Contains(err.Error(), "held by") && !strings.Contains(err.Error(), "pid=") {
+		t.Fatalf("named holder should include pid, got %v", err)
 	}
 }
 

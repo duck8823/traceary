@@ -48,6 +48,17 @@ arrived mid-run and the run aborts.
 
 This sidecar recovery is specific to `store compact`.
 
+`hook memory-extract-worker` holds a shared store lease for each Extract job.
+Before starting a job it checks an internal compact-pending marker next to the
+store lease file. If the marker is present it finishes nothing new: the current
+job (if already running) completes, then the worker exits and leaves remaining
+jobs on the spool. Compact writes that marker before waiting for the exclusive
+lease and removes it when the lease is released. Exclusive-timeout errors name
+the lock holder pid and command when `lsof` can see them. Do not kill extract
+workers by hand; drain happens by this backoff, or by `doctor --fix` if you
+need the spool empty for another reason.
+
+
 The retired search index family is dropped on the work copy. Compact no longer
 refuses a source that still carries it. See
 [`search-retirement.md`](../operations/search-retirement.md).

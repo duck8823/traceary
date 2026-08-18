@@ -87,6 +87,8 @@ func (u *storeCompactionUsecase) Compact(ctx context.Context, in application.Com
 		return application.CompactResult{}, fmt.Errorf("stat compaction source: %w", beforeErr)
 	}
 	u.reportWindow("exclusive_lease")
+	ctx, stopExclusiveWait := bindCompactExclusiveWait(ctx)
+	defer stopExclusiveWait()
 	release, err := u.lease.AcquireExclusive(ctx, u.expectedStore)
 	if err != nil {
 		return application.CompactResult{}, err
@@ -336,6 +338,17 @@ func (u *storeCompactionUsecase) reportWindow(name string) {
 	if w, ok := u.progress.(compactionWindowProgress); ok {
 		w.OnWindow(name)
 	}
+}
+
+// compactExclusiveWait outlives one in-flight extract job so workers that
+// honor the compact-pending marker can finish the current job and back off.
+const compactExclusiveWait = 5 * time.Minute
+
+func bindCompactExclusiveWait(ctx context.Context) (context.Context, context.CancelFunc) {
+	if _, hasDeadline := ctx.Deadline(); hasDeadline {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, compactExclusiveWait)
 }
 
 func (u *storeCompactionUsecase) Apply(ctx context.Context, id string) (domain.CompactionRun, error) {

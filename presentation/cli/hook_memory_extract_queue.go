@@ -259,6 +259,14 @@ func (c *RootCLI) runHookMemoryExtractWorker(ctx context.Context, jobPath string
 			// Already exhausted the attempt ceiling; leave for retention GC.
 			return nil
 		}
+		resolvedDBPath, resolveErr := resolveDBPath(job.DBPath)
+		if resolveErr != nil {
+			return resolveErr
+		}
+		if storeCompactPendingActive(resolvedDBPath) {
+			slog.Info("memory extract worker backing off; store compact pending", "job", resolvedJobPath)
+			return nil
+		}
 		if c.storeManagement == nil {
 			return xerrors.Errorf("initialize store usecase is not configured")
 		}
@@ -271,10 +279,6 @@ func (c *RootCLI) runHookMemoryExtractWorker(ctx context.Context, jobPath string
 		job.LastError = ""
 		if writeErr := writeHookMemoryExtractJob(resolvedJobPath, job); writeErr != nil {
 			return writeErr
-		}
-		resolvedDBPath, resolveErr := resolveDBPath(job.DBPath)
-		if resolveErr != nil {
-			return c.failHookMemoryExtractJob(resolvedJobPath, job, resolveErr)
 		}
 		c.applyDatabasePath(resolvedDBPath)
 		if initErr := c.storeManagement.Initialize(ctx); initErr != nil {
