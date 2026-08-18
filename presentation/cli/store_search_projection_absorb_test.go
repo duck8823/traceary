@@ -42,6 +42,9 @@ func TestStoreCompactProjectionRebuildStartsGeneration(t *testing.T) {
 	if payload["generation_id"] == nil || payload["generation_id"] == "" {
 		t.Fatalf("generation_id missing: %s", stdout.String())
 	}
+	if payload["result_kind"] != apptypes.SearchProjectionResultKindGeneration {
+		t.Fatalf("result_kind=%v, want %q", payload["result_kind"], apptypes.SearchProjectionResultKindGeneration)
+	}
 
 	stdout.Reset()
 	root = NewRootCLI(WithSearchProjection(usecase.NewSearchProjectionUsecase(database))).Command()
@@ -267,4 +270,103 @@ func TestStoreCompactProjectionRebuildResumesDriftedCleanupWhenHashMatches(t *te
 	if after.GenerationID != started.GenerationID {
 		t.Fatalf("matching drifted/cleanup must resume, not replace: started=%s after=%s stdout=%s", started.GenerationID, after.GenerationID, stdout.String())
 	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(stdout.String()), &payload); err != nil {
+		t.Fatalf("stdout %q is not JSON: %v", stdout.String(), err)
+	}
+	if payload["result_kind"] != apptypes.SearchProjectionResultKindRun {
+		t.Fatalf("result_kind=%v, want %q stdout=%s", payload["result_kind"], apptypes.SearchProjectionResultKindRun, stdout.String())
+	}
+	if payload["batches"] == nil || payload["stop_reason"] == nil {
+		t.Fatalf("run-result fields missing: %s", stdout.String())
+	}
+}
+
+func TestStoreCompactProjectionRebuildJSONDiscriminator(t *testing.T) {
+	ctx := context.Background()
+	migrations, err := sqliteschema.Migrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("fresh start is generation", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "store.db")
+		database := infra.NewDatabase(path, migrations)
+		if err := infra.NewStoreManagementDatasource(database).Initialize(ctx); err != nil {
+			t.Fatal(err)
+		}
+		payload := executeProjectionRebuild(t, database, []string{"store", "compact", "--projection-rebuild"})
+		if payload["result_kind"] != apptypes.SearchProjectionResultKindGeneration {
+			t.Fatalf("payload=%v", payload)
+		}
+		if payload["generation_id"] == nil || payload["generation_id"] == "" {
+			t.Fatalf("generation_id missing: %v", payload)
+		}
+		if _, hasBatches := payload["batches"]; hasBatches {
+			t.Fatalf("generation shape must not require sniffing batches: %v", payload)
+		}
+	})
+
+	t.Run("replace after hash mismatch is generation", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "store.db")
+		database := infra.NewDatabase(path, migrations)
+		if err := infra.NewStoreManagementDatasource(database).Initialize(ctx); err != nil {
+			t.Fatal(err)
+		}
+		first := executeProjectionRebuild(t, database, []string{"store", "compact", "--projection-rebuild"})
+		firstID, _ := first["generation_id"].(string)
+		if first["result_kind"] != apptypes.SearchProjectionResultKindGeneration || firstID == "" {
+			t.Fatalf("first=%v", first)
+		}
+		second := executeProjectionRebuild(t, database, []string{"store", "compact", "--projection-rebuild", "--index-family-bytes", "1048576"})
+		secondID, _ := second["generation_id"].(string)
+		if second["result_kind"] != apptypes.SearchProjectionResultKindGeneration {
+			t.Fatalf("second=%v", second)
+		}
+		if secondID == "" || secondID == firstID {
+			t.Fatalf("mismatch must replace: first=%s second=%s payload=%v", firstID, secondID, second)
+		}
+	})
+
+	t.Run("hash-match resume is run", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "store.db")
+		database := infra.NewDatabase(path, migrations)
+		if err := infra.NewStoreManagementDatasource(database).Initialize(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := usecase.NewSearchProjectionUsecase(database).StartGeneration(ctx, apptypes.DefaultSearchProjectionBudget(), time.Now()); err != nil {
+			t.Fatal(err)
+		}
+		db, err := sql.Open("sqlite", path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = db.Close() }()
+		if _, err = db.Exec(`UPDATE search_projection_state SET state='drifted', phase='cleanup' WHERE singleton=1`); err != nil {
+			t.Fatal(err)
+		}
+		payload := executeProjectionRebuild(t, database, []string{"store", "compact", "--projection-rebuild"})
+		if payload["result_kind"] != apptypes.SearchProjectionResultKindRun {
+			t.Fatalf("payload=%v", payload)
+		}
+		if payload["batches"] == nil || payload["progress"] == nil || payload["stop_reason"] == nil {
+			t.Fatalf("run-result fields missing: %v", payload)
+		}
+	})
+}
+
+func executeProjectionRebuild(t *testing.T, database *infra.Database, args []string) map[string]any {
+	t.Helper()
+	root := NewRootCLI(WithSearchProjection(usecase.NewSearchProjectionUsecase(database))).Command()
+	root.SetArgs(args)
+	var stdout strings.Builder
+	root.SetOut(&stdout)
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute(%v) error=%v stdout=%s", args, err, stdout.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(stdout.String()), &payload); err != nil {
+		t.Fatalf("stdout %q is not JSON: %v", stdout.String(), err)
+	}
+	return payload
 }

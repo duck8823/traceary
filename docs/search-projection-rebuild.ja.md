@@ -48,6 +48,8 @@ traceary doctor --fix
 traceary store compact --projection-rebuild --lock-time 2s
 ```
 
+`--projection-rebuild` は JSON を出します。start と hash 不一致の置き換えは `result_kind=generation`、hash 一致 resume は `result_kind=run`。分岐は `result_kind` で行い、フィールド推測はしません。
+
 各バッチには、行数、保存バイト数、デコード後バイト数、論理書き込みバイト数、ロック時間、バッチ実行時間の上限が引き続き適用されます。キャンセル時は最後にコミットしたチェックポイントが残るため、同じコマンドで再開できます。
 
 未完了の世代を破棄して異なる設定で再開する場合は、`traceary store compact --projection-abort`を使います。この操作は冪等であり、完了済みのactive世代を破棄しません。世代の状態、チェックポイント、high-water、容量証跡は`traceary doctor`で確認します。

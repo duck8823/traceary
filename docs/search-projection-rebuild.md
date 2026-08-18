@@ -82,6 +82,8 @@ traceary doctor --fix
 traceary store compact --projection-rebuild --lock-time 2s
 ```
 
+`--projection-rebuild` prints JSON. Start and hash-mismatch replace use `result_kind=generation`. A matching-hash resume uses `result_kind=run`. Branch on `result_kind`; do not sniff fields.
+
 Row, stored-byte, decoded-byte, logical-write-byte, lock-time, and per-batch wall-time limits still apply to every batch. Cancellation preserves the last committed checkpoint; run the same command again to continue.
 
 Use `traceary store compact --projection-abort` to idempotently abandon an incomplete generation before restarting with different generation settings. An active completed generation is never abandoned. Inspect `traceary doctor` for generation lifecycle, checkpoint, high-water, and capacity evidence.
