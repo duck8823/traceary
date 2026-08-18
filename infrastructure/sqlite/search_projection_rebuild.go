@@ -191,12 +191,17 @@ func (d *Database) measureSearchProjectionStart(ctx context.Context, db *sql.DB,
 	_ = db.QueryRowContext(ctx, `SELECT COALESCE(active_generation_id,'') FROM search_projection_state WHERE singleton=1`).Scan(&reserveGenerationID)
 	derivation := d.deriveSearchProjectionCapacity(ctx, db, b.IndexFamilyBytes, lastNonRecent, reserveGenerationID)
 	if derivation.Evidence.Status == searchProjectionEvidenceUnavailable {
-		slog.Warn("search projection capacity evidence unavailable at start; using documented amplification estimate",
+		attrs := []any{
 			"reason", derivation.Evidence.Reason,
 			"amplification_ppm", derivation.AmplificationPPM,
 			"source_ceiling_bytes", derivation.SourceCeiling,
 			"non_recent_family_bytes", derivation.NonRecentBytes,
-		)
+		}
+		if searchProjectionCapacityUnavailableIsEmptySample(derivation, lastNonRecent, reserveGenerationID) {
+			slog.Debug("search projection capacity evidence unavailable at start; using documented amplification estimate", attrs...)
+		} else {
+			slog.Warn("search projection capacity evidence unavailable at start; using documented amplification estimate", attrs...)
+		}
 	}
 	cutoffNorm, cutoffReason := d.deriveSearchProjectionRecentCutoff(ctx, db, derivation.SourceCeiling)
 	if cutoffReason != "" {
@@ -218,6 +223,12 @@ func (d *Database) measureSearchProjectionStart(ctx context.Context, db *sql.DB,
 		beforeEvidence = apptypes.CapacityEvidence{Status: searchProjectionEvidenceUnavailable, Method: "dbstat", Reason: "family not measured"}
 	}
 	return derivation, cutoffNorm, familyBytesBefore, beforeEvidence
+}
+
+func searchProjectionCapacityUnavailableIsEmptySample(derivation capacityDerivation, lastNonRecent int64, reserveGenerationID string) bool {
+	return lastNonRecent == 0 &&
+		strings.TrimSpace(reserveGenerationID) == "" &&
+		strings.Contains(derivation.Evidence.Reason, "amplification sample below minimum")
 }
 
 func searchProjectionStartStateArgs(g apptypes.SearchProjectionGeneration, b apptypes.SearchProjectionBudget, derivation capacityDerivation, cutoffNorm string, familyBytesBefore int64, beforeEvidence apptypes.CapacityEvidence, now time.Time, origin string) []any {
@@ -1836,13 +1847,18 @@ func (d *Database) recordSearchProjectionCapacityRederivation(ctx context.Contex
 	// filled the recent tier — scope the reserve to it.
 	derivation := d.deriveSearchProjectionCapacity(recordCtx, db, budget, lastNonRecent, generationID)
 	if derivation.Evidence.Status == searchProjectionEvidenceUnavailable {
-		slog.Warn("search projection capacity re-derivation used fallback estimate",
+		attrs := []any{
 			"generation_id", generationID,
 			"reason", derivation.Evidence.Reason,
 			"amplification_ppm", derivation.AmplificationPPM,
 			"source_ceiling_bytes", derivation.SourceCeiling,
 			"non_recent_family_bytes", derivation.NonRecentBytes,
-		)
+		}
+		if strings.Contains(derivation.Evidence.Reason, "amplification sample below minimum") {
+			slog.Debug("search projection capacity re-derivation used fallback estimate", attrs...)
+		} else {
+			slog.Warn("search projection capacity re-derivation used fallback estimate", attrs...)
+		}
 	}
 	result, err := db.ExecContext(recordCtx, `
 		UPDATE search_projection_state
