@@ -19,6 +19,7 @@ func TestRuntimeSQLiteOpenInventoryIsExplicit(t *testing.T) {
 		"infrastructure/sqlite/compaction_sqlite.go":                  2, // EX-held source/candidate only.
 		"infrastructure/sqlite/compaction_copy_filter.go":             2, // EX-held work copy plus EX-held in-place incremental vacuum.
 		"infrastructure/sqlite/database.go":                           1, // in-memory driver probe only.
+		"infrastructure/sqlite/page_metadata_inspector.go":            1, // mode=ro O(1) doctor probe; no coordinated lease, no dbstat.
 		"infrastructure/sqlite/payload_rehearsal.go":                  7, // copied rehearsal targets only.
 		"infrastructure/sqlite/payload_rehearsal_migration.go":        1, // copied migration target.
 		"infrastructure/sqlite/payload_rehearsal_target.go":           1, // copied rehearsal target.

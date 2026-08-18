@@ -553,6 +553,17 @@ func sqliteReadOnlyDSN(dbPath string) string {
 	return (&url.URL{Scheme: "file", Path: dbPath, RawQuery: values.Encode()}).String()
 }
 
+// sqliteO1ReadOnlyDSN is mode=ro without a busy wait so a live writer
+// turns the large-store doctor probe into an immediate fail-soft.
+func sqliteO1ReadOnlyDSN(dbPath string) string {
+	values := url.Values{}
+	values.Add("mode", "ro")
+	values.Add("_pragma", "query_only(1)")
+	values.Add("_pragma", "busy_timeout(0)")
+	values.Add("_pragma", "foreign_keys(1)")
+	return (&url.URL{Scheme: "file", Path: dbPath, RawQuery: values.Encode()}).String()
+}
+
 func formatTimestamp(timestamp time.Time) string {
 	return timestamp.UTC().Format(time.RFC3339Nano)
 }

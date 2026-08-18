@@ -346,7 +346,8 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		report.Mode = doctorModeMetadataOnlyLargeStore
 		residentCost := residentOnlyOperatorCost(snapshot.Size)
 		report.OperatorCost = &residentCost
-		report.Checks = append(report.Checks, unknownStoreGrowthCheck(snapshot.Size, resolvedDBPath, "default doctor is filesystem-metadata-only for stores at or above 2 GiB; inspect a reviewed copy for detailed signals"))
+		pageMeta, pageErr := c.inspectLargeStorePageMetadata(ctx, resolvedDBPath)
+		report.Checks = append(report.Checks, largeStoreSizeCheck(snapshot, resolvedDBPath, pageMeta, pageErr))
 		// Do not call InspectCapacity here: that opens SQLite and may walk
 		// dbstat. The store-capacity check is filesystem-metadata only.
 		report.Checks = append(report.Checks, skippedStoreCapacityCheck(
@@ -359,16 +360,18 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		report.Checks = append(report.Checks, inspectCompactRollbackCopies(resolvedDBPath))
 		report.Checks = append(report.Checks, buildOperatorCostCheck(residentCost))
 		report.Checks = append(report.Checks, inspectTracearyOnPath())
-		report.Checks = append(report.Checks, boundedLargeStoreDoctorCheck(snapshot, resolvedDBPath))
+		report.Checks = append(report.Checks, boundedLargeStoreDoctorCheck(snapshot, resolvedDBPath, pageErr == nil))
+		report.Checks = append(report.Checks, largeStoreProjectionGenerationCheck(pageMeta, pageErr))
 		if c.attestationAnchorInspector != nil {
 			report.Checks = append(report.Checks, c.inspectAttestationAnchor(ctx, resolvedDBPath, false))
 		}
-		// This is an intentional, successful bounded outcome. Do not initialize
-		// SQLite, list events, open spool payloads, inspect payload codec, or
-		// inspect client state here: those operations can block behind a live
-		// writer and some inspect event bodies/payloads. Hook spool is still
-		// reported via directory entry counts and byte sizes only (pending /
-		// stale inflight / dead-letter).
+		// This is an intentional, successful bounded outcome. The only SQLite
+		// open is the O(1) mode=ro pragma + projection-state read. Do not
+		// initialize, list events, open spool payloads, inspect payload codec,
+		// walk dbstat, or inspect client state here: those operations can
+		// block behind a live writer and some inspect event bodies/payloads.
+		// Hook spool is still reported via directory entry counts and byte
+		// sizes only (pending / stale inflight / dead-letter).
 		report.Checks = append(report.Checks, inspectHookSpoolFilesystemMetadata())
 		if c.workspaceIdentity != nil {
 			report.Checks = append(report.Checks, skippedWorkspaceAliasesCheck())

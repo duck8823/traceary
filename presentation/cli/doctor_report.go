@@ -137,7 +137,7 @@ func buildDoctorSections(checks []doctorCheck) []doctorSection {
 
 func doctorSectionNameForCheck(name string) string {
 	switch {
-	case name == "db-path" || name == "db-write" || name == "store-capacity" || name == "search-projection-budget" || name == "search-projection-parked" || name == "stale-active-sessions" || name == "archive-retention" || name == "offline-migrations" || name == "workspace-aliases" || strings.HasSuffix(name, "-capacity-retention") || name == "audit-reliability" || name == "content-event-reliability" || name == "sensitive-access-audit" || name == "retry-loops" || name == "body-codec":
+	case name == "db-path" || name == "db-write" || name == "store-capacity" || name == "search-projection-budget" || name == "search-projection-parked" || name == "search-projection-generation" || name == "stale-active-sessions" || name == "archive-retention" || name == "offline-migrations" || name == "workspace-aliases" || strings.HasSuffix(name, "-capacity-retention") || name == "audit-reliability" || name == "content-event-reliability" || name == "sensitive-access-audit" || name == "retry-loops" || name == "body-codec":
 		return "Database"
 	case name == "config" || name == "project-dir" || name == "version" || name == "path":
 		return "Environment"

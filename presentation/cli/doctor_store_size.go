@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,8 +10,12 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/xerrors"
+
 	apptypes "github.com/duck8823/traceary/application/types"
 )
+
+var errLargeStorePageMetadataUnavailable = errors.New("page metadata inspector unavailable")
 
 // storeSizeWarnBytes is the on-disk size above which multi-GB cold opens
 // routinely approach host hook budgets (10s packaged). Measured dogfood
@@ -22,6 +27,7 @@ const (
 	projectionGrowthWarnBytes  = int64(256 << 20)
 	doctorGrowthLatencyWarn    = 1500 * time.Millisecond
 	doctorGrowthInspectTimeout = 2 * time.Second
+	largeStoreO1InspectTimeout = 500 * time.Millisecond
 )
 
 type storeGrowthEvidence struct {
@@ -365,8 +371,8 @@ const (
 	doctorModeMetadataOnlyLargeStore = "metadata_only_large_store"
 	// doctorLargeStoreMetadataOnlyBytes is an operational threshold, not a
 	// retention target or a store-size limit. Above it, the default doctor
-	// command returns a finite metadata-only result instead of opening SQLite
-	// and traversing content-bearing diagnostics.
+	// command returns a finite metadata-only result: O(1) pragma reads only,
+	// never dbstat, migrations, or content-bearing diagnostics.
 	doctorLargeStoreMetadataOnlyBytes int64 = 2 << 30 // 2 GiB
 )
 
@@ -377,7 +383,120 @@ func isLargeStoreForBoundedDoctor(snapshot storeFileSnapshot) bool {
 	return snapshot.Err == nil && snapshot.Exists && snapshot.Regular && snapshot.Size >= doctorLargeStoreMetadataOnlyBytes
 }
 
-func boundedLargeStoreDoctorCheck(snapshot storeFileSnapshot, dbPath string) doctorCheck {
+func (c *RootCLI) inspectLargeStorePageMetadata(ctx context.Context, dbPath string) (apptypes.StorePageMetadata, error) {
+	if c == nil || c.pageMetadataInspector == nil {
+		return apptypes.StorePageMetadata{}, errLargeStorePageMetadataUnavailable
+	}
+	inspectCtx, cancel := context.WithTimeout(ctx, largeStoreO1InspectTimeout)
+	defer cancel()
+	meta, err := c.pageMetadataInspector.InspectPageMetadata(inspectCtx, dbPath)
+	if err != nil {
+		return apptypes.StorePageMetadata{}, xerrors.Errorf("inspect O(1) page metadata: %w", err)
+	}
+	return meta, nil
+}
+
+func largeStoreSizeCheck(snapshot storeFileSnapshot, dbPath string, meta apptypes.StorePageMetadata, inspectErr error) doctorCheck {
+	if inspectErr != nil {
+		return unknownStoreGrowthCheck(snapshot.Size, dbPath, "O(1) page metadata unavailable")
+	}
+	evidence := storeGrowthEvidence{
+		DatabaseBytes:    meta.DatabaseBytes,
+		ReclaimableBytes: meta.ReclaimableBytes,
+	}
+	if evidence.DatabaseBytes == 0 {
+		evidence.DatabaseBytes = snapshot.Size
+	}
+	if free, freeErr := inspectDoctorDiskFree(dbPath); freeErr == nil {
+		evidence.FilesystemFreeBytes = free
+		evidence.FilesystemFreeAvailable = true
+	}
+	check := evaluateLargeStoreGrowthBudget(snapshot.Size, evidence)
+	check.FixCommand = "traceary store compact --db-path " + shellQuote(dbPath)
+	return check
+}
+
+func evaluateLargeStoreGrowthBudget(filesystemBytes int64, e storeGrowthEvidence) doctorCheck {
+	reasons := make([]string, 0, 3)
+	compareAgainst := e.DatabaseBytes
+	if filesystemBytes > compareAgainst {
+		compareAgainst = filesystemBytes
+	}
+	if e.ReclaimableBytes >= 256<<20 && ratioAtLeast(e.ReclaimableBytes, compareAgainst, 10) {
+		reasons = append(reasons, "reclaimable")
+	}
+	if !e.FilesystemFreeAvailable {
+		reasons = append(reasons, "headroom_unknown")
+	} else if e.FilesystemFreeBytes <= compactionHeadroomThreshold(compareAgainst) {
+		reasons = append(reasons, "headroom")
+	}
+	if len(reasons) == 0 {
+		return doctorCheck{
+			Name:   "store-size",
+			Status: doctorStatusPass,
+			Message: localizef(
+				"store growth signals (O(1) large-store): filesystem=%s database=%s reclaimable=%s free=%s",
+				"store growth signal (O(1) large-store): filesystem=%s database=%s reclaimable=%s free=%s",
+				formatByteSize(filesystemBytes),
+				formatByteSize(e.DatabaseBytes),
+				formatByteSize(e.ReclaimableBytes),
+				formatDoctorFree(e),
+			),
+		}
+	}
+	return doctorCheck{
+		Name:   "store-size",
+		Status: doctorStatusWarn,
+		Message: localizef(
+			"store growth warning (%s): filesystem=%s database=%s reclaimable=%s free=%s",
+			"store growth warning (%s): filesystem=%s database=%s reclaimable=%s free=%s",
+			strings.Join(reasons, ","),
+			formatByteSize(filesystemBytes),
+			formatByteSize(e.DatabaseBytes),
+			formatByteSize(e.ReclaimableBytes),
+			formatDoctorFree(e),
+		),
+		Hint: Localize(
+			"rewrite with `traceary store compact` to return reclaimable pages (copy-filter, body discard, VACUUM INTO, atomic exchange). This is not a preview. Keep the rollback file until you accept the result (`traceary store compact rollback RUN_ID`). Do not run in-place VACUUM",
+			"書き換えは `traceary store compact` です（copy-filter、本文破棄、VACUUM INTO、atomic exchange）。preview ではありません。受け入れるまで rollback ファイルを残してください（`traceary store compact rollback RUN_ID`）。in-place VACUUM は使わないでください",
+		),
+	}
+}
+
+func largeStoreProjectionGenerationCheck(meta apptypes.StorePageMetadata, inspectErr error) doctorCheck {
+	const name = "search-projection-generation"
+	if inspectErr != nil {
+		return doctorCheck{
+			Name:    name,
+			Status:  doctorStatusSkip,
+			Message: Localize("search-projection generation was not read (O(1) page metadata unavailable)", "search-projection generation は読み取れませんでした（O(1) page metadata を取得できません）"),
+		}
+	}
+	if !meta.ProjectionPresent {
+		return doctorCheck{
+			Name:    name,
+			Status:  doctorStatusSkip,
+			Message: Localize("search-projection generation singleton is not present", "search-projection generation singleton はありません"),
+		}
+	}
+	status := doctorStatusPass
+	if meta.ProjectionState != "" && meta.ProjectionState != "complete" {
+		status = doctorStatusWarn
+	}
+	return doctorCheck{
+		Name:   name,
+		Status: status,
+		Message: localizef(
+			"search-projection generation=%s state=%s phase=%s",
+			"search-projection generation=%s state=%s phase=%s",
+			meta.ProjectionGenerationID,
+			meta.ProjectionState,
+			meta.ProjectionPhase,
+		),
+	}
+}
+
+func boundedLargeStoreDoctorCheck(snapshot storeFileSnapshot, dbPath string, o1ProbeOK bool) doctorCheck {
 	if snapshot.Err != nil || !snapshot.Exists || !snapshot.Regular {
 		return doctorCheck{
 			Name:    "large-store-diagnostics",
@@ -386,14 +505,22 @@ func boundedLargeStoreDoctorCheck(snapshot storeFileSnapshot, dbPath string) doc
 		}
 	}
 	quoted := shellQuote(dbPath)
-	return doctorCheck{
-		Name:   "large-store-diagnostics",
-		Status: doctorStatusWarn,
-		Message: localizef(
-			"bounded metadata-only doctor result for %s store: SQLite open, migrations, event bodies, command payloads, hook spools, credentials, and identifier samples were not read",
-			"%s のストアに対する bounded metadata-only doctor 結果です。SQLite の open、migration、event body、command payload、hook spool、credential、identifier sample は読み取りませんでした",
+	message := localizef(
+		"bounded metadata-only doctor result for %s store: SQLite open, migrations, event bodies, command payloads, hook spools, credentials, and identifier samples were not read",
+		"%s のストアに対する bounded metadata-only doctor 結果です。SQLite の open、migration、event body、command payload、hook spool、credential、identifier sample は読み取りませんでした",
+		formatByteSize(snapshot.Size),
+	)
+	if o1ProbeOK {
+		message = localizef(
+			"bounded metadata-only doctor result for %s store: O(1) pragma and projection-state reads only; migrations, event bodies, command payloads, hook spool payloads, credentials, identifier samples, and dbstat were not read",
+			"%s のストアに対する bounded metadata-only doctor 結果です。O(1) の pragma と projection-state だけを読みます。migration、event body、command payload、hook spool payload、credential、identifier sample、dbstat は読み取りませんでした",
 			formatByteSize(snapshot.Size),
-		),
+		)
+	}
+	return doctorCheck{
+		Name:    "large-store-diagnostics",
+		Status:  doctorStatusWarn,
+		Message: message,
 		// Whether the retired legacy search index is present cannot be known
 		// without opening SQLite, which this mode exists to avoid. compact
 		// drops the family if it is still there.
