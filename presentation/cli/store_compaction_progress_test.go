@@ -24,7 +24,6 @@ func TestCLICompactionProgress_OnPhaseWritesStderrOnlyShape(t *testing.T) {
 }
 
 func TestCLICompactionProgress_WatchBuildReportsPercentAndCapsOverEstimate(t *testing.T) {
-	t.Parallel()
 	dir := t.TempDir()
 	candidate := filepath.Join(dir, "replica")
 	if err := os.WriteFile(candidate, bytes.Repeat([]byte("x"), 200), 0o600); err != nil {
