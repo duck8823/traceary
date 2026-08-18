@@ -117,7 +117,7 @@ func (c *RootCLI) newStoreCompactionCommand() *cobra.Command {
 	cmd.Flags().Int64Var(&projectionBudget.decoded, "decoded-bytes", projectionBudget.decoded, Localize("with --projection-rebuild, maximum decoded source bytes", "--projection-rebuild 時の復号 source バイト上限"))
 	cmd.Flags().Int64Var(&projectionBudget.written, "write-bytes", projectionBudget.written, Localize("with --projection-rebuild, maximum logical write bytes", "--projection-rebuild 時の論理 write バイト上限"))
 	cmd.Flags().DurationVar(&projectionBudget.recentAge, "recent-age", projectionBudget.recentAge, Localize("with --projection-rebuild, recent projection age", "--projection-rebuild 時の recent projection 保持期間"))
-	cmd.Flags().Int64Var(&projectionBudget.indexFamilyBytes, "index-family-bytes", projectionBudget.indexFamilyBytes, "steady-state physical byte target for one completed search-index family after cleanup; not a rebuild-peak cap (two generations plus FTS delete postings can exceed it)")
+	cmd.Flags().Int64Var(&projectionBudget.indexFamilyBytes, "index-family-bytes", projectionBudget.indexFamilyBytes, Localize("steady-state physical byte target for one completed search-index family after cleanup; not a rebuild-peak cap (two generations plus FTS delete postings can exceed it)", "cleanup 後に完成した search-index family 1 本の定常時物理バイト目標。rebuild ピーク上限ではない（2 世代 + FTS delete postings は超え得る）"))
 	cmd.MarkFlagsMutuallyExclusive("archive", "archive-verify", "archive-restore", "retention-plan", "retention-apply", "projection-rebuild", "projection-abort")
 	cmd.AddCommand(c.newStoreCompactionRollbackCommand())
 	return cmd

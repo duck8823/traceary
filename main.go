@@ -437,6 +437,7 @@ func wrapCLIExecuteError(err error) error {
 	if errors.As(err, &exitCoder) {
 		return err
 	}
+	err = cli.LocalizeCobraExecuteError(err)
 	return xerrors.Errorf("failed to execute CLI command: %w", err)
 }
 

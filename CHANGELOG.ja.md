@@ -8,6 +8,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 ## [Unreleased]
 
 ### Fixed
+- **ルートの unknown command と `--index-family-bytes` の help が `ui.language` に従う (#2114)** — `traceary nosuchcmd` はサブコマンドと同じカタログを使う（候補リストはそのまま）。`store compact --help` の `--index-family-bytes` を英語だけにしない。
 - **`doctor --fix` が transient dead-letter 再キューを 45 秒の壁時計内で続けて drain する (#2109)** — 1 バッチ 200 件の上限は残し、スプールが空になるか壁時計が尽きるまでループする。`--dry-run` は計画件数を全件出す。Fixes 行のカウンタ形式は変えない。
 
 ### Docs

@@ -3,10 +3,12 @@ package cli
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 
 	"github.com/duck8823/traceary/presentation"
+	"golang.org/x/xerrors"
 )
 
 const cliLanguageEnvKey = "TRACEARY_LANG"
@@ -33,6 +35,33 @@ func Localizef(english string, japanese string, args ...any) string {
 
 func localizef(english string, japanese string, args ...any) string {
 	return Localizef(english, japanese, args...)
+}
+
+var cobraUnknownCommandPattern = regexp.MustCompile(`(?s)^unknown command "([^"]+)" for "([^"]+)"(.*)$`)
+
+// LocalizeCobraExecuteError rewrites Cobra's root-level unknown-command
+// message through the same catalog as applyStrictGroups. Suggestion lines
+// after the first paragraph are kept verbatim.
+func LocalizeCobraExecuteError(err error) error {
+	if err == nil {
+		return nil
+	}
+	match := cobraUnknownCommandPattern.FindStringSubmatch(err.Error())
+	if match == nil {
+		return err
+	}
+	name := match[1]
+	path := match[2]
+	suffix := match[3]
+	localized := Localizef(
+		`unknown command %q for %q; run %q for available commands`,
+		`%q は %q の不明なコマンドです。利用可能なコマンドは %q を参照してください`,
+		name, path, path+" --help",
+	)
+	if suffix != "" {
+		localized += suffix
+	}
+	return xerrors.Errorf("%s", localized)
 }
 
 func isJapaneseCLI() bool {

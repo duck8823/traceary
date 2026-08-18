@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"runtime/debug"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -221,6 +222,22 @@ func TestWrapCLIExecuteError_SkipsDiagnosticExitCodes(t *testing.T) {
 			t.Fatalf("wrapCLIExecuteError() = %q", err.Error())
 		}
 	})
+
+}
+
+func TestWrapCLIExecuteError_LocalizesCobraUnknownCommandInJapanese(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "ja")
+	err := wrapCLIExecuteError(errors.New("unknown command \"nosuchcmd\" for \"traceary\"\n\nDid you mean this?\n\tsearch"))
+	if err == nil {
+		t.Fatal("wrapCLIExecuteError() = nil")
+	}
+	got := err.Error()
+	if !strings.Contains(got, "不明なコマンド") || strings.Contains(got, "unknown command") {
+		t.Fatalf("wrapCLIExecuteError() = %q, want Japanese unknown-command text", got)
+	}
+	if !strings.Contains(got, "Did you mean this?") {
+		t.Fatalf("wrapCLIExecuteError() = %q, want suggestion list", got)
+	}
 }
 
 func TestIsSilentCLIExitError(t *testing.T) {
