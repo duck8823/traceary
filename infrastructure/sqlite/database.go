@@ -260,6 +260,7 @@ func NewImmutableReadDatabase(ctx context.Context, dbPath string) (*Database, er
 	// Immutable benchmark stores cannot change while the group is open. A
 	// small pool permits row hydration while a metadata cursor is active.
 	db.SetMaxOpenConns(4)
+	db.SetMaxIdleConns(4)
 	if err := checkStoreCompatibility(ctx, db); err != nil {
 		_ = db.Close()
 		return nil, err

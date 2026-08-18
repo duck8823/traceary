@@ -5,11 +5,34 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"fmt"
 	"path/filepath"
 	"sync"
+	"time"
 )
 
 const storeLeaseSuffix = ".traceary.lock"
+
+// exclusiveLeaseAcquireTimeout bounds exclusive flock polling when the
+// caller did not set a deadline. A same-process idle shared lease used
+// to wait forever (#2120).
+const exclusiveLeaseAcquireTimeout = 60 * time.Second
+
+var exclusiveLeaseWaitInterval = 10 * time.Second
+
+var exclusiveLeaseWaitReporter func(waited time.Duration, lockPath string)
+
+// SetExclusiveLeaseWaitReporter installs a stderr-style waiter hook.
+func SetExclusiveLeaseWaitReporter(fn func(waited time.Duration, lockPath string)) {
+	exclusiveLeaseWaitReporter = fn
+}
+
+func bindExclusiveLeaseDeadline(ctx context.Context) (context.Context, context.CancelFunc) {
+	if _, hasDeadline := ctx.Deadline(); hasDeadline {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, exclusiveLeaseAcquireTimeout)
+}
 
 func canonicalStorePath(path string) (string, error) {
 	absolute, err := filepath.Abs(path)
@@ -44,9 +67,11 @@ func (StoreLeaseCoordinator) AcquireExclusive(ctx context.Context, path string) 
 		return nil, err
 	}
 	lockPath := canonical + storeLeaseSuffix
+	ctx, cancel := bindExclusiveLeaseDeadline(ctx)
+	defer cancel()
 	lease, err := acquireAdvisoryLease(ctx, lockPath, true)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("wait for exclusive store lease on %s: %w; inspect holders with lsof %s", lockPath, err, lockPath)
 	}
 	if err := validateStoreLinkIdentity(canonical); err != nil {
 		_ = lease.Close()
@@ -73,7 +98,11 @@ func probeStoreLeaseCapability(ctx context.Context, path string) error {
 // database inode exchange performed by compaction.
 func openCoordinatedDB(path, dsn string) *sql.DB {
 	lockPath, lockPathErr := canonicalLeasePath(path)
-	return sql.OpenDB(&storeLeaseConnector{driver: coordinatedSQLiteDriver, dsn: dsn, storePath: path, lockPath: lockPath, lockPathErr: lockPathErr})
+	db := sql.OpenDB(&storeLeaseConnector{driver: coordinatedSQLiteDriver, dsn: dsn, storePath: path, lockPath: lockPath, lockPathErr: lockPathErr})
+	// Idle pooled conns keep the shared flock and self-deadlock exclusive
+	// acquire in the same process (#2120).
+	db.SetMaxIdleConns(0)
+	return db
 }
 
 // OpenCoordinatedSQLite opens a live store through the shared physical-
