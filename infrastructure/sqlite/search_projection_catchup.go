@@ -244,6 +244,16 @@ func logSearchProjectionCatchUp(storePath string, result apptypes.SearchProjecti
 		return
 	}
 	if result.Action == "skipped" {
+		if searchProjectionSkipIsEmptyStoreIdle(result) {
+			slog.Debug("search projection catch-up skipped; nothing to project yet",
+				"action", result.Action,
+				"state", result.State,
+				"phase", result.Phase,
+				"generation_id", result.GenerationID,
+				"reason", result.SkippedReason,
+			)
+			return
+		}
 		now := searchProjectionParkWarnNow()
 		if !shouldEmitSearchProjectionParkWarn(storePath, now) {
 			return
@@ -277,4 +287,10 @@ func logSearchProjectionCatchUp(storePath string, result apptypes.SearchProjecti
 		return
 	}
 	slog.Debug("search projection catch-up batch completed", attrs...)
+}
+
+func searchProjectionSkipIsEmptyStoreIdle(result apptypes.SearchProjectionCatchUpResult) bool {
+	return result.SkippedReason == "no source events to project" &&
+		result.GenerationID == "" &&
+		(result.State == "idle" || result.State == "")
 }

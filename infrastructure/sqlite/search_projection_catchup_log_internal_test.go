@@ -249,6 +249,22 @@ func TestLogSearchProjectionCatchUp_LogsSkipsButNotQuietStates(t *testing.T) {
 			},
 		},
 		{
+			name: "empty-store idle skip is debug not warn",
+			result: apptypes.SearchProjectionCatchUpResult{
+				Action:        "skipped",
+				State:         "idle",
+				Phase:         "source",
+				GenerationID:  "",
+				SkippedReason: "no source events to project",
+			},
+			wantLog:   true,
+			wantLevel: "DEBUG",
+			wantSub: []string{
+				"nothing to project yet",
+				"no source events to project",
+			},
+		},
+		{
 			name:    "already_complete stays quiet",
 			result:  apptypes.SearchProjectionCatchUpResult{Action: "already_complete", Completed: true},
 			wantLog: false,
