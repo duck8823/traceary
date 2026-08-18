@@ -2189,6 +2189,21 @@ func TestMemoryUsecase_Extract_HidesNoisyCandidates(t *testing.T) {
 			body:     "教訓: 確認済み・問題なしです",
 			wantFact: "確認済み・問題なしです",
 		},
+		{
+			name:     "numbered instruction echo",
+			body:     "Decision: 1. Always run gofmt before opening a PR",
+			wantFact: "1. Always run gofmt before opening a PR",
+		},
+		{
+			name:     "mid-sentence fragment",
+			body:     "Lesson: which then requeues transient dead letters on the next hook",
+			wantFact: "which then requeues transient dead letters on the next hook",
+		},
+		{
+			name:     "json payload echo",
+			body:     "Decision: {\"ephemeralMessage\":\"starting the next wave now\"}",
+			wantFact: `{"ephemeralMessage":"starting the next wave now"}`,
+		},
 	}
 
 	for _, tc := range cases {
@@ -2297,6 +2312,54 @@ func TestMemoryUsecase_Extract_KeepsExplicitRememberVisibleEvenWhenNoisy(t *test
 	}
 	if got := memoryUsecase.proposeCalls[0].source; got != domtypes.MemorySourceRememberIntent {
 		t.Fatalf("source = %q, want remember-intent (explicit remember overrides noise)", got)
+	}
+}
+
+func TestMemoryUsecase_Extract_HidesRememberIntentJSONPayloadEcho(t *testing.T) {
+	t.Parallel()
+
+	session := apptypes.SessionSummaryOf(
+		domtypes.SessionID("session-payload-remember"),
+		domtypes.Workspace("github.com/duck8823/traceary"),
+		time.Now().Add(-time.Hour),
+		domtypes.None[time.Time](),
+		"ended",
+		1,
+		0,
+		[]string{"codex"},
+		"",
+		"",
+		domtypes.SessionID(""),
+	)
+	payload := `{"ephemeralMessage":"starting the next wave now"}`
+	promptEvent := mustExtractionEvent(t,
+		"event-payload-remember",
+		domtypes.EventKindPrompt,
+		"Remember this: "+payload,
+	)
+	details := mustMemoryDetailsFromSummary(t, "memory-payload-remember", domtypes.MemoryTypeLesson, payload)
+	memoryUsecase := &memoryExtractionMemoryUsecaseStub{proposeResult: []apptypes.MemoryDetails{details}}
+	sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
+	eventQuery := &eventQueryServiceStub{listRecentResultByKind: map[domtypes.EventKind][]*model.Event{domtypes.EventKindPrompt: {promptEvent}}}
+	sut := usecase.NewMemoryUsecase(memoryUsecase, memoryUsecase, nil, usecase.MemoryUsecaseDependencies{SessionQuery: sessionQuery, EventQuery: eventQuery})
+
+	_, err := sut.Extract(
+		context.Background(),
+		apptypes.NewMemoryExtractionCriteriaBuilder().
+			SessionID(domtypes.SessionID("session-payload-remember")).
+			Workspace(domtypes.Workspace("github.com/duck8823/traceary")).
+			EventLimit(1).
+			CandidateLimit(10).
+			Build(),
+	)
+	if err != nil {
+		t.Fatalf("Extract() error = %v", err)
+	}
+	if len(memoryUsecase.proposeCalls) != 1 {
+		t.Fatalf("proposeCalls = %d, want 1 hidden payload echo", len(memoryUsecase.proposeCalls))
+	}
+	if got := memoryUsecase.proposeCalls[0].source; got != domtypes.MemorySourceExtractedHidden {
+		t.Fatalf("source = %q, want extracted-hidden for remember-intent payload echo", got)
 	}
 }
 

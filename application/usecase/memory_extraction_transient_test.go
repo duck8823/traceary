@@ -41,7 +41,7 @@ func TestClassifyExtractionNoise_TransientStatus(t *testing.T) {
 		{
 			name: "ephemeral json envelope",
 			fact: `{"ephemeralMessage": "starting the next wave now"}`,
-			want: []string{extractionNoiseTransientStatus},
+			want: []string{extractionNoiseTransientStatus, extractionNoisePayloadEcho},
 		},
 		{
 			name: "durable merge constraint stays visible",
