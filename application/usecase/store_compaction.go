@@ -21,6 +21,7 @@ type storeCompactionUsecase struct {
 	builder       application.StoreCompactionBuilder
 	files         application.StoreCompactionFiles
 	lease         application.StoreCompactionLease
+	progress      application.CompactionProgress
 	now           func() time.Time
 	expectedStore string
 	cover         func(ctx context.Context, work string, cutoff time.Time) error
@@ -35,6 +36,13 @@ type compactFilterSetter interface {
 func BindCompactionWorkCover(u application.StoreCompactionUsecase, cover func(ctx context.Context, work string, cutoff time.Time) error) {
 	if concrete, ok := u.(*storeCompactionUsecase); ok {
 		concrete.cover = cover
+	}
+}
+
+// BindCompactionProgress attaches operator-facing phase/byte progress.
+func BindCompactionProgress(u application.StoreCompactionUsecase, progress application.CompactionProgress) {
+	if concrete, ok := u.(*storeCompactionUsecase); ok {
+		concrete.progress = progress
 	}
 }
 
@@ -290,7 +298,13 @@ func (u *storeCompactionUsecase) applyLeased(ctx context.Context, run domain.Com
 			run.PreparedAttempt++
 			run, err = u.advance(ctx, run, domain.CompactionCandidatePrepared)
 		case domain.ActionBuildCandidate:
-			err = u.builder.Build(ctx, run.SourcePath, run.CandidatePath)
+			if u.progress != nil {
+				stop := u.progress.WatchBuild(ctx, run.CandidatePath, run.Resources.DestinationBytes)
+				err = u.builder.Build(ctx, run.SourcePath, run.CandidatePath)
+				stop()
+			} else {
+				err = u.builder.Build(ctx, run.SourcePath, run.CandidatePath)
+			}
 			if err == nil {
 				run, err = u.advance(ctx, run, domain.CompactionCopyComplete)
 			}
@@ -556,6 +570,9 @@ func (u *storeCompactionUsecase) advance(ctx context.Context, run domain.Compact
 	}
 	if err := u.journal.Append(ctx, next); err != nil {
 		return run, err
+	}
+	if u.progress != nil {
+		u.progress.OnPhase(next.Phase, next.Resources.DestinationBytes)
 	}
 	return next, nil
 }
