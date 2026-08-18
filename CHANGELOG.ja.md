@@ -7,6 +7,8 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 
 ## [Unreleased]
 
+## [v0.43.0] - 2026-08-18
+
 ### Fixed
 - **中断した `store compact` が次の実行を壊さない (#2118)** — publication 前 journal（`planned` / `copy_intent` / `copy_retry_intent` / `candidate_prepared`）で source identity が動いていれば abandon（candidate 削除）し、同じ呼び出しで新規 plan。`doctor` は進行中 journal を WARN、`--fix` は同じ abandon。`swap_intent` 以降は変えない。構築中の SIGINT は best-effort で `abandoned` を journal する。
 - **`doctor` が hook-spool の orphan `*.tmp` を `stale_inflight` に数え、14 日超を prune する (#2115)** — 1 時間超は既存カウンタへ。`doctor --fix` / `--dry-run` に `pruned_tmp=` を追加。直後の write-rename 一時ファイルは数えも消しもしない。

@@ -7,6 +7,8 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ## [Unreleased]
 
+## [v0.43.0] - 2026-08-18
+
 ### Fixed
 - **Interrupted `store compact` no longer bricks the next run (#2118)** — a pre-publication journal (`planned` / `copy_intent` / `copy_retry_intent` / `candidate_prepared`) whose source identity has moved is abandoned (candidate removed) and the same invocation plans fresh. `doctor` WARNs on in-flight journals; `--fix` applies the same abandon. `swap_intent` and later are unchanged. SIGINT during build best-effort journals `abandoned`.
 - **`doctor` counts orphan hook-spool `*.tmp` leftovers as `stale_inflight` and prunes them after 14 days (#2115)** — files older than 1h enter the existing counter; `doctor --fix` / `--dry-run` add `pruned_tmp=`. Fresh write-rename temps are neither counted nor deleted.
