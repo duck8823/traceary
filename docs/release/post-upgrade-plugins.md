@@ -36,9 +36,9 @@ After every released binary upgrade:
 | Host | Refresh | Activation | Version verification | Supported skip |
 |---|---|---|---|---|
 | Claude Code | In Claude Code, run `claude plugins update <Traceary marketplace key>`; `traceary doctor --client claude --json` prints the exact key in `FixCommand`. | Restart Claude Code (or start a new process) so the updated package is loaded. | `traceary doctor --client claude --json` → `claude-plugin-version` is `pass`. | `--skip claude='reason'` only when Claude Code/its Traceary package is intentionally not installed. |
-| Codex | Reinstall the plugin from `plugins/traceary/` in the checkout that matches `traceary -v`; see the Codex plugin documentation. | Use `/plugins` to refresh/reinstall the package, then start a new Codex session. | `traceary doctor --client codex --json` → `codex-plugin-version` is `pass`. | `--skip codex='reason'` only when Codex/its Traceary package is intentionally not installed. |
-| Gemini CLI (legacy extension) | `gemini extensions update traceary`, then refresh managed hook generation (see below). | Restart Gemini CLI. | `traceary doctor --client gemini --json` → `gemini-plugin-version` is `pass` and `gemini-config` is `pass`. | `--skip gemini='reason'` only when the legacy extension is intentionally not installed. |
-| Antigravity | Use the safe dual-path procedure below, then `agy plugin install integrations/antigravity-plugin`. | Quit and reopen Antigravity (or start a new CLI session). | `traceary doctor --client antigravity --json` → every `antigravity-plugin-version` is `pass`, or an incomplete twin is the documented `skip` while another copy passes. | `--skip antigravity='reason'` only when Antigravity/its Traceary package is intentionally not installed. |
+| Codex | In the marketplace clone, `git checkout` the tag matching `traceary -v`, then `codex plugin add traceary@traceary-marketplace`. Do not use `codex plugin marketplace upgrade` on a local-path marketplace (it reports "No configured Git marketplaces"). Interactive `/plugins` remains valid. | Start a new Codex session after the add (or `/plugins` refresh). | `traceary doctor --client codex --json` → `codex-plugin-version` is `pass`. | `--skip codex='reason'` only when Codex/its Traceary package is intentionally not installed. |
+| Gemini CLI (legacy extension) | `./scripts/install-gemini-extension.sh` (uninstall + `install --consent`, tag-pinned). Then refresh managed hook generation (see below). | Restart Gemini CLI. | `traceary doctor --client gemini --json` → `gemini-plugin-version` is `pass` and `gemini-config` is `pass`. | `--skip gemini='reason'` only when the legacy extension is intentionally not installed. |
+| Antigravity | From the checkout matching `traceary -v`, `rsync -a --delete integrations/antigravity-plugin/` onto `~/.gemini/config/plugins/traceary/` (and the legacy `~/.gemini/antigravity-cli/plugins/traceary/` copy if present), or `agy plugin install integrations/antigravity-plugin`. If doctor still reports a stale twin, use the dual-path procedure below. | Quit and reopen Antigravity (or start a new CLI session). | `traceary doctor --client antigravity --json` → every `antigravity-plugin-version` is `pass`, or an incomplete twin is the documented `skip` while another copy passes. | `--skip antigravity='reason'` only when Antigravity/its Traceary package is intentionally not installed. |
 | Grok Build | `./scripts/install-grok-plugin.sh`. | Restart Grok Build or start a new session. | `traceary doctor --client grok --json` → `grok-plugin` is `pass`. | `--skip grok='reason'` only when Grok Build/its Traceary package is intentionally not installed. |
 | Kimi Code | `./scripts/install-kimi-plugin.sh`. The installer stages a new generation and atomically flips the managed `traceary` symlink while preserving the install record. | Run `/plugins reload` **or start a new Kimi session**. | `traceary doctor --client kimi --json` → `kimi-plugin-version` and native `kimi-plugin` are healthy. | `--skip kimi='reason'` only when Kimi Code/its Traceary package is intentionally not installed. |
 
@@ -46,14 +46,16 @@ Prefer the `FixCommand` printed by doctor when it provides an exact non-interact
 
 ## Gemini managed hook generation refresh
 
-`gemini extensions update traceary` updates the extension package in
-`~/.gemini/extensions/traceary/` but does **not** rewrite the Traceary-managed
-hook entries already present in `~/.gemini/settings.json`. Those entries were
+`./scripts/install-gemini-extension.sh` replaces the extension package in
+`~/.gemini/extensions/traceary/` (uninstall then `install --consent`, pinned
+to the running CLI tag). It does **not** rewrite the Traceary-managed hook
+entries already present in `~/.gemini/settings.json`. Those entries were
 written by an older hook generation and may have stale timeouts (for example,
 5000 ms instead of the current 10000 ms). Doctor reports this as
 `gemini-config=warn` with an `installed=…ms desired=…ms` drift message.
 
-After running `gemini extensions update traceary`, run:
+Do not run `gemini extensions update traceary` for a local install — that
+command prompts interactively. After the script, run:
 
 ```sh
 # Preview — shows only what would change in Traceary-managed entries.

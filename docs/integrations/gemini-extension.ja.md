@@ -91,11 +91,20 @@ gemini extensions link integrations/gemini-extension
 
 ## Update
 
+ローカル install した Traceary extension に `gemini extensions update` を使わないでください。対話プロンプトで止まり、headless ではハングします。実行中 CLI の tag に pin して uninstall → reinstall します。
+
 ```sh
-gemini extensions update traceary
+./scripts/install-gemini-extension.sh
+# または明示的な ref:
+./scripts/install-gemini-extension.sh --ref v0.43.0
 ```
 
-特定の release に戻したい場合は、`--ref <tag>` を付けて再 install します。
+スクリプトはその tag を clone し（`main` ではない）、既存があれば `gemini extensions uninstall traceary` したあと `gemini extensions install --consent` で security prompt を避けます。スクリプトを使わず GitHub URL から入れる場合:
+
+```sh
+gemini extensions uninstall traceary
+gemini extensions install --consent https://github.com/duck8823/traceary --ref <tag>
+```
 
 ## Uninstall
 
@@ -120,8 +129,8 @@ traceary doctor --client gemini --json
 - `gemini-event-coverage`: recent Gemini session を見て、prompt/transcript が欠けた
   session 比率が `--coverage-threshold`（既定 `0.5`）を超えると警告します。audit のみの session も会話内容の coverage がないため警告対象です。
   settings.json ではなく Gemini extension package を使っている場合は、
-  `gemini extensions update traceary` で package 側の BeforeAgent /
-  AfterAgent hook を更新してください。
+  `./scripts/install-gemini-extension.sh` で CLI tag に合わせた
+  BeforeAgent / AfterAgent hook を入れ直してください。
 
 package 自体の validate は次です。
 

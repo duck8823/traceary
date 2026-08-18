@@ -112,11 +112,26 @@ gemini extensions link integrations/gemini-extension
 
 ## Update
 
+Do not use `gemini extensions update` for a locally installed Traceary
+extension: that command waits on an interactive prompt and can hang in
+headless runs. Uninstall and reinstall instead, pinned to the running CLI
+tag:
+
 ```sh
-gemini extensions update traceary
+./scripts/install-gemini-extension.sh
+# or an explicit ref:
+./scripts/install-gemini-extension.sh --ref v0.43.0
 ```
 
-To pin a specific release again, reinstall with `--ref <tag>`.
+The script clones that tag (not `main`), runs `gemini extensions uninstall
+traceary` when a copy is already installed, then `gemini extensions install
+--consent` so the security prompt does not block. To pin a GitHub URL install
+without the script:
+
+```sh
+gemini extensions uninstall traceary
+gemini extensions install --consent https://github.com/duck8823/traceary --ref <tag>
+```
 
 ## Uninstall
 
@@ -140,9 +155,9 @@ traceary doctor --client gemini --json
   installs.
 - `gemini-event-coverage` scans recent Gemini sessions and warns when the
   prompt/transcript-missing session ratio is above `--coverage-threshold` (default `0.5`). Audit-only sessions still warn because they lack conversation coverage.
-  If you rely on the Gemini extension package instead of settings.json, update
-  it with `gemini extensions update traceary` so the packaged BeforeAgent /
-  AfterAgent hooks are refreshed.
+  If you rely on the Gemini extension package instead of settings.json, refresh
+  it with `./scripts/install-gemini-extension.sh` so the packaged BeforeAgent /
+  AfterAgent hooks are reinstalled from the matching CLI tag.
 
 Package validation:
 

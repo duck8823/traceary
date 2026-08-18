@@ -20,6 +20,7 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 - **`doctor --fix` drains transient dead-letter requeue under the 45s wall (#2109)** — the 200-record batch cap remains, but batches loop until the spool is empty or the fixer wall clock is exhausted. `--dry-run` previews the full planned requeue count. Fixes-line counters are unchanged.
 
 ### Docs
+- Host update paths for Gemini, Antigravity, and Codex match the v0.42 dogfood workarounds (#2116). Gemini uses `scripts/install-gemini-extension.sh` (tag-pinned, `--consent`, uninstall-first). Antigravity documents rsync / `agy plugin install`. Codex documents headless `codex plugin add` and the local-path `marketplace upgrade` limitation.
 - README quickstart samples no longer show the removed `timeline` / `tail` commands (#2117). Use `list --blocks` / `list --follow`.
 
 ## [v0.42.0] - 2026-08-17

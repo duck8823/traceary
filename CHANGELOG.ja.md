@@ -20,6 +20,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 - **`doctor --fix` が transient dead-letter 再キューを 45 秒の壁時計内で続けて drain する (#2109)** — 1 バッチ 200 件の上限は残し、スプールが空になるか壁時計が尽きるまでループする。`--dry-run` は計画件数を全件出す。Fixes 行のカウンタ形式は変えない。
 
 ### Docs
+- Gemini / Antigravity / Codex の更新手順を v0.42 dogfood の実経路に揃える (#2116)。Gemini は `scripts/install-gemini-extension.sh`（tag pin、`--consent`、先に uninstall）。Antigravity は rsync / `agy plugin install`。Codex は headless の `codex plugin add` と local-path の `marketplace upgrade` 制限。
 - README の quickstart サンプルから削除済みの `timeline` / `tail` を外した (#2117)。代わりに `list --blocks` / `list --follow`。
 
 ## [v0.42.0] - 2026-08-17

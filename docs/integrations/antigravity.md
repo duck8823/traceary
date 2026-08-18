@@ -182,6 +182,32 @@ Aliases `agy` and `antigravity-cli` resolve to the same canonical `antigravity` 
 
 Alternatively, install the packaged plugin under [`integrations/antigravity-plugin/`](../../integrations/antigravity-plugin/). It ships the same `traceary` hook group, a versioned `plugin.json` manifest following the official Antigravity schema, the four shared skills (see [skills](./skills.md)), and the opt-in `permissions.example.json` fragment. Do not also retain a direct workspace or user-level Traceary hook route.
 
+## Update
+
+Antigravity has no `extensions update` equivalent. After `brew upgrade
+traceary` (or any CLI bump), refresh the packaged plugin from the checkout
+that matches `traceary -v` (`git checkout vX.Y.Z` or a clone of that tag):
+
+```sh
+# Shared plugin directory used by current Antigravity
+rsync -a --delete integrations/antigravity-plugin/ ~/.gemini/config/plugins/traceary/
+
+# Also replace the legacy CLI-specific copy if it exists
+if [ -d ~/.gemini/antigravity-cli/plugins/traceary ]; then
+  rsync -a --delete integrations/antigravity-plugin/ ~/.gemini/antigravity-cli/plugins/traceary/
+fi
+```
+
+Or, from that same checkout:
+
+```sh
+agy plugin install integrations/antigravity-plugin
+```
+
+If `doctor --client antigravity` still reports a stale Gemini-shaped package
+or a version mismatch, follow [Migrating a stale Gemini-imported plugin](#migrating-a-stale-gemini-imported-plugin) and the dual-path notes in
+[post-upgrade plugin refresh](../release/post-upgrade-plugins.md#antigravity-stale-dual-path-remediation). Then rerun `traceary hooks install --client antigravity --upgrade` only if you use the hooks-only route instead of the packaged plugin.
+
 ## Setup guide
 
 ```sh
