@@ -39,9 +39,9 @@ One invocation accepts at most 50,000 entries. Session IDs are limited to 1,024 
 
 ## Dry-run first
 
-Dry-run is the default:
+Dry-run was the default. Historical invocation (no longer a command):
 
-```sh
+```text
 traceary session repair-one-shot \
   --evidence-file ./one-shot-evidence.json \
   --stale-after 24h \
@@ -63,9 +63,9 @@ An old row stored as `interactive` is not selected automatically. It participate
 
 ## Apply and rollback
 
-Apply requires a new backup path:
+Apply required a new backup path. Historical invocation (no longer a command):
 
-```sh
+```text
 traceary session repair-one-shot \
   --evidence-file ./one-shot-evidence.json \
   --stale-after 24h \

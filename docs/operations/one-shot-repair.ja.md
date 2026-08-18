@@ -39,9 +39,9 @@
 
 ## 先に dry-run する
 
-既定動作は dry-run である。
+既定動作は dry-run だった。当時の呼び出し（現在はコマンドではない）:
 
-```sh
+```text
 traceary session repair-one-shot \
   --evidence-file ./one-shot-evidence.json \
   --stale-after 24h \
@@ -63,9 +63,9 @@ traceary session repair-one-shot \
 
 ## 適用と rollback
 
-適用には新しい backup path が必要である。
+適用には新しい backup path が必要だった。当時の呼び出し（現在はコマンドではない）:
 
-```sh
+```text
 traceary session repair-one-shot \
   --evidence-file ./one-shot-evidence.json \
   --stale-after 24h \
