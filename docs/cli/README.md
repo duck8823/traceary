@@ -774,6 +774,7 @@ Each check has a severity: `PASS`, `WARN`, or `FAIL`. `WARN` means Traceary foun
 Additional doctor checks:
 
 - `store-capacity` reports the metadata-only capacity breakdown (database / free / WAL / top objects) from the same bounded InspectCapacity path as the former `store capacity` command. On stores ≥2 GiB the default doctor stays filesystem-metadata-only and this check is `skip` (no SQLite open, no dbstat walk).
+- `doctor --json` includes an additive `workspace_identity` block (coverage, conflict pairs, sources, samples, aliases, derived `exact_delivery`) that replaces the former `report workspace-identity` leaf. Text mode stays the existing `workspace-aliases` check. On stores ≥2 GiB the default doctor omits the block and does not open SQLite for identity.
 - `offline-migrations` reports pending data-dependent migrations (035, 045). Empty stores still auto-init on first write or `doctor`. Apply pending versions with `doctor --fix` (can take minutes). On stores ≥2 GiB the default doctor skips this check without opening SQLite.
 - `path` confirms `traceary` resolves on `PATH` and reports the directory. Missing is `FAIL`; multiple matches are `WARN`.
 - `<client>-plugin-version` compares detected installed plugin manifests/caches with the running binary version and suggests reinstalling/updating the plugin when they drift.
@@ -942,11 +943,6 @@ recorded usage terminal classification to the number of matching
 observations. The text report renders this map as `terminal=...`.
 `unavailable_observations` counts observations for which all usage counters
 are unavailable, including observations excluded from counter totals.
-
-### `traceary report workspace-identity`
-
-Print body-free workspace attribution coverage, relationship/conflict rates, and stable-ID exact-redelivery rates. Observation-row totals stay as volume; `conflict_pair_count` is the actionable unit (distinct `(session_id, workspace)` under the current conflict projection). Samples are one latest row per pair and include `workspace` so `doctor --alias-add` can be run from the report. Historical body/time-window candidates are skipped by default; request a bounded dry-run with `--include-heuristic` and optionally `--heuristic-limit` (default 5,000) or `--strict`. JSON reports heuristic `measurement_state` as `not_requested`, `partial`, `complete`, or `failed` independently from exact delivery. Use `--json` and `--conflict-sample-limit` for automation and QA.
-Run `traceary doctor` first when the store needs initialization or migration; the report itself is read-only. See [workspace-conflict meaning](../research/workspace-conflict-meaning.md).
 
 ### `traceary doctor --alias-add` / `--alias-remove` / `--alias-list`
 

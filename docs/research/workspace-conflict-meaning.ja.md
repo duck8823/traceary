@@ -14,7 +14,7 @@ workspace の `conflict` は、operator が review する pair `(session_id, eff
 
 store の欠陥ではなく、review 済み alias の mechanism を廃する理由でもありません。分類器は契約どおりです。remote identity と local path は operator が review するまで別物で、祖先でも子孫でもない 2 本の local tree も別物です。
 
-`report workspace-identity` は observation 行数を volume として残します。あわせて **distinct な conflict pair** を出し、sample は **pair あたり 1 行**（workspace 付き）にして、是正コマンドに届くようにします。
+`doctor --json` の `workspace_identity` は observation 行数を volume として残します。あわせて **distinct な conflict pair** を出し、sample は **pair あたり 1 行**（workspace 付き）にして、是正コマンドに届くようにします。
 
 ## 回答
 

@@ -115,7 +115,8 @@ func TestRootCLI_HookAntigravityStopReplayUsesStableDeliveryLedger(t *testing.T)
 		t.Fatalf("delivery attempts accepted/exact/conflict = %d/%d/%d, want 2/2/0", accepted, exact, conflicts)
 	}
 
-	reportCmd := cli.NewRootCLI(
+	setTracearyPathToCurrentExecutableAt(t, filepath.Join(t.TempDir(), "bin"))
+	reportCmd := newTestRootCLI(
 		cli.WithStoreManagement(storeUC),
 		cli.WithWorkspaceIdentity(identityUC),
 		cli.WithDatabasePathSetter(db.SetPath),
@@ -123,28 +124,25 @@ func TestRootCLI_HookAntigravityStopReplayUsesStableDeliveryLedger(t *testing.T)
 	reportOut := &bytes.Buffer{}
 	reportCmd.SetOut(reportOut)
 	reportCmd.SetErr(&bytes.Buffer{})
-	reportCmd.SetArgs([]string{"report", "workspace-identity", "--db-path", dbPath, "--include-heuristic", "--json"})
-	if err := reportCmd.Execute(); err != nil {
-		t.Fatalf("Execute(report workspace-identity) error = %v", err)
-	}
+	reportCmd.SetArgs([]string{"doctor", "--db-path", dbPath, "--json", "--warnings-ok", "--client", "codex", "--project-dir", t.TempDir()})
+	// Partial CLI wiring can still make host/path checks FAIL. Identity JSON
+	// is written before that exit; this test only asserts the absorb block.
+	execErr := reportCmd.Execute()
 	var report struct {
-		ExactDelivery struct {
-			AttemptCount         int     `json:"attempt_count"`
-			ExactRedeliveryCount int     `json:"exact_redelivery_count"`
-			ExactRedeliveryRate  float64 `json:"exact_redelivery_rate"`
-		} `json:"exact_delivery"`
-		Heuristic struct {
-			CandidateCount int `json:"candidate_count"`
-		} `json:"heuristic_candidates"`
+		WorkspaceIdentity struct {
+			ExactDelivery struct {
+				AttemptCount         int     `json:"attempt_count"`
+				ExactRedeliveryCount int     `json:"exact_redelivery_count"`
+				ExactRedeliveryRate  float64 `json:"exact_redelivery_rate"`
+			} `json:"exact_delivery"`
+		} `json:"workspace_identity"`
 	}
 	if err := json.Unmarshal(reportOut.Bytes(), &report); err != nil {
-		t.Fatalf("Unmarshal(report) error = %v\n%s", err, reportOut.String())
+		t.Fatalf("Unmarshal(doctor) error = %v execute=%v\n%s", err, execErr, reportOut.String())
 	}
-	if report.ExactDelivery.AttemptCount != 4 || report.ExactDelivery.ExactRedeliveryCount != 2 || report.ExactDelivery.ExactRedeliveryRate != 0.5 {
-		t.Fatalf("exact delivery report = %+v, want attempts=4 exact=2 rate=0.5", report.ExactDelivery)
-	}
-	if report.Heuristic.CandidateCount != 0 {
-		t.Fatalf("heuristic candidates = %d, want zero for suppressed stable-ID replay", report.Heuristic.CandidateCount)
+	delivery := report.WorkspaceIdentity.ExactDelivery
+	if delivery.AttemptCount != 4 || delivery.ExactRedeliveryCount != 2 || delivery.ExactRedeliveryRate != 0.5 {
+		t.Fatalf("exact delivery report = %+v, want attempts=4 exact=2 rate=0.5", delivery)
 	}
 }
 

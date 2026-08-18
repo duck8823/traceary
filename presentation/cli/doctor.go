@@ -77,13 +77,14 @@ type doctorReport struct {
 	// large live store is deliberately not opened by the default doctor path:
 	// opening it can run migrations and content diagnostics that are neither
 	// necessary nor safe for a quick operator health check.
-	Mode         string                       `json:"mode,omitempty"`
-	OperatorCost *apptypes.OperatorCostReport `json:"operator_cost,omitempty"`
-	Checks       []doctorCheck                `json:"checks"`
-	Sections     []doctorSection              `json:"sections"`
-	Summary      doctorSummary                `json:"summary"`
-	ExitCode     int                          `json:"exit_code"`
-	Fixes        []doctorFixLog               `json:"fixes,omitempty"`
+	Mode              string                       `json:"mode,omitempty"`
+	OperatorCost      *apptypes.OperatorCostReport `json:"operator_cost,omitempty"`
+	WorkspaceIdentity *doctorWorkspaceIdentity     `json:"workspace_identity,omitempty"`
+	Checks            []doctorCheck                `json:"checks"`
+	Sections          []doctorSection              `json:"sections"`
+	Summary           doctorSummary                `json:"summary"`
+	ExitCode          int                          `json:"exit_code"`
+	Fixes             []doctorFixLog               `json:"fixes,omitempty"`
 }
 
 type doctorExitError struct {
@@ -427,7 +428,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		report.Checks = append(report.Checks, c.inspectArchiveRetention(ctx, resolvedDBPath))
 		report.Checks = append(report.Checks, c.inspectOfflineMigrations(ctx))
 		if c.workspaceIdentity != nil {
-			report.Checks = append(report.Checks, c.inspectWorkspaceAliases(ctx))
+			report.Checks = append(report.Checks, c.inspectWorkspaceAliases(ctx, report))
 		}
 		report.Checks = append(report.Checks, c.inspectFileRetentionCapacity(ctx, resolvedDBPath, input.archiveRoot, input.backupRoot)...)
 		report.Checks = append(report.Checks, c.inspectCommandAuditReliability(ctx, input.strict))

@@ -24,15 +24,16 @@ import (
 )
 
 type doctorReport struct {
-	DBPath       string                       `json:"db_path"`
-	Clients      []string                     `json:"clients"`
-	Mode         string                       `json:"mode"`
-	OperatorCost *apptypes.OperatorCostReport `json:"operator_cost"`
-	Checks       []doctorCheck                `json:"checks"`
-	Sections     []doctorSection              `json:"sections"`
-	Summary      doctorSummary                `json:"summary"`
-	ExitCode     int                          `json:"exit_code"`
-	Fixes        []doctorFixLog               `json:"fixes"`
+	DBPath            string                       `json:"db_path"`
+	Clients           []string                     `json:"clients"`
+	Mode              string                       `json:"mode"`
+	OperatorCost      *apptypes.OperatorCostReport `json:"operator_cost"`
+	WorkspaceIdentity json.RawMessage              `json:"workspace_identity"`
+	Checks            []doctorCheck                `json:"checks"`
+	Sections          []doctorSection              `json:"sections"`
+	Summary           doctorSummary                `json:"summary"`
+	ExitCode          int                          `json:"exit_code"`
+	Fixes             []doctorFixLog               `json:"fixes"`
 }
 
 type operatorCostInspectorStub struct {

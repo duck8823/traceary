@@ -122,9 +122,9 @@ in-place `VACUUM` ではありません。旧 inode は受け入れるか
 
 ## ワークスペース識別のリリース前 QA
 
-先に `traceary doctor` を 1 回実行して store を初期化または migrate し、その後 `traceary report workspace-identity` を実行してください。レポート自体は migration も provenance catch-up の進行も行いません。帰属情報の網羅率、現在のワークスペース関係、安定したホスト ID に基づくフック配送結果を、クライアントとフック別に表示します。リリース前 QA では `--json` を利用できます。競合サンプルに含めるのは識別子だけで、イベント本文は出力しません。
+帰属情報の網羅率、現在のワークスペース関係、安定したホスト ID に基づくフック配送結果は `traceary doctor --json` の `workspace_identity` で見ます。小ストアでは doctor が先に初期化または migrate します。identity ブロック自体は provenance catch-up を進めません。競合サンプルに含めるのは識別子だけで、イベント本文は出力しません。2 GiB 以上の既定 doctor は filesystem-metadata-only のままでブロックを出しません。閾値未満の review 済み copy を使ってください。
 
-既定のレポートが読むのは、本文を含まない exact delivery とワークスペース projection だけです。証明済みの安定ホスト ID 結果である `exact_delivery`（目標 1% 未満）と `heuristic_candidates` を分離し、`--include-heuristic` を指定しない限り後者の `measurement_state` は `not_requested` になります。明示的なヒューリスティック測定が読む prompt/transcript 本文は `--heuristic-limit`（既定 5,000 件）までで、状態を `partial`、`complete`、`failed` のいずれかで示します。この測定結果が exact metric を変えることはありません。`sample_available=false` は実行時の配送試行がまだ測定されていないことを示します。
+既定ブロックは本文を読みません。導出 `exact_delivery`（証明済みの安定ホスト ID 結果、目標 1% 未満）を含みます。履歴の本文・時間窓ヒューリスティック測定はこの surface にはありません。`sample_available=false` は実行時の配送試行がまだ測定されていないことを示します。
 
 運用者はセッションの正規 provenance を変更せず、確認済みの競合を再分類できます。
 

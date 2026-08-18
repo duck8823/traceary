@@ -4,6 +4,8 @@
 
 状態：v0.30.0 の実装 Issue #1435 と #1429 に適用する設計契約。
 
+機械可読な検査は `traceary doctor --json`（`workspace_identity`）です。旧 `report workspace-identity` は退役しました（#2124）。
+
 ## 要求
 
 Traceary は session と event の両方に `workspace` を保存していますが、二つの値の意味を明確に分けていません。
