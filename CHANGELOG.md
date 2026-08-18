@@ -8,7 +8,7 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 ## [Unreleased]
 
 ### Fixed
-- **`store compact` exclusive lease acquisition times out and no longer self-deadlocks on idle shared connections (#2120)** — default wait is 60s with a named lock-path error; stderr prints wait lines; coordinated connections do not keep an idle flock.
+- **`store compact` exclusive lease acquisition times out instead of polling forever (#2120)** — default wait is 60s with a named lock-path error and stderr wait lines. An idle same-process shared flock still blocks exclusive until that pool is closed; the timeout makes the hang fail fast.
 - **`store compact` prints phase and replica-build progress on stderr (#2119)** — each journal phase emits a line; the build phase reports replica bytes versus the destination estimate about every 10s. stdout JSON is unchanged.
 - **Extraction hides instruction-echo, mid-sentence fragments, and JSON payload echoes (#2112)** — numbered/bulleted imperative list items, lowercase clause continuations, and JSON object/array literals route to `extracted-hidden`. Payload echoes stay hidden even on remember-intent; other remember-intent facts stay visible.
 - **Fresh/empty stores no longer WARN on first-run projection maintenance (#2113)** — `no source events to project` and `amplification sample below minimum` log at DEBUG when the store has no generation and no sample. The same conditions stay WARN on a populated store.

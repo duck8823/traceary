@@ -98,11 +98,7 @@ func probeStoreLeaseCapability(ctx context.Context, path string) error {
 // database inode exchange performed by compaction.
 func openCoordinatedDB(path, dsn string) *sql.DB {
 	lockPath, lockPathErr := canonicalLeasePath(path)
-	db := sql.OpenDB(&storeLeaseConnector{driver: coordinatedSQLiteDriver, dsn: dsn, storePath: path, lockPath: lockPath, lockPathErr: lockPathErr})
-	// Idle pooled conns keep the shared flock and self-deadlock exclusive
-	// acquire in the same process (#2120).
-	db.SetMaxIdleConns(0)
-	return db
+	return sql.OpenDB(&storeLeaseConnector{driver: coordinatedSQLiteDriver, dsn: dsn, storePath: path, lockPath: lockPath, lockPathErr: lockPathErr})
 }
 
 // OpenCoordinatedSQLite opens a live store through the shared physical-

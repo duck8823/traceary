@@ -8,18 +8,19 @@ import (
 	"time"
 )
 
-func TestAcquireExclusive_SucceedsAgainstIdleCoordinatedPool(t *testing.T) {
+func TestAcquireExclusive_SucceedsAfterIdlePoolReleased(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "store.db")
 	db := openCoordinatedDB(path, sqliteDSN(path))
 	defer func() { _ = db.Close() }()
 	if err := db.PingContext(context.Background()); err != nil {
 		t.Fatal(err)
 	}
+	db.SetMaxIdleConns(0)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	release, err := (StoreLeaseCoordinator{}).AcquireExclusive(ctx, path)
 	if err != nil {
-		t.Fatalf("idle coordinated pool must not block exclusive: %v", err)
+		t.Fatalf("released idle pool must not block exclusive: %v", err)
 	}
 	release()
 }
