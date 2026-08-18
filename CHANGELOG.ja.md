@@ -8,6 +8,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 ## [Unreleased]
 
 ### Fixed
+- **`store compact` が stderr に phase と replica 構築進捗を出す (#2119)** — journal の phase ごとに 1 行。構築中は約 10 秒ごとに replica バイト対 destination 見積もり。stdout JSON は変えない。
 - **抽出が instruction-echo・文途中フラグメント・JSON payload echo を hidden にする (#2112)** — 番号/箇条書きの命令、小文字で始まる節の続き、JSON の object/array リテラルは `extracted-hidden`。payload echo は remember-intent でも hidden。それ以外の remember-intent は表示のまま。
 - **空ストア初回実行の projection 保守を WARN にしない (#2113)** — 世代がなくサンプルもないとき、`no source events to project` と `amplification sample below minimum` は DEBUG。データがあるストアでは同じ条件でも WARN のまま。
 - **ルートの unknown command と `--index-family-bytes` の help が `ui.language` に従う (#2114)** — `traceary nosuchcmd` はサブコマンドと同じカタログを使う（候補リストはそのまま）。`store compact --help` の `--index-family-bytes` を英語だけにしない。

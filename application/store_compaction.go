@@ -68,6 +68,13 @@ type StoreCompactionLease interface {
 	AcquireExclusive(context.Context, string) (func(), error)
 }
 
+// CompactionProgress reports journal phase changes and replica-build bytes
+// to the operator. Implementations write diagnostics (typically stderr).
+type CompactionProgress interface {
+	OnPhase(phase domain.CompactionPhase, destinationBytes uint64)
+	WatchBuild(ctx context.Context, candidatePath string, destinationBytes uint64) (stop func())
+}
+
 // StoreCompactionUsecase provides the explicit maintenance workflow.
 type StoreCompactionUsecase interface {
 	Compact(context.Context, CompactInput) (CompactResult, error)

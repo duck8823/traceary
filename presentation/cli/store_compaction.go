@@ -11,6 +11,7 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/duck8823/traceary/application"
+	"github.com/duck8823/traceary/application/usecase"
 )
 
 func (c *RootCLI) newStoreCompactionCommand() *cobra.Command {
@@ -234,6 +235,7 @@ func (c *RootCLI) runStoreCompact(cmd *cobra.Command, input storeCompactInput) e
 	if err != nil {
 		return err
 	}
+	usecase.BindCompactionProgress(service, newCLICompactionProgress(cmd.ErrOrStderr()))
 	result, err := service.Compact(cmd.Context(), application.CompactInput{
 		Source:   resolved,
 		Force:    input.force,
