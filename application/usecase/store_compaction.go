@@ -87,9 +87,9 @@ func (u *storeCompactionUsecase) Compact(ctx context.Context, in application.Com
 		return application.CompactResult{}, fmt.Errorf("stat compaction source: %w", beforeErr)
 	}
 	u.reportWindow("exclusive_lease")
-	ctx, stopExclusiveWait := bindCompactExclusiveWait(ctx)
-	defer stopExclusiveWait()
-	release, err := u.lease.AcquireExclusive(ctx, u.expectedStore)
+	waitCtx, stopExclusiveWait := bindCompactExclusiveWait(ctx)
+	release, err := u.lease.AcquireExclusive(waitCtx, u.expectedStore)
+	stopExclusiveWait()
 	if err != nil {
 		return application.CompactResult{}, err
 	}
