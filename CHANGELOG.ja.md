@@ -7,6 +7,12 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 
 ## [Unreleased]
 
+## [v0.44.1] - 2026-08-20
+
+### Fixed
+- **既定の `store compact` が戻る前に search-projection を complete まで載せる (#2163)** — exclusive lease は rewrite と projection `complete` のあいだ保持する。同一プロセスの exclusive 保持者は 2 度目の LOCK_SH なしで SQLite を開く。compact の stdout JSON は不変。親 #2187 は open のまま。
+- **オペレータ CLI が既に current な schema で 1 秒の SQLITE_BUSY に落ちない (#2186)** — catalog 適用済みなら migrate は DDL を飛ばす。`search` / `report` / `list` は SQLITE_BUSY を 15 秒までリトライする。hook の `sqliteBusyTimeout` は 1000 ms のまま。検索 JSON 形は不変。親 #2187 は open のまま。
+
 ## [v0.44.0] - 2026-08-19
 
 ### Fixed
