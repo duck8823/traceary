@@ -282,6 +282,10 @@ func logSearchProjectionCatchUp(storePath string, result apptypes.SearchProjecti
 		"cutover_family_bytes_after", result.CutoverFamilyBytesAfter,
 		"session_tier_verified", result.SessionTierVerified,
 	}
+	if result.Action == "complete_tail" {
+		slog.Debug("search projection complete-generation tail catch-up batch completed", attrs...)
+		return
+	}
 	if result.Completed {
 		slog.Info("search projection catch-up completed generation", attrs...)
 		return

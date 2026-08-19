@@ -32,6 +32,13 @@ type SearchProjectionCapacityRederiveStore interface {
 	RecordSearchProjectionCapacityRederivation(context.Context, string, time.Time)
 }
 
+// SearchProjectionCompleteTailStore inventories post-cutover source sequences
+// on a generation that is already complete (#2173). High-water stays frozen
+// after cutover today, so search fail-open-decodes every later event.
+type SearchProjectionCompleteTailStore interface {
+	CatchUpCompleteGenerationTail(context.Context, apptypes.SearchProjectionBudget, time.Time) (apptypes.SearchProjectionCatchUpResult, error)
+}
+
 type SearchProjectionInventoryStore interface {
 	SelectInventory(context.Context, apptypes.SearchProjectionBudget) (apptypes.SearchProjectionInventorySnapshot, error)
 	ApplyInventoryBatch(context.Context, apptypes.SearchProjectionInventoryPlan, time.Duration, time.Time) (apptypes.SearchProjectionProgress, error)
@@ -434,6 +441,23 @@ func (u *SearchProjectionUsecase) CatchUp(ctx context.Context, b apptypes.Search
 		if status.CapacityRederived == 0 && status.GenerationID != "" {
 			if rederive, ok := u.store.(SearchProjectionCapacityRederiveStore); ok {
 				rederive.RecordSearchProjectionCapacityRederivation(ctx, status.GenerationID, now.UTC())
+			}
+		}
+		if tailStore, ok := u.store.(SearchProjectionCompleteTailStore); ok {
+			tail, tailErr := tailStore.CatchUpCompleteGenerationTail(ctx, b, now.UTC())
+			if tailErr != nil {
+				return tail, tailErr
+			}
+			if tail.Selected > 0 || tail.Written > 0 {
+				tail.Action = "complete_tail"
+				tail.Completed = true
+				if tail.State == "" {
+					tail.State = status.State
+				}
+				if tail.GenerationID == "" {
+					tail.GenerationID = status.GenerationID
+				}
+				return tail, nil
 			}
 		}
 		out.Action = "already_complete"
