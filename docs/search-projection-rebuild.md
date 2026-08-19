@@ -111,7 +111,7 @@ it:
 
 | tier | grows with | why it cannot be evicted |
 |---|---|---|
-| `search_projection_session_summaries`, `_session_keywords`, `_command_aggregates` | number of sessions | it is an additional session-match surface; dropping it loses those matches |
+| `search_projection_session_summaries`, `_session_keywords`, `_command_aggregates` | number of sessions | **eviction-exempt**: additional session-match surface; dropping it loses those matches. Still counted in `index_family_within_budget`. Growth bound is one complete generation's session-tier keywords, cleaned when that generation is replaced |
 | `literal_search_fingerprints` | number of events | the pre-filter fails open only for an event with *no* rows at all; once it has rows, a query whose fingerprints are not all present excludes it before decoding — a false negative, not a slower answer |
 | `search_projection_source_sequence`, `_exclusions` | number of events | they are the rebuild's own bookkeeping |
 

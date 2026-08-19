@@ -8,6 +8,7 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 ## [Unreleased]
 
 ### Fixed
+- **Post-compact non-payload amplification: drop superseded events indexes and name the session-keyword exemption (#2129)** — migration `000071` drops `idx_events_created_at`, `idx_events_session_created_at`, `idx_events_session_created_at_id_desc`, `idx_events_workspace_created_at`, and `idx_events_source_hook_time` (readers stay on the `created_at_norm` family). `search_projection_session_keywords` remains counted in the index-family budget and is not evictable; `doctor` `search-projection-budget` WARN names that family. Leaves parent #2126 open.
 - **Filterable `search` no longer walks total event history to apply fingerprints (#2127)** — candidates come from `literal_search_fingerprints` (index `idx_literal_search_fingerprints_by_fp`) plus the post-cutover / never-inventoried tail. Decode remains the match authority; the pre-filter stays fail-open; unfilterable short queries keep the events walk. Search JSON shape is unchanged. Leaves parent #2126 open.
 - **`report` window loads no longer wrap filter columns in `ts_norm` or re-scan with OFFSET (#2128)** — sessions and usage persist `started_at_norm` / `observed_at_norm` (same lexical form as `events.created_at_norm`); pages use keyset `(norm, id)` instead of `LIMIT/OFFSET`. Usage workspace tally counts the same interval as the usage page (JSON shape unchanged; values may drop rows outside the window). Empty norms are stamped in batched store-open catch-up. Leaves parent #2126 open.
 

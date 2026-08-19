@@ -33,12 +33,12 @@ Key columns:
 - `client`: ingestion path such as `cli`, `claude`, `codex`, `gemini`, or `mcp`
 - `workspace`: auxiliary work-context identifier when available
 
-Important indexes:
+Important indexes (lexical `created_at_norm` family; raw `created_at` duplicates were dropped in migration 000071):
 
-- `idx_events_session_created_at` on `(session_id, created_at)`
-- `idx_events_session_created_at_id_desc` on `(session_id, created_at DESC, id DESC)`
-- `idx_events_created_at` on `(created_at DESC, id DESC)`
-- `idx_events_workspace_created_at` on `(workspace, created_at)`
+- `idx_events_created_at_norm_id_desc` on `(created_at_norm DESC, id DESC)`
+- `idx_events_session_created_at_norm_id_desc` on `(session_id, created_at_norm DESC, id DESC)`
+- `idx_events_workspace_created_at_norm_id_desc` on `(workspace, created_at_norm DESC, id DESC)`
+- `idx_events_source_hook_created_at_norm_id_desc` on `(source_hook, created_at_norm DESC, id DESC)`
 
 ### `command_audits`
 

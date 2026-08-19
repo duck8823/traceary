@@ -1149,18 +1149,16 @@ func sourceHookHasLegacyPrefix(sourceHook string) bool {
 }
 
 // queryRecentEvents dispatches between three SQL queries:
-//   - sourceHook == "": no filter — use the plain query that planners
-//     already serve via idx_events_created_at.
+//   - sourceHook == "": no filter — period bounds still go through
+//     ts_norm(created_at); the created_at_norm family serves other readers.
 //   - sourceHook in {subagent_stop, pre_compact}: UNION ALL form that
 //     includes a legacy-body-prefix branch so pre-#672 rows stay
 //     reachable during the migration window.
-//   - other sourceHook: primary-only query covered by the compound
-//     partial index idx_events_source_hook_time.
+//   - other sourceHook: primary-only query on e.source_hook.
 //
 // The legacy UNION ALL branch is NOT used for other hook names because
-// SQLite would still scan the right branch via idx_events_created_at
-// even when its WHERE filters returned zero rows, negating the index
-// gain from #683.
+// SQLite would still scan the right branch even when its WHERE filters
+// returned zero rows, negating the index gain from #683.
 func queryRecentEvents(
 	ctx context.Context,
 	db *sql.DB,

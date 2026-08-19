@@ -48,6 +48,9 @@ func TestSearchProjectionBudgetDoctorCheck(t *testing.T) {
 			if tt.want == doctorStatusWarn && got.Hint == "" {
 				t.Fatal("over-budget warning must name the operator lever")
 			}
+			if tt.want == doctorStatusWarn && !strings.Contains(got.Message, "search_projection_session_keywords") {
+				t.Fatalf("over-budget message=%q, want exempt family named", got.Message)
+			}
 		})
 	}
 }
