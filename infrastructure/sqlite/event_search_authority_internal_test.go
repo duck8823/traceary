@@ -331,6 +331,9 @@ func TestTieredAuthorityFingerprintFirstPlanUsesByFpIndex(t *testing.T) {
 	if strings.Contains(query, "NOT EXISTS(SELECT 1 FROM literal_search_fingerprints") {
 		t.Fatal("filterable fingerprint-first SQL still probes fingerprints per events row")
 	}
+	if strings.Contains(plan, "scan e_tail") {
+		t.Fatalf("fingerprint-first plan still walks events for never-inventoried rows:\n%s", plan)
+	}
 }
 
 func TestTieredAuthorityNoMatchDoesNotWalkProjectedHistory(t *testing.T) {
@@ -891,7 +894,7 @@ func TestTieredAuthoritySearchUsesPreviousGenerationDuringRebuild(t *testing.T) 
 	base := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
 	criteria := apptypes.NewEventSearchCriteriaBuilder(1).Query("needle").Build()
 
-	t.Run("without previous fingerprints the heavy row exhausts the budget", func(t *testing.T) {
+	t.Run("without previous fingerprints the inventoried heavy row is skipped", func(t *testing.T) {
 		database, datasource := newTieredAuthorityFixture(t)
 		insertTieredSearchEvent(t, database, "pre-match", "budget needle", base)
 		insertInflatedNonMatch(t, database, "post-heavy", base.Add(time.Minute))
@@ -900,10 +903,12 @@ func TestTieredAuthoritySearchUsesPreviousGenerationDuringRebuild(t *testing.T) 
 		seedLiteralFingerprints(t, database, oldGeneration, "pre-match", "budget needle")
 		startRebuildWithPreviousGeneration(t, database, oldGeneration, base.Add(time.Hour))
 
-		_, err := datasource.SearchMetadata(ctx, criteria)
-		var unavailable *queryservice.EventSearchUnavailableError
-		if !errors.As(err, &unavailable) || unavailable.Reason != queryservice.EventSearchUnavailableIndexIncomplete {
-			t.Fatalf("SearchMetadata() error = %v, want index_incomplete (heavy row decoded)", err)
+		got, err := datasource.SearchMetadata(ctx, criteria)
+		if err != nil {
+			t.Fatalf("SearchMetadata() error = %v, want inventoried rows without fingerprints skipped", err)
+		}
+		if diff := cmp.Diff([]string{"pre-match"}, metadataIDs(got)); diff != "" {
+			t.Fatalf("SearchMetadata() IDs mismatch (-want +got):\n%s", diff)
 		}
 	})
 
@@ -1219,6 +1224,7 @@ func TestTieredAuthoritySearchWatermarkGapIsNotStale(t *testing.T) {
 	base := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
 	insertTieredSearchEvent(t, database, "pre-only", "gap needle", base)
 	seedTieredCompleteProjection(t, database, "gen-gap")
+	seedLiteralFingerprints(t, database, "gen-gap", "pre-only", "gap needle")
 
 	raw, err := database.open(ctx)
 	if err != nil {

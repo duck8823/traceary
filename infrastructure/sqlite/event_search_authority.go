@@ -226,8 +226,9 @@ func buildTieredSearchCandidateQuery(criteria apptypes.EventSearchCriteria, gene
 	const candidateSelect = `SELECT e.id,COALESCE(e.body_encoded_bytes,length(e.body),0)+COALESCE(a.command_encoded_bytes,length(a.command_text),0)+COALESCE(a.input_encoded_bytes,length(a.input_text),0)+COALESCE(a.output_encoded_bytes,length(a.output_text),0),COALESCE(e.body_plaintext_bytes,length(e.body),0)+COALESCE(a.command_plaintext_bytes,length(a.command_text),0)+COALESCE(a.input_plaintext_bytes,length(a.input_text),0)+COALESCE(a.output_plaintext_bytes,length(a.output_text),0)`
 	args := []any{}
 	// Filterable queries with a usable generation start from fingerprints
-	// (plus the post-cutover / never-inventoried tail). Walking events and
-	// probing fingerprints per row stays O(history) for no-match. An empty
+	// plus the post-cutover tail (sequence > high_water). Inventoried rows
+	// without fingerprints are skipped: walking events or inventory to
+	// fail-open is O(history) even when those arms return empty. An empty
 	// generation or an unfilterable short query keeps the events walk.
 	if generation != "" && query.Filterable() {
 		fingerprints := query.Fingerprints()
@@ -251,25 +252,11 @@ func buildTieredSearchCandidateQuery(criteria apptypes.EventSearchCriteria, gene
   SELECT q.event_id
     FROM search_projection_source_sequence q
    WHERE q.sequence > (SELECT high_water FROM search_projection_state WHERE singleton=1)
-  UNION
-  SELECT q.event_id
-    FROM search_projection_source_sequence q
-   WHERE q.sequence <= (SELECT high_water FROM search_projection_state WHERE singleton=1)
-     AND NOT EXISTS (
-         SELECT 1 FROM literal_search_fingerprints known
-          WHERE known.generation_id=? AND known.event_id=q.event_id AND known.fingerprint_version=1
-     )
-  UNION
-  SELECT e_tail.id
-    FROM events e_tail
-   WHERE NOT EXISTS (
-         SELECT 1 FROM search_projection_source_sequence missing WHERE missing.event_id=e_tail.id
-   )
 ) candidates
 JOIN events e ON e.id=candidates.id
 LEFT JOIN command_audits a ON a.event_id=e.id
 WHERE 1=1`)
-		args = append(args, len(fingerprints), generation)
+		args = append(args, len(fingerprints))
 	} else {
 		// The candidate set is events, not search_projection_source_sequence.
 		// That table is the projection's own checkpoint ledger: it is populated
