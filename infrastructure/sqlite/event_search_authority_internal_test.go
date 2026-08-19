@@ -886,9 +886,9 @@ func startRebuildWithPreviousGeneration(t *testing.T, database *Database, oldGen
 // TestTieredAuthoritySearchUsesPreviousGenerationDuringRebuild is the #1739
 // gate: a wide query during source/eviction returns the older match instead
 // of index_incomplete when the previous generation can exclude the heavy
-// newest row. The paired subtest without those fingerprints measures the
-// decoded-row difference — the heavy row is examined first and trips
-// DeepLiteralSearchBudget.StoredBytes before the match is reached.
+// newest row. After #2167 the inventoried heavy row is skipped unless it
+// has fingerprints, so the paired subtest without those fingerprints still
+// returns the older match rather than exhausting the decode budget.
 func TestTieredAuthoritySearchUsesPreviousGenerationDuringRebuild(t *testing.T) {
 	ctx := context.Background()
 	base := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
