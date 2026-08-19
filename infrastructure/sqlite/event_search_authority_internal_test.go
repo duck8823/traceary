@@ -365,6 +365,120 @@ func TestTieredAuthorityAbsentTrigramOmitsFingerprintGroupBy(t *testing.T) {
 	if !strings.Contains(query, "q.sequence >") {
 		t.Fatalf("absent-trigram SQL dropped the fail-open tail:\n%s", query)
 	}
+	if !strings.Contains(query, "AS MATERIALIZED") {
+		t.Fatalf("absent-trigram SQL does not materialize the tail first:\n%s", query)
+	}
+}
+
+func TestLiteralPostCutoverTailExists(t *testing.T) {
+	ctx := context.Background()
+	database, _ := newTieredAuthorityFixture(t)
+	base := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+	insertTieredSearchEvent(t, database, "pre-noise", "zzzz other text", base)
+	seedTieredCompleteProjection(t, database, "gen-tail-probe")
+
+	raw, err := database.open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = raw.Close() }()
+	tx, err := raw.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	exists, probeErr := literalPostCutoverTailExists(ctx, tx)
+	if probeErr != nil {
+		t.Fatalf("literalPostCutoverTailExists() error = %v", probeErr)
+	}
+	if exists {
+		t.Fatal("expected empty tail after complete generation freeze")
+	}
+	if err = tx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+
+	insertTieredSearchEvent(t, database, "post-row", "later", base.Add(time.Second))
+	tx, err = raw.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	exists, probeErr = literalPostCutoverTailExists(ctx, tx)
+	if probeErr != nil {
+		t.Fatalf("literalPostCutoverTailExists() post error = %v", probeErr)
+	}
+	if !exists {
+		t.Fatal("expected post-cutover sequence to count as a tail")
+	}
+}
+
+func TestTieredAuthorityAbsentTrigramEmptyTailReturnsNoCandidates(t *testing.T) {
+	ctx := context.Background()
+	database, datasource := newTieredAuthorityFixture(t)
+	insertTieredSearchEvent(t, database, "pre-noise", "zzzz other text", time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC))
+	seedTieredCompleteProjection(t, database, "gen-empty-tail")
+	seedLiteralFingerprints(t, database, "gen-empty-tail", "pre-noise", "zzzz other text")
+
+	got, err := datasource.SearchMetadata(ctx, apptypes.NewEventSearchCriteriaBuilder(10).Query("xyzzy-nomatch-2127").Build())
+	if err != nil {
+		t.Fatalf("SearchMetadata() error = %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("empty-tail IDs = %v, want empty", metadataIDs(got))
+	}
+}
+
+func TestTieredAuthorityOmittedTailPlanDoesNotDriveFromWorkspaceEvents(t *testing.T) {
+	ctx := context.Background()
+	database, _ := newTieredAuthorityFixture(t)
+	insertTieredSearchEvent(t, database, "pre-noise", "zzzz other text", time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC))
+	seedTieredCompleteProjection(t, database, "generation")
+	criteria := apptypes.NewEventSearchCriteriaBuilder(10).
+		Query("xyzzy-nomatch-2127").
+		Workspace(mustWorkspace(t, "w")).
+		Build()
+	query, args := buildTieredSearchCandidateQuery(criteria, "generation", true)
+
+	raw, err := database.open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = raw.Close() }()
+	rows, err := raw.QueryContext(ctx, "EXPLAIN QUERY PLAN "+query, args...)
+	if err != nil {
+		t.Fatalf("EXPLAIN QUERY PLAN error = %v", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var details []string
+	for rows.Next() {
+		var id, parent, unused int
+		var detail string
+		if err = rows.Scan(&id, &parent, &unused, &detail); err != nil {
+			t.Fatal(err)
+		}
+		details = append(details, strings.ToLower(detail))
+	}
+	if err = rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	plan := strings.Join(details, "\n")
+	if !strings.Contains(plan, "search_projection_source_sequence") && !strings.Contains(plan, "tail") {
+		t.Fatalf("omit-tail plan does not mention the sequence tail:\n%s", plan)
+	}
+	if len(details) > 0 && strings.Contains(details[0], "idx_events_workspace_created_at_norm_id_desc") {
+		t.Fatalf("omit-tail plan still drives from the workspace events index:\n%s", plan)
+	}
+}
+
+func mustWorkspace(t *testing.T, raw string) domtypes.Workspace {
+	t.Helper()
+	workspace, err := domtypes.WorkspaceFrom(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return workspace
 }
 
 func TestLiteralFingerprintANDImpossibleDetectsAbsentTrigram(t *testing.T) {
