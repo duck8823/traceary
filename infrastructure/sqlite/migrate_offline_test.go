@@ -51,8 +51,8 @@ func TestStoreInitAppliesOfflineMigrations(t *testing.T) {
 	if err := current.InitializeAuthorized(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if got := maxSchemaVersion(t, path); got != 69 {
-		t.Fatalf("schema version=%d, want 69", got)
+	if got := maxSchemaVersion(t, path); got != 70 {
+		t.Fatalf("schema version=%d, want 70", got)
 	}
 }
 
@@ -64,8 +64,8 @@ func TestEmptyStoreReachesCurrentSchemaImplicitly(t *testing.T) {
 	if err := store.Initialize(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if got := maxSchemaVersion(t, path); got != 69 {
-		t.Fatalf("schema version=%d, want 69", got)
+	if got := maxSchemaVersion(t, path); got != 70 {
+		t.Fatalf("schema version=%d, want 70", got)
 	}
 }
 
