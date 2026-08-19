@@ -7,6 +7,12 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ## [Unreleased]
 
+## [v0.44.1] - 2026-08-20
+
+### Fixed
+- **Default `store compact` completes the search projection before returning (#2163)** — the exclusive lease is held through rewrite and projection `complete`. Same-process exclusive holders open SQLite without a second LOCK_SH. Compact stdout JSON is unchanged. Leaves parent #2187 open.
+- **Operator CLI open does not fail SQLITE_BUSY in ~1s on an already-current schema (#2186)** — migrate skips DDL when the catalog is applied; `search` / `report` / `list` retry SQLITE_BUSY for 15s. Hook `sqliteBusyTimeout` stays 1000 ms. Search JSON is unchanged. Leaves parent #2187 open.
+
 ## [v0.44.0] - 2026-08-19
 
 ### Fixed
