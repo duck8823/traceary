@@ -8,6 +8,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 ## [Unreleased]
 
 ### Fixed
+- **必須 trigram が無く cutover 後 tail も空の filterable no-match が workspace イベントを歩かない (#2178)** — 候補は `sequence > high_water` だけ。空 tail は即 empty。非空 tail は sequence PK を MATERIALIZED してから events に JOIN。decode が match 権威のまま。親 #2126 は open のまま。
 - **必須 trigram が無い filterable no-match は fingerprint の GROUP BY を省略する (#2176)** — 3-gram AND は posting が 1 つでも空なら一致しない。候補 SQL は cutover 後 tail だけ。decode が match 権威のまま。親 #2126 は open のまま。
 - **complete な search-projection が store open で cutover 後 tail を inventory する (#2173)** — いまは `sequence > high_water` を fail-open decode している。complete 世代の CatchUp が bounded な tail に fingerprint を書き `high_water` を進める（rebuild しない）。decode が match 権威のまま。親 #2126 は open のまま。
 - **フィルタ可能な session 検索が全 summary を LIKE 走査しない (#2170)** — 候補は `search_projection_session_keywords`（`idx_search_projection_session_keywords_by_kw`）。フィルタ/ソートは `sessions.started_at_norm`。短い unfilterable クエリは summary LIKE のまま。検索 JSON 形は不変。親 #2126 は open のまま。

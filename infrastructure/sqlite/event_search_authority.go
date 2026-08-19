@@ -182,6 +182,18 @@ func (d *EventDatasource) searchTieredTopKMetadataTx(ctx context.Context, tx *sq
 			return nil, probeErr
 		}
 		omitFingerprintArm = impossible
+		if omitFingerprintArm {
+			tailExists, tailErr := literalPostCutoverTailExists(ctx, tx)
+			if tailErr != nil {
+				return nil, tailErr
+			}
+			if !tailExists {
+				// Inventoried rows cannot match, and there is no fail-open
+				// tail. Do not run the events-workspace nested loop SQLite
+				// chooses for `sequence > high_water` joined to events (#2178).
+				return nil, nil
+			}
+		}
 	}
 	candidateSQL, args := buildTieredSearchCandidateQuery(criteria, generation, omitFingerprintArm)
 	rows, err := tx.QueryContext(ctx, candidateSQL, args...)
@@ -251,6 +263,26 @@ SELECT 1
 	return false, nil
 }
 
+// literalPostCutoverTailExists reports whether any inventoried sequence is
+// newer than the frozen high_water. The seek is the INTEGER PRIMARY KEY range
+// `sequence > high_water`; an empty tail must not be discovered by walking
+// events.
+func literalPostCutoverTailExists(ctx context.Context, tx *sql.Tx) (bool, error) {
+	var present int
+	err := tx.QueryRowContext(ctx, `
+SELECT 1
+  FROM search_projection_source_sequence
+ WHERE sequence > (SELECT high_water FROM search_projection_state WHERE singleton=1)
+ LIMIT 1`).Scan(&present)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, xerrors.Errorf("probe post-cutover search tail: %w", err)
+	}
+	return true, nil
+}
+
 // buildTieredSearchCandidateQuery composes the ordered candidate selection the
 // tiered search walk issues. The capacity benchmark measures the same SQL, so
 // it lives here rather than being transcribed there: a copy would drift the
@@ -271,10 +303,18 @@ func buildTieredSearchCandidateQuery(criteria apptypes.EventSearchCriteria, gene
 	if generation != "" && query.Filterable() {
 		builder.WriteString(candidateSelect)
 		if omitFingerprintArm {
+			// MATERIALIZED forces the PK range `sequence > high_water` to
+			// run first. Without it SQLite drives from the workspace
+			// created_at_norm index and probes the sequence unique index
+			// once per workspace event, which is O(history) when the tail
+			// is empty (#2178).
 			builder.WriteString(` FROM (
-  SELECT q.event_id AS id
-    FROM search_projection_source_sequence q
-   WHERE q.sequence > (SELECT high_water FROM search_projection_state WHERE singleton=1)
+  WITH tail AS MATERIALIZED (
+    SELECT q.event_id AS id
+      FROM search_projection_source_sequence q
+     WHERE q.sequence > (SELECT high_water FROM search_projection_state WHERE singleton=1)
+  )
+  SELECT id FROM tail
 ) candidates
 JOIN events e ON e.id=candidates.id
 LEFT JOIN command_audits a ON a.event_id=e.id

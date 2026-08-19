@@ -8,6 +8,7 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 ## [Unreleased]
 
 ### Fixed
+- **Filterable no-match with an empty post-cutover tail no longer walks workspace events (#2178)** — when a required trigram is absent, candidates are only `sequence > high_water`. An empty tail returns immediately; a non-empty tail is materialized from the sequence PK before joining events. Decode remains the match authority. Leaves parent #2126 open.
 - **Filterable no-match skips fingerprint GROUP BY when a required trigram is absent (#2176)** — AND of 3-gram fingerprints cannot match if any posting is empty; the candidate SQL keeps only the post-cutover tail. Decode remains the match authority. Leaves parent #2126 open.
 - **Complete search-projection inventories the post-cutover tail on store open (#2173)** — `sequence > high_water` is fail-open-decoded today; CatchUp on a complete generation fingerprints a bounded tail and advances `high_water` without a rebuild. Decode remains the match authority. Leaves parent #2126 open.
 - **Filterable session search no longer LIKE-scans every summary (#2170)** — candidates come from `search_projection_session_keywords` via `idx_search_projection_session_keywords_by_kw`. Filter/order use `sessions.started_at_norm`. Unfilterable short queries keep the summary LIKE walk. Search JSON shape is unchanged. Leaves parent #2126 open.
