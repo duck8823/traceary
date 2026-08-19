@@ -77,37 +77,8 @@ func queryProjectionSessionHits(
 	queryValue string,
 	excludeSessionIDs []types.SessionID,
 ) ([]apptypes.SearchSessionHit, error) {
-	var builder strings.Builder
-	builder.WriteString(`
-		SELECT sum.session_id, sum.summary_text, sum.event_count, s.started_at
-		  FROM search_projection_session_summaries sum
-		  JOIN sessions s ON s.session_id = sum.session_id
-		 WHERE sum.generation_id = (
-		         SELECT active_generation_id
-		           FROM search_projection_state
-		          WHERE singleton = 1
-		       )
-		   AND (
-		         EXISTS (
-		           SELECT 1
-		             FROM search_projection_session_keywords k
-		            WHERE k.generation_id = sum.generation_id
-		              AND k.session_id = sum.session_id
-		              AND k.keyword = ?
-		         )
-		         OR sum.summary_text LIKE ? ESCAPE '\'
-		       )`)
-	// Exact keyword + LIKE is the shipped session-tier match (#1756).
-	// A porter FTS was measured and not added: LIKE already matches
-	// stemming-as-substring, and the index would charge the family budget.
-	keyword := foldSearchASCII(queryValue)
-	likeQuery := "%" + escapeLikeQuery(queryValue) + "%"
-	args := []any{keyword, likeQuery}
-	args = appendSessionSearchFilters(&builder, args, criteria, excludeSessionIDs)
-	builder.WriteString(" ORDER BY ts_norm(s.started_at) DESC, s.session_id DESC LIMIT ?")
-	args = append(args, criteria.Limit())
-
-	rows, err := queryer.QueryContext(ctx, builder.String(), args...)
+	sqlText, args := buildProjectionSessionHitQuery(criteria, queryValue, excludeSessionIDs)
+	rows, err := queryer.QueryContext(ctx, sqlText, args...)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to query projection session hits: %w", err)
 	}
@@ -140,6 +111,59 @@ func queryProjectionSessionHits(
 	return hits, nil
 }
 
+// buildProjectionSessionHitQuery is the SQL SearchSessionPage issues so EXPLAIN
+// tests measure the shipped statement. Filterable queries seek
+// idx_search_projection_session_keywords_by_kw; unfilterable short queries
+// keep the #1756 summary LIKE walk.
+func buildProjectionSessionHitQuery(
+	criteria apptypes.EventSearchCriteria,
+	queryValue string,
+	excludeSessionIDs []types.SessionID,
+) (string, []any) {
+	var builder strings.Builder
+	var args []any
+	if apptypes.CharacterizeLiteralQuery(queryValue).Filterable() {
+		builder.WriteString(`
+		SELECT sum.session_id, sum.summary_text, sum.event_count, s.started_at
+		  FROM search_projection_session_keywords k INDEXED BY idx_search_projection_session_keywords_by_kw
+		  JOIN search_projection_session_summaries sum
+		    ON sum.generation_id = k.generation_id AND sum.session_id = k.session_id
+		  JOIN sessions s ON s.session_id = sum.session_id
+		 WHERE k.generation_id = (
+		         SELECT active_generation_id
+		           FROM search_projection_state
+		          WHERE singleton = 1
+		       )
+		   AND k.keyword = ?`)
+		args = append(args, foldSearchASCII(queryValue))
+	} else {
+		builder.WriteString(`
+		SELECT sum.session_id, sum.summary_text, sum.event_count, s.started_at
+		  FROM search_projection_session_summaries sum
+		  JOIN sessions s ON s.session_id = sum.session_id
+		 WHERE sum.generation_id = (
+		         SELECT active_generation_id
+		           FROM search_projection_state
+		          WHERE singleton = 1
+		       )
+		   AND (
+		         EXISTS (
+		           SELECT 1
+		             FROM search_projection_session_keywords k
+		            WHERE k.generation_id = sum.generation_id
+		              AND k.session_id = sum.session_id
+		              AND k.keyword = ?
+		         )
+		         OR sum.summary_text LIKE ? ESCAPE '\'
+		       )`)
+		args = append(args, foldSearchASCII(queryValue), "%"+escapeLikeQuery(queryValue)+"%")
+	}
+	args = appendSessionSearchFilters(&builder, args, criteria, excludeSessionIDs)
+	builder.WriteString(" ORDER BY s.started_at_norm DESC, s.session_id DESC LIMIT ?")
+	args = append(args, criteria.Limit())
+	return builder.String(), args
+}
+
 func appendSessionSearchFilters(
 	builder *strings.Builder,
 	args []any,
@@ -162,17 +186,15 @@ func appendSessionSearchFilters(
 		builder.WriteString(" AND s.agent = ?")
 		args = append(args, value)
 	}
-	// sessions has no persisted _norm column, so every started_at comparison goes
-	// through ts_norm on both sides. RFC3339Nano is variable width and '.' 0x2E
-	// sorts below 'Z' 0x5A, so raw string comparison drops sub-second timestamps
-	// out of range (#1185).
+	// started_at_norm is the #2128 persisted form. Compare the stored column
+	// to a normalized bound so the sessions index can be used.
 	if !criteria.From().IsZero() {
-		builder.WriteString(" AND ts_norm(s.started_at) >= ts_norm(?)")
-		args = append(args, formatTimestamp(criteria.From()))
+		builder.WriteString(" AND s.started_at_norm >= ?")
+		args = append(args, normalizeRFC3339NanoForCompare(formatTimestamp(criteria.From())))
 	}
 	if !criteria.To().IsZero() {
-		builder.WriteString(" AND ts_norm(s.started_at) < ts_norm(?)")
-		args = append(args, formatTimestamp(criteria.To()))
+		builder.WriteString(" AND s.started_at_norm < ?")
+		args = append(args, normalizeRFC3339NanoForCompare(formatTimestamp(criteria.To())))
 	}
 	if criteria.FailuresOnly() {
 		// Session tier can honour failures through command aggregates only.

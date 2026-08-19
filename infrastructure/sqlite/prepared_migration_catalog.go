@@ -120,6 +120,9 @@ var preparedMigrationManifest = map[int64]migrationManifestEntry{
 	71: {71, "000071_drop_superseded_events_created_at_indexes.sql", "518555e257aa6f100713c370fafc45765449a8f875f1708438b139e0e7edb3f5", MigrationConstantInPlace},
 	// 72 is a singleton bookkeeping table. No event scan.
 	72: {72, "000072_add_workspace_observation_catchup_state.sql", "943a7f54f976a6a4871fc8b80def19e6d3f2e11d4b755570728d7b5435a211a1", MigrationConstantInPlace},
+	// 73 adds a keyword-first secondary index. CREATE INDEX does not rewrite
+	// keyword rows; previous binaries ignore the extra index.
+	73: {73, "000073_add_session_keyword_by_kw_index.sql", "a171e67c6ffac43eb57c8cb0c2537cf42d7eb64b5654dc80a9665de992059a42", MigrationConstantInPlace},
 }
 
 // PreparedMigration identifies one exact pending embedded migration.

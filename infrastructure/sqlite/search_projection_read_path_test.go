@@ -118,6 +118,7 @@ func TestSearchProjectionReadPath_SessionTierSummaryOnly(t *testing.T) {
 			workspace:  workspace.String(),
 			client:     "cli",
 			agent:      "codex",
+			keywords:   []string{"unique-session-marker"},
 		},
 	}, nil)
 
@@ -175,6 +176,7 @@ func TestSearchProjectionReadPath_SessionExcludedWhenEventHitExists(t *testing.T
 			workspace:  workspace.String(),
 			client:     "cli",
 			agent:      "codex",
+			keywords:   []string{"shared-marker"},
 		},
 		{
 			sessionID:  "sess-only-summary",
@@ -184,6 +186,7 @@ func TestSearchProjectionReadPath_SessionExcludedWhenEventHitExists(t *testing.T
 			workspace:  workspace.String(),
 			client:     "cli",
 			agent:      "codex",
+			keywords:   []string{"shared-marker"},
 		},
 	}, nil)
 
@@ -246,6 +249,7 @@ func TestSearchProjectionReadPath_FiltersApplyToBothTiers(t *testing.T) {
 			workspace:  wsA.String(),
 			client:     "cli",
 			agent:      "codex",
+			keywords:   []string{"filter-needle"},
 		},
 		{
 			sessionID:  "sess-old-b",
@@ -255,6 +259,7 @@ func TestSearchProjectionReadPath_FiltersApplyToBothTiers(t *testing.T) {
 			workspace:  wsB.String(),
 			client:     "cli",
 			agent:      "codex",
+			keywords:   []string{"filter-needle"},
 		},
 	}, nil)
 
@@ -450,9 +455,9 @@ func TestSearchProjectionReadPath_EventsAppendedAfterRebuildStayFindable(t *test
 	}
 }
 
-// sessions carries no persisted _norm column, so started_at comparisons must go
-// through ts_norm on both sides. Raw RFC3339Nano comparison drops a sub-second
-// timestamp out of range because '.' 0x2E sorts below 'Z' 0x5A (#1185).
+// started_at_norm is the persisted compare form (#2128 / #2170). Raw
+// RFC3339Nano comparison drops a sub-second timestamp out of range because
+// '.' 0x2E sorts below 'Z' 0x5A (#1185).
 func TestSearchProjectionReadPath_SessionFromFilterHandlesSubSecondStartedAt(t *testing.T) {
 	t.Parallel()
 
@@ -475,6 +480,7 @@ func TestSearchProjectionReadPath_SessionFromFilterHandlesSubSecondStartedAt(t *
 			workspace: workspace.String(),
 			client:    "cli",
 			agent:     "codex",
+			keywords:  []string{"subsecond-marker"},
 		},
 	}, nil)
 
@@ -671,6 +677,7 @@ func TestSearchSessionPageReportsStateFromTheSameSnapshot(t *testing.T) {
 			workspace:  workspace.String(),
 			client:     "cli",
 			agent:      "codex",
+			keywords:   []string{"unique-session-marker"},
 		},
 	}, nil)
 

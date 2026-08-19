@@ -32,8 +32,9 @@ SELECT COALESCE(SUM(pgsize), 0)
        )`
 
 // TestSessionTierKeepsLikePathAndMeasuresPorterFTS is the #1756 scratch
-// measurement. SearchSessionPage stays on exact-keyword + LIKE. The porter
-// FTS is created only for the comparison, then dropped.
+// measurement. After #2170, filterable SearchSessionPage is exact-keyword
+// only; unfilterable short queries keep LIKE. The porter FTS is created
+// only for the comparison, then dropped.
 func TestSessionTierKeepsLikePathAndMeasuresPorterFTS(t *testing.T) {
 	t.Parallel()
 
@@ -47,15 +48,15 @@ func TestSessionTierKeepsLikePathAndMeasuresPorterFTS(t *testing.T) {
 
 	base := time.Date(2026, 6, 19, 10, 0, 0, 0, time.UTC)
 	labeled := []projectionSessionSeed{
-		{sessionID: "sess-unique", summary: "discussed unique-session-marker during planning", eventCount: 12, startedAt: base, workspace: workspace.String(), client: "cli", agent: "codex"},
-		{sessionID: "sess-filter", summary: "filter-needle older summary", eventCount: 4, startedAt: base.Add(time.Minute), workspace: workspace.String(), client: "cli", agent: "codex"},
-		{sessionID: "sess-subsecond", summary: "planning notes with subsecond-marker", eventCount: 3, startedAt: base.Add(2 * time.Second), workspace: workspace.String(), client: "cli", agent: "codex"},
-		{sessionID: "sess-deployed", summary: "the service was deployed to staging", eventCount: 8, startedAt: base.Add(3 * time.Minute), workspace: workspace.String(), client: "cli", agent: "codex"},
-		{sessionID: "sess-deploy", summary: "deploy the service tonight", eventCount: 5, startedAt: base.Add(4 * time.Minute), workspace: workspace.String(), client: "cli", agent: "codex"},
-		{sessionID: "sess-case", summary: "Discussed DEPLOY pipeline", eventCount: 2, startedAt: base.Add(5 * time.Minute), workspace: workspace.String(), client: "cli", agent: "codex"},
-		{sessionID: "sess-undeploy", summary: "we will undeploy later", eventCount: 1, startedAt: base.Add(6 * time.Minute), workspace: workspace.String(), client: "cli", agent: "codex"},
-		{sessionID: "sess-cafe-ascii", summary: "cafe rollout notes", eventCount: 2, startedAt: base.Add(7 * time.Minute), workspace: workspace.String(), client: "cli", agent: "codex"},
-		{sessionID: "sess-cafe-accent", summary: "café rollout notes", eventCount: 2, startedAt: base.Add(8 * time.Minute), workspace: workspace.String(), client: "cli", agent: "codex"},
+		{sessionID: "sess-unique", summary: "discussed unique-session-marker during planning", eventCount: 12, startedAt: base, workspace: workspace.String(), client: "cli", agent: "codex", keywords: []string{"unique-session-marker"}},
+		{sessionID: "sess-filter", summary: "filter-needle older summary", eventCount: 4, startedAt: base.Add(time.Minute), workspace: workspace.String(), client: "cli", agent: "codex", keywords: []string{"filter-needle"}},
+		{sessionID: "sess-subsecond", summary: "planning notes with subsecond-marker", eventCount: 3, startedAt: base.Add(2 * time.Second), workspace: workspace.String(), client: "cli", agent: "codex", keywords: []string{"subsecond-marker"}},
+		{sessionID: "sess-deployed", summary: "the service was deployed to staging", eventCount: 8, startedAt: base.Add(3 * time.Minute), workspace: workspace.String(), client: "cli", agent: "codex", keywords: []string{"deployed"}},
+		{sessionID: "sess-deploy", summary: "deploy the service tonight", eventCount: 5, startedAt: base.Add(4 * time.Minute), workspace: workspace.String(), client: "cli", agent: "codex", keywords: []string{"deploy"}},
+		{sessionID: "sess-case", summary: "Discussed DEPLOY pipeline", eventCount: 2, startedAt: base.Add(5 * time.Minute), workspace: workspace.String(), client: "cli", agent: "codex", keywords: []string{"deploy"}},
+		{sessionID: "sess-undeploy", summary: "we will undeploy later", eventCount: 1, startedAt: base.Add(6 * time.Minute), workspace: workspace.String(), client: "cli", agent: "codex", keywords: []string{"undeploy"}},
+		{sessionID: "sess-cafe-ascii", summary: "cafe rollout notes", eventCount: 2, startedAt: base.Add(7 * time.Minute), workspace: workspace.String(), client: "cli", agent: "codex", keywords: []string{"cafe"}},
+		{sessionID: "sess-cafe-accent", summary: "café rollout notes", eventCount: 2, startedAt: base.Add(8 * time.Minute), workspace: workspace.String(), client: "cli", agent: "codex", keywords: []string{"café"}},
 	}
 	seedCompleteProjection(t, dbPath, "gen-1756", nil, labeled, nil)
 
@@ -132,11 +133,11 @@ func TestSessionTierKeepsLikePathAndMeasuresPorterFTS(t *testing.T) {
 	}
 
 	deployLike := likeByQuery["deploy-stem"]
-	if !containsAll(deployLike.hits, []string{"sess-deployed", "sess-deploy", "sess-case"}) {
-		t.Fatalf("LIKE deploy hits = %v, want stemming-as-substring of deployed/deploy/DEPLOY", deployLike.hits)
+	if !containsAll(deployLike.hits, []string{"sess-deploy", "sess-case"}) {
+		t.Fatalf("keyword deploy hits = %v, want exact-keyword sess-deploy/sess-case (#2170)", deployLike.hits)
 	}
-	if deployLike.recall != 1 {
-		t.Fatalf("LIKE deploy recall = %v, want 1 (stemming is not a LIKE miss)", deployLike.recall)
+	if containsAll(deployLike.hits, []string{"sess-deployed"}) {
+		t.Fatalf("keyword deploy hits = %v, sess-deployed is substring-only and must not match", deployLike.hits)
 	}
 
 	var familyBefore, compareFTS, familyAfterDrop int64
