@@ -118,6 +118,8 @@ var preparedMigrationManifest = map[int64]migrationManifestEntry{
 	// 71 drops five unused raw-created_at events indexes. DROP INDEX moves
 	// pages to the freelist (000059); no row rewrite.
 	71: {71, "000071_drop_superseded_events_created_at_indexes.sql", "518555e257aa6f100713c370fafc45765449a8f875f1708438b139e0e7edb3f5", MigrationConstantInPlace},
+	// 72 is a singleton bookkeeping table. No event scan.
+	72: {72, "000072_add_workspace_observation_catchup_state.sql", "943a7f54f976a6a4871fc8b80def19e6d3f2e11d4b755570728d7b5435a211a1", MigrationConstantInPlace},
 }
 
 // PreparedMigration identifies one exact pending embedded migration.

@@ -29,9 +29,12 @@ func TestWorkspaceObservationCatchUpBatchQuery_UsesPrimaryEventPartialIndex(t *t
 			session_id TEXT NOT NULL,
 			workspace TEXT NOT NULL,
 			created_at TEXT NOT NULL,
+			created_at_norm TEXT NOT NULL,
 			agent TEXT NOT NULL,
 			source_hook TEXT
 		);
+		CREATE INDEX idx_events_created_at_norm_id_desc
+			ON events(created_at_norm DESC, id DESC);
 		CREATE TABLE session_workspace_observations (
 			observation_id TEXT PRIMARY KEY,
 			observation_kind TEXT NOT NULL,
@@ -73,10 +76,156 @@ func TestWorkspaceObservationCatchUpBatchQuery_UsesPrimaryEventPartialIndex(t *t
 	if !strings.Contains(joined, "idx_session_workspace_observations_primary_event") {
 		t.Errorf("query plan does not use primary-event partial index:\n%s", joined)
 	}
+	if strings.Contains(joined, "ts_norm") {
+		t.Errorf("query plan still wraps created_at in ts_norm:\n%s", joined)
+	}
 	for _, detail := range plan {
 		if strings.Contains(detail, "SCAN o") {
 			t.Errorf("query plan scans session_workspace_observations in correlated lookup:\n%s", joined)
 		}
+	}
+}
+
+func TestCatchUpWorkspaceObservations_SkipsWhenExhausted(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	db.SetMaxOpenConns(1)
+
+	if _, err := db.Exec(`
+		CREATE TABLE sessions (
+			session_id TEXT PRIMARY KEY,
+			workspace TEXT NOT NULL
+		);
+		CREATE TABLE events (
+			id TEXT PRIMARY KEY,
+			session_id TEXT NOT NULL,
+			workspace TEXT NOT NULL,
+			created_at TEXT NOT NULL,
+			created_at_norm TEXT NOT NULL,
+			agent TEXT NOT NULL,
+			source_hook TEXT
+		);
+		CREATE INDEX idx_events_created_at_norm_id_desc
+			ON events(created_at_norm DESC, id DESC);
+		CREATE TABLE session_workspace_observations (
+			observation_id TEXT PRIMARY KEY,
+			session_id TEXT NOT NULL,
+			workspace TEXT NOT NULL,
+			raw_workspace TEXT,
+			observation_kind TEXT NOT NULL,
+			observation_origin TEXT NOT NULL,
+			observed_relationship TEXT NOT NULL,
+			observed_event_id TEXT,
+			delivery_record_id TEXT,
+			attribution_fingerprint TEXT NOT NULL,
+			diagnostic_reason TEXT NOT NULL,
+			observed_at TEXT NOT NULL,
+			source_client TEXT NOT NULL,
+			source_hook TEXT
+		);
+		CREATE UNIQUE INDEX idx_session_workspace_observations_primary_event
+			ON session_workspace_observations(observed_event_id)
+			WHERE observation_kind = 'primary'
+			  AND observed_event_id IS NOT NULL
+			  AND observed_event_id <> '';
+		CREATE TABLE workspace_observation_catchup_state (
+			singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+			exhausted INTEGER NOT NULL
+		);
+		INSERT INTO workspace_observation_catchup_state(singleton, exhausted) VALUES (1, 1);
+		INSERT INTO sessions (session_id, workspace) VALUES ('session-1', '/repo');
+		INSERT INTO events (id, session_id, workspace, created_at, created_at_norm, agent, source_hook)
+		VALUES ('event-new', 'session-1', '/repo', '2026-07-24T00:00:02Z', '2026-07-24T00:00:02.000000000Z', 'codex', 'user_prompt_submit');
+	`); err != nil {
+		t.Fatalf("create skip schema: %v", err)
+	}
+
+	result, err := catchUpWorkspaceObservations(context.Background(), db, 10)
+	if err != nil {
+		t.Fatalf("catchUpWorkspaceObservations() error = %v", err)
+	}
+	if !result.Skipped || result.Selected != 0 || result.Inserted != 0 {
+		t.Fatalf("catch-up result = %+v, want skipped with no selected rows", result)
+	}
+
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM session_workspace_observations`).Scan(&count); err != nil {
+		t.Fatalf("count observations: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("observation count = %d, want 0 (exhausted skip does not backfill)", count)
+	}
+}
+
+func TestCatchUpWorkspaceObservations_FillsWhenNewestEventIsMissing(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	db.SetMaxOpenConns(1)
+
+	if _, err := db.Exec(`
+		CREATE TABLE sessions (
+			session_id TEXT PRIMARY KEY,
+			workspace TEXT NOT NULL
+		);
+		CREATE TABLE events (
+			id TEXT PRIMARY KEY,
+			session_id TEXT NOT NULL,
+			workspace TEXT NOT NULL,
+			created_at TEXT NOT NULL,
+			created_at_norm TEXT NOT NULL,
+			agent TEXT NOT NULL,
+			source_hook TEXT
+		);
+		CREATE INDEX idx_events_created_at_norm_id_desc
+			ON events(created_at_norm DESC, id DESC);
+		CREATE TABLE session_workspace_observations (
+			observation_id TEXT PRIMARY KEY,
+			session_id TEXT NOT NULL,
+			workspace TEXT NOT NULL,
+			raw_workspace TEXT,
+			observation_kind TEXT NOT NULL,
+			observation_origin TEXT NOT NULL,
+			observed_relationship TEXT NOT NULL,
+			observed_event_id TEXT,
+			delivery_record_id TEXT,
+			attribution_fingerprint TEXT NOT NULL,
+			diagnostic_reason TEXT NOT NULL,
+			observed_at TEXT NOT NULL,
+			source_client TEXT NOT NULL,
+			source_hook TEXT
+		);
+		CREATE UNIQUE INDEX idx_session_workspace_observations_primary_event
+			ON session_workspace_observations(observed_event_id)
+			WHERE observation_kind = 'primary'
+			  AND observed_event_id IS NOT NULL
+			  AND observed_event_id <> '';
+		INSERT INTO sessions (session_id, workspace) VALUES ('session-1', '/repo');
+		INSERT INTO events (id, session_id, workspace, created_at, created_at_norm, agent, source_hook)
+		VALUES ('event-new', 'session-1', '/repo', '2026-07-24T00:00:02Z', '2026-07-24T00:00:02.000000000Z', 'codex', 'user_prompt_submit');
+	`); err != nil {
+		t.Fatalf("create fill schema: %v", err)
+	}
+
+	result, err := catchUpWorkspaceObservations(context.Background(), db, 10)
+	if err != nil {
+		t.Fatalf("catchUpWorkspaceObservations() error = %v", err)
+	}
+	if result.Skipped || result.Selected != 1 || result.Inserted != 1 {
+		t.Fatalf("catch-up result = %+v, want selected=1 inserted=1", result)
+	}
+
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM session_workspace_observations WHERE observed_event_id = 'event-new'`).Scan(&count); err != nil {
+		t.Fatalf("count observations: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("observation count = %d, want 1", count)
 	}
 }
 
@@ -99,9 +248,12 @@ func TestCatchUpWorkspaceObservations_RetriesConcurrentWriterContention(t *testi
 			session_id TEXT NOT NULL,
 			workspace TEXT NOT NULL,
 			created_at TEXT NOT NULL,
+			created_at_norm TEXT NOT NULL,
 			agent TEXT NOT NULL,
 			source_hook TEXT
 		);
+		CREATE INDEX idx_events_created_at_norm_id_desc
+			ON events(created_at_norm DESC, id DESC);
 		CREATE TABLE session_workspace_observations (
 			observation_id TEXT PRIMARY KEY,
 			session_id TEXT NOT NULL,
@@ -125,8 +277,8 @@ func TestCatchUpWorkspaceObservations_RetriesConcurrentWriterContention(t *testi
 			  AND observed_event_id <> '';
 		CREATE TABLE writer_lock (id INTEGER PRIMARY KEY);
 		INSERT INTO sessions (session_id, workspace) VALUES ('session-1', '/repo');
-		INSERT INTO events (id, session_id, workspace, created_at, agent, source_hook)
-		VALUES ('event-1', 'session-1', '/repo', '2026-07-24T00:00:00Z', 'codex', 'user_prompt_submit');
+		INSERT INTO events (id, session_id, workspace, created_at, created_at_norm, agent, source_hook)
+		VALUES ('event-1', 'session-1', '/repo', '2026-07-24T00:00:00Z', '2026-07-24T00:00:00.000000000Z', 'codex', 'user_prompt_submit');
 	`); err != nil {
 		t.Fatalf("create catch-up schema: %v", err)
 	}
@@ -189,9 +341,12 @@ func TestCatchUpWorkspaceObservations_DoesNotReportRolledBackInserts(t *testing.
 			session_id TEXT NOT NULL,
 			workspace TEXT NOT NULL,
 			created_at TEXT NOT NULL,
+			created_at_norm TEXT NOT NULL,
 			agent TEXT NOT NULL,
 			source_hook TEXT
 		);
+		CREATE INDEX idx_events_created_at_norm_id_desc
+			ON events(created_at_norm DESC, id DESC);
 		CREATE TABLE session_workspace_observations (
 			observation_id TEXT PRIMARY KEY,
 			session_id TEXT NOT NULL,
@@ -220,10 +375,10 @@ func TestCatchUpWorkspaceObservations_DoesNotReportRolledBackInserts(t *testing.
 				SELECT RAISE(ABORT, 'forced catch-up failure');
 			END;
 		INSERT INTO sessions (session_id, workspace) VALUES ('session-1', '/repo');
-		INSERT INTO events (id, session_id, workspace, created_at, agent, source_hook)
+		INSERT INTO events (id, session_id, workspace, created_at, created_at_norm, agent, source_hook)
 		VALUES
-			('event-1', 'session-1', '/repo', '2026-07-24T00:00:00Z', 'codex', 'user_prompt_submit'),
-			('event-2', 'session-1', '/repo', '2026-07-24T00:00:01Z', 'codex', 'user_prompt_submit');
+			('event-1', 'session-1', '/repo', '2026-07-24T00:00:00Z', '2026-07-24T00:00:00.000000000Z', 'codex', 'user_prompt_submit'),
+			('event-2', 'session-1', '/repo', '2026-07-24T00:00:01Z', '2026-07-24T00:00:01.000000000Z', 'codex', 'user_prompt_submit');
 	`); err != nil {
 		t.Fatalf("create catch-up schema: %v", err)
 	}
