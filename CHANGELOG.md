@@ -8,6 +8,7 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 ## [Unreleased]
 
 ### Fixed
+- **Filterable session search no longer LIKE-scans every summary (#2170)** — candidates come from `search_projection_session_keywords` via `idx_search_projection_session_keywords_by_kw`. Filter/order use `sessions.started_at_norm`. Unfilterable short queries keep the summary LIKE walk. Search JSON shape is unchanged. Leaves parent #2126 open.
 - **Store Initialize no longer scans event history for workspace-observation catch-up (#2169)** — after a 0-row batch, `workspace_observation_catchup_state.exhausted` skips later opens. Remaining batches order by `created_at_norm DESC` (not `ts_norm(created_at)`). Leaves parent #2126 open.
 - **Filterable no-match search no longer walks inventoried event history (#2167)** — fail-open is only the post-cutover `sequence > high_water` tail. Inventoried rows without fingerprints are skipped. Decode remains the match authority. Leaves parent #2126 open.
 - **Post-compact non-payload amplification: drop superseded events indexes and name the session-keyword exemption (#2129)** — migration `000071` drops `idx_events_created_at`, `idx_events_session_created_at`, `idx_events_session_created_at_id_desc`, `idx_events_workspace_created_at`, and `idx_events_source_hook_time` (readers stay on the `created_at_norm` family). `search_projection_session_keywords` remains counted in the index-family budget and is not evictable; `doctor` `search-projection-budget` WARN names that family. Leaves parent #2126 open.
