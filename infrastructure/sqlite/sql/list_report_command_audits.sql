@@ -7,7 +7,8 @@ SELECT e.id, e.client, e.agent, e.session_id, e.workspace,
    AND (? = '' OR e.agent = ?)
    AND (? = '' OR e.session_id = ?)
    AND (? = '' OR e.workspace = ?)
-   AND (? = '' OR ts_norm(e.created_at) >= ts_norm(?))
-   AND (? = '' OR ts_norm(e.created_at) < ts_norm(?))
- ORDER BY ts_norm(e.created_at) DESC, e.id DESC
- LIMIT ? OFFSET ?
+   AND (? = '' OR e.created_at_norm >= ts_norm(?))
+   AND (? = '' OR e.created_at_norm < ts_norm(?))
+   AND (? = '' OR (e.created_at_norm, e.id) < (?, ?))
+ ORDER BY e.created_at_norm DESC, e.id DESC
+ LIMIT ?

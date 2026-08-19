@@ -108,6 +108,10 @@ var preparedMigrationManifest = map[int64]migrationManifestEntry{
 	// 68 adds cleanup_no_progress_attempts to the singleton
 	// search_projection_state row. No store-sized scan.
 	68: {68, "000068_add_search_projection_cleanup_no_progress_attempts.sql", "21d36ae2a63af21c8bfd4688c362aeb555ddcbdb0555e5703ccdf01aa877a526", MigrationConstantInPlace},
+	// 69 adds two empty TEXT columns, two indexes, and four stamp triggers.
+	// Row backfill of started_at_norm / observed_at_norm is a bounded open
+	// catch-up, not this migration.
+	69: {69, "000069_add_report_window_norm_columns.sql", "85ab3ae7f4efc6a777eef43406e7882cc523c9a53bd8d758fe3eb8daa01a8455", MigrationConstantInPlace},
 }
 
 // PreparedMigration identifies one exact pending embedded migration.

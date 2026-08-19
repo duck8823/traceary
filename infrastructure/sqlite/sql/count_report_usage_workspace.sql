@@ -8,3 +8,5 @@ SELECT
  WHERE observation.status = 'finalized'
    AND (? = '' OR session.workspace = ?)
    AND (? = '' OR session.client = ?)
+   AND (? = '' OR observation.observed_at_norm >= ts_norm(?))
+   AND (? = '' OR observation.observed_at_norm < ts_norm(?))

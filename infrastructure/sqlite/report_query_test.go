@@ -240,3 +240,168 @@ func TestReportDatasource_UsageSelectsCurrentSnapshotAndExposesCapAndFilters(t *
 		t.Fatalf("filtered usage extent = %+v", filtered.Extents.Usage)
 	}
 }
+
+func TestReportDatasource_UsageWorkspaceTallyUsesTheSameInterval(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	db := sqlite.NewDatabase(dbPath, onDiskSQLiteMigrations(t))
+	store := sqlite.NewStoreManagementDatasource(db)
+	if err := store.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	events := sqlite.NewEventDatasource(db)
+	sessions := sqlite.NewSessionDatasource(db)
+	sessionUsecase := usecase.NewSessionUsecase(events, sessions, sessions, events)
+	if _, err := sessionUsecase.Start(ctx, "codex", "codex", types.SessionID("session-1"), "workspace", ""); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	usage := sqlite.NewUsageObservationDatasource(db)
+	from := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
+	to := from.Add(20 * time.Hour)
+	inside := sqliteExcludedUsageAt(t, "tally-inside", from.Add(time.Hour))
+	outside := sqliteExcludedUsageAt(t, "tally-outside", to.Add(time.Hour))
+	for _, observation := range []*model.UsageObservation{inside, outside} {
+		if _, err := usage.Record(ctx, observation); err != nil {
+			t.Fatalf("Record(%s) error = %v", observation.Descriptor().ObservationID(), err)
+		}
+	}
+
+	windowed, err := apptypes.ReportCriteriaFrom(
+		from.Format(time.RFC3339Nano), to.Format(time.RFC3339Nano), "UTC", to,
+		"workspace", "codex", 100, 0,
+	)
+	if err != nil {
+		t.Fatalf("ReportCriteriaFrom(windowed) error = %v", err)
+	}
+	got, err := sqlite.NewReportDatasource(db).LoadReportWindow(ctx, windowed)
+	if err != nil {
+		t.Fatalf("LoadReportWindow(windowed) error = %v", err)
+	}
+	if got.UsageWorkspaceTally.Excluded != 1 {
+		t.Fatalf("windowed tally = %+v, want excluded=1 (in-window only)", got.UsageWorkspaceTally)
+	}
+	if len(got.Usage) != 1 || got.Usage[0].ObservationID != "tally-inside" {
+		t.Fatalf("windowed usage = %+v, want in-window excluded row", got.Usage)
+	}
+
+	unbounded, err := apptypes.ReportCriteriaFrom(
+		"2000-01-01T00:00:00Z", "2100-01-01T00:00:00Z", "UTC", to,
+		"workspace", "codex", 100, 0,
+	)
+	if err != nil {
+		t.Fatalf("ReportCriteriaFrom(unbounded) error = %v", err)
+	}
+	wide, err := sqlite.NewReportDatasource(db).LoadReportWindow(ctx, unbounded)
+	if err != nil {
+		t.Fatalf("LoadReportWindow(unbounded) error = %v", err)
+	}
+	if wide.UsageWorkspaceTally.Excluded != 2 {
+		t.Fatalf("unbounded tally = %+v, want excluded=2", wide.UsageWorkspaceTally)
+	}
+}
+
+func sqliteExcludedUsageAt(t *testing.T, id string, observedAt time.Time) *model.UsageObservation {
+	t.Helper()
+	source, err := types.UsageSourceOf("codex", "headless_stream", "0.145.0", "openai", "model-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	observationID, err := types.UsageObservationIDFrom(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	descriptor, err := model.NewUsageObservationDescriptor(
+		observationID, types.SessionID("session-1"), source, types.UsageScopeCall,
+		types.UsageAccountingExcluded, observedAt,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, err := types.KnownUsageValue(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zero, err := types.KnownUsageValue(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	counters, err := types.UsageCountersOf(input, zero, zero, zero, zero, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation, err := model.NewFinalizedUsageObservation(
+		descriptor, counters, types.UnavailableUsageCost(), types.UsageTerminalSuccess, observedAt,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return observation
+}
+
+func TestReportDatasource_KeysetPagesMatchASingleLargeLimit(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	db := sqlite.NewDatabase(dbPath, onDiskSQLiteMigrations(t))
+	events := sqlite.NewEventDatasource(db)
+	sessions := sqlite.NewSessionDatasource(db)
+	store := sqlite.NewStoreManagementDatasource(db)
+	if err := store.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	sessionUsecase := usecase.NewSessionUsecase(events, sessions, sessions, events)
+	eventUsecase := usecase.NewEventUsecase(events, events)
+	for i := 1; i <= 5; i++ {
+		sessionID := types.SessionID(fmt.Sprintf("keyset-session-%d", i))
+		if _, err := sessionUsecase.Start(ctx, "codex", "codex", sessionID, "workspace", ""); err != nil {
+			t.Fatalf("Start(%d) error = %v", i, err)
+		}
+		if _, _, err := eventUsecase.Audit(ctx, apptypes.AuditInput{
+			Command: "go test ./...", Client: "codex", Agent: "codex",
+			SessionID: sessionID, Workspace: "workspace", ExitCode: types.Some(0),
+			FailureReason: types.CommandFailureReasonNone,
+		}, apptypes.NewAuditRedactionBuilder().Build()); err != nil {
+			t.Fatalf("Audit(%d) error = %v", i, err)
+		}
+	}
+
+	paged, err := apptypes.ReportCriteriaFrom(
+		"2000-01-01T00:00:00Z", "2100-01-01T00:00:00Z", "UTC", time.Now().UTC(),
+		"workspace", "codex", 1, 0,
+	)
+	if err != nil {
+		t.Fatalf("ReportCriteriaFrom(paged) error = %v", err)
+	}
+	got, err := sqlite.NewReportDatasource(db).LoadReportWindow(ctx, paged)
+	if err != nil {
+		t.Fatalf("LoadReportWindow(paged) error = %v", err)
+	}
+	single, err := apptypes.ReportCriteriaFrom(
+		"2000-01-01T00:00:00Z", "2100-01-01T00:00:00Z", "UTC", time.Now().UTC(),
+		"workspace", "codex", 100, 0,
+	)
+	if err != nil {
+		t.Fatalf("ReportCriteriaFrom(single) error = %v", err)
+	}
+	want, err := sqlite.NewReportDatasource(db).LoadReportWindow(ctx, single)
+	if err != nil {
+		t.Fatalf("LoadReportWindow(single) error = %v", err)
+	}
+	if len(got.Sessions) != 5 || len(want.Sessions) != 5 {
+		t.Fatalf("session counts paged=%d single=%d", len(got.Sessions), len(want.Sessions))
+	}
+	for i := range want.Sessions {
+		if got.Sessions[i].SessionID != want.Sessions[i].SessionID {
+			t.Fatalf("session[%d] paged=%s single=%s", i, got.Sessions[i].SessionID, want.Sessions[i].SessionID)
+		}
+	}
+	if len(got.Commands) != 5 || len(want.Commands) != 5 {
+		t.Fatalf("command counts paged=%d single=%d", len(got.Commands), len(want.Commands))
+	}
+	for i := range want.Commands {
+		if got.Commands[i].EventID != want.Commands[i].EventID {
+			t.Fatalf("command[%d] paged=%s single=%s", i, got.Commands[i].EventID, want.Commands[i].EventID)
+		}
+	}
+}

@@ -102,6 +102,7 @@ func (c ReportCriteria) ResultCap() int { return c.resultCap }
 // ReportSessionRecord is the body-free session projection required by report
 // aggregation.
 type ReportSessionRecord struct {
+	SessionID    domtypes.SessionID
 	Client       domtypes.Client
 	StartedAt    time.Time
 	TotalEvents  int
@@ -209,8 +210,8 @@ type ReportWindow struct {
 	Usage    []ReportUsageRecord
 	Extents  ReportSourceExtents
 	// UsageWorkspaceTally is a metadata-only count of finalized observations
-	// for the workspace/client filter (no time bound). Text output uses it
-	// when the windowed usage page is empty.
+	// for the same workspace/client/interval as the usage page. Text output
+	// uses it when the windowed usage page is empty.
 	UsageWorkspaceTally ReportUsageWorkspaceTally
 }
 
