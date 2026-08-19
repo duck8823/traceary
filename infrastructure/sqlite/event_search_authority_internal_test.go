@@ -288,7 +288,7 @@ func TestTieredAuthorityFingerprintFirstPlanUsesByFpIndex(t *testing.T) {
 	seedTieredCompleteProjection(t, database, "generation")
 	seedLiteralFingerprints(t, database, "generation", "pre-match", "shared needle alpha")
 	criteria := apptypes.NewEventSearchCriteriaBuilder(10).Query("needle").Build()
-	query, args := buildTieredSearchCandidateQuery(criteria, "generation")
+	query, args := buildTieredSearchCandidateQuery(criteria, "generation", false)
 
 	raw, err := database.open(ctx)
 	if err != nil {
@@ -352,10 +352,80 @@ func TestTieredAuthorityNoMatchDoesNotWalkProjectedHistory(t *testing.T) {
 	}
 }
 
+func TestTieredAuthorityAbsentTrigramOmitsFingerprintGroupBy(t *testing.T) {
+	t.Parallel()
+	criteria := apptypes.NewEventSearchCriteriaBuilder(10).Query("xyzzy-nomatch-2127").Build()
+	query, _ := buildTieredSearchCandidateQuery(criteria, "generation", true)
+	if strings.Contains(query, "GROUP BY fp.event_id") || strings.Contains(query, "HAVING COUNT(DISTINCT") {
+		t.Fatalf("absent-trigram SQL still groups fingerprints:\n%s", query)
+	}
+	if strings.Contains(query, "literal_search_fingerprints") {
+		t.Fatalf("absent-trigram SQL still reads fingerprints:\n%s", query)
+	}
+	if !strings.Contains(query, "q.sequence >") {
+		t.Fatalf("absent-trigram SQL dropped the fail-open tail:\n%s", query)
+	}
+}
+
+func TestLiteralFingerprintANDImpossibleDetectsAbsentTrigram(t *testing.T) {
+	ctx := context.Background()
+	database, _ := newTieredAuthorityFixture(t)
+	insertTieredSearchEvent(t, database, "pre-noise", "zzzz other text", time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC))
+	seedTieredCompleteProjection(t, database, "gen-absent")
+	seedLiteralFingerprints(t, database, "gen-absent", "pre-noise", "zzzz other text")
+
+	raw, err := database.open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = raw.Close() }()
+	tx, err := raw.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	query := apptypes.CharacterizeLiteralQuery("xyzzy-nomatch-2127")
+	impossible, probeErr := literalFingerprintANDImpossible(ctx, tx, "gen-absent", query.Fingerprints())
+	if probeErr != nil {
+		t.Fatalf("literalFingerprintANDImpossible() error = %v", probeErr)
+	}
+	if !impossible {
+		t.Fatal("expected absent required trigram to make fingerprint AND impossible")
+	}
+
+	presentQuery := apptypes.CharacterizeLiteralQuery("zzzz")
+	impossible, probeErr = literalFingerprintANDImpossible(ctx, tx, "gen-absent", presentQuery.Fingerprints())
+	if probeErr != nil {
+		t.Fatalf("literalFingerprintANDImpossible() present error = %v", probeErr)
+	}
+	if impossible {
+		t.Fatal("expected present trigrams to keep the fingerprint AND possible")
+	}
+}
+
+func TestTieredAuthorityAbsentTrigramStillFailOpensTail(t *testing.T) {
+	ctx := context.Background()
+	database, datasource := newTieredAuthorityFixture(t)
+	base := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+	insertTieredSearchEvent(t, database, "pre-noise", "zzzz other text", base)
+	seedTieredCompleteProjection(t, database, "gen-absent")
+	seedLiteralFingerprints(t, database, "gen-absent", "pre-noise", "zzzz other text")
+	insertTieredSearchEvent(t, database, "post-xyzzy", "contains xyzzy-nomatch-2127 in the body", base.Add(time.Second))
+
+	got, err := datasource.SearchMetadata(ctx, apptypes.NewEventSearchCriteriaBuilder(10).Query("xyzzy-nomatch-2127").Build())
+	if err != nil {
+		t.Fatalf("SearchMetadata() error = %v", err)
+	}
+	if diff := cmp.Diff([]string{"post-xyzzy"}, metadataIDs(got)); diff != "" {
+		t.Fatalf("absent-trigram tail IDs mismatch (-want +got):\n%s", diff)
+	}
+}
+
 func TestTieredAuthorityUnfilterableKeepsEventsWalk(t *testing.T) {
 	t.Parallel()
 	criteria := apptypes.NewEventSearchCriteriaBuilder(10).Query("ab").Build()
-	query, _ := buildTieredSearchCandidateQuery(criteria, "generation")
+	query, _ := buildTieredSearchCandidateQuery(criteria, "generation", false)
 	if strings.Contains(query, "literal_search_fingerprints") {
 		t.Fatalf("unfilterable query still uses fingerprints:\n%s", query)
 	}
@@ -367,7 +437,7 @@ func TestTieredAuthorityUnfilterableKeepsEventsWalk(t *testing.T) {
 func TestTieredAuthorityEmptyGenerationKeepsEventsWalk(t *testing.T) {
 	t.Parallel()
 	criteria := apptypes.NewEventSearchCriteriaBuilder(10).Query("needle").Build()
-	query, _ := buildTieredSearchCandidateQuery(criteria, "")
+	query, _ := buildTieredSearchCandidateQuery(criteria, "", false)
 	if strings.Contains(query, "literal_search_fingerprints") {
 		t.Fatalf("empty generation still uses fingerprints:\n%s", query)
 	}

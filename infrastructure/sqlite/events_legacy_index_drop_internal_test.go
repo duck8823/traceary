@@ -30,6 +30,7 @@ func TestShippedEventPlansDoNotUseDroppedCreatedAtIndexes(t *testing.T) {
 	searchSQL, searchArgs := buildTieredSearchCandidateQuery(
 		apptypes.NewEventSearchCriteriaBuilder(10).Query("needle").Build(),
 		"generation",
+		false,
 	)
 	plans := []struct {
 		name  string

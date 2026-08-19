@@ -4,6 +4,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"strings"
 
 	"golang.org/x/xerrors"
@@ -174,7 +175,15 @@ func (d *EventDatasource) searchTieredTopKMetadataTx(ctx context.Context, tx *sq
 		return nil, err
 	}
 	query := apptypes.CharacterizeLiteralQuery(criteria.Query())
-	candidateSQL, args := buildTieredSearchCandidateQuery(criteria, generation)
+	omitFingerprintArm := false
+	if generation != "" && query.Filterable() {
+		impossible, probeErr := literalFingerprintANDImpossible(ctx, tx, generation, query.Fingerprints())
+		if probeErr != nil {
+			return nil, probeErr
+		}
+		omitFingerprintArm = impossible
+	}
+	candidateSQL, args := buildTieredSearchCandidateQuery(criteria, generation, omitFingerprintArm)
 	rows, err := tx.QueryContext(ctx, candidateSQL, args...)
 	if err != nil {
 		return nil, xerrors.Errorf("query ordered tiered candidates: %w", err)
@@ -215,12 +224,39 @@ func (d *EventDatasource) searchTieredTopKMetadataTx(ctx context.Context, tx *sq
 	return hydrateEventSearchMetadataCandidates(ctx, tx, criteria, matched[start:])
 }
 
+// literalFingerprintANDImpossible reports that the fingerprint AND cannot match
+// any inventoried row: at least one required 3-gram has no posting in this
+// generation. Fail-open stays the post-cutover tail.
+func literalFingerprintANDImpossible(ctx context.Context, tx *sql.Tx, generation string, fingerprints []string) (bool, error) {
+	if len(fingerprints) == 0 {
+		return true, nil
+	}
+	// One LIMIT 1 seek per required trigram, stop at the first miss. A
+	// COUNT/GROUP BY over the IN-list pays the common trigrams (mat/atc/tch)
+	// even when an earlier required trigram has zero postings (#2176).
+	for _, fingerprint := range fingerprints {
+		var present int
+		err := tx.QueryRowContext(ctx, `
+SELECT 1
+  FROM literal_search_fingerprints
+ WHERE generation_id=? AND fingerprint_version=1 AND fingerprint=?
+ LIMIT 1`, generation, []byte(fingerprint)).Scan(&present)
+		if errors.Is(err, sql.ErrNoRows) {
+			return true, nil
+		}
+		if err != nil {
+			return false, xerrors.Errorf("probe literal fingerprint posting: %w", err)
+		}
+	}
+	return false, nil
+}
+
 // buildTieredSearchCandidateQuery composes the ordered candidate selection the
 // tiered search walk issues. The capacity benchmark measures the same SQL, so
 // it lives here rather than being transcribed there: a copy would drift the
 // moment either side changed, and a benchmark of SQL production no longer runs
 // measures nothing.
-func buildTieredSearchCandidateQuery(criteria apptypes.EventSearchCriteria, generation string) (string, []any) {
+func buildTieredSearchCandidateQuery(criteria apptypes.EventSearchCriteria, generation string, omitFingerprintArm bool) (string, []any) {
 	query := apptypes.CharacterizeLiteralQuery(criteria.Query())
 	var builder strings.Builder
 	const candidateSelect = `SELECT e.id,COALESCE(e.body_encoded_bytes,length(e.body),0)+COALESCE(a.command_encoded_bytes,length(a.command_text),0)+COALESCE(a.input_encoded_bytes,length(a.input_text),0)+COALESCE(a.output_encoded_bytes,length(a.output_text),0),COALESCE(e.body_plaintext_bytes,length(e.body),0)+COALESCE(a.command_plaintext_bytes,length(a.command_text),0)+COALESCE(a.input_plaintext_bytes,length(a.input_text),0)+COALESCE(a.output_plaintext_bytes,length(a.output_text),0)`
@@ -230,22 +266,34 @@ func buildTieredSearchCandidateQuery(criteria apptypes.EventSearchCriteria, gene
 	// without fingerprints are skipped: walking events or inventory to
 	// fail-open is O(history) even when those arms return empty. An empty
 	// generation or an unfilterable short query keeps the events walk.
+	// When a required trigram has no postings the AND cannot match; skip
+	// the IN/GROUP BY arm and keep only the tail (#2176).
 	if generation != "" && query.Filterable() {
-		fingerprints := query.Fingerprints()
 		builder.WriteString(candidateSelect)
-		builder.WriteString(` FROM (
+		if omitFingerprintArm {
+			builder.WriteString(` FROM (
+  SELECT q.event_id AS id
+    FROM search_projection_source_sequence q
+   WHERE q.sequence > (SELECT high_water FROM search_projection_state WHERE singleton=1)
+) candidates
+JOIN events e ON e.id=candidates.id
+LEFT JOIN command_audits a ON a.event_id=e.id
+WHERE 1=1`)
+		} else {
+			fingerprints := query.Fingerprints()
+			builder.WriteString(` FROM (
   SELECT fp.event_id AS id
     FROM literal_search_fingerprints fp INDEXED BY idx_literal_search_fingerprints_by_fp
    WHERE fp.generation_id=? AND fp.fingerprint_version=1 AND fp.fingerprint IN (`)
-		args = append(args, generation)
-		for i, fingerprint := range fingerprints {
-			if i > 0 {
-				builder.WriteByte(',')
+			args = append(args, generation)
+			for i, fingerprint := range fingerprints {
+				if i > 0 {
+					builder.WriteByte(',')
+				}
+				builder.WriteByte('?')
+				args = append(args, []byte(fingerprint))
 			}
-			builder.WriteByte('?')
-			args = append(args, []byte(fingerprint))
-		}
-		builder.WriteString(`)
+			builder.WriteString(`)
    GROUP BY fp.event_id
   HAVING COUNT(DISTINCT fp.fingerprint)=?
   UNION
@@ -256,7 +304,8 @@ func buildTieredSearchCandidateQuery(criteria apptypes.EventSearchCriteria, gene
 JOIN events e ON e.id=candidates.id
 LEFT JOIN command_audits a ON a.event_id=e.id
 WHERE 1=1`)
-		args = append(args, len(fingerprints))
+			args = append(args, len(fingerprints))
+		}
 	} else {
 		// The candidate set is events, not search_projection_source_sequence.
 		// That table is the projection's own checkpoint ledger: it is populated
