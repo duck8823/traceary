@@ -24,22 +24,34 @@ func (d *Database) migrateAuthorized(ctx context.Context, db *sql.DB) error {
 }
 
 func (d *Database) migrateWithOptions(ctx context.Context, db *sql.DB, allowOffline bool) error {
-	if err := ensureSchemaMigrationsTable(ctx, db); err != nil {
-		return xerrors.Errorf("failed to create schema_migrations table: %w", err)
-	}
-
-	applied, err := loadAppliedMigrations(ctx, db)
-	if err != nil {
-		return xerrors.Errorf("failed to load applied migrations: %w", err)
-	}
-
 	migrations, err := inventoryEmbeddedMigrations(d.migrations)
 	if err != nil {
 		return xerrors.Errorf("failed to inventory exact migration catalog: %w", err)
 	}
 
+	applied, err := loadAppliedMigrations(ctx, db)
+	if err != nil {
+		if !schemaMigrationsTableMissing(err) {
+			return xerrors.Errorf("failed to load applied migrations: %w", err)
+		}
+		if err := ensureSchemaMigrationsTable(ctx, db); err != nil {
+			return xerrors.Errorf("failed to create schema_migrations table: %w", err)
+		}
+		applied, err = loadAppliedMigrations(ctx, db)
+		if err != nil {
+			return xerrors.Errorf("failed to load applied migrations: %w", err)
+		}
+	}
+
 	if err := rejectForeignAppliedMigrations(applied, migrations); err != nil {
 		return err
+	}
+	if catalogFullyApplied(applied, migrations) {
+		return nil
+	}
+
+	if err := ensureSchemaMigrationsTable(ctx, db); err != nil {
+		return xerrors.Errorf("failed to create schema_migrations table: %w", err)
 	}
 
 	for _, migration := range migrations {
@@ -70,6 +82,34 @@ func (d *Database) migrateWithOptions(ctx context.Context, db *sql.DB, allowOffl
 func isDataDependentOfflineMigration(version int64) bool {
 	entry, ok := preparedMigrationManifest[version]
 	return ok && entry.Class == MigrationDataDependentOffline
+}
+
+func catalogFullyApplied(applied map[int64]string, catalog []embeddedMigration) bool {
+	if len(catalog) == 0 {
+		return false
+	}
+	for _, migration := range catalog {
+		if _, exists := applied[migration.version]; !exists {
+			return false
+		}
+	}
+	return true
+}
+
+func schemaMigrationsTableMissing(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "no such table") && strings.Contains(message, "schema_migrations")
+}
+
+func sqliteBusyError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "sqlite_busy") || strings.Contains(message, "database is locked") || strings.Contains(message, "database table is locked")
 }
 
 func pendingOfflineMigrations(migrations []embeddedMigration, applied map[int64]string) []int64 {
