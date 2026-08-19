@@ -26,9 +26,11 @@ type wallBudgetStore struct {
 	measuredReads      int
 	state              string
 	resumeReady        bool
+	starts             int
 }
 
 func (s *wallBudgetStore) Start(context.Context, apptypes.SearchProjectionBudget, time.Time) (apptypes.SearchProjectionGeneration, error) {
+	s.starts++
 	return apptypes.SearchProjectionGeneration{}, nil
 }
 
@@ -74,6 +76,22 @@ func (s *wallBudgetStore) CleanupBatch(context.Context, apptypes.ProjectionBatch
 }
 func (*wallBudgetStore) MarkFailed(context.Context, string, int64, string, time.Time) error {
 	return nil
+}
+
+func TestCompleteGenerationLeavesMatchingCompleteGeneration(t *testing.T) {
+	t.Parallel()
+	b := apptypes.DefaultSearchProjectionBudget()
+	store := &wallBudgetStore{budget: b, state: "complete"}
+	u := usecase.NewSearchProjectionUsecase(store)
+	if err := u.CompleteGeneration(context.Background(), b, time.Now()); err != nil {
+		t.Fatalf("CompleteGeneration() error = %v", err)
+	}
+	if store.starts != 0 {
+		t.Fatalf("Start called %d times, want 0 for a matching complete generation", store.starts)
+	}
+	if store.applied {
+		t.Fatal("Resume applied a batch on a matching complete generation")
+	}
 }
 
 func TestProjectionBatchPlanEnforcesStrictLogicalMutationByteCap(t *testing.T) {

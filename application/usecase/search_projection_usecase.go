@@ -703,3 +703,72 @@ func (u *SearchProjectionUsecase) ControlStatus(ctx context.Context) (apptypes.S
 	}
 	return status, nil
 }
+
+// CompleteGeneration starts or resumes a generation and drives it to
+// `complete` under the caller's context. Compact holds the exclusive store
+// lease across this call so live writers cannot interleave `source changed`
+// (#2163). It does not start a replacement generation when one is already
+// complete with a matching budget hash.
+func (u *SearchProjectionUsecase) CompleteGeneration(ctx context.Context, b apptypes.SearchProjectionBudget, now time.Time) error {
+	if !b.Valid() {
+		return &apptypes.SearchProjectionNoProgressError{Reason: "invalid generation budget"}
+	}
+	now = now.UTC()
+	status, err := u.ControlStatus(ctx)
+	if err != nil {
+		return err
+	}
+	if status.State == "complete" && status.ConfigHash == b.ConfigHash() {
+		if tail, ok := u.store.(SearchProjectionCompleteTailStore); ok {
+			if _, tailErr := tail.CatchUpCompleteGenerationTail(ctx, b, now); tailErr != nil {
+				return xerrors.Errorf("catch up complete generation tail: %w", tailErr)
+			}
+		}
+		status, err = u.ControlStatus(ctx)
+		if err != nil {
+			return err
+		}
+		if status.State == "complete" {
+			return nil
+		}
+	}
+	if status.GenerationID != "" && status.State != "complete" && status.State != "abandoned" {
+		if _, abandonErr := u.Abandon(ctx, now); abandonErr != nil {
+			var noProgress *apptypes.SearchProjectionNoProgressError
+			if !errors.As(abandonErr, &noProgress) || noProgress.Reason != "no derived generation exists" {
+				return abandonErr
+			}
+		}
+	}
+	if _, startErr := u.StartGeneration(ctx, b, now); startErr != nil {
+		return startErr
+	}
+	return u.resumeUntilComplete(ctx, b, now)
+}
+
+func (u *SearchProjectionUsecase) resumeUntilComplete(ctx context.Context, b apptypes.SearchProjectionBudget, now time.Time) error {
+	idle := 0
+	for {
+		if err := ctx.Err(); err != nil {
+			return xerrors.Errorf("complete search projection: %w", err)
+		}
+		result, err := u.ResumeUntil(ctx, b, apptypes.SearchProjectionRunOptions{
+			MaxBatches:    1024,
+			TotalWallTime: time.Hour,
+		}, now)
+		if err != nil {
+			return err
+		}
+		if result.StopReason == "complete" || result.Progress.Completed {
+			return nil
+		}
+		if result.Progress.Selected == 0 && result.Progress.Written == 0 && result.Progress.Cleaned == 0 && result.Progress.Evicted == 0 {
+			idle++
+			if idle >= 3 {
+				return xerrors.Errorf("search projection did not reach complete (stop_reason=%s)", result.StopReason)
+			}
+			continue
+		}
+		idle = 0
+	}
+}

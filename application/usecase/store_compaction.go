@@ -17,14 +17,15 @@ import (
 )
 
 type storeCompactionUsecase struct {
-	journal       application.StoreCompactionJournal
-	builder       application.StoreCompactionBuilder
-	files         application.StoreCompactionFiles
-	lease         application.StoreCompactionLease
-	progress      application.CompactionProgress
-	now           func() time.Time
-	expectedStore string
-	cover         func(ctx context.Context, work string, cutoff time.Time) error
+	journal            application.StoreCompactionJournal
+	builder            application.StoreCompactionBuilder
+	files              application.StoreCompactionFiles
+	lease              application.StoreCompactionLease
+	progress           application.CompactionProgress
+	now                func() time.Time
+	expectedStore      string
+	cover              func(ctx context.Context, work string, cutoff time.Time) error
+	completeProjection func(ctx context.Context, store string) error
 }
 
 type compactFilterSetter interface {
@@ -43,6 +44,15 @@ func BindCompactionWorkCover(u application.StoreCompactionUsecase, cover func(ct
 func BindCompactionProgress(u application.StoreCompactionUsecase, progress application.CompactionProgress) {
 	if concrete, ok := u.(*storeCompactionUsecase); ok {
 		concrete.progress = progress
+	}
+}
+
+// BindCompactionProjectionComplete runs after a successful rewrite while the
+// exclusive lease is still held, so default compact cannot return with an
+// in-flight search generation (#2163).
+func BindCompactionProjectionComplete(u application.StoreCompactionUsecase, complete func(ctx context.Context, store string) error) {
+	if concrete, ok := u.(*storeCompactionUsecase); ok {
+		concrete.completeProjection = complete
 	}
 }
 
@@ -133,6 +143,9 @@ func (u *storeCompactionUsecase) Compact(ctx context.Context, in application.Com
 				if in.Force {
 					remaining, remainingBytes = 0, 0
 				}
+				if err := u.finishSearchProjection(ctx); err != nil {
+					return application.CompactResult{}, err
+				}
 				return application.CompactResult{
 					BytesBefore:               before.Size(),
 					BytesAfter:                after.Size(),
@@ -157,6 +170,9 @@ func (u *storeCompactionUsecase) Compact(ctx context.Context, in application.Com
 	if in.Force {
 		remaining, remainingBytes = 0, 0
 	}
+	if err := u.finishSearchProjection(ctx); err != nil {
+		return application.CompactResult{}, err
+	}
 	return application.CompactResult{
 		Run:                       run,
 		BytesBefore:               before.Size(),
@@ -169,6 +185,17 @@ func (u *storeCompactionUsecase) Compact(ctx context.Context, in application.Com
 		EstimatedReclaimableBytes: estimated,
 		CompactStrategy:           strategy,
 	}, nil
+}
+
+func (u *storeCompactionUsecase) finishSearchProjection(ctx context.Context) error {
+	if u.completeProjection == nil {
+		return nil
+	}
+	u.reportWindow("search_projection")
+	if err := u.completeProjection(ctx, u.expectedStore); err != nil {
+		return fmt.Errorf("complete search projection after compact: %w", err)
+	}
+	return nil
 }
 
 type reclaimableBytesInspector interface {
