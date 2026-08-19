@@ -8,6 +8,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 ## [Unreleased]
 
 ### Fixed
+- **`--client hook` が 8s の hook soft deadline を継承しない (#2174)** — hook 呼び出しは `hook` サブコマンドだけ。`report --client hook` は通常 CLI コンテキスト（signal のみ）。親 #2126 は open のまま。
 - **必須 trigram が無く cutover 後 tail も空の filterable no-match が workspace イベントを歩かない (#2178)** — 候補は `sequence > high_water` だけ。空 tail は即 empty。非空 tail は sequence PK を MATERIALIZED してから events に JOIN。decode が match 権威のまま。親 #2126 は open のまま。
 - **必須 trigram が無い filterable no-match は fingerprint の GROUP BY を省略する (#2176)** — 3-gram AND は posting が 1 つでも空なら一致しない。候補 SQL は cutover 後 tail だけ。decode が match 権威のまま。親 #2126 は open のまま。
 - **complete な search-projection が store open で cutover 後 tail を inventory する (#2173)** — いまは `sequence > high_water` を fail-open decode している。complete 世代の CatchUp が bounded な tail に fingerprint を書き `high_water` を進める（rebuild しない）。decode が match 権威のまま。親 #2126 は open のまま。
