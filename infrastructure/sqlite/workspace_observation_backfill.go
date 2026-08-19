@@ -22,7 +22,10 @@ type workspaceObservationCatchUpResult struct {
 	Inserted    int
 	Retries     int
 	MorePending bool
+	Skipped     bool
 }
+
+const workspaceObservationCatchUpStateTable = "workspace_observation_catchup_state"
 
 const workspaceObservationCatchUpBatchQuery = `
 	SELECT e.id, e.session_id, e.workspace, e.created_at, e.agent,
@@ -37,7 +40,7 @@ const workspaceObservationCatchUpBatchQuery = `
 	          AND o.observed_event_id IS NOT NULL
 	          AND o.observed_event_id <> ''
 	 )
-	 ORDER BY ts_norm(e.created_at), e.id
+	 ORDER BY e.created_at_norm DESC, e.id DESC
 	 LIMIT ?`
 
 func catchUpWorkspaceObservations(ctx context.Context, db *sql.DB, batchSize int) (workspaceObservationCatchUpResult, error) {
@@ -51,10 +54,34 @@ func catchUpWorkspaceObservations(ctx context.Context, db *sql.DB, batchSize int
 	if !exists {
 		return workspaceObservationCatchUpResult{}, nil
 	}
+	stateExists, err := sqliteTableExists(ctx, db, workspaceObservationCatchUpStateTable)
+	if err != nil {
+		return workspaceObservationCatchUpResult{}, err
+	}
+	if stateExists {
+		exhausted, exhaustedErr := workspaceObservationCatchUpIsExhausted(ctx, db)
+		if exhaustedErr != nil {
+			return workspaceObservationCatchUpResult{}, exhaustedErr
+		}
+		if exhausted {
+			return workspaceObservationCatchUpResult{Skipped: true}, nil
+		}
+	}
 
 	for attempt := 1; attempt <= workspaceObservationCatchUpMaxAttempts; attempt++ {
 		result, err := catchUpWorkspaceObservationsOnce(ctx, db, batchSize)
 		result.Retries = attempt - 1
+		if err == nil && result.Selected == 0 && stateExists {
+			var events int
+			if countErr := db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM events LIMIT 1)`).Scan(&events); countErr != nil {
+				return result, xerrors.Errorf("probe events before marking catch-up exhausted: %w", countErr)
+			}
+			if events == 1 {
+				if markErr := markWorkspaceObservationCatchUpExhausted(ctx, db); markErr != nil {
+					return result, markErr
+				}
+			}
+		}
 		if err == nil || !isSQLiteBusy(err) || attempt == workspaceObservationCatchUpMaxAttempts {
 			return result, err
 		}
@@ -69,6 +96,24 @@ func catchUpWorkspaceObservations(ctx context.Context, db *sql.DB, batchSize int
 		}
 	}
 	return workspaceObservationCatchUpResult{}, nil
+}
+
+func workspaceObservationCatchUpIsExhausted(ctx context.Context, db *sql.DB) (bool, error) {
+	var exhausted int
+	if err := db.QueryRowContext(ctx, `SELECT exhausted FROM workspace_observation_catchup_state WHERE singleton = 1`).Scan(&exhausted); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, xerrors.Errorf("read workspace observation catch-up state: %w", err)
+	}
+	return exhausted == 1, nil
+}
+
+func markWorkspaceObservationCatchUpExhausted(ctx context.Context, db *sql.DB) error {
+	if _, err := db.ExecContext(ctx, `UPDATE workspace_observation_catchup_state SET exhausted = 1 WHERE singleton = 1`); err != nil {
+		return xerrors.Errorf("mark workspace observation catch-up exhausted: %w", err)
+	}
+	return nil
 }
 
 func catchUpWorkspaceObservationsOnce(ctx context.Context, db *sql.DB, batchSize int) (workspaceObservationCatchUpResult, error) {
