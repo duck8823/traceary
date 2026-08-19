@@ -648,3 +648,96 @@ func TestSearchProjectionCatchUp_AlternatingCommandEventsConverge(t *testing.T) 
 		t.Fatalf("lifecycle rows=%d, want bounded (<=4)", lifecycleRows)
 	}
 }
+
+// TestSearchProjectionCatchUp_CompleteGenerationInventoriesPostCutoverTail
+// pins #2173: a complete generation must still fingerprint sequence > high_water
+// on the next CatchUp so search fail-open does not decode the whole tail.
+func TestSearchProjectionCatchUp_CompleteGenerationInventoriesPostCutoverTail(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	migrations, err := fs.Sub(os.DirFS("../.."), "schema/sqlite/migrations")
+	if err != nil {
+		t.Fatal(err)
+	}
+	database := infra.NewDatabase(dbPath, migrations)
+	store := infra.NewStoreManagementDatasource(database)
+	events := infra.NewEventDatasource(database)
+	if err := store.Initialize(ctx); err != nil {
+		t.Fatalf("bootstrap Initialize() error = %v", err)
+	}
+
+	workspace := types.Workspace("github.com/duck8823/traceary")
+	started := time.Date(2026, 8, 19, 12, 0, 0, 0, time.UTC)
+	seedSession(t, dbPath, "sess-complete-tail", started, workspace.String())
+	if err := events.Save(ctx, newSearchEventWithSession(t, "evt-pre-cutover", "sess-complete-tail", workspace.String(), "pre-cutover unique marker alpha", started)); err != nil {
+		t.Fatalf("Save pre-cutover event: %v", err)
+	}
+
+	var status apptypes.SearchProjectionStatus
+	for i := 0; i < 40; i++ {
+		if err := store.Initialize(ctx); err != nil {
+			t.Fatalf("cutover Initialize #%d: %v", i+1, err)
+		}
+		status = projectionStatus(t, database)
+		if status.Completed {
+			break
+		}
+	}
+	if !status.Completed {
+		t.Fatalf("projection did not complete: %+v", status)
+	}
+	cutoverWater := status.HighWater
+
+	tailAt := started.Add(time.Minute)
+	if err := events.Save(ctx, newSearchEventWithSession(t, "evt-post-cutover", "sess-complete-tail", workspace.String(), "post-cutover unique marker beta", tailAt)); err != nil {
+		t.Fatalf("Save post-cutover event: %v", err)
+	}
+	var seqMax int64
+	openRawDB(t, dbPath, func(db *sql.DB) {
+		if err := db.QueryRow(`SELECT MAX(sequence) FROM search_projection_source_sequence`).Scan(&seqMax); err != nil {
+			t.Fatalf("max sequence: %v", err)
+		}
+	})
+	if seqMax <= cutoverWater {
+		t.Fatalf("post-cutover max sequence=%d, want > high_water %d", seqMax, cutoverWater)
+	}
+
+	uc := usecase.NewSearchProjectionUsecase(database)
+	result, err := uc.CatchUp(ctx, apptypes.DefaultSearchProjectionBudget(), tailAt)
+	if err != nil {
+		t.Fatalf("CatchUp complete tail: %v", err)
+	}
+	if result.Action != "complete_tail" {
+		t.Fatalf("CatchUp action = %q, want complete_tail", result.Action)
+	}
+	if result.Selected <= 0 {
+		t.Fatalf("CatchUp selected = %d, want tail rows", result.Selected)
+	}
+	if !result.Completed || result.State != "complete" {
+		t.Fatalf("CatchUp left state=%q completed=%v, want complete", result.State, result.Completed)
+	}
+
+	status = projectionStatus(t, database)
+	if status.HighWater != seqMax {
+		t.Fatalf("high_water=%d after tail catch-up, want %d", status.HighWater, seqMax)
+	}
+	var fpCount int
+	openRawDB(t, dbPath, func(db *sql.DB) {
+		if err := db.QueryRow(`SELECT COUNT(*) FROM literal_search_fingerprints WHERE event_id='evt-post-cutover'`).Scan(&fpCount); err != nil {
+			t.Fatalf("fingerprint count: %v", err)
+		}
+	})
+	if fpCount == 0 {
+		t.Fatal("post-cutover event has no fingerprints after complete-generation tail catch-up")
+	}
+
+	quiet, err := uc.CatchUp(ctx, apptypes.DefaultSearchProjectionBudget(), tailAt.Add(time.Second))
+	if err != nil {
+		t.Fatalf("CatchUp with empty tail: %v", err)
+	}
+	if quiet.Action != "already_complete" {
+		t.Fatalf("empty-tail CatchUp action = %q, want already_complete", quiet.Action)
+	}
+}
