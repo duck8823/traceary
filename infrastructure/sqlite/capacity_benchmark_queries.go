@@ -20,7 +20,7 @@ type CapacityBenchmarkQuery struct {
 // prefilter, which is optional and store-state dependent).
 func CapacityBenchmarkQueries(ctx context.Context, db *sql.DB) ([]CapacityBenchmarkQuery, error) {
 	searchCriteria := apptypes.NewEventSearchCriteriaBuilder(20).Query("synthetic-needle").Build()
-	searchSQL, searchArgs := buildTieredSearchCandidateQuery(searchCriteria, "")
+	searchSQL, searchArgs := buildTieredSearchCandidateQuery(searchCriteria, "", false)
 	latestSQL := latestSessionBoundarySQL(ctx, db)
 	return []CapacityBenchmarkQuery{
 		{Name: "active", SQL: findActiveSessionQuery, Args: []any{"session_started", "", "", "", "", "", "", "session_started", "session_ended"}},
