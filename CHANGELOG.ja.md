@@ -8,6 +8,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 ## [Unreleased]
 
 ### Fixed
+- **フィルタ可能な no-match 検索が inventory 済みイベント履歴を歩かない (#2167)** — fail-open は cutover 後の `sequence > high_water` tail だけ。fingerprint の無い inventory 行は飛ばす。decode が match 権威のまま。親 #2126 は open のまま。
 - **compact 後の非 payload 増幅: 置き換え済み events index を落とし、session-keyword の evict 免除を名指しする (#2129)** — migration `000071` が `idx_events_created_at` など生 `created_at` 系 5 本を DROP（読者は `created_at_norm` 系のまま）。`search_projection_session_keywords` は index-family 予算に計上し evict しない。`doctor` の `search-projection-budget` WARN がそのファミリを名指しする。親 #2126 は open のまま。
 - **フィルタ可能な `search` が fingerprint 適用のためにイベント全履歴を歩かない (#2127)** — 候補は `literal_search_fingerprints`（`idx_literal_search_fingerprints_by_fp`）と cutover 後 / 未 inventory の tail。decode が match 権威のまま。pre-filter は fail-open。短い unfilterable クエリは events walk のまま。検索 JSON 形は不変。親 #2126 は open のまま。
 - **`report` の期間ロードがフィルタ列を `ts_norm` で包まず、OFFSET 再走査もしない (#2128)** — sessions / usage に `started_at_norm` / `observed_at_norm` を永続化（`events.created_at_norm` と同じ語彙形）。ページは `LIMIT/OFFSET` ではなく keyset `(norm, id)`。usage workspace tally は usage ページと同じ期間を数える（JSON 形は不変。窓外の行は値が減ることがある）。空の norm はストア open 時のバッチ catch-up で埋める。親 #2126 は open のまま。
