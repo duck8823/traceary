@@ -57,13 +57,18 @@ func (d *EventDatasource) ListReportWindow(ctx context.Context, criteria apptype
 		to = formatTimestamp(criteria.To())
 	}
 	records := make([]apptypes.ReportCommandRecord, 0, batch)
-	for offset := 0; ; {
+	var after *apptypes.ReportCommandRecord
+	for {
+		afterFlag, afterNorm, afterID := "", "", ""
+		if after != nil {
+			afterFlag, afterNorm, afterID = reportKeysetArgs(formatReportNorm(after.CreatedAt), after.EventID.String())
+		}
 		rows, err := tx.QueryContext(ctx, listReportCommandAuditsQuery,
 			criteria.Client().String(), criteria.Client().String(),
 			criteria.Agent().String(), criteria.Agent().String(),
 			criteria.SessionID().String(), criteria.SessionID().String(),
 			criteria.Workspace().String(), criteria.Workspace().String(),
-			from, from, to, to, batch, offset,
+			from, from, to, to, afterFlag, afterNorm, afterID, batch,
 		)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to query report command audit page: %w", err)
@@ -86,7 +91,8 @@ func (d *EventDatasource) ListReportWindow(ctx context.Context, criteria apptype
 		if pageCount < batch {
 			break
 		}
-		offset += pageCount
+		last := records[len(records)-1]
+		after = &last
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, xerrors.Errorf("failed to commit report command audit read transaction: %w", err)

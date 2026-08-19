@@ -50,7 +50,8 @@ SELECT observation.observation_id,
    )
    AND (? = '' OR session.workspace = ?)
    AND (? = '' OR session.client = ?)
-   AND (? = '' OR ts_norm(observation.observed_at) >= ts_norm(?))
-   AND (? = '' OR ts_norm(observation.observed_at) < ts_norm(?))
- ORDER BY ts_norm(observation.observed_at) DESC, observation.observation_id DESC
- LIMIT ? OFFSET ?
+   AND (? = '' OR observation.observed_at_norm >= ts_norm(?))
+   AND (? = '' OR observation.observed_at_norm < ts_norm(?))
+   AND (? = '' OR (observation.observed_at_norm, observation.observation_id) < (?, ?))
+ ORDER BY observation.observed_at_norm DESC, observation.observation_id DESC
+ LIMIT ?

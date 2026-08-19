@@ -7,6 +7,9 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 
 ## [Unreleased]
 
+### Fixed
+- **`report` の期間ロードがフィルタ列を `ts_norm` で包まず、OFFSET 再走査もしない (#2128)** — sessions / usage に `started_at_norm` / `observed_at_norm` を永続化（`events.created_at_norm` と同じ語彙形）。ページは `LIMIT/OFFSET` ではなく keyset `(norm, id)`。usage workspace tally は usage ページと同じ期間を数える（JSON 形は不変。窓外の行は値が減ることがある）。空の norm はストア open 時のバッチ catch-up で埋める。親 #2126 は open のまま。
+
 ## [v0.43.0] - 2026-08-18
 
 ### Fixed

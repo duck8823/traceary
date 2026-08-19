@@ -66,18 +66,32 @@ func (d *ReportDatasource) LoadReportWindow(ctx context.Context, criteria apptyp
 		}
 	}()
 
-	sessions, sessionsTruncated, err := loadCappedReportRows(criteria.PageSize(), criteria.ResultCap(), func(limit, offset int) ([]apptypes.ReportSessionRecord, error) {
-		return queryReportSessionPage(ctx, tx, criteria, limit, offset)
+	sessions, sessionsTruncated, err := loadKeyedReportRows(criteria.PageSize(), criteria.ResultCap(), func(limit int, after *apptypes.ReportSessionRecord) ([]apptypes.ReportSessionRecord, error) {
+		return queryReportSessionPage(ctx, tx, criteria, limit, after)
 	})
 	if err != nil {
 		return apptypes.ReportWindow{}, xerrors.Errorf("failed to load report sessions: %w", err)
 	}
-	events, eventsTruncated, err := loadCappedReportRows(criteria.PageSize(), criteria.ResultCap(), func(limit, offset int) ([]apptypes.EventMetadata, error) {
+	events, eventsTruncated, err := loadKeyedReportRows(criteria.PageSize(), criteria.ResultCap(), func(limit int, after *apptypes.EventMetadata) ([]apptypes.EventMetadata, error) {
+		eventCriteria := reportEventCriteria(criteria)
+		if after != nil {
+			anchor, anchorErr := apptypes.EventPageAnchorOf(after.CreatedAt(), after.EventID())
+			if anchorErr != nil {
+				return nil, xerrors.Errorf("failed to build report event page anchor: %w", anchorErr)
+			}
+			eventCriteria = apptypes.NewEventListCriteriaBuilder(criteria.PageSize()).
+				Workspace(criteria.Workspace()).
+				Client(criteria.Client()).
+				From(criteria.Interval().EffectiveFromInclusive()).
+				To(criteria.Interval().EffectiveToExclusive()).
+				PageAnchor(anchor).
+				Build()
+		}
 		rows, err := queryRecentEventMetadataTx(
-			ctx, tx, reportEventCriteria(criteria),
+			ctx, tx, eventCriteria,
 			formatMetadataOptionalTimestamp(criteria.Interval().EffectiveFromInclusive()),
 			formatMetadataOptionalTimestamp(criteria.Interval().EffectiveToExclusive()),
-			limit, offset,
+			limit, 0,
 		)
 		if err != nil {
 			return nil, err
@@ -87,14 +101,14 @@ func (d *ReportDatasource) LoadReportWindow(ctx context.Context, criteria apptyp
 	if err != nil {
 		return apptypes.ReportWindow{}, xerrors.Errorf("failed to load report events: %w", err)
 	}
-	commands, commandsTruncated, err := loadCappedReportRows(criteria.PageSize(), criteria.ResultCap(), func(limit, offset int) ([]apptypes.ReportCommandRecord, error) {
-		return queryReportCommandPage(ctx, tx, criteria, limit, offset)
+	commands, commandsTruncated, err := loadKeyedReportRows(criteria.PageSize(), criteria.ResultCap(), func(limit int, after *apptypes.ReportCommandRecord) ([]apptypes.ReportCommandRecord, error) {
+		return queryReportCommandPage(ctx, tx, criteria, limit, after)
 	})
 	if err != nil {
 		return apptypes.ReportWindow{}, xerrors.Errorf("failed to load report commands: %w", err)
 	}
-	usage, usageTruncated, err := loadCappedReportRows(criteria.PageSize(), criteria.ResultCap(), func(limit, offset int) ([]apptypes.ReportUsageRecord, error) {
-		return queryReportUsagePage(ctx, tx, criteria, limit, offset)
+	usage, usageTruncated, err := loadKeyedReportRows(criteria.PageSize(), criteria.ResultCap(), func(limit int, after *apptypes.ReportUsageRecord) ([]apptypes.ReportUsageRecord, error) {
+		return queryReportUsagePage(ctx, tx, criteria, limit, after)
 	})
 	if err != nil {
 		return apptypes.ReportWindow{}, xerrors.Errorf("failed to load report usage: %w", err)
@@ -123,18 +137,19 @@ func (d *ReportDatasource) LoadReportWindow(ctx context.Context, criteria apptyp
 	}, nil
 }
 
-func loadCappedReportRows[T any](pageSize, resultCap int, loadPage func(limit, offset int) ([]T, error)) ([]T, bool, error) {
+func loadKeyedReportRows[T any](pageSize, resultCap int, loadPage func(limit int, after *T) ([]T, error)) ([]T, bool, error) {
 	target := 0
 	if resultCap > 0 {
 		target = resultCap + 1
 	}
 	rows := make([]T, 0, pageSize)
-	for offset := 0; ; {
+	var after *T
+	for {
 		limit := pageSize
 		if target > 0 && target-len(rows) < limit {
 			limit = target - len(rows)
 		}
-		page, err := loadPage(limit, offset)
+		page, err := loadPage(limit, after)
 		if err != nil {
 			return nil, false, err
 		}
@@ -145,7 +160,8 @@ func loadCappedReportRows[T any](pageSize, resultCap int, loadPage func(limit, o
 		if len(page) < limit {
 			break
 		}
-		offset += len(page)
+		last := page[len(page)-1]
+		after = &last
 	}
 	truncated := resultCap > 0 && len(rows) > resultCap
 	if truncated {
@@ -154,14 +170,34 @@ func loadCappedReportRows[T any](pageSize, resultCap int, loadPage func(limit, o
 	return rows, truncated, nil
 }
 
-func queryReportSessionPage(ctx context.Context, tx *sql.Tx, criteria apptypes.ReportCriteria, limit, offset int) ([]apptypes.ReportSessionRecord, error) {
+func reportKeysetArgs(afterNorm, afterID string) (string, string, string) {
+	if afterNorm == "" || afterID == "" {
+		return "", "", ""
+	}
+	return "1", afterNorm, afterID
+}
+
+// formatReportNorm matches persisted started_at_norm / observed_at_norm /
+// created_at_norm so keyset after-keys compare equal to the indexed columns.
+func formatReportNorm(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return formatMemoryValidityTimestamp(value)
+}
+
+func queryReportSessionPage(ctx context.Context, tx *sql.Tx, criteria apptypes.ReportCriteria, limit int, after *apptypes.ReportSessionRecord) ([]apptypes.ReportSessionRecord, error) {
 	from := formatOptionalTimestamp(criteria.Interval().EffectiveFromInclusive())
 	to := formatOptionalTimestamp(criteria.Interval().EffectiveToExclusive())
+	afterFlag, afterNorm, afterID := "", "", ""
+	if after != nil {
+		afterFlag, afterNorm, afterID = reportKeysetArgs(formatReportNorm(after.StartedAt), after.SessionID.String())
+	}
 	rows, err := tx.QueryContext(
 		ctx, listReportSessionsQuery,
 		criteria.Workspace().String(), criteria.Workspace().String(),
 		criteria.Client().String(), criteria.Client().String(),
-		from, from, to, to, limit, offset,
+		from, from, to, to, afterFlag, afterNorm, afterID, limit,
 		criteria.Workspace().String(), criteria.Workspace().String(),
 		criteria.Client().String(), criteria.Client().String(),
 		from, from, to, to,
@@ -176,9 +212,9 @@ func queryReportSessionPage(ctx context.Context, tx *sql.Tx, criteria apptypes.R
 	}()
 	result := make([]apptypes.ReportSessionRecord, 0, limit)
 	for rows.Next() {
-		var client, startedAtValue string
+		var sessionID, client, startedAtValue string
 		var totalEvents, commandCount int
-		if err := rows.Scan(&client, &startedAtValue, &totalEvents, &commandCount); err != nil {
+		if err := rows.Scan(&sessionID, &client, &startedAtValue, &totalEvents, &commandCount); err != nil {
 			return nil, xerrors.Errorf("failed to scan report session row: %w", err)
 		}
 		startedAt, err := time.Parse(time.RFC3339Nano, startedAtValue)
@@ -186,7 +222,7 @@ func queryReportSessionPage(ctx context.Context, tx *sql.Tx, criteria apptypes.R
 			return nil, xerrors.Errorf("failed to restore report session timestamp: %w", err)
 		}
 		result = append(result, apptypes.ReportSessionRecord{
-			Client: types.Client(client), StartedAt: startedAt,
+			SessionID: types.SessionID(sessionID), Client: types.Client(client), StartedAt: startedAt,
 			TotalEvents: totalEvents, CommandCount: commandCount,
 		})
 	}
@@ -196,15 +232,19 @@ func queryReportSessionPage(ctx context.Context, tx *sql.Tx, criteria apptypes.R
 	return result, nil
 }
 
-func queryReportCommandPage(ctx context.Context, tx *sql.Tx, criteria apptypes.ReportCriteria, limit, offset int) ([]apptypes.ReportCommandRecord, error) {
+func queryReportCommandPage(ctx context.Context, tx *sql.Tx, criteria apptypes.ReportCriteria, limit int, after *apptypes.ReportCommandRecord) ([]apptypes.ReportCommandRecord, error) {
 	from := formatOptionalTimestamp(criteria.Interval().EffectiveFromInclusive())
 	to := formatOptionalTimestamp(criteria.Interval().EffectiveToExclusive())
+	afterFlag, afterNorm, afterID := "", "", ""
+	if after != nil {
+		afterFlag, afterNorm, afterID = reportKeysetArgs(formatReportNorm(after.CreatedAt), after.EventID.String())
+	}
 	rows, err := tx.QueryContext(
 		ctx, listReportCommandAuditsQuery,
 		criteria.Client().String(), criteria.Client().String(),
 		"", "", "", "",
 		criteria.Workspace().String(), criteria.Workspace().String(),
-		from, from, to, to, limit, offset,
+		from, from, to, to, afterFlag, afterNorm, afterID, limit,
 	)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to query report command page: %w", err)
@@ -232,15 +272,20 @@ func queryReportUsagePage(
 	ctx context.Context,
 	tx *sql.Tx,
 	criteria apptypes.ReportCriteria,
-	limit, offset int,
+	limit int,
+	after *apptypes.ReportUsageRecord,
 ) ([]apptypes.ReportUsageRecord, error) {
 	from := formatOptionalTimestamp(criteria.Interval().EffectiveFromInclusive())
 	to := formatOptionalTimestamp(criteria.Interval().EffectiveToExclusive())
+	afterFlag, afterNorm, afterID := "", "", ""
+	if after != nil {
+		afterFlag, afterNorm, afterID = reportKeysetArgs(formatReportNorm(after.ObservedAt), after.ObservationID)
+	}
 	rows, err := tx.QueryContext(
 		ctx, listReportUsageQuery,
 		criteria.Workspace().String(), criteria.Workspace().String(),
 		criteria.Client().String(), criteria.Client().String(),
-		from, from, to, to, limit, offset,
+		from, from, to, to, afterFlag, afterNorm, afterID, limit,
 	)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to query report usage page: %w", err)
@@ -269,12 +314,15 @@ func queryReportUsageWorkspaceTally(
 	tx *sql.Tx,
 	criteria apptypes.ReportCriteria,
 ) (apptypes.ReportUsageWorkspaceTally, error) {
+	from := formatOptionalTimestamp(criteria.Interval().EffectiveFromInclusive())
+	to := formatOptionalTimestamp(criteria.Interval().EffectiveToExclusive())
 	var tally apptypes.ReportUsageWorkspaceTally
 	err := tx.QueryRowContext(
 		ctx,
 		countReportUsageWorkspaceQuery,
 		criteria.Workspace().String(), criteria.Workspace().String(),
 		criteria.Client().String(), criteria.Client().String(),
+		from, from, to, to,
 	).Scan(&tally.Excluded, &tally.Unavailable, &tally.KimiMainWireKnown)
 	if err != nil {
 		return apptypes.ReportUsageWorkspaceTally{}, xerrors.Errorf("failed to count workspace usage observations: %w", err)
