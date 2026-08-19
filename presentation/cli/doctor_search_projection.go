@@ -96,10 +96,16 @@ func searchProjectionBudgetDoctorCheck(status apptypes.SearchProjectionControlSt
 		}
 	case 0:
 		return doctorCheck{
-			Name:    name,
-			Status:  doctorStatusWarn,
-			Message: Localize("completed search-projection family exceeds the configured index-family budget", "完了した search-projection ファミリが設定した index-family 予算を超えています"),
-			Hint:    Localize("run `traceary store compact --projection-rebuild` with a smaller --index-family-bytes; CatchUp will not correct a complete generation", "`--index-family-bytes` を小さくして `traceary store compact --projection-rebuild` を実行してください。CatchUp は complete 世代を直しません"),
+			Name:   name,
+			Status: doctorStatusWarn,
+			Message: Localize(
+				"completed search-projection family exceeds the configured index-family budget; search_projection_session_keywords (and its autoindex) is counted, corpus-proportional, and not evictable",
+				"完了した search-projection ファミリが設定した index-family 予算を超えています。search_projection_session_keywords（とその autoindex）は計上され、コーパス比例で evict できません",
+			),
+			Hint: Localize(
+				"session keywords bound is one complete generation, cleaned when that generation is replaced; run `traceary store compact --projection-rebuild` with a smaller --index-family-bytes to shrink the evictable recent tier. CatchUp will not correct a complete generation",
+				"session keywords の上限は complete な 1 世代分で、世代が置き換わると掃除されます。evict できる recent ティアを縮めるには `--index-family-bytes` を小さくして `traceary store compact --projection-rebuild` を実行してください。CatchUp は complete 世代を直しません",
+			),
 		}
 	default:
 		return doctorCheck{

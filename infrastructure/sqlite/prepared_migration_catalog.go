@@ -115,6 +115,9 @@ var preparedMigrationManifest = map[int64]migrationManifestEntry{
 	// 70 recreates a fingerprint-first secondary index. CREATE INDEX does not
 	// rewrite the fingerprint rows; previous binaries ignore the extra index.
 	70: {70, "000070_restore_literal_search_fingerprint_by_fp.sql", "4ab560ca7ba1986758c6a40f6c0d0d58c9ca393090b550ae6995a8f6a9a93b3c", MigrationConstantInPlace},
+	// 71 drops five unused raw-created_at events indexes. DROP INDEX moves
+	// pages to the freelist (000059); no row rewrite.
+	71: {71, "000071_drop_superseded_events_created_at_indexes.sql", "518555e257aa6f100713c370fafc45765449a8f875f1708438b139e0e7edb3f5", MigrationConstantInPlace},
 }
 
 // PreparedMigration identifies one exact pending embedded migration.

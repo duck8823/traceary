@@ -33,12 +33,12 @@ Traceary は、ローカル状態を 1 つの SQLite DB ファイルに保存し
 - `client`: `cli`、`claude`、`codex`、`gemini`、`mcp` などの ingestion path
 - `workspace`: 利用可能な場合の補助的な work-context identifier
 
-主な index:
+主な index（語彙順の `created_at_norm` 系。生の `created_at` 重複 index は migration 000071 で削除）:
 
-- `idx_events_session_created_at` on `(session_id, created_at)`
-- `idx_events_session_created_at_id_desc` on `(session_id, created_at DESC, id DESC)`
-- `idx_events_created_at` on `(created_at DESC, id DESC)`
-- `idx_events_workspace_created_at` on `(workspace, created_at)`
+- `idx_events_created_at_norm_id_desc` on `(created_at_norm DESC, id DESC)`
+- `idx_events_session_created_at_norm_id_desc` on `(session_id, created_at_norm DESC, id DESC)`
+- `idx_events_workspace_created_at_norm_id_desc` on `(workspace, created_at_norm DESC, id DESC)`
+- `idx_events_source_hook_created_at_norm_id_desc` on `(source_hook, created_at_norm DESC, id DESC)`
 
 ### `command_audits`
 
