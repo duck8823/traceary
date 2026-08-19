@@ -112,6 +112,9 @@ var preparedMigrationManifest = map[int64]migrationManifestEntry{
 	// Row backfill of started_at_norm / observed_at_norm is a bounded open
 	// catch-up, not this migration.
 	69: {69, "000069_add_report_window_norm_columns.sql", "85ab3ae7f4efc6a777eef43406e7882cc523c9a53bd8d758fe3eb8daa01a8455", MigrationConstantInPlace},
+	// 70 recreates a fingerprint-first secondary index. CREATE INDEX does not
+	// rewrite the fingerprint rows; previous binaries ignore the extra index.
+	70: {70, "000070_restore_literal_search_fingerprint_by_fp.sql", "4ab560ca7ba1986758c6a40f6c0d0d58c9ca393090b550ae6995a8f6a9a93b3c", MigrationConstantInPlace},
 }
 
 // PreparedMigration identifies one exact pending embedded migration.

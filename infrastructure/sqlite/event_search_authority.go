@@ -223,31 +223,20 @@ func (d *EventDatasource) searchTieredTopKMetadataTx(ctx context.Context, tx *sq
 func buildTieredSearchCandidateQuery(criteria apptypes.EventSearchCriteria, generation string) (string, []any) {
 	query := apptypes.CharacterizeLiteralQuery(criteria.Query())
 	var builder strings.Builder
-	// The candidate set is events, not search_projection_source_sequence.
-	// That table is the projection's own checkpoint ledger: it is populated by
-	// the migration-038 insert trigger and, for rows that predate it, only by
-	// the rebuild's inventory phase (search_projection_rebuild.go:271). An
-	// upgraded store that has never completed a generation therefore has no
-	// sequence row for any of its history, and joining through it would drop
-	// that history from every search. It also outlives deleted events, since
-	// nothing removes a row when its event goes away.
-	//
-	// There is no sequence bound either: post-completion rows form the live
-	// tail and must participate in the same ordered walk as projected events.
-	// The fingerprint pre-filter below is fail-open for events with no rows
-	// for the generation, so tail rows are decided on their decoded content.
-	builder.WriteString(`SELECT e.id,COALESCE(e.body_encoded_bytes,length(e.body),0)+COALESCE(a.command_encoded_bytes,length(a.command_text),0)+COALESCE(a.input_encoded_bytes,length(a.input_text),0)+COALESCE(a.output_encoded_bytes,length(a.output_text),0),COALESCE(e.body_plaintext_bytes,length(e.body),0)+COALESCE(a.command_plaintext_bytes,length(a.command_text),0)+COALESCE(a.input_plaintext_bytes,length(a.input_text),0)+COALESCE(a.output_plaintext_bytes,length(a.output_text),0) FROM events e LEFT JOIN command_audits a ON a.event_id=e.id WHERE 1=1`)
+	const candidateSelect = `SELECT e.id,COALESCE(e.body_encoded_bytes,length(e.body),0)+COALESCE(a.command_encoded_bytes,length(a.command_text),0)+COALESCE(a.input_encoded_bytes,length(a.input_text),0)+COALESCE(a.output_encoded_bytes,length(a.output_text),0),COALESCE(e.body_plaintext_bytes,length(e.body),0)+COALESCE(a.command_plaintext_bytes,length(a.command_text),0)+COALESCE(a.input_plaintext_bytes,length(a.input_text),0)+COALESCE(a.output_plaintext_bytes,length(a.output_text),0)`
 	args := []any{}
-	args = appendEventSearchFilters(&builder, args, criteria)
-	// An empty generation means no trustworthy fingerprints exist for this
-	// read. Skip the clause outright rather than relying on it matching
-	// nothing: three correlated subqueries per candidate row are not free,
-	// and the fail-open behaviour should not depend on an invariant about
-	// which generation ids can appear in literal_search_fingerprints.
+	// Filterable queries with a usable generation start from fingerprints
+	// (plus the post-cutover / never-inventoried tail). Walking events and
+	// probing fingerprints per row stays O(history) for no-match. An empty
+	// generation or an unfilterable short query keeps the events walk.
 	if generation != "" && query.Filterable() {
 		fingerprints := query.Fingerprints()
-		builder.WriteString(" AND (NOT EXISTS(SELECT 1 FROM literal_search_fingerprints known WHERE known.generation_id=? AND known.event_id=e.id AND known.fingerprint_version=1) OR (SELECT COUNT(DISTINCT matched.fingerprint) FROM literal_search_fingerprints matched WHERE matched.generation_id=? AND matched.event_id=e.id AND matched.fingerprint_version=1 AND matched.fingerprint IN (")
-		args = append(args, generation, generation)
+		builder.WriteString(candidateSelect)
+		builder.WriteString(` FROM (
+  SELECT fp.event_id AS id
+    FROM literal_search_fingerprints fp INDEXED BY idx_literal_search_fingerprints_by_fp
+   WHERE fp.generation_id=? AND fp.fingerprint_version=1 AND fp.fingerprint IN (`)
+		args = append(args, generation)
 		for i, fingerprint := range fingerprints {
 			if i > 0 {
 				builder.WriteByte(',')
@@ -255,9 +244,43 @@ func buildTieredSearchCandidateQuery(criteria apptypes.EventSearchCriteria, gene
 			builder.WriteByte('?')
 			args = append(args, []byte(fingerprint))
 		}
-		builder.WriteString("))=?)")
-		args = append(args, len(fingerprints))
+		builder.WriteString(`)
+   GROUP BY fp.event_id
+  HAVING COUNT(DISTINCT fp.fingerprint)=?
+  UNION
+  SELECT q.event_id
+    FROM search_projection_source_sequence q
+   WHERE q.sequence > (SELECT high_water FROM search_projection_state WHERE singleton=1)
+  UNION
+  SELECT q.event_id
+    FROM search_projection_source_sequence q
+   WHERE q.sequence <= (SELECT high_water FROM search_projection_state WHERE singleton=1)
+     AND NOT EXISTS (
+         SELECT 1 FROM literal_search_fingerprints known
+          WHERE known.generation_id=? AND known.event_id=q.event_id AND known.fingerprint_version=1
+     )
+  UNION
+  SELECT e_tail.id
+    FROM events e_tail
+   WHERE NOT EXISTS (
+         SELECT 1 FROM search_projection_source_sequence missing WHERE missing.event_id=e_tail.id
+   )
+) candidates
+JOIN events e ON e.id=candidates.id
+LEFT JOIN command_audits a ON a.event_id=e.id
+WHERE 1=1`)
+		args = append(args, len(fingerprints), generation)
+	} else {
+		// The candidate set is events, not search_projection_source_sequence.
+		// That table is the projection's own checkpoint ledger: it is populated
+		// by the migration-038 insert trigger and, for rows that predate it,
+		// only by the rebuild's inventory phase. An upgraded store that has
+		// never completed a generation therefore has no sequence row for any
+		// of its history, and joining through it would drop that history.
+		builder.WriteString(candidateSelect)
+		builder.WriteString(` FROM events e LEFT JOIN command_audits a ON a.event_id=e.id WHERE 1=1`)
 	}
+	args = appendEventSearchFilters(&builder, args, criteria)
 	builder.WriteString(" ORDER BY e.created_at_norm DESC,e.id DESC LIMIT ?")
 	args = append(args, apptypes.DeepLiteralSearchBudget.SourceRows+1)
 	return builder.String(), args

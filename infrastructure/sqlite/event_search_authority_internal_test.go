@@ -281,9 +281,12 @@ func TestTieredAuthorityFingerprintPreFilter(t *testing.T) {
 	}
 }
 
-func TestTieredAuthorityFingerprintReadersUsePrimaryKeyAfterCandidateIndexDrop(t *testing.T) {
+func TestTieredAuthorityFingerprintFirstPlanUsesByFpIndex(t *testing.T) {
 	ctx := context.Background()
 	database, _ := newTieredAuthorityFixture(t)
+	insertTieredSearchEvent(t, database, "pre-match", "shared needle alpha", time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC))
+	seedTieredCompleteProjection(t, database, "generation")
+	seedLiteralFingerprints(t, database, "generation", "pre-match", "shared needle alpha")
 	criteria := apptypes.NewEventSearchCriteriaBuilder(10).Query("needle").Build()
 	query, args := buildTieredSearchCandidateQuery(criteria, "generation")
 
@@ -297,11 +300,11 @@ func TestTieredAuthorityFingerprintReadersUsePrimaryKeyAfterCandidateIndexDrop(t
 	if err = raw.QueryRowContext(ctx, `
 		SELECT COUNT(*)
 		  FROM sqlite_schema
-		 WHERE type='index' AND name='idx_literal_search_fingerprint_candidate'`).Scan(&indexCount); err != nil {
+		 WHERE type='index' AND name='idx_literal_search_fingerprints_by_fp'`).Scan(&indexCount); err != nil {
 		t.Fatal(err)
 	}
-	if diff := cmp.Diff(0, indexCount); diff != "" {
-		t.Fatalf("candidate index still exists (-want +got):\n%s", diff)
+	if diff := cmp.Diff(1, indexCount); diff != "" {
+		t.Fatalf("fingerprint-first index missing (-want +got):\n%s", diff)
 	}
 
 	rows, err := raw.QueryContext(ctx, "EXPLAIN QUERY PLAN "+query, args...)
@@ -322,26 +325,48 @@ func TestTieredAuthorityFingerprintReadersUsePrimaryKeyAfterCandidateIndexDrop(t
 		t.Fatal(err)
 	}
 	plan := strings.Join(details, "\n")
-
-	// Matched per row rather than against the joined plan, and without the
-	// word between "using" and the index name: SQLite writes "USING INDEX" or
-	// "USING COVERING INDEX" depending on whether the row is satisfied from
-	// the index alone, and which one it picks is not the property under test.
-	// Pinning the exact phrase would turn an irrelevant planner detail into a
-	// red build.
-	for _, reader := range []string{"known", "matched"} {
-		t.Run(reader, func(t *testing.T) {
-			for _, detail := range details {
-				if strings.HasPrefix(detail, "search "+reader+" using") &&
-					strings.Contains(detail, "sqlite_autoindex_literal_search_fingerprints_1") {
-					return
-				}
-			}
-			t.Fatalf("fingerprint reader %q does not resolve through the primary key:\n%s", reader, plan)
-		})
+	if !strings.Contains(plan, "idx_literal_search_fingerprints_by_fp") {
+		t.Fatalf("fingerprint-first plan does not use idx_literal_search_fingerprints_by_fp:\n%s", plan)
 	}
-	if strings.Contains(plan, "idx_literal_search_fingerprint_candidate") {
-		t.Fatalf("fingerprint query plan still names the dropped candidate index:\n%s", plan)
+	if strings.Contains(query, "NOT EXISTS(SELECT 1 FROM literal_search_fingerprints") {
+		t.Fatal("filterable fingerprint-first SQL still probes fingerprints per events row")
+	}
+}
+
+func TestTieredAuthorityNoMatchDoesNotWalkProjectedHistory(t *testing.T) {
+	ctx := context.Background()
+	database, datasource := newTieredAuthorityFixture(t)
+	base := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+	insertTieredSearchEvent(t, database, "pre-noise", "zzzz other text", base)
+	seedTieredCompleteProjection(t, database, "gen-nomatch")
+	seedLiteralFingerprints(t, database, "gen-nomatch", "pre-noise", "zzzz other text")
+	got, err := datasource.SearchMetadata(ctx, apptypes.NewEventSearchCriteriaBuilder(10).Query("needle").Build())
+	if err != nil {
+		t.Fatalf("SearchMetadata() error = %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("no-match IDs = %v, want empty", metadataIDs(got))
+	}
+}
+
+func TestTieredAuthorityUnfilterableKeepsEventsWalk(t *testing.T) {
+	t.Parallel()
+	criteria := apptypes.NewEventSearchCriteriaBuilder(10).Query("ab").Build()
+	query, _ := buildTieredSearchCandidateQuery(criteria, "generation")
+	if strings.Contains(query, "literal_search_fingerprints") {
+		t.Fatalf("unfilterable query still uses fingerprints:\n%s", query)
+	}
+	if !strings.Contains(query, "FROM events e LEFT JOIN command_audits") {
+		t.Fatalf("unfilterable query lost the events walk:\n%s", query)
+	}
+}
+
+func TestTieredAuthorityEmptyGenerationKeepsEventsWalk(t *testing.T) {
+	t.Parallel()
+	criteria := apptypes.NewEventSearchCriteriaBuilder(10).Query("needle").Build()
+	query, _ := buildTieredSearchCandidateQuery(criteria, "")
+	if strings.Contains(query, "literal_search_fingerprints") {
+		t.Fatalf("empty generation still uses fingerprints:\n%s", query)
 	}
 }
 
