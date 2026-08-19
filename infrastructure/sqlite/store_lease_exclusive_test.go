@@ -47,7 +47,7 @@ func TestAcquireExclusive_TimesOutWhileSharedConnHeld(t *testing.T) {
 	}
 }
 
-func TestCoordinatedOpen_FailsFastWhenThisProcessHoldsExclusive(t *testing.T) {
+func TestCoordinatedOpen_SucceedsWhenThisProcessHoldsExclusive(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "store.db")
 	release, err := (StoreLeaseCoordinator{}).AcquireExclusive(context.Background(), path)
 	if err != nil {
@@ -57,9 +57,29 @@ func TestCoordinatedOpen_FailsFastWhenThisProcessHoldsExclusive(t *testing.T) {
 	started := time.Now()
 	db := openCoordinatedDB(path, sqliteDSN(path))
 	defer func() { _ = db.Close() }()
-	err = db.PingContext(context.Background())
+	if err := db.PingContext(context.Background()); err != nil {
+		t.Fatalf("exclusive holder must open SQLite without a second flock: %v", err)
+	}
+	if time.Since(started) > time.Second {
+		t.Fatalf("exclusive-holder open took %s, want no shared-lease poll", time.Since(started))
+	}
+}
+
+func TestAcquireSharedLease_FailsFastWhenThisProcessHoldsExclusive(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "store.db")
+	release, err := (StoreLeaseCoordinator{}).AcquireExclusive(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	lockPath, err := canonicalLeasePath(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now()
+	_, err = acquireAdvisoryLease(context.Background(), lockPath, false)
 	if err == nil {
-		t.Fatal("coordinated ping succeeded while this process holds exclusive")
+		t.Fatal("shared acquire succeeded on a second fd while this process holds exclusive")
 	}
 	if !strings.Contains(err.Error(), "self-deadlock") || !strings.Contains(err.Error(), storeLeaseSuffix) {
 		t.Fatalf("error should name self-deadlock and lock path, got %v", err)

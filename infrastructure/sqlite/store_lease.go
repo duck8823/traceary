@@ -70,6 +70,12 @@ func selfDeadlockError(lockPath string) error {
 	return fmt.Errorf("%w on %s: this process already holds the exclusive lease", errStoreLeaseSelfDeadlock, lockPath)
 }
 
+// heldExclusiveLease is attached to connections opened while this process
+// already holds LOCK_EX. Close must not unlock that exclusive fd.
+type heldExclusiveLease struct{}
+
+func (heldExclusiveLease) Close() error { return nil }
+
 func canonicalStorePath(path string) (string, error) {
 	absolute, err := filepath.Abs(path)
 	if err != nil {
@@ -173,7 +179,11 @@ func (c *storeLeaseConnector) Connect(ctx context.Context) (driver.Conn, error) 
 		return nil, err
 	}
 	if processHoldsExclusiveLease(c.lockPath) {
-		return nil, selfDeadlockError(c.lockPath)
+		// flock is per open file description. A second LOCK_SH on another
+		// fd can never succeed while this process holds LOCK_EX (#2149).
+		// Compact still needs SQLite connections for projection complete
+		// (#2163). The exclusive fd already excludes cooperating processes.
+		return c.openHeldExclusive(ctx)
 	}
 	ctx, cancel := bindSharedLeaseDeadline(ctx)
 	defer cancel()
@@ -192,6 +202,21 @@ func (c *storeLeaseConnector) Connect(ctx context.Context) (driver.Conn, error) 
 		return nil, err
 	}
 	return &storeLeaseConn{Conn: conn, lease: lease}, nil
+}
+
+func (c *storeLeaseConnector) openHeldExclusive(ctx context.Context) (driver.Conn, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	conn, err := c.driver.Open(c.dsn)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateStoreLinkIdentity(c.storePath); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	return &storeLeaseConn{Conn: conn, lease: heldExclusiveLease{}}, nil
 }
 
 type storeLeaseConn struct {

@@ -35,21 +35,15 @@ func TestFileRetentionLiveGenerationHonorsContextWhileExclusiveLeaseHeld(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer release()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
 	started := time.Now()
-	_, liveErr := fileRetentionLiveGeneration(ctx, "backup", path)
-	if liveErr == nil || !strings.Contains(liveErr.Error(), "self-deadlock") {
-		release()
-		t.Fatalf("live generation error=%v, want same-process self-deadlock", liveErr)
+	if _, liveErr := fileRetentionLiveGeneration(ctx, "backup", path); liveErr != nil {
+		t.Fatalf("live generation while this process holds exclusive: %v", liveErr)
 	}
 	if time.Since(started) > time.Second {
-		release()
-		t.Fatal("live generation did not fail promptly")
-	}
-	release()
-	if _, err := fileRetentionLiveGeneration(context.Background(), "backup", path); err != nil {
-		t.Fatalf("live generation after lease release: %v", err)
+		t.Fatal("live generation hung while exclusive lease was held")
 	}
 }
 

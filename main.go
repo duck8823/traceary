@@ -258,6 +258,12 @@ func run() error {
 			})
 			svc := usecase.NewStoreCompactionUsecase(path, journal, builder, sqlite.StoreReplacementFiles{CallerHoldsExclusiveLease: true}, sqlite.StoreLeaseCoordinator{})
 			usecase.BindCompactionWorkCover(svc, compactWorkCover(migrationsSubFS))
+			usecase.BindCompactionProjectionComplete(svc, func(ctx context.Context, store string) error {
+				previous := db.Path()
+				db.SetPath(store)
+				defer db.SetPath(previous)
+				return usecase.NewSearchProjectionUsecase(db).CompleteGeneration(ctx, apptypes.DefaultSearchProjectionBudget(), time.Now())
+			})
 			return svc
 		}),
 		cli.WithFileRetention(fileRetentionUsecase),
