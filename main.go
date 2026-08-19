@@ -385,12 +385,8 @@ func resolveHookSoftDeadline() time.Duration {
 }
 
 func isHookCommandArgs(args []string) bool {
-	for _, arg := range args[1:] {
-		if arg == "hook" {
-			return true
-		}
-	}
-	return false
+	argv := commandArgvWithoutFlags(args)
+	return len(argv) > 0 && argv[0] == "hook"
 }
 
 // isDetachedHookWorkerArgs reports hidden workers that run outside host

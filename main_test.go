@@ -22,8 +22,11 @@ func TestIsHookCommandArgs(t *testing.T) {
 		want bool
 	}{
 		{name: "direct hook command", args: []string{"traceary", "hook", "prompt", "claude"}, want: true},
+		{name: "session-start hook command", args: []string{"traceary", "hook", "session-start"}, want: true},
 		{name: "global flag before hook", args: []string{"traceary", "--config", "config.json", "hook", "prompt", "claude"}, want: true},
 		{name: "ordinary command", args: []string{"traceary", "doctor", "--client", "claude"}, want: false},
+		{name: "report client filter named hook", args: []string{"traceary", "report", "--client", "hook"}, want: false},
+		{name: "report json client filter named hook", args: []string{"traceary", "report", "--json", "--client", "hook", "--from", "2026-08-01"}, want: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -104,6 +107,15 @@ func TestCommandContext_NonHookHasNoSoftDeadline(t *testing.T) {
 	defer cancel()
 	if _, ok := ctx.Deadline(); ok {
 		t.Fatal("non-hook command must not inherit the hook soft deadline")
+	}
+}
+
+func TestCommandContext_ReportClientHookHasNoSoftDeadline(t *testing.T) {
+	t.Setenv(hookSoftDeadlineEnvKey, "50ms")
+	ctx, cancel := commandContext([]string{"traceary", "report", "--json", "--client", "hook"})
+	defer cancel()
+	if _, ok := ctx.Deadline(); ok {
+		t.Fatal("report --client hook must not inherit the hook soft deadline")
 	}
 }
 
