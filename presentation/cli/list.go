@@ -366,7 +366,7 @@ func (c *RootCLI) runList(ctx context.Context, warnWriter io.Writer, output io.W
 	if c.event == nil {
 		return xerrors.New(Localize("list events query service is not configured", "イベント一覧クエリサービスが設定されていません"))
 	}
-	if err := c.storeManagement.Initialize(ctx); err != nil {
+	if err := initializeOperatorStore(ctx, c.storeManagement); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 	events, err := c.event.List(ctx, criteria)

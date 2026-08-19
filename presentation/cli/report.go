@@ -130,7 +130,7 @@ func (c *RootCLI) runReport(ctx context.Context, output io.Writer, input reportC
 		return xerrors.Errorf("%s: %w", Localize("failed to resolve DB path", "DB パスの解決に失敗しました"), err)
 	}
 	c.applyDatabasePath(resolvedDBPath)
-	if err := c.storeManagement.Initialize(ctx); err != nil {
+	if err := initializeOperatorStore(ctx, c.storeManagement); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to initialize store", "ストアの初期化に失敗しました"), err)
 	}
 
