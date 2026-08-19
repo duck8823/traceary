@@ -524,7 +524,8 @@ func (d *Database) initializeAt(ctx context.Context, snapshot string, allowOffli
 // sqliteBusyTimeout is deliberately shorter than every packaged host hook
 // budget. Contention therefore returns control while the hook process still
 // has time to retain its write-ahead spool record instead of being killed at
-// the same instant SQLite's wait expires.
+// the same instant SQLite's wait expires. Operator CLI retries SQLITE_BUSY
+// separately; do not raise this constant for search/report/list (#2186).
 const sqliteBusyTimeout = 1000
 
 func sqliteDSN(dbPath string) string {
