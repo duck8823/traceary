@@ -7,6 +7,8 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ## [Unreleased]
 
+## [v0.44.0] - 2026-08-19
+
 ### Fixed
 - **`--client hook` no longer inherits the 8s hook soft deadline (#2174)** — only the `hook` subcommand is a hook invocation. `report --client hook` uses the ordinary CLI context (signals only). Leaves parent #2126 open.
 - **Filterable no-match with an empty post-cutover tail no longer walks workspace events (#2178)** — when a required trigram is absent, candidates are only `sequence > high_water`. An empty tail returns immediately; a non-empty tail is materialized from the sequence PK before joining events. Decode remains the match authority. Leaves parent #2126 open.
@@ -18,6 +20,9 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 - **Post-compact non-payload amplification: drop superseded events indexes and name the session-keyword exemption (#2129)** — migration `000071` drops `idx_events_created_at`, `idx_events_session_created_at`, `idx_events_session_created_at_id_desc`, `idx_events_workspace_created_at`, and `idx_events_source_hook_time` (readers stay on the `created_at_norm` family). `search_projection_session_keywords` remains counted in the index-family budget and is not evictable; `doctor` `search-projection-budget` WARN names that family. Leaves parent #2126 open.
 - **Filterable `search` no longer walks total event history to apply fingerprints (#2127)** — candidates come from `literal_search_fingerprints` (index `idx_literal_search_fingerprints_by_fp`) plus the post-cutover / never-inventoried tail. Decode remains the match authority; the pre-filter stays fail-open; unfilterable short queries keep the events walk. Search JSON shape is unchanged. Leaves parent #2126 open.
 - **`report` window loads no longer wrap filter columns in `ts_norm` or re-scan with OFFSET (#2128)** — sessions and usage persist `started_at_norm` / `observed_at_norm` (same lexical form as `events.created_at_norm`); pages use keyset `(norm, id)` instead of `LIMIT/OFFSET`. Usage workspace tally counts the same interval as the usage page (JSON shape unchanged; values may drop rows outside the window). Empty norms are stamped in batched store-open catch-up. Leaves parent #2126 open.
+- **Exclusive-wait timeout no longer cancels the compact rewrite (#2161)** — the 5-minute wait context applies only to exclusive acquire and is cancelled as soon as acquire returns. Inspect, plan, copy, and swap stay on the caller context. Leaves parent #2126 open.
+- **Extract workers back off while compact waits for exclusive (#2150)** — a compact-pending marker next to the lease file is written before exclusive wait. Workers finish the current job and do not start the next. Exclusive timeout names holders (`pid=` / `command=`) via `lsof` when available. Default exclusive wait is five minutes so one in-flight extract can finish. Leaves parent #2126 open.
+- **Shared store-lease acquisition is bounded and fails fast on same-process exclusive self-deadlock (#2149)** — shared acquire uses the same 60s default as exclusive (caller deadline still wins) and prints wait lines. Same-process exclusive holders fail fast with the lock path. Pre-copy windows (`inspect_gate`, `exclusive_lease`, `inspect_reclaim`, `plan`) plus `planned` make stalls visible before `copy_intent`. Leaves parent #2126 open.
 
 ## [v0.43.0] - 2026-08-18
 

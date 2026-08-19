@@ -7,6 +7,8 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 
 ## [Unreleased]
 
+## [v0.44.0] - 2026-08-19
+
 ### Fixed
 - **`--client hook` が 8s の hook soft deadline を継承しない (#2174)** — hook 呼び出しは `hook` サブコマンドだけ。`report --client hook` は通常 CLI コンテキスト（signal のみ）。親 #2126 は open のまま。
 - **必須 trigram が無く cutover 後 tail も空の filterable no-match が workspace イベントを歩かない (#2178)** — 候補は `sequence > high_water` だけ。空 tail は即 empty。非空 tail は sequence PK を MATERIALIZED してから events に JOIN。decode が match 権威のまま。親 #2126 は open のまま。
@@ -18,6 +20,9 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 - **compact 後の非 payload 増幅: 置き換え済み events index を落とし、session-keyword の evict 免除を名指しする (#2129)** — migration `000071` が `idx_events_created_at` など生 `created_at` 系 5 本を DROP（読者は `created_at_norm` 系のまま）。`search_projection_session_keywords` は index-family 予算に計上し evict しない。`doctor` の `search-projection-budget` WARN がそのファミリを名指しする。親 #2126 は open のまま。
 - **フィルタ可能な `search` が fingerprint 適用のためにイベント全履歴を歩かない (#2127)** — 候補は `literal_search_fingerprints`（`idx_literal_search_fingerprints_by_fp`）と cutover 後 / 未 inventory の tail。decode が match 権威のまま。pre-filter は fail-open。短い unfilterable クエリは events walk のまま。検索 JSON 形は不変。親 #2126 は open のまま。
 - **`report` の期間ロードがフィルタ列を `ts_norm` で包まず、OFFSET 再走査もしない (#2128)** — sessions / usage に `started_at_norm` / `observed_at_norm` を永続化（`events.created_at_norm` と同じ語彙形）。ページは `LIMIT/OFFSET` ではなく keyset `(norm, id)`。usage workspace tally は usage ページと同じ期間を数える（JSON 形は不変。窓外の行は値が減ることがある）。空の norm はストア open 時のバッチ catch-up で埋める。親 #2126 は open のまま。
+- **exclusive-wait の timeout が compact の rewrite を打ち切らない (#2161)** — 5 分の wait context は exclusive acquire だけに使い、acquire が返った時点で cancel する。inspect / plan / copy / swap は呼び出し元 context のまま。親 #2126 は open のまま。
+- **compact が exclusive 待ちのあいだ extract worker が退避する (#2150)** — exclusive wait の前に lease ファイル隣へ compact-pending marker を書く。worker は現在の job を終えて次を開始しない。exclusive timeout は可能なら `lsof` で holder（`pid=` / `command=`）を名指しする。default exclusive wait は 5 分で、進行中の extract 1 件が終わる余地を残す。親 #2126 は open のまま。
+- **共有 store-lease の取得が有界になり、同一プロセスの exclusive self-deadlock は fail-fast する (#2149)** — shared acquire は exclusive と同じ 60s default（呼び出し元 deadline が優先）で wait 行を出す。同一プロセスが exclusive を持っている場合は lock path を出して即失敗する。pre-copy 窓（`inspect_gate` / `exclusive_lease` / `inspect_reclaim` / `plan`）と `planned` で、`copy_intent` 前の stall が見える。親 #2126 は open のまま。
 
 ## [v0.43.0] - 2026-08-18
 
