@@ -1024,7 +1024,7 @@ func TestDrainHookSpoolRecordsUntil_LoopsPastRoundLimit(t *testing.T) {
 			t.Fatalf("persist %d: %v", i, err)
 		}
 	}
-	result := root.drainHookSpoolRecordsUntil(context.Background(), total)
+	result := root.drainHookSpoolRecordsUntil(context.Background(), total, hookSpoolDeadRequeueNow().Add(hookSpoolDeadRequeueDoctorWall))
 	if result.Err != nil {
 		t.Fatalf("until: %v", result.Err)
 	}
@@ -1821,7 +1821,7 @@ func TestRequeueHookSpoolDeadLettersUntil_DrainsBeyondBatchLimitWithinBudget(t *
 		t.Fatal(err)
 	}
 
-	dryRequeued, drySkipped, _, err := requeueHookSpoolDeadLettersUntil(context.Background(), time.Now().UTC(), true)
+	dryRequeued, drySkipped, _, err := requeueHookSpoolDeadLettersUntil(context.Background(), time.Now().UTC(), true, time.Time{})
 	if err != nil {
 		t.Fatalf("dry-run: %v", err)
 	}
@@ -1832,7 +1832,7 @@ func TestRequeueHookSpoolDeadLettersUntil_DrainsBeyondBatchLimitWithinBudget(t *
 		t.Fatalf("dry-run must leave dead files, n=%d err=%v", len(entries), err)
 	}
 
-	requeued, skipped, remaining, err := requeueHookSpoolDeadLettersUntil(context.Background(), time.Now().UTC(), false)
+	requeued, skipped, remaining, err := requeueHookSpoolDeadLettersUntil(context.Background(), time.Now().UTC(), false, hookSpoolDeadRequeueNow().Add(hookSpoolDeadRequeueDoctorWall))
 	if err != nil {
 		t.Fatalf("requeue: %v", err)
 	}
@@ -1857,16 +1857,16 @@ func TestRequeueHookSpoolDeadLettersUntil_StopsWhenWallClockExpires(t *testing.T
 	calls := 0
 	hookSpoolDeadRequeueClock = func() time.Time {
 		calls++
-		// deadline is taken from the first call; the third call is the
-		// start of the second batch and must be past the 45s wall.
-		if calls >= 3 {
+		// The deadline is passed in by the caller; the second loop check
+		// must be past the 45s wall so only the first batch is requeued.
+		if calls >= 2 {
 			return origin.Add(hookSpoolDeadRequeueDoctorWall + time.Second)
 		}
 		return origin
 	}
 	t.Cleanup(func() { hookSpoolDeadRequeueClock = nil })
 
-	requeued, _, remaining, err := requeueHookSpoolDeadLettersUntil(context.Background(), origin, false)
+	requeued, _, remaining, err := requeueHookSpoolDeadLettersUntil(context.Background(), origin, false, origin.Add(hookSpoolDeadRequeueDoctorWall))
 	if err != nil {
 		t.Fatalf("requeue: %v", err)
 	}
@@ -1902,6 +1902,243 @@ func TestFixHookSpoolRequeueThenDrain_DryRunPreviewsFullDrain(t *testing.T) {
 	if entries, err := os.ReadDir(deadDir); err != nil || len(entries) != total {
 		t.Fatalf("dry-run must leave files, n=%d err=%v", len(entries), err)
 	}
+}
+
+func TestFixHookSpoolRequeueThenDrain_SharedWallBoundsDrain(t *testing.T) {
+	origin := time.Date(2026, 8, 21, 0, 0, 0, 0, time.UTC)
+	persistPending := func(t *testing.T, n int) {
+		t.Helper()
+		base := time.Now().UTC().Add(-time.Minute)
+		for i := 0; i < n; i++ {
+			if _, err := persistHookSpoolRecord(hookSpoolRecord{
+				SchemaVersion: hookSpoolSchemaVersion,
+				Command:       "prompt",
+				Client:        "claude",
+				Payload:       fmt.Sprintf(`{"prompt":"wall-%d","session_id":"s-wall-%d","cwd":"/tmp"}`, i, i),
+				CreatedAt:     base.Add(time.Duration(i) * time.Millisecond),
+			}); err != nil {
+				t.Fatalf("persist %d: %v", i, err)
+			}
+		}
+	}
+
+	t.Run("wall hit after one replay leaves remaining", func(t *testing.T) {
+		stateDir := t.TempDir()
+		t.Setenv(hookStateDirEnvKey, stateDir)
+		eventStub := &spoolEventUsecaseStub{}
+		root := NewRootCLI(
+			WithStoreManagement(&spoolStoreManagementStub{}),
+			WithEvent(eventStub),
+		)
+		const total = 5
+		persistPending(t, total)
+		// The clock jumps past the 45s wall as soon as the first replay
+		// commits, so the drain must stop before claiming the next record
+		// instead of overrunning inside a 200-record round.
+		hookSpoolDeadRequeueClock = func() time.Time {
+			if eventStub.logCalls > 0 {
+				return origin.Add(hookSpoolDeadRequeueDoctorWall + time.Second)
+			}
+			return origin
+		}
+		t.Cleanup(func() { hookSpoolDeadRequeueClock = nil })
+
+		result, err := root.fixHookSpoolRequeueThenDrain(context.Background(), time.Now().UTC(), false)
+		if err != nil {
+			t.Fatalf("fix: %v", err)
+		}
+		if result.Metrics["replayed"] == 0 || result.Metrics["replayed"] >= total {
+			t.Fatalf("replayed=%d, want at least one replay but << %d", result.Metrics["replayed"], total)
+		}
+		if result.Metrics["remaining"] == 0 {
+			t.Fatalf("remaining=0, want leftover pending records: metrics=%v", result.Metrics)
+		}
+		if !strings.Contains(result.Action, fmt.Sprintf("remaining=%d", result.Metrics["remaining"])) {
+			t.Fatalf("action=%q, want remaining=%d", result.Action, result.Metrics["remaining"])
+		}
+		if eventStub.logCalls != result.Metrics["replayed"] {
+			t.Fatalf("logCalls=%d, want replayed=%d", eventStub.logCalls, result.Metrics["replayed"])
+		}
+	})
+
+	t.Run("two pending drain to empty inside the wall", func(t *testing.T) {
+		stateDir := t.TempDir()
+		t.Setenv(hookStateDirEnvKey, stateDir)
+		eventStub := &spoolEventUsecaseStub{}
+		root := NewRootCLI(
+			WithStoreManagement(&spoolStoreManagementStub{}),
+			WithEvent(eventStub),
+		)
+		persistPending(t, 2)
+		hookSpoolDeadRequeueClock = func() time.Time { return origin }
+		t.Cleanup(func() { hookSpoolDeadRequeueClock = nil })
+
+		result, err := root.fixHookSpoolRequeueThenDrain(context.Background(), time.Now().UTC(), false)
+		if err != nil {
+			t.Fatalf("fix: %v", err)
+		}
+		if result.Metrics["replayed"] != 2 || result.Metrics["remaining"] != 0 {
+			t.Fatalf("replayed=%d remaining=%d, want 2 and 0", result.Metrics["replayed"], result.Metrics["remaining"])
+		}
+		if !strings.Contains(result.Action, "remaining=0") {
+			t.Fatalf("action=%q, want remaining=0", result.Action)
+		}
+		if eventStub.logCalls != 2 {
+			t.Fatalf("logCalls=%d, want 2", eventStub.logCalls)
+		}
+	})
+
+	t.Run("dry run replays nothing and moves no files", func(t *testing.T) {
+		stateDir := t.TempDir()
+		t.Setenv(hookStateDirEnvKey, stateDir)
+		eventStub := &spoolEventUsecaseStub{}
+		root := NewRootCLI(
+			WithStoreManagement(&spoolStoreManagementStub{}),
+			WithEvent(eventStub),
+		)
+		persistPending(t, 2)
+		// The clock is stuck past the wall to prove dry-run never consults it.
+		hookSpoolDeadRequeueClock = func() time.Time {
+			return origin.Add(hookSpoolDeadRequeueDoctorWall + time.Second)
+		}
+		t.Cleanup(func() { hookSpoolDeadRequeueClock = nil })
+
+		result, err := root.fixHookSpoolRequeueThenDrain(context.Background(), time.Now().UTC(), true)
+		if err != nil {
+			t.Fatalf("dry-run fix: %v", err)
+		}
+		if !strings.Contains(result.Action, "drain up to 2 pending hook spool record(s)") {
+			t.Fatalf("dry-run action=%q, want drain plan for 2 records", result.Action)
+		}
+		if eventStub.logCalls != 0 {
+			t.Fatalf("logCalls=%d, want 0 for dry-run", eventStub.logCalls)
+		}
+		if remaining, err := countHookSpoolRecordPaths(); err != nil || remaining != 2 {
+			t.Fatalf("pending files=%d err=%v, want 2 untouched", remaining, err)
+		}
+	})
+}
+
+func TestFixHookSpoolRequeueThenDrain_DoesNotResetWallForDrain(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	deadDir := filepath.Join(stateDir, "spool", hookSpoolDeadDirName)
+	if err := os.MkdirAll(deadDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	const extra = 10
+	for i := 0; i < hookSpoolDeadRequeueLimit+extra; i++ {
+		writeTransientDeadLetter(t, deadDir, fmt.Sprintf("t-%04d.json", i))
+	}
+	eventStub := &spoolEventUsecaseStub{}
+	root := NewRootCLI(
+		WithStoreManagement(&spoolStoreManagementStub{}),
+		WithEvent(eventStub),
+	)
+	origin := time.Date(2026, 8, 21, 0, 0, 0, 0, time.UTC)
+	calls := 0
+	hookSpoolDeadRequeueClock = func() time.Time {
+		calls++
+		// Call 1 takes the shared fixer deadline, call 2 starts the first
+		// requeue batch, and call 3 (the second batch) is past the 45s wall.
+		// The drain must see the same exhausted wall, not a fresh 45s.
+		if calls >= 3 {
+			return origin.Add(hookSpoolDeadRequeueDoctorWall + time.Second)
+		}
+		return origin
+	}
+	t.Cleanup(func() { hookSpoolDeadRequeueClock = nil })
+
+	result, err := root.fixHookSpoolRequeueThenDrain(context.Background(), origin, false)
+	if err != nil {
+		t.Fatalf("fix: %v", err)
+	}
+	if result.Metrics["requeued"] != hookSpoolDeadRequeueLimit {
+		t.Fatalf("requeued=%d, want first batch only (%d)", result.Metrics["requeued"], hookSpoolDeadRequeueLimit)
+	}
+	if result.Metrics["replayed"] != 0 || eventStub.logCalls != 0 {
+		t.Fatalf("replayed=%d logCalls=%d, want no drain replay after requeue consumed the wall", result.Metrics["replayed"], eventStub.logCalls)
+	}
+	if result.Metrics["remaining"] != hookSpoolDeadRequeueLimit {
+		t.Fatalf("remaining=%d, want %d requeued records left pending", result.Metrics["remaining"], hookSpoolDeadRequeueLimit)
+	}
+	if !strings.Contains(result.Action, fmt.Sprintf("remaining=%d", hookSpoolDeadRequeueLimit)) {
+		t.Fatalf("action=%q, want remaining=%d", result.Action, hookSpoolDeadRequeueLimit)
+	}
+}
+
+func TestApplyDoctorFixes_SkipsAfterWall(t *testing.T) {
+	origin := time.Date(2026, 8, 21, 0, 0, 0, 0, time.UTC)
+	warnCheck := func(name string, fix doctorStructuredFixFunc) doctorCheck {
+		return doctorCheck{
+			Name:              name,
+			Status:            doctorStatusWarn,
+			Severity:          doctorSeverityWarn,
+			AutoFixAvailable:  true,
+			StructuredFixFunc: fix,
+		}
+	}
+
+	t.Run("apply skips later auto-fixes once the wall is exhausted", func(t *testing.T) {
+		firstDone := false
+		secondRan := false
+		hookSpoolDeadRequeueClock = func() time.Time {
+			if firstDone {
+				return origin.Add(hookSpoolDeadRequeueDoctorWall + time.Second)
+			}
+			return origin
+		}
+		t.Cleanup(func() { hookSpoolDeadRequeueClock = nil })
+		root := NewRootCLI(WithStoreManagement(&spoolStoreManagementStub{}))
+		report := &doctorReport{Checks: []doctorCheck{
+			warnCheck("hook-spool", func(context.Context, bool) (doctorFixResult, error) {
+				firstDone = true
+				return doctorFixResult{Action: "drained hook spool: remaining=3"}, nil
+			}),
+			warnCheck("transcript", func(context.Context, bool) (doctorFixResult, error) {
+				secondRan = true
+				return doctorFixResult{Action: "second fix ran"}, nil
+			}),
+		}}
+
+		fixes := root.applyDoctorFixes(context.Background(), report, false)
+		if len(fixes) != 2 {
+			t.Fatalf("fixes=%v, want two", fixes)
+		}
+		if fixes[0].Action != "drained hook spool: remaining=3" {
+			t.Fatalf("first action=%q", fixes[0].Action)
+		}
+		if secondRan {
+			t.Fatal("second fix ran after the wall was exhausted")
+		}
+		if fixes[1].Action != "skip: doctor --fix wall exhausted" {
+			t.Fatalf("second action=%q, want wall-exhausted skip", fixes[1].Action)
+		}
+	})
+
+	t.Run("dry run never skips on the wall", func(t *testing.T) {
+		secondRan := false
+		// The clock is stuck past the wall; dry-run previews must still run.
+		hookSpoolDeadRequeueClock = func() time.Time {
+			return origin.Add(hookSpoolDeadRequeueDoctorWall + time.Second)
+		}
+		t.Cleanup(func() { hookSpoolDeadRequeueClock = nil })
+		root := NewRootCLI(WithStoreManagement(&spoolStoreManagementStub{}))
+		report := &doctorReport{Checks: []doctorCheck{
+			warnCheck("hook-spool", func(context.Context, bool) (doctorFixResult, error) {
+				return doctorFixResult{Action: "would drain"}, nil
+			}),
+			warnCheck("transcript", func(context.Context, bool) (doctorFixResult, error) {
+				secondRan = true
+				return doctorFixResult{Action: "would prune"}, nil
+			}),
+		}}
+
+		fixes := root.applyDoctorFixes(context.Background(), report, true)
+		if len(fixes) != 2 || !secondRan {
+			t.Fatalf("fixes=%v secondRan=%v, want both dry-run previews", fixes, secondRan)
+		}
+	})
 }
 
 func TestInspectHookSpoolFilesystemMetadata_FixRequeuesAndDrains(t *testing.T) {

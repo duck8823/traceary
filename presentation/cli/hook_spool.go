@@ -61,9 +61,13 @@ const (
 	hookSpoolDeadRetention    = 14 * 24 * time.Hour
 	hookSpoolDeadPruneLimit   = 200
 	hookSpoolDeadRequeueLimit = 200
-	// hookSpoolDeadRequeueDoctorWall bounds one doctor --fix requeue drain.
-	// The per-batch cap stays hookSpoolDeadRequeueLimit; the loop continues
-	// while headroom remains, matching hook-state residue / extract queue.
+	// hookSpoolDeadRequeueDoctorWall bounds one whole doctor --fix apply
+	// phase: dead-letter requeue, pending drain, and any later auto-fixes
+	// share a single deadline. The per-batch cap stays
+	// hookSpoolDeadRequeueLimit; loops continue while headroom remains,
+	// matching hook-state residue / extract queue. The drain checks the wall
+	// before each claim, so one in-flight replay may finish past the wall
+	// (one-record slack) but a new SQLite replay never starts after it.
 	hookSpoolDeadRequeueDoctorWall = 45 * time.Second
 	// Claimed paths are pending/*.json.claim-<rand> so listHookSpoolRecordPaths
 	// (suffix .json only) cannot pick them up while another process owns them.
@@ -260,23 +264,27 @@ type hookSpoolDrainResult struct {
 // after hookSpoolRetryLimit attempts, retained under spool/dead/. Returns
 // counts of successful replays and retained failures.
 func (c *RootCLI) drainHookSpoolRecords(ctx context.Context, limit int) (replayed, failed int) {
-	result := c.drainHookSpoolRecordsDetailed(ctx, limit)
+	result := c.drainHookSpoolRecordsDetailed(ctx, limit, time.Time{})
 	// Preserve the legacy aggregate used by opportunistic debug logging while
 	// the structured result keeps replay failures and unreadable records
 	// disjoint.
 	return result.Replayed, result.Failed + result.Unreadable
 }
 
-func (c *RootCLI) drainHookSpoolRecordsUntil(ctx context.Context, pending int) hookSpoolDrainResult {
+// drainHookSpoolRecordsUntil drains pending records in rounds bounded by
+// hookSpoolDoctorDrainRoundLimit until the queue is empty or the shared
+// doctor --fix deadline is reached. The deadline is taken by the caller
+// (fixHookSpoolRequeueThenDrain) so requeue and drain share one wall; a zero
+// deadline disables the wall check.
+func (c *RootCLI) drainHookSpoolRecordsUntil(ctx context.Context, pending int, deadline time.Time) hookSpoolDrainResult {
 	aggregated := hookSpoolDrainResult{}
-	deadline := hookSpoolDeadRequeueNow().Add(hookSpoolDeadRequeueDoctorWall)
 	remaining := pending
 	for remaining > 0 {
 		if err := ctx.Err(); err != nil {
 			aggregated.Err = xerrors.Errorf("hook spool drain cancelled: %w", err)
 			return aggregated
 		}
-		if !hookSpoolDeadRequeueNow().Before(deadline) {
+		if !deadline.IsZero() && !hookSpoolDeadRequeueNow().Before(deadline) {
 			aggregated.Remaining = remaining
 			return aggregated
 		}
@@ -284,7 +292,7 @@ func (c *RootCLI) drainHookSpoolRecordsUntil(ctx context.Context, pending int) h
 		if round > hookSpoolDoctorDrainRoundLimit {
 			round = hookSpoolDoctorDrainRoundLimit
 		}
-		result := c.drainHookSpoolRecordsDetailed(ctx, round)
+		result := c.drainHookSpoolRecordsDetailed(ctx, round, deadline)
 		if result.Err != nil {
 			aggregated.Err = result.Err
 			aggregated.Remaining = result.Remaining
@@ -305,7 +313,7 @@ func (c *RootCLI) drainHookSpoolRecordsUntil(ctx context.Context, pending int) h
 	return aggregated
 }
 
-func (c *RootCLI) drainHookSpoolRecordsDetailed(ctx context.Context, limit int) hookSpoolDrainResult {
+func (c *RootCLI) drainHookSpoolRecordsDetailed(ctx context.Context, limit int, deadline time.Time) hookSpoolDrainResult {
 	now := time.Now().UTC()
 	if err := recoverStaleCurrentHookSpoolRecords(now); err != nil {
 		return hookSpoolDrainResult{Err: err}
@@ -328,6 +336,13 @@ func (c *RootCLI) drainHookSpoolRecordsDetailed(ctx context.Context, limit int) 
 			break
 		}
 		if err := ctx.Err(); err != nil {
+			break
+		}
+		// Doctor --fix wall: stop before claiming the next record once the
+		// shared deadline is reached. An in-flight replay is never cancelled
+		// mid-SQLite write (one-record slack); unclaimed records stay pending
+		// and are counted in Remaining below.
+		if !deadline.IsZero() && !hookSpoolDeadRequeueNow().Before(deadline) {
 			break
 		}
 		// Exclusive claim via same-directory rename (CAS). Concurrent drainers
@@ -1062,19 +1077,21 @@ func requeueHookSpoolDeadLetters(ctx context.Context, now time.Time, dryRun bool
 }
 
 // requeueHookSpoolDeadLettersUntil loops bounded requeue batches until the
-// dead-letter directory has no remaining transients or the doctor wall clock
-// is exhausted. Dry-run counts every requeueable record in one pass (no cap)
-// so the preview is the full planned drain, not the first batch.
-func requeueHookSpoolDeadLettersUntil(ctx context.Context, now time.Time, dryRun bool) (requeued, skipped, remaining int, err error) {
+// dead-letter directory has no remaining transients or the shared doctor --fix
+// deadline is reached. The deadline is taken by the caller
+// (fixHookSpoolRequeueThenDrain) so requeue and drain share one wall; a zero
+// deadline disables the wall check. Dry-run counts every requeueable record
+// in one pass (no cap) so the preview is the full planned drain, not the
+// first batch.
+func requeueHookSpoolDeadLettersUntil(ctx context.Context, now time.Time, dryRun bool, deadline time.Time) (requeued, skipped, remaining int, err error) {
 	if dryRun {
 		return requeueHookSpoolDeadLettersLimited(ctx, now, true, 0)
 	}
-	deadline := hookSpoolDeadRequeueNow().Add(hookSpoolDeadRequeueDoctorWall)
 	for {
 		if err := ctx.Err(); err != nil {
 			return requeued, skipped, remaining, xerrors.Errorf("hook spool dead-letter requeue cancelled: %w", err)
 		}
-		if !hookSpoolDeadRequeueNow().Before(deadline) {
+		if !deadline.IsZero() && !hookSpoolDeadRequeueNow().Before(deadline) {
 			// Dry-run unlimited counts leftover transients as requeued, not
 			// remaining. Fold them back so remaining is files still in dead/.
 			wouldRequeue, leftoverSkipped, leftoverRemaining, inspectErr := requeueHookSpoolDeadLettersLimited(ctx, now, true, 0)
@@ -1314,13 +1331,21 @@ func (c *RootCLI) inspectHookSpoolFilesystemMetadata() doctorCheck {
 // replay, then prune aged dead-letter and orphan tmp files. Dry-run performs
 // no file moves and does not open SQLite. Apply may open SQLite only for
 // spool replay via drainHookSpoolRecordsUntil / replayHookSpoolRecord — never
-// dbstat or store capacity.
+// dbstat or store capacity. Apply takes one 45s deadline up front and shares
+// it between requeue and drain, so the documented wall covers the whole
+// apply including SQLite replay; the drain checks the wall before each claim
+// and lets one in-flight replay finish (one-record slack). The Action always
+// reports remaining= so a wall hit never hides leftover pending records.
 func (c *RootCLI) fixHookSpoolRequeueThenDrain(ctx context.Context, now time.Time, dryRun bool) (doctorFixResult, error) {
 	pending, err := countHookSpoolPendingPaths(now)
 	if err != nil {
 		return doctorFixResult{}, err
 	}
-	requeued, skippedNontransient, _, err := requeueHookSpoolDeadLettersUntil(ctx, now, dryRun)
+	deadline := time.Time{}
+	if !dryRun {
+		deadline = hookSpoolDeadRequeueNow().Add(hookSpoolDeadRequeueDoctorWall)
+	}
+	requeued, skippedNontransient, _, err := requeueHookSpoolDeadLettersUntil(ctx, now, dryRun, deadline)
 	if err != nil {
 		return doctorFixResult{}, err
 	}
@@ -1343,11 +1368,8 @@ func (c *RootCLI) fixHookSpoolRequeueThenDrain(ctx context.Context, now time.Tim
 			prunedTmp,
 		)}, nil
 	}
-	result := c.drainHookSpoolRecordsUntil(ctx, pending+requeued)
-	if result.Err != nil {
-		return doctorFixResult{}, result.Err
-	}
-	return doctorFixResult{
+	result := c.drainHookSpoolRecordsUntil(ctx, pending+requeued, deadline)
+	fixed := doctorFixResult{
 		Action: localizef(
 			"drained hook spool: requeued=%d skipped_nontransient=%d replayed=%d failed=%d unreadable=%d remaining=%d; pruned_dead=%d dead_remaining=%d pruned_tmp=%d",
 			"hook spool を drain しました: requeued=%d skipped_nontransient=%d replayed=%d failed=%d unreadable=%d remaining=%d; pruned_dead=%d dead_remaining=%d pruned_tmp=%d",
@@ -1372,7 +1394,10 @@ func (c *RootCLI) fixHookSpoolRequeueThenDrain(ctx context.Context, now time.Tim
 			"dead_remaining":       deadRemaining,
 			"pruned_tmp":           prunedTmp,
 		},
-	}, nil
+	}
+	// Even on a drain error the populated result is returned so the operator
+	// sees the counts (including remaining=) alongside the error.
+	return fixed, result.Err
 }
 
 func scanHookSpoolRecords(clients []string) ([]hookSpoolRecord, []string, error) {
