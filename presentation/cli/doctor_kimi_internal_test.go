@@ -23,6 +23,7 @@ func TestBuildKimiDoctorChecks(t *testing.T) {
 		{name: "disabled plugin", mutate: func(s *kimiDoctorState) { s.PluginEnabled = false }, check: "kimi-plugin", status: doctorStatusWarn, messageSub: "not enabled"},
 		{name: "version mismatch", mutate: func(s *kimiDoctorState) { s.PluginVersion = "0.27.0" }, check: "kimi-plugin", status: doctorStatusWarn, messageSub: "does not match"},
 		{name: "incomplete hooks", mutate: func(s *kimiDoctorState) { s.NativeHooks = false }, check: "kimi-hooks", status: doctorStatusWarn, messageSub: "incomplete"},
+		{name: "declared SessionEnd unobserved", mutate: func(*kimiDoctorState) {}, check: "kimi-hooks", status: doctorStatusWarn, messageSub: "SessionEnd"},
 		{name: "missing skills", mutate: func(s *kimiDoctorState) { s.Skills = 2 }, check: "kimi-skills", status: doctorStatusWarn, messageSub: "2"},
 		{name: "healthy", mutate: func(*kimiDoctorState) {}, check: "kimi-plugin", status: doctorStatusPass, messageSub: "enabled"},
 	}
@@ -56,8 +57,41 @@ func TestBuildKimiDoctorChecks(t *testing.T) {
 func TestBuildKimiDoctorChecksHealthyStatePassesEveryCheck(t *testing.T) {
 	state := kimiDoctorState{CLIAvailable: true, HostVersion: "0.27.0", PluginInstalled: true, PluginEnabled: true, PluginRecordKnown: true, PluginVersion: "0.28.0", NativeHooks: true, Skills: 4}
 	for _, check := range buildKimiDoctorChecks(state, "0.28.0") {
+		if check.Name == "kimi-hooks" {
+			// SessionEnd is declared in the plugin but unobserved on Kimi Code
+			// 0.38.0 -p, so even a fully healthy install must not PASS here.
+			if check.Status != doctorStatusWarn {
+				t.Fatalf("kimi-hooks status = %s, want WARN: %s", check.Status, check.Message)
+			}
+			continue
+		}
 		if check.Status != doctorStatusPass {
 			t.Fatalf("healthy state produced %s %s: %s", check.Name, check.Status, check.Message)
+		}
+	}
+}
+
+func TestBuildKimiDoctorChecksReportsUnobservedSessionEnd(t *testing.T) {
+	state := kimiDoctorState{CLIAvailable: true, HostVersion: "0.38.0", PluginInstalled: true, PluginEnabled: true, PluginRecordKnown: true, PluginVersion: "0.28.0", NativeHooks: true, Skills: 4}
+	checks := buildKimiDoctorChecks(state, "0.28.0")
+	var hookCheck *doctorCheck
+	for i := range checks {
+		if checks[i].Name == "kimi-hooks" {
+			hookCheck = &checks[i]
+		}
+	}
+	if hookCheck == nil {
+		t.Fatal("kimi-hooks check missing")
+	}
+	if hookCheck.Status == doctorStatusPass {
+		t.Fatalf("kimi-hooks must not PASS while SessionEnd is unobserved: %s", hookCheck.Message)
+	}
+	if strings.Contains(hookCheck.Message, "all ten verified events") {
+		t.Fatalf("kimi-hooks still claims verified 10-event coverage: %s", hookCheck.Message)
+	}
+	for _, sub := range []string{"SessionEnd", "unobserved", "0.38.0"} {
+		if !strings.Contains(hookCheck.Message, sub) {
+			t.Fatalf("kimi-hooks message %q missing %q", hookCheck.Message, sub)
 		}
 	}
 }

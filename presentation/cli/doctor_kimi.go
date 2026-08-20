@@ -213,12 +213,19 @@ func buildKimiDoctorChecks(state kimiDoctorState, tracearyVersion string) []doct
 	}
 	checks = append(checks, doctorCheck{Name: "kimi-plugin", Status: pluginStatus, Message: pluginMessage, Hint: pluginHint})
 
-	hookStatus := doctorStatusPass
-	hookMessage := Localize("native Kimi plugin hooks cover all ten verified events", "native Kimi plugin hook は検証済み 10 event をすべてカバーしています")
+	// The manifest declares all ten events, but SessionEnd is declared-only:
+	// Kimi Code 0.38.0 in -p mode never dispatches it (dogfood sessions record
+	// session_started/prompt/transcript, never session_ended). Report this
+	// honestly as WARN instead of claiming verified 10-event coverage; the
+	// support matrix keeps SessionEnd available, not verified.
+	hookStatus := doctorStatusWarn
+	hookMessage := Localize("native Kimi plugin hooks declare all ten events including SessionEnd, but SessionEnd is unobserved on Kimi Code 0.38.0 -p; the support matrix keeps it available, not verified", "native Kimi plugin hook は SessionEnd を含む 10 event を宣言していますが、SessionEnd は Kimi Code 0.38.0 の -p では観測されていません。matrix では available（未検証）です")
+	hookHint := ""
 	if !state.NativeHooks {
-		hookStatus, hookMessage = doctorStatusWarn, Localize("native Kimi plugin hook coverage is missing or incomplete", "native Kimi plugin hook coverage が不足しています")
+		hookMessage = Localize("native Kimi plugin hook coverage is missing or incomplete", "native Kimi plugin hook coverage が不足しています")
+		hookHint = Localize("reinstall the native Traceary Kimi plugin", "native Traceary Kimi plugin を再インストールしてください")
 	}
-	checks = append(checks, doctorCheck{Name: "kimi-hooks", Status: hookStatus, Message: hookMessage, Hint: Localize("reinstall the native Traceary Kimi plugin", "native Traceary Kimi plugin を再インストールしてください")})
+	checks = append(checks, doctorCheck{Name: "kimi-hooks", Status: hookStatus, Message: hookMessage, Hint: hookHint})
 
 	skillStatus := doctorStatusPass
 	skillMessage := Localize("native Kimi plugin exposes all four Traceary skills", "native Kimi plugin は Traceary skill を4件すべて公開しています")
