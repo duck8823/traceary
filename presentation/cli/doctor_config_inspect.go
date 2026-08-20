@@ -187,7 +187,7 @@ func claudeLocalLeftoverPrintOnlyFix(inventoryPath string, leftoverPaths []strin
 	if dryRun {
 		return localizef(
 			"would list %d leftover local Traceary install row(s) for manual removal from %s (no host CLI can uninstall a local-scope row whose project directory is gone):\n%s",
-			"%s から手動削除すべき leftover local Traceary install 行 %d 件を一覧します (project ディレクトリが消えた local-scope 行を uninstall できる host CLI はありません):\n%s",
+			"leftover local Traceary install 行 %d 件を %s から手動削除する対象として一覧します (project ディレクトリが消えた local-scope 行を uninstall できる host CLI はありません):\n%s",
 			len(leftoverPaths),
 			inventoryPath,
 			list,

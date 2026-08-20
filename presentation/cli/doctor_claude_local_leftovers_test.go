@@ -94,6 +94,37 @@ func TestInspectClaudePluginLocalLeftoversWarnsWithCountAndSample(t *testing.T) 
 	}
 }
 
+func TestInspectClaudePluginLocalLeftoversDryRunJapaneseLocale(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "ja")
+	missing := []string{filepath.Join(t.TempDir(), "gone-a"), filepath.Join(t.TempDir(), "gone-b")}
+	cli := &RootCLI{pluginDetector: stubClaudePluginDetector{
+		scan: application.ClaudeLocalLeftoverScan{
+			InventoryPath: "/home/test/.claude/plugins/installed_plugins.json",
+			LeftoverPaths: missing,
+		},
+	}}
+
+	check := cli.inspectClaudePluginLocalLeftovers()
+	if check == nil || check.FixFunc == nil {
+		t.Fatalf("check = %+v, want WARN check with a print-only fixer", check)
+	}
+	dryRun, err := check.FixFunc(context.Background(), true)
+	if err != nil {
+		t.Fatalf("FixFunc(dry-run) error = %v", err)
+	}
+	if !strings.Contains(dryRun, "2 件") {
+		t.Fatalf("dry-run action = %q, want leftover count 2", dryRun)
+	}
+	if strings.Contains(dryRun, "%!") {
+		t.Fatalf("dry-run action = %q, want no format-verb mismatch garbling", dryRun)
+	}
+	for _, path := range missing {
+		if !strings.Contains(dryRun, path) {
+			t.Fatalf("dry-run action = %q, want leftover path %q", dryRun, path)
+		}
+	}
+}
+
 func TestInspectClaudePluginLocalLeftoversPassesWhenNoneLeftover(t *testing.T) {
 	cli := &RootCLI{pluginDetector: stubClaudePluginDetector{
 		scan: application.ClaudeLocalLeftoverScan{
