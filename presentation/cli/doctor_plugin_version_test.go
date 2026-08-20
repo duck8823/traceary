@@ -154,7 +154,7 @@ func TestInspectPluginVersionReleaseTaggedBuildMatch(t *testing.T) {
 	if err := os.WriteFile(manifest, []byte(`{"name":"traceary","version":"0.10.0"}`), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
-	install := doctorPluginInstall{Client: "gemini", ManifestPath: manifest, UpdateHint: "gemini extensions update traceary"}
+	install := doctorPluginInstall{Client: "gemini", ManifestPath: manifest, UpdateHint: "./scripts/install-gemini-extension.sh"}
 
 	got := inspectPluginVersion(install, "0.10.0")
 	if got.Status != doctorStatusPass {

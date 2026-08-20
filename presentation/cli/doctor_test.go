@@ -1853,7 +1853,7 @@ func TestRootCLI_DoctorClaudeCoverage(t *testing.T) {
 		if check.Status != "warn" {
 			t.Fatalf("claude-event-coverage status = %q, want warn (message=%q)", check.Status, check.Message)
 		}
-		if !strings.Contains(check.Hint, "plugin-managed") || !strings.Contains(check.FixCommand, "claude plugins update traceary@traceary-plugins") {
+		if !strings.Contains(check.Hint, "plugin-managed") || !strings.Contains(check.FixCommand, "claude plugin update traceary@traceary-plugins") {
 			t.Fatalf("claude-event-coverage remediation = hint %q fix %q; want plugin update", check.Hint, check.FixCommand)
 		}
 		if strings.Contains(check.FixCommand, "traceary doctor") {
@@ -1905,7 +1905,7 @@ func TestRootCLI_DoctorClaudeCoverage(t *testing.T) {
 		if strings.Contains(coverage.FixCommand, "traceary doctor") {
 			t.Fatalf("claude-event-coverage remediation = hint %q fix %q; want plugin/double-registration path, not settings fix", coverage.Hint, coverage.FixCommand)
 		}
-		if !strings.Contains(coverage.FixCommand, "claude plugins update traceary@traceary-plugins") {
+		if !strings.Contains(coverage.FixCommand, "claude plugin update traceary@traceary-plugins") {
 			t.Fatalf("claude-event-coverage FixCommand = %q; want plugin update", coverage.FixCommand)
 		}
 	})
@@ -1942,7 +1942,7 @@ func TestRootCLI_DoctorClaudeCoverage(t *testing.T) {
 		if claudeCfg.Status != "warn" {
 			t.Fatalf("claude-config status = %q, want warn (message=%q)", claudeCfg.Status, claudeCfg.Message)
 		}
-		if !strings.Contains(claudeCfg.Message, "installed plugin hook config") || !strings.Contains(claudeCfg.FixCommand, "claude plugins update traceary@traceary-plugins") {
+		if !strings.Contains(claudeCfg.Message, "installed plugin hook config") || !strings.Contains(claudeCfg.FixCommand, "claude plugin update traceary@traceary-plugins") {
 			t.Fatalf("claude-config message/fix = %q / %q; want plugin cache remediation", claudeCfg.Message, claudeCfg.FixCommand)
 		}
 		coverage := statusByName(report, "claude-event-coverage")

@@ -20,7 +20,7 @@ func TestWithDoctorInspectedDBPath(t *testing.T) {
 		{name: "already has db-path", command: "traceary doctor --fix --db-path /other.db", want: "traceary doctor --fix --db-path /other.db"},
 		{name: "memory activate", command: "traceary memory admin activate --target claude --apply", want: "traceary memory admin activate --target claude --apply --db-path " + quoted},
 		{name: "store compact", command: "traceary store compact", want: "traceary store compact --db-path " + quoted},
-		{name: "host-only command", command: "claude plugins update traceary@traceary-plugins", want: "claude plugins update traceary@traceary-plugins"},
+		{name: "host-only command", command: "claude plugin update traceary@traceary-plugins", want: "claude plugin update traceary@traceary-plugins"},
 		{name: "which", command: "which -a traceary", want: "which -a traceary"},
 	}
 	for _, tc := range cases {
@@ -43,12 +43,12 @@ func TestWithDoctorInspectedDBPath_EmptyStore(t *testing.T) {
 
 func TestRewriteBacktickedStoreCommands(t *testing.T) {
 	t.Parallel()
-	input := "preview with `traceary doctor --fix --dry-run`, then `claude plugins update x`"
+	input := "preview with `traceary doctor --fix --dry-run`, then `claude plugin update x`"
 	got := rewriteBacktickedStoreCommands(input, "/store/custom.db")
 	if !strings.Contains(got, "`traceary doctor --fix --dry-run --db-path "+shellQuote("/store/custom.db")+"`") {
 		t.Fatalf("did not rewrite doctor command: %q", got)
 	}
-	if !strings.Contains(got, "`claude plugins update x`") {
+	if !strings.Contains(got, "`claude plugin update x`") {
 		t.Fatalf("rewrote host command: %q", got)
 	}
 }
@@ -72,7 +72,7 @@ func TestAnnotateDoctorScopeAndDBPathHints(t *testing.T) {
 			{
 				Name:       "claude-plugin-cache",
 				Message:    "plugin cache is current",
-				FixCommand: "claude plugins update traceary",
+				FixCommand: "claude plugin update traceary@traceary-plugins",
 			},
 		},
 	}
@@ -98,7 +98,7 @@ func TestAnnotateDoctorScopeAndDBPathHints(t *testing.T) {
 	}
 
 	cache := report.Checks[2]
-	if cache.FixCommand != "claude plugins update traceary" {
+	if cache.FixCommand != "claude plugin update traceary@traceary-plugins" {
 		t.Fatalf("host FixCommand rewritten: %q", cache.FixCommand)
 	}
 	if !strings.Contains(cache.Message, doctorStoreIndependentLabel) {

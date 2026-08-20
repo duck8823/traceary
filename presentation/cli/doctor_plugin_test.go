@@ -100,7 +100,7 @@ func TestRootCLI_Doctor_ClaudePluginInteractions(t *testing.T) {
 		if !strings.Contains(claudeCfg.Message, filepath.Join(cacheDir, "hooks", "hooks.json")) {
 			t.Fatalf("claude-config message = %q; want cached hooks path", claudeCfg.Message)
 		}
-		if !strings.Contains(claudeCfg.Hint, "marketplace") || !strings.Contains(claudeCfg.FixCommand, "claude plugins update traceary@traceary-plugins") {
+		if !strings.Contains(claudeCfg.Hint, "marketplace") || !strings.Contains(claudeCfg.FixCommand, "claude plugin update traceary@traceary-plugins") {
 			t.Fatalf("claude-config hint/fix = %q / %q; want no marketplace fallback and plugin update", claudeCfg.Hint, claudeCfg.FixCommand)
 		}
 	})

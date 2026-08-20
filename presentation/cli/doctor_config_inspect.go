@@ -41,8 +41,8 @@ func (c *RootCLI) inspectClaudePluginCacheStatus() *doctorCheck {
 	staleSegment, multiSegment := "", ""
 	if status.Stale() {
 		staleSegment = localizef(
-			"claude plugin cache %s is older than the marketplace manifest (cached %s, marketplace %s at %s). `brew upgrade traceary` does not refresh the plugin cache; run `claude plugins update %s` to activate the newer hooks",
-			"claude plugin cache %s は marketplace manifest より古いバージョンです (cached %s, marketplace %s at %s)。`brew upgrade traceary` では plugin cache は更新されません。新しい hook を有効にするには `claude plugins update %s` を実行してください",
+			"claude plugin cache %s is older than the marketplace manifest (cached %s, marketplace %s at %s). `brew upgrade traceary` does not refresh the plugin cache; run `claude plugin update %s` to activate the newer hooks",
+			"claude plugin cache %s は marketplace manifest より古いバージョンです (cached %s, marketplace %s at %s)。`brew upgrade traceary` では plugin cache は更新されません。新しい hook を有効にするには `claude plugin update %s` を実行してください",
 			status.CachePath, status.CachedVersion, status.MarketplaceVersion, status.MarketplacePath, detection.PluginKey,
 		)
 	}
@@ -705,8 +705,8 @@ func missingClientHookCoverageCheck(client, checkName, outputPath, projectDir st
 		fixCommand = fmt.Sprintf("traceary hooks install --client %s --global --upgrade", client)
 		if client == "gemini" {
 			hint = localizef(
-				"refresh the user-level Gemini settings with `%s`; if you use the Gemini extension package instead, run `gemini extensions update traceary`",
-				"`%s` で user-level Gemini settings を更新してください。Gemini extension package を使っている場合は `gemini extensions update traceary` を実行してください",
+				"refresh the user-level Gemini settings with `%s`; if you use the Gemini extension package instead, rerun `./scripts/install-gemini-extension.sh` from a matching release tag checkout (recovery: `gemini extensions install --consent integrations/gemini-extension`)",
+				"`%s` で user-level Gemini settings を更新してください。Gemini extension package を使っている場合は、一致する release tag の checkout から `./scripts/install-gemini-extension.sh` を再実行してください (recovery: `gemini extensions install --consent integrations/gemini-extension`)",
 				fixCommand,
 			)
 		} else {

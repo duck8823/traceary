@@ -55,4 +55,4 @@ and `--fix --dry-run` opens nothing.
 
 Store-independent checks (hook spool, hook-state residue, SessionEnd cancellation markers, plugin cache, `path` / `config`) say `store-independent` on the output line. They inspect host files, not the SQLite store. Store-scoped checks (capacity, memory activation, projection) inspect the store at `DB_PATH`.
 
-When doctor ran with `--db-path` or `TRACEARY_DB_PATH`, store-addressed hint commands (`traceary doctor`, `traceary store`, `traceary memory`) include `--db-path` so executing them verbatim hits the same store. Host-only commands (`claude plugins update`, `which -a traceary`) are left unchanged. The default home store does not inject `--db-path`.
+When doctor ran with `--db-path` or `TRACEARY_DB_PATH`, store-addressed hint commands (`traceary doctor`, `traceary store`, `traceary memory`) include `--db-path` so executing them verbatim hits the same store. Host-only commands (`claude plugin update`, `which -a traceary`) are left unchanged. The default home store does not inject `--db-path`.

@@ -39,9 +39,9 @@ func (c *RootCLI) detectPluginInstalls() []doctorPluginInstall {
 	installs := []doctorPluginInstall{}
 	if detection := c.detectClaudeTracearyPluginForCLI(); detection.Active {
 		if status := c.pluginCacheStatusForDetection(home, detection.PluginKey); status.CachedVersion != "" {
-			installs = append(installs, doctorPluginInstall{Client: "claude", ManifestPath: fmt.Sprintf("claude plugin cache %s", detection.PluginKey), InstalledVersion: status.CachedVersion, UpdateHint: "claude plugins update " + detection.PluginKey})
+			installs = append(installs, doctorPluginInstall{Client: "claude", ManifestPath: fmt.Sprintf("claude plugin cache %s", detection.PluginKey), InstalledVersion: status.CachedVersion, UpdateHint: claudePluginUpdateCommand(detection.PluginKey)})
 		} else if status.MarketplacePath != "" {
-			installs = append(installs, doctorPluginInstall{Client: "claude", ManifestPath: status.MarketplacePath, UpdateHint: "claude plugins update " + detection.PluginKey})
+			installs = append(installs, doctorPluginInstall{Client: "claude", ManifestPath: status.MarketplacePath, UpdateHint: claudePluginUpdateCommand(detection.PluginKey)})
 		}
 	}
 	installs = append(installs, detectManifestInstalls(
@@ -58,7 +58,7 @@ func (c *RootCLI) detectPluginInstalls() []doctorPluginInstall {
 	agyHint := "cd <traceary-repository> && agy plugin install integrations/antigravity-plugin"
 	installs = append(installs, detectManifestInstalls(filepath.Join(home, ".gemini", "config", "plugins", "traceary", "plugin.json"), "antigravity", agyHint)...)
 	installs = append(installs, detectManifestInstalls(filepath.Join(home, ".gemini", "antigravity-cli", "plugins", "traceary", "plugin.json"), "antigravity", agyHint)...)
-	installs = append(installs, detectManifestInstalls(filepath.Join(home, ".gemini", "extensions", "traceary", "gemini-extension.json"), "gemini", "gemini extensions update traceary")...)
+	installs = append(installs, detectManifestInstalls(filepath.Join(home, ".gemini", "extensions", "traceary", "gemini-extension.json"), "gemini", "./scripts/install-gemini-extension.sh  # from a matching release tag checkout (recovery: gemini extensions install --consent integrations/gemini-extension)")...)
 	// Grok clones the whole repository into a hash-named directory under
 	// installed-plugins and selects the package with a #subdir selector; the
 	// manifest stays at its in-repo path inside that clone, so the glob must
