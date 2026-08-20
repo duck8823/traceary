@@ -6,6 +6,11 @@ package application
 // direct infrastructure imports.
 type ClaudePluginDetector interface {
 	DetectClaudeTracearyPluginIn(home string) ClaudePluginDetection
+	// ListClaudeLocalPluginLeftovers scans Claude's installed plugin
+	// inventory under home and returns the enabled local-scope Traceary
+	// installs whose project directory no longer exists. A missing
+	// inventory file returns an error matching os.IsNotExist.
+	ListClaudeLocalPluginLeftovers(home string) (ClaudeLocalLeftoverScan, error)
 }
 
 // ClaudePluginDetection reports whether the Traceary Claude Code
@@ -19,4 +24,16 @@ type ClaudePluginDetection struct {
 	// PluginKey is the enabledPlugins key that matched, e.g.
 	// "traceary@traceary-plugins". Empty when Active is false.
 	PluginKey string
+}
+
+// ClaudeLocalLeftoverScan reports the enabled, local-scope Traceary
+// plugin rows in Claude's installed plugin inventory whose project
+// directory no longer exists on disk.
+type ClaudeLocalLeftoverScan struct {
+	// InventoryPath is the installed_plugins.json file that was read.
+	InventoryPath string
+	// LeftoverPaths lists the projectPath values of enabled local
+	// Traceary installs whose directory is missing (or is not a
+	// directory), sorted for stable diagnostics.
+	LeftoverPaths []string
 }

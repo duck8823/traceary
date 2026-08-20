@@ -7,6 +7,9 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 
 ## [Unreleased]
 
+### Added
+- **doctor が削除済み worktree の Claude `--scope local` leftover install を報告 (#2212)** — additive かつ store-independent な `claude-plugin-local-leftovers` check が `~/.claude/plugins/installed_plugins.json` だけを読み、project ディレクトリが消えた enabled な local Traceary 行の件数と上限付きサンプルを WARN します。auto-fix なし。Claude の inventory は書き換えず、user cache の `claude-plugin-cache` / `claude-plugin-version` は PASS のままです。親 #2208 は open のままにします。
+
 ## [v0.45.0] - 2026-08-20
 
 ### Fixed

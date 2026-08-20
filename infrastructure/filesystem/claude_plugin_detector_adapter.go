@@ -21,3 +21,16 @@ func (a *ClaudePluginDetectorAdapter) DetectClaudeTracearyPluginIn(home string) 
 		PluginKey:    detection.PluginKey,
 	}
 }
+
+// ListClaudeLocalPluginLeftovers adapts the filesystem-level inventory
+// scan to the application-level ClaudeLocalLeftoverScan shape.
+func (a *ClaudePluginDetectorAdapter) ListClaudeLocalPluginLeftovers(home string) (application.ClaudeLocalLeftoverScan, error) {
+	scan, err := ListClaudeLocalPluginLeftovers(home)
+	if err != nil {
+		return application.ClaudeLocalLeftoverScan{InventoryPath: scan.InventoryPath}, err
+	}
+	return application.ClaudeLocalLeftoverScan{
+		InventoryPath: scan.InventoryPath,
+		LeftoverPaths: scan.LeftoverPaths,
+	}, nil
+}

@@ -44,6 +44,8 @@ After every released binary upgrade:
 
 Prefer the `FixCommand` printed by doctor when it provides an exact non-interactive command. Do not invent host CLI flags.
 
+Note on `--scope local` installs: a local install row in Claude's `~/.claude/plugins/installed_plugins.json` survives the deletion of the project directory it points at. Doctor reports those rows as the additive `claude-plugin-local-leftovers` WARN (count plus a bounded sample of the missing paths); the user-cache `claude-plugin-cache` / `claude-plugin-version` checks stay `pass`. Traceary never rewrites Claude's inventory — inspect `installed_plugins.json` and remove the leftover local rows in Claude yourself.
+
 ## Stale processes
 
 Homebrew / `go install` upgrades replace the on-PATH binary, but **already-running processes keep the old executable**. The 2026-08-18 dogfood found long-lived `traceary mcp-server` processes on superseded Cellar binaries (0.32–0.34). MCP was retired in v0.35.0; those processes predate the store-lease protocol, so a stale host session that talks to them mid-compact can write without exclusive access.
