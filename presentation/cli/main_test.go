@@ -60,6 +60,10 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "configure isolated Traceary CLI hook state: %v\n", err)
 		os.Exit(1)
 	}
+	storeListTracearyProcessSnapshotsFunc(func() ([]tracearyProcessSnapshot, error) {
+		return nil, nil
+	})
+
 	if dbPath := strings.TrimSpace(os.Getenv(testDBPathEnvKey)); dbPath != "" {
 		if err := os.Setenv(dbPathEnvKey, dbPath); err != nil {
 			fmt.Fprintf(os.Stderr, "configure isolated Traceary CLI database: %v\n", err)

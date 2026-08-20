@@ -65,6 +65,16 @@
       "auto_fix_available": false
     },
     {
+      "name": "stale-processes",
+      "status": "pass",
+      "severity": "PASS",
+      "section": "Environment",
+      "message": "no stale Traceary binaries or retired mcp-server processes are running (store-independent)",
+      "hint": "",
+      "fix_command": "",
+      "auto_fix_available": false
+    },
+    {
       "name": "config",
       "status": "pass",
       "severity": "PASS",
@@ -295,6 +305,16 @@
           "severity": "PASS",
           "section": "Environment",
           "message": "PATH resolves traceary to /tmp/traceary-json-golden-bin/traceary (directory: /tmp/traceary-json-golden-bin) (store-independent)",
+          "hint": "",
+          "fix_command": "",
+          "auto_fix_available": false
+        },
+        {
+          "name": "stale-processes",
+          "status": "pass",
+          "severity": "PASS",
+          "section": "Environment",
+          "message": "no stale Traceary binaries or retired mcp-server processes are running (store-independent)",
           "hint": "",
           "fix_command": "",
           "auto_fix_available": false
@@ -587,7 +607,7 @@
     }
   ],
   "summary": {
-    "pass": 27,
+    "pass": 28,
     "warn": 1,
     "fail": 0
   },

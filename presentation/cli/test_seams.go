@@ -22,6 +22,7 @@ type (
 	resolveHookTranscriptSessionIDFn = func([]byte, string) (types.SessionID, error)
 	afterInspectGrokTranscriptHookFn = func()
 	detectRepoContextFn              = func(context.Context) (string, error)
+	listTracearyProcessSnapshotsFn   = func() ([]tracearyProcessSnapshot, error)
 )
 
 var (
@@ -35,6 +36,7 @@ var (
 	resolveHookTranscriptSessionIDSlot atomic.Pointer[resolveHookTranscriptSessionIDFn]
 	afterInspectGrokTranscriptHookSlot atomic.Pointer[afterInspectGrokTranscriptHookFn]
 	detectRepoContextSlot              atomic.Pointer[detectRepoContextFn]
+	listTracearyProcessSnapshotsSlot   atomic.Pointer[listTracearyProcessSnapshotsFn]
 )
 
 func init() {
@@ -47,6 +49,7 @@ func init() {
 	storeAntigravityParentPIDFunc(os.Getppid)
 	storeResolveHookTranscriptSessionIDFunc(resolveHookSessionID)
 	storeDetectRepoContextFunc(detectRepoContext)
+	storeListTracearyProcessSnapshotsFunc(defaultListTracearyProcessSnapshots)
 }
 
 func storeUserHomeDirFunc(f userHomeDirFn) {
@@ -143,4 +146,12 @@ func storeDetectRepoContextFunc(f detectRepoContextFn) {
 
 func detectRepoContextFunc(ctx context.Context) (string, error) {
 	return (*detectRepoContextSlot.Load())(ctx)
+}
+
+func storeListTracearyProcessSnapshotsFunc(f listTracearyProcessSnapshotsFn) {
+	listTracearyProcessSnapshotsSlot.Store(&f)
+}
+
+func listTracearyProcessSnapshotsFunc() ([]tracearyProcessSnapshot, error) {
+	return (*listTracearyProcessSnapshotsSlot.Load())()
 }
