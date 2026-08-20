@@ -60,16 +60,24 @@ type grokDoctorState struct {
 	// UserHooksInvalid is true when the user-level file exists but is unreadable
 	// or not valid JSON. Diagnosis only; doctor does not rewrite the file.
 	UserHooksInvalid bool
-	// NativeHooksPresent is true when inspect reports a traceary-grok hook with
-	// a native path class. Grok still merges that route even when coverage is
-	// incomplete/stale, so duplicate-route detection must use presence rather
-	// than verified coverage.
+	// NativeHooksPresent is true when inspect dispatches a plugin-source
+	// (source.type=plugin) traceary-grok hook with a native path class. Grok
+	// still merges that route even when coverage is incomplete/stale, so
+	// duplicate-route detection must use presence rather than verified
+	// coverage. A plugin that is merely installed/listed does not count: Grok
+	// can list plugin hooks while dispatching only user-level routes.
 	NativeHooksPresent bool
-	// NativeHooks is true only when the native route also passes the exact
-	// seven-event verified coverage contract. Used by grok-hooks only.
+	// NativeHooks is true only when the dispatched plugin-source route also
+	// passes the exact seven-event verified coverage contract. Used by
+	// grok-hooks only.
 	NativeHooks bool
-	MCPServers  int
-	Skills      int
+	// PluginHookFileVerified is true when the installed plugin's own hook file
+	// (PluginPath/hooks/hooks.json) passes the seven-event verified coverage
+	// contract, regardless of whether Grok actually dispatches it. Listing or
+	// file coverage alone never proves the host executes the plugin route.
+	PluginHookFileVerified bool
+	MCPServers             int
+	Skills                 int
 }
 
 type grokPluginListEntry struct {
@@ -161,6 +169,12 @@ func probeGrokDoctorState(ctx context.Context, projectDir string) (grokDoctorSta
 		state.MCPServers = plugin.Provides.MCPServers
 		state.Skills = plugin.Provides.Skills
 	}
+	// The installed plugin's own hook file is verified independently of the
+	// inspect dispatch list: a listed/enabled plugin whose hooks Grok never
+	// dispatches must not read as wired capture.
+	if state.PluginInstalled && strings.TrimSpace(state.PluginPath) != "" {
+		state.PluginHookFileVerified = grokHookFileHasVerifiedCoverage(filepath.Join(state.PluginPath, "hooks", "hooks.json"))
+	}
 	for _, hook := range document.Hooks {
 		switch hook.Source.Type {
 		case "project":
@@ -180,7 +194,7 @@ func probeGrokDoctorState(ctx context.Context, projectDir string) (grokDoctorSta
 		if hook.Source.PluginName == legacyTracearyPluginName {
 			state.LegacyPluginDetected = true
 		}
-		if hook.Source.PluginName == grokTracearyPluginName && pathClass == grokPluginPathClassNative {
+		if hook.Source.Type == "plugin" && hook.Source.PluginName == grokTracearyPluginName && pathClass == grokPluginPathClassNative {
 			state.NativeHooksPresent = true
 			if grokHookFileHasVerifiedCoverage(hook.Target) {
 				state.NativeHooks = true
@@ -377,10 +391,22 @@ func buildGrokDoctorChecks(state grokDoctorState, tracearyVersion string) []doct
 	checks = append(checks, doctorCheck{Name: "grok-hook-trust", Status: trustStatus, Message: trustMessage, Hint: Localize("use Grok /hooks-trust for this project when project hooks are intended", "project hook を使用する場合は Grok の /hooks-trust で信頼してください")})
 	hookStatus := doctorStatusPass
 	hookMessage := Localize("native Grok hooks cover all seven verified events", "native Grok hook は検証済み7 eventをすべてカバーしています")
-	if !state.NativeHooks {
+	hookHint := Localize("update or reinstall the native Traceary Grok plugin", "native Traceary Grok plugin を更新または再インストールしてください")
+	switch {
+	case state.NativeHooks:
+		// PASS: a dispatched plugin-source route with verified coverage.
+	case !state.NativeHooksPresent && (state.PluginHookFileVerified || (state.PluginInstalled && state.PluginEnabled)):
+		// The plugin is installed/listed (and its own hook file may satisfy the
+		// seven-event contract), but inspect dispatches no plugin-source
+		// traceary-grok hook — only user-level or other sources. Listing or
+		// file coverage is not capture.
+		hookStatus = doctorStatusWarn
+		hookMessage = Localize("native Traceary Grok plugin hooks are installed but Grok does not dispatch them: inspect lists only user-level hook sources, so no plugin hook route is active", "native Traceary Grok plugin の hook はインストールされていますが Grok が dispatch していません。inspect では user-level の hook source のみが列挙され、plugin の hook 経路は有効ではありません")
+		hookHint = Localize("run grok inspect --json to confirm which hook sources Grok dispatches; a listed plugin is not necessarily an active hook route", "grok inspect --json で Grok が dispatch している hook source を確認してください。一覧にある plugin が有効な hook 経路とは限りません")
+	case !state.NativeHooks:
 		hookStatus, hookMessage = doctorStatusWarn, Localize("native Grok hook coverage is missing or incomplete", "native Grok hook coverage が不足しています")
 	}
-	checks = append(checks, doctorCheck{Name: "grok-hooks", Status: hookStatus, Message: hookMessage, Hint: Localize("update or reinstall the native Traceary Grok plugin", "native Traceary Grok plugin を更新または再インストールしてください")})
+	checks = append(checks, doctorCheck{Name: "grok-hooks", Status: hookStatus, Message: hookMessage, Hint: hookHint})
 	checks = append(checks, buildGrokUserHooksCheck(state), buildGrokHookRoutesSummary(state))
 	skillStatus := doctorStatusPass
 	skillMessage := Localize("native Grok plugin exposes all four Traceary skills", "native Grok plugin は Traceary skill を4件すべて公開しています")

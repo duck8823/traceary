@@ -24,7 +24,7 @@ func TestBuildGrokDoctorChecks(t *testing.T) {
 		{name: "version mismatch", mutate: func(s *grokDoctorState) { s.PluginVersion = "0.22.0" }, check: "grok-plugin", status: doctorStatusWarn, messageSub: "does not match"},
 		{name: "untrusted project hooks", mutate: func(s *grokDoctorState) { s.ProjectHooks, s.ProjectTrusted = true, false }, check: "grok-hook-trust", status: doctorStatusWarn, messageSub: "not trusted"},
 		{name: "missing skills", mutate: func(s *grokDoctorState) { s.Skills = 2 }, check: "grok-skills", status: doctorStatusWarn, messageSub: "2"},
-		{name: "missing hooks", mutate: func(s *grokDoctorState) { s.NativeHooks = false }, check: "grok-hooks", status: doctorStatusWarn, messageSub: "incomplete"},
+		{name: "missing hooks", mutate: func(s *grokDoctorState) { s.NativeHooks, s.NativeHooksPresent = false, true }, check: "grok-hooks", status: doctorStatusWarn, messageSub: "incomplete"},
 		{name: "missing local plugin source", mutate: func(s *grokDoctorState) { s.PluginSource, s.PluginSourceMissing = "/does/not/exist/traceary", true }, check: "grok-plugin", status: doctorStatusFail, messageSub: "does not exist"},
 		{name: "healthy", mutate: func(*grokDoctorState) {}, check: "grok-plugin", status: doctorStatusPass, messageSub: "enabled"},
 	}
@@ -184,6 +184,119 @@ func TestProbeGrokDoctorStateDoesNotTrustProvidesHooksBoolean(t *testing.T) {
 	}
 	if state.NativeHooks || !state.ProjectHooks || state.ProjectTrusted {
 		t.Fatalf("state = %+v, invalid hook contract must not pass and untrusted project hooks must be detected", state)
+	}
+}
+
+// TestProbeGrokDoctorStateWarnsWhenPluginHooksNotDispatched reproduces the
+// Grok 1.0.5 dogfood: the traceary-grok plugin is installed and enabled and
+// its on-disk hook file satisfies the seven-event contract, yet inspect
+// dispatches only user-level hook sources. A listed plugin is not capture, so
+// grok-hooks must WARN instead of claiming the native route covers all events.
+func TestProbeGrokDoctorStateWarnsWhenPluginHooksNotDispatched(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+	originalLookPath, originalOutput, originalHome := grokDoctorLookPath, grokDoctorOutput, currentUserHomeDirFunc()
+	t.Cleanup(func() {
+		grokDoctorLookPath, grokDoctorOutput = originalLookPath, originalOutput
+		storeUserHomeDirFunc(originalHome)
+	})
+
+	home := t.TempDir()
+	storeUserHomeDirFunc(func() (string, error) { return home, nil })
+	grokDoctorLookPath = func(string) (string, error) { return "/usr/local/bin/grok", nil }
+
+	projectDir := t.TempDir()
+	userHookPath := filepath.Join(home, ".grok", "hooks", "traceary.json")
+	writeGrokDoctorHookFixture(t, userHookPath, true)
+	pluginHook := filepath.Join(home, ".grok", "installed-plugins", "grok-plugin-traceary-grok", "hooks", "hooks.json")
+	writeGrokDoctorHookFixture(t, pluginHook, true)
+
+	grokDoctorOutput = func(_ context.Context, args ...string) ([]byte, error) {
+		switch strings.Join(args, " ") {
+		case "--version":
+			return []byte("grok 1.0.5\n"), nil
+		case "plugin list --json":
+			return []byte(`[{"name":"traceary-grok","version":"0.46.0","path":` + strconv.Quote(filepath.Dir(filepath.Dir(pluginHook))) + `}]`), nil
+		case "--cwd " + projectDir + " inspect --json":
+			return []byte(`{"projectTrusted":true,"plugins":[{"name":"traceary-grok","enabled":true,"provides":{"skills":4,"hooks":true,"mcpServers":0}}],"hooks":[{"target":` + strconv.Quote(userHookPath) + `,"source":{"type":"user"}}]}`), nil
+		default:
+			t.Fatalf("unexpected Grok arguments: %v", args)
+			return nil, nil
+		}
+	}
+
+	state, err := probeGrokDoctorState(context.Background(), projectDir)
+	if err != nil {
+		t.Fatalf("probeGrokDoctorState() error = %v", err)
+	}
+	if !state.PluginInstalled || !state.PluginEnabled || !state.PluginHookFileVerified {
+		t.Fatalf("state = %+v, want installed/enabled plugin with verified hook file", state)
+	}
+	if state.NativeHooks || state.NativeHooksPresent {
+		t.Fatalf("state = %+v, user-only dispatch must not count as a native plugin route", state)
+	}
+
+	checks := buildGrokDoctorChecks(state, "0.46.0")
+	byName := map[string]doctorCheck{}
+	for _, check := range checks {
+		byName[check.Name] = check
+		if strings.Contains(check.Message+check.Hint, "/private/") {
+			t.Fatalf("check exposed private path: %+v", check)
+		}
+	}
+	hooksCheck, ok := byName["grok-hooks"]
+	if !ok || hooksCheck.Status != doctorStatusWarn {
+		t.Fatalf("grok-hooks = %+v, want WARN for undispatched plugin hooks", hooksCheck)
+	}
+	if strings.Contains(hooksCheck.Message, "cover all seven") {
+		t.Fatalf("grok-hooks = %+v, must not claim wired native coverage", hooksCheck)
+	}
+	if !strings.Contains(hooksCheck.Message, "does not dispatch") || !strings.Contains(hooksCheck.Message, "user-level") {
+		t.Fatalf("grok-hooks = %+v, want message naming plugin hooks absent from the dispatched inspect list", hooksCheck)
+	}
+	routesCheck, ok := byName["grok-hooks-routes"]
+	if !ok || routesCheck.Status != doctorStatusPass || !strings.Contains(routesCheck.Message, "user-level") {
+		t.Fatalf("grok-hooks-routes = %+v, want single user-level route", routesCheck)
+	}
+}
+
+// TestProbeGrokDoctorStatePassesWhenPluginSourceDispatched keeps the happy
+// path honest: inspect reporting a plugin-source traceary-grok hook whose
+// target file still has verified seven-event coverage passes grok-hooks.
+func TestProbeGrokDoctorStatePassesWhenPluginSourceDispatched(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+	originalLookPath, originalOutput := grokDoctorLookPath, grokDoctorOutput
+	t.Cleanup(func() { grokDoctorLookPath, grokDoctorOutput = originalLookPath, originalOutput })
+	grokDoctorLookPath = func(string) (string, error) { return "/usr/local/bin/grok", nil }
+
+	projectDir := t.TempDir()
+	pluginHook := filepath.Join(projectDir, "integrations", "grok-plugin", "hooks", "hooks.json")
+	writeGrokDoctorHookFixture(t, pluginHook, true)
+	grokDoctorOutput = func(_ context.Context, args ...string) ([]byte, error) {
+		switch strings.Join(args, " ") {
+		case "--version":
+			return []byte("grok 1.0.5\n"), nil
+		case "plugin list --json":
+			return []byte(`[{"name":"traceary-grok","version":"0.46.0","path":"/cache/grok-plugin-traceary-grok"}]`), nil
+		case "--cwd " + projectDir + " inspect --json":
+			return []byte(`{"projectTrusted":true,"plugins":[{"name":"traceary-grok","enabled":true,"provides":{"skills":4,"mcpServers":0}}],"hooks":[{"target":` + strconv.Quote(pluginHook) + `,"source":{"type":"plugin","plugin_name":"traceary-grok"}}]}`), nil
+		default:
+			t.Fatalf("unexpected Grok arguments: %v", args)
+			return nil, nil
+		}
+	}
+
+	state, err := probeGrokDoctorState(context.Background(), projectDir)
+	if err != nil {
+		t.Fatalf("probeGrokDoctorState() error = %v", err)
+	}
+	if !state.NativeHooks || !state.NativeHooksPresent {
+		t.Fatalf("state = %+v, want dispatched plugin route with verified coverage", state)
+	}
+	checks := buildGrokDoctorChecks(state, "0.46.0")
+	for _, check := range checks {
+		if check.Name == "grok-hooks" && (check.Status != doctorStatusPass || !strings.Contains(check.Message, "cover all seven")) {
+			t.Fatalf("grok-hooks = %+v, want PASS for dispatched plugin-source route", check)
+		}
 	}
 }
 
