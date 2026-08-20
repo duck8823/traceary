@@ -39,16 +39,19 @@ excluded from the bounded report.
   prompt/response payloads, credentials, or identifier lists into incident
   reports.
 
-The default command never changes data in this mode. `--fix` retains its normal
-meaning for small stores, but does not turn the metadata-only outcome into a
-retention operation.
+The default command never changes data in this mode. `--fix` keeps the report
+metadata-only but acts on the hook spool: it requeues transient dead letters,
+drains pending records through spool replay, and prunes dead-letter files and
+orphan `*.tmp` leftovers older than 14 days. Spool replay may open SQLite for
+event writes only — it never walks dbstat, event bodies, or store capacity —
+and `--fix --dry-run` opens nothing.
 
 ## Two doctor modes and check scoping
 
 | Mode | When | Store access | `hook-spool` unit |
 |---|---|---|---|
 | **Full** | store file missing, or smaller than 2 GiB | opens SQLite for store-scoped checks | **decoded records** for the selected `--client` filter, plus `filesystem pending files (store-independent)=N` so the number can be compared with a metadata-only run |
-| **Metadata-only** | regular store file ≥ 2 GiB (`mode: "metadata_only_large_store"`) | filesystem metadata plus the O(1) `mode=ro` page/projection read | **files** labeled `metadata-only, store-independent` (`pending=` is a directory entry count, not decoded records) |
+| **Metadata-only** | regular store file ≥ 2 GiB (`mode: "metadata_only_large_store"`) | filesystem metadata plus the O(1) `mode=ro` page/projection read; `--fix` may additionally open SQLite for hook-spool replay only | **files** labeled `metadata-only, store-independent` (`pending=` is a directory entry count, not decoded records) |
 
 Store-independent checks (hook spool, hook-state residue, SessionEnd cancellation markers, plugin cache, `path` / `config`) say `store-independent` on the output line. They inspect host files, not the SQLite store. Store-scoped checks (capacity, memory activation, projection) inspect the store at `DB_PATH`.
 
