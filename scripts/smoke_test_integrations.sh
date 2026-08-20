@@ -77,7 +77,7 @@ run_codex() {
     return 0
   }
 
-  codex exec -C "${ROOT_DIR}" -a never -s workspace-write 'In one sentence, name the Traceary slash command or skill exposed by the current repository plugin bundle.'
+  codex exec -C "${ROOT_DIR}" -s read-only 'In one sentence, name the Traceary slash command or skill exposed by the current repository plugin bundle.'
   echo 'ok: codex runtime probe completed'
 }
 
