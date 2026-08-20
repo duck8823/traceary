@@ -92,6 +92,35 @@ Traceary が assistant text に使うのは inline の `last_assistant_message` 
 coverage を partial として扱います。manifest を発行証拠にはせず、欠落を
 埋めるために別 rollout や無関係な private history を走査しません。
 
+## Headless `codex exec` probe は trusted な git directory が必要
+
+`codex exec` は trusted directory の外では起動を拒否します。git で管理
+されていない一時 directory から実行すると、即座に失敗します
+（Codex CLI 0.148.0、2026-08-21 に確認）。
+
+```
+Not inside a trusted directory and --skip-git-repo-check was not specified.
+```
+
+これは Codex ホスト側のポリシーであり、Traceary は変更しません。
+`--skip-git-repo-check` や `-a never` のような blanket 承認フラグで回避
+してもいけません。probe は git root から（`-C <git-root>`、または git
+管理下の任意の cwd で）実行し、`TRACEARY_DB_PATH` に使い捨て store を
+指させて、probe の hook 書き込みが実 store に混入しないようにします。
+
+```sh
+tmp_db_dir="$(mktemp -d)"
+TRACEARY_DB_PATH="${tmp_db_dir}/traceary.db" \
+  codex exec -C /path/to/git-root -s read-only 'Reply with exactly: ok'
+rm -rf "${tmp_db_dir}"
+```
+
+trusted な git root から実行すると、Traceary plugin hook は
+`session_started` / `prompt` / `transcript` event を記録します。
+transcript の供給元である `Stop` は turn 境界であり session 終了では
+ありません（上の表を参照）。Traceary は Codex 向けに `session_ended`
+を合成しません。
+
 ## Capture gap の診断
 
 `traceary doctor --client codex --project-dir <workspace> --json` は

@@ -77,7 +77,17 @@ run_codex() {
     return 0
   }
 
-  codex exec -C "${ROOT_DIR}" -s read-only 'In one sentence, name the Traceary slash command or skill exposed by the current repository plugin bundle.'
+  # The probe must run from a trusted git directory: `codex exec` from a
+  # non-git cwd fails immediately with "Not inside a trusted directory and
+  # --skip-git-repo-check was not specified." (#2238). `-C "${ROOT_DIR}"`
+  # is a git root. Point TRACEARY_DB_PATH at a throwaway store so the
+  # probe's hook writes (session_started/prompt/transcript) never touch
+  # the real one.
+  local tmp_db_dir
+  tmp_db_dir="$(mktemp -d)"
+  TRACEARY_DB_PATH="${tmp_db_dir}/traceary.db" \
+    codex exec -C "${ROOT_DIR}" -s read-only 'In one sentence, name the Traceary slash command or skill exposed by the current repository plugin bundle.' </dev/null
+  rm -rf "${tmp_db_dir}"
   echo 'ok: codex runtime probe completed'
 }
 

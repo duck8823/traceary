@@ -46,6 +46,31 @@ Prefer the `FixCommand` printed by doctor when it provides an exact non-interact
 
 Note on `--scope local` installs: a local install row in Claude's `~/.claude/plugins/installed_plugins.json` survives the deletion of the project directory it points at. Doctor reports those rows as the additive `claude-plugin-local-leftovers` WARN (count plus a bounded sample of the missing paths); the user-cache `claude-plugin-cache` / `claude-plugin-version` checks stay `pass`. The WARN carries a FixCommand — `traceary doctor --fix --dry-run --client claude` lists every leftover path, and `traceary doctor --fix` prints the same list as a no-op. Traceary never rewrites Claude's inventory — no host CLI can uninstall a local-scope row whose project directory is gone, so inspect `installed_plugins.json` and remove the leftover local rows in Claude yourself.
 
+## Codex headless probes require a trusted git directory
+
+A headless `codex exec` probe (the shape `scripts/smoke_test_integrations.sh`
+uses with `TRACEARY_ENABLE_CODEX_RUNTIME_SMOKE=1`) fails immediately from a
+non-git directory:
+
+```
+Not inside a trusted directory and --skip-git-repo-check was not specified.
+```
+
+Do not bypass this Codex host policy with `--skip-git-repo-check` or
+`-a never`. Run the probe from a git root with a throwaway store instead:
+
+```sh
+tmp_db_dir="$(mktemp -d)"
+TRACEARY_DB_PATH="${tmp_db_dir}/traceary.db" \
+  codex exec -C <traceary-git-root> -s read-only '<probe prompt>'
+rm -rf "${tmp_db_dir}"
+```
+
+The hooks then record `session_started` / `prompt` / `transcript` into the
+throwaway store; no `session_ended` is synthesized. See
+[Codex plugin](../integrations/codex-plugin.md#headless-codex-exec-probes-require-a-trusted-git-directory)
+for the full probe recipe.
+
 ## Stale processes
 
 Homebrew / `go install` upgrades replace the on-PATH binary, but **already-running processes keep the old executable**. The 2026-08-18 dogfood found long-lived `traceary mcp-server` processes on superseded Cellar binaries (0.32–0.34). MCP was retired in v0.35.0; those processes predate the store-lease protocol, so a stale host session that talks to them mid-compact can write without exclusive access.
