@@ -184,17 +184,32 @@ apply path は必要に応じて target directory/file を作成し、管理ブ�
 
 対話更新: `traceary -v` と一致する checkout を pull したあと、Codex の `/plugins` で refresh / reinstall します。
 
-headless 更新（CLI 更新後に実際に通る経路）:
+headless 更新（CLI 更新後に実際に通る経路）。まず marketplace root を確認します。
 
 ```sh
-# marketplace clone — 実行中 CLI の tag と揃える
-cd ~/.codex/plugins/marketplaces/traceary-plugins   # または自分の marketplace root
+codex plugin marketplace list
+```
+
+**Git clone marketplace**（`~/.codex/plugins/marketplaces/<name>` 配下）:
+
+```sh
+cd ~/.codex/plugins/marketplaces/traceary-plugins   # または `marketplace list` の root
 git fetch --tags
 git checkout "v$(traceary -v | awk '{print $2}')"
 codex plugin add traceary@traceary-marketplace
 ```
 
-marketplace root が Git remote ではなく **local path** のとき、`codex plugin marketplace upgrade` は "No configured Git marketplaces" と返します。install 失敗ではありません。clone 内で `git pull` / `git checkout <tag>` したあと `codex plugin add traceary@traceary-marketplace` を使ってください。
+**local-path marketplace**（root がこの repository の checkout。manifest は `.agents/plugins/marketplace.json`）。checkout を release に揃えてから plugin を add します。
+
+```sh
+codex plugin marketplace list   # local-path root を確認
+git -C <marketplace-root> fetch --tags
+git -C <marketplace-root> checkout "v$(traceary -v | awk '{print $2}')"
+codex plugin add traceary@traceary-marketplace
+traceary doctor --client codex --json
+```
+
+marketplace root が Git remote ではなく **local path** のとき、`codex plugin marketplace upgrade` は "No configured Git marketplaces" と返します。install 失敗ではありません。
 
 marketplace clone ではなく作業 tree から入れる場合:
 

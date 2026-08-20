@@ -196,23 +196,40 @@ the cross-host strategy comparison and `invalid` recovery steps.
 
 Interactive refresh: pull the checkout that matches `traceary -v`, then use Codex `/plugins` to refresh or reinstall.
 
-Headless refresh (the path that actually works after a CLI upgrade):
+Headless refresh (the path that actually works after a CLI upgrade).
+
+Identify the marketplace root first:
 
 ```sh
-# Marketplace clone — checkout that matches the running CLI tag
-cd ~/.codex/plugins/marketplaces/traceary-plugins   # or your marketplace root
+codex plugin marketplace list
+```
+
+**Git-clone marketplace** (a clone under `~/.codex/plugins/marketplaces/<name>`):
+
+```sh
+cd ~/.codex/plugins/marketplaces/traceary-plugins   # or the root from `marketplace list`
 git fetch --tags
 git checkout "v$(traceary -v | awk '{print $2}')"
 codex plugin add traceary@traceary-marketplace
 ```
 
+**Local-path marketplace** (the root is this repository checkout; the
+manifest is `.agents/plugins/marketplace.json`). Sync the checkout to the
+release, then add the plugin from that root:
+
+```sh
+codex plugin marketplace list   # confirms the local-path root
+git -C <marketplace-root> fetch --tags
+git -C <marketplace-root> checkout "v$(traceary -v | awk '{print $2}')"
+codex plugin add traceary@traceary-marketplace
+traceary doctor --client codex --json
+```
+
 `codex plugin marketplace upgrade` answers "No configured Git marketplaces"
 when the marketplace root is a **local path** rather than a Git remote. That
-is expected; do not treat it as a missing install. Use `git pull` / `git
-checkout <tag>` in the clone plus `codex plugin add
-traceary@traceary-marketplace` instead.
+is expected; do not treat it as a missing install.
 
-If you develop from a working tree instead of the marketplace clone:
+If you develop from a working tree instead of a tagged checkout:
 
 ```sh
 cd ~/src/traceary
