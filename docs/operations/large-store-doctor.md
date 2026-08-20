@@ -46,6 +46,17 @@ orphan `*.tmp` leftovers older than 14 days. Spool replay may open SQLite for
 event writes only — it never walks dbstat, event bodies, or store capacity —
 and `--fix --dry-run` opens nothing.
 
+The whole `--fix` apply phase — dead-letter requeue, the pending-record drain
+including SQLite replay, and any later automatic fixes — runs under one shared
+45-second wall clock. The drain checks the wall before claiming each record;
+an in-flight replay is allowed to finish, so the wall carries a one-record
+slack, but no new SQLite replay starts after it. When the wall is reached with
+records still pending, the fix action reports the leftover as `remaining=N`,
+and later auto-fixable checks are skipped with
+`skip: doctor --fix wall exhausted`. Because the apply phase stops holding the
+store once the wall hits, the follow-up inspection can still read the O(1)
+page metadata instead of reporting it unavailable.
+
 ## Two doctor modes and check scoping
 
 | Mode | When | Store access | `hook-spool` unit |

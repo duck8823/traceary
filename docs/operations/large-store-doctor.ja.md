@@ -43,6 +43,16 @@ dead-letter と orphan `*.tmp` を prune します。spool replay は event 書�
 ためだけに SQLite を開くことがあります。dbstat、event body、store 容量は
 読みません。`--fix --dry-run` は何も開きません。
 
+`--fix` の apply フェーズ全体（dead-letter の再キュー、SQLite replay を含む
+未処理 record の drain、後続の自動 fix）は、1 つの共有された 45 秒の wall
+clock の下で実行されます。drain は各 record を claim する前に wall を確認します。
+実行中の replay は最後まで完了するため wall には 1 record 分の slack がありますが、
+wall 到達後に新しい SQLite replay は開始されません。未処理 record が残ったまま
+wall に達した場合、fix の action は残りを `remaining=N` として報告し、後続の
+自動 fix 可能な check は `skip: doctor --fix wall exhausted` でスキップされます。
+wall 到達時点で apply フェーズは store を手放すため、後続の検査は O(1) page
+metadata を「unavailable」ではなく正常に読めます。
+
 ## 2 つの doctor mode と check のスコープ
 
 | Mode | いつ | Store アクセス | `hook-spool` の単位 |
