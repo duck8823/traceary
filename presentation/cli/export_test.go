@@ -184,3 +184,26 @@ func SetDetectRepoContextFunc(f func(context.Context) (string, error)) {
 func ResetDetectRepoContextFunc() {
 	storeDetectRepoContextFunc(detectRepoContext)
 }
+
+// TracearyProcessSnapshot is the ps-level process view doctor classifies.
+type TracearyProcessSnapshot = tracearyProcessSnapshot
+
+// SetListTracearyProcessSnapshotsForTest replaces the process enumerator
+// used by the stale-processes doctor check.
+func SetListTracearyProcessSnapshotsForTest(f func() ([]TracearyProcessSnapshot, error)) {
+	storeListTracearyProcessSnapshotsFunc(f)
+}
+
+// SetEmptyTracearyProcessSnapshotsForTest makes the stale-processes check
+// hermetic so operator-machine leftovers cannot change doctor snapshots.
+func SetEmptyTracearyProcessSnapshotsForTest() {
+	storeListTracearyProcessSnapshotsFunc(func() ([]tracearyProcessSnapshot, error) {
+		return nil, nil
+	})
+}
+
+// ResetListTracearyProcessSnapshotsForTest restores an empty enumerator so
+// subsequent tests stay hermetic.
+func ResetListTracearyProcessSnapshotsForTest() {
+	SetEmptyTracearyProcessSnapshotsForTest()
+}

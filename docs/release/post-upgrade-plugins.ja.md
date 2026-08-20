@@ -44,6 +44,21 @@ release 済みバイナリを更新するたびに、次を実行してくださ
 
 doctor が正確な非対話コマンドを `FixCommand` に出す場合は、そちらを優先してください。ホスト CLI のフラグを推測で追加してはいけません。
 
+## 古いプロセス
+
+Homebrew / `go install` の更新は PATH 上のバイナリを置き換えますが、**すでに動いているプロセスは古い実行ファイルのまま**です。2026-08-18 の dogfood では、置き換わった Cellar バイナリ（0.32–0.34）上の `traceary mcp-server` が長時間残っていました。MCP は v0.35.0 で引退しており、これらのプロセスは store-lease プロトコルより前のものです。stale なホスト session が compact 中にそれらへリクエストすると、排他制御なしで書き込めます。
+
+`traceary doctor` はこれを `stale-processes` チェックとして報告します（store-independent、ps-level）。pid・version・age と reap 案内付きの WARN で、該当がなければ黙って PASS します。plugin-cache の WARN は **live process を対象にしません**。
+
+バイナリを更新するたびに:
+
+1. `traceary doctor --json` を実行し、`stale-processes` を確認する。
+2. 各 pid を起動したホスト session を終了し、store lease なしの書き込みを止める。
+3. `ps -p <pid>` で確認し、未使用なら `kill <pid>`。
+4. 残っている `mcp-server` エントリを host config から削除する。[MCP の引退](../mcp/README.ja.md) を参照。
+
+plugin-version が `pass` でも、古いバイナリのプロセスが残っていない証明にはなりません。
+
 ## Gemini managed hook generation の更新
 
 `./scripts/install-gemini-extension.sh` は `~/.gemini/extensions/traceary/` 内の extension パッケージを入れ直します（uninstall のあと `install --consent`、実行中 CLI の tag に pin）。`~/.gemini/settings.json` 内にすでに存在する Traceary 管理の hook エントリは**書き換えません**。それらのエントリは古い hook generation によって書かれたものであり、timeout が古い値のまま残ることがあります（例: 現行の 10000 ms に対して 5000 ms）。Doctor はこれを `gemini-config=warn` として `installed=…ms desired=…ms` のドリフトメッセージと共に報告します。

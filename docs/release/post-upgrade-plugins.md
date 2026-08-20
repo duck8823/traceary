@@ -44,6 +44,21 @@ After every released binary upgrade:
 
 Prefer the `FixCommand` printed by doctor when it provides an exact non-interactive command. Do not invent host CLI flags.
 
+## Stale processes
+
+Homebrew / `go install` upgrades replace the on-PATH binary, but **already-running processes keep the old executable**. The 2026-08-18 dogfood found long-lived `traceary mcp-server` processes on superseded Cellar binaries (0.32–0.34). MCP was retired in v0.35.0; those processes predate the store-lease protocol, so a stale host session that talks to them mid-compact can write without exclusive access.
+
+`traceary doctor` reports this as the `stale-processes` check (store-independent, ps-level). It WARNs with pid, version, age, and reap guidance, and PASSes silently when none are running. Plugin-cache WARNs do **not** cover live processes.
+
+After every binary upgrade:
+
+1. Run `traceary doctor --json` and inspect `stale-processes`.
+2. Quit the host session that launched each pid so it cannot write without a store lease.
+3. Confirm with `ps -p <pid>`, then `kill <pid>` only if the process is unused.
+4. Remove leftover `mcp-server` entries from host config. See [MCP retirement](../mcp/README.md).
+
+Do not treat a `pass` plugin-version check as proof that no stale binaries are still running.
+
 ## Gemini managed hook generation refresh
 
 `./scripts/install-gemini-extension.sh` replaces the extension package in

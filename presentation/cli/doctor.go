@@ -369,6 +369,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		report.Checks = append(report.Checks, c.inspectCompactInFlight(resolvedDBPath, time.Now()))
 		report.Checks = append(report.Checks, buildOperatorCostCheck(residentCost))
 		report.Checks = append(report.Checks, inspectTracearyOnPath())
+		report.Checks = append(report.Checks, inspectStaleTracearyProcesses(input.currentVersion, time.Now()))
 		report.Checks = append(report.Checks, boundedLargeStoreDoctorCheck(snapshot, resolvedDBPath, pageErr == nil))
 		report.Checks = append(report.Checks, largeStoreProjectionGenerationCheck(pageMeta, pageErr))
 		if c.attestationAnchorInspector != nil {
@@ -413,6 +414,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 	}
 	report.Checks = append(report.Checks, c.inspectStoreGrowthBudget(ctx, resolvedDBPath, snapshot)...)
 	report.Checks = append(report.Checks, inspectTracearyOnPath())
+	report.Checks = append(report.Checks, inspectStaleTracearyProcesses(input.currentVersion, time.Now()))
 
 	report.Checks = append(report.Checks, inspectDoctorConfig())
 

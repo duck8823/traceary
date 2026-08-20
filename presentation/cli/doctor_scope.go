@@ -13,7 +13,7 @@ func doctorDBPathWasExplicit(flagPath string) bool {
 
 func doctorCheckIsStoreIndependent(name string) bool {
 	switch strings.TrimSpace(name) {
-	case "path", "config", "version", "project-dir",
+	case "path", "config", "version", "project-dir", "stale-processes",
 		"hook-spool", "hook-state-residue", "hook-memory-extract", "hook-grok-transcript",
 		"claude-hook-cancellations", "claude-plugin-cache":
 		return true
