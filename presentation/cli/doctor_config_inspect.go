@@ -89,9 +89,13 @@ const claudeLocalLeftoverSampleLimit = 5
 // inspectClaudePluginLocalLeftovers surfaces enabled local-scope Traceary
 // installs in Claude's installed_plugins.json whose project directory no
 // longer exists (deleted worktrees). The check is additive: it never
-// changes the claude-plugin-cache / claude-plugin-version results, has no
-// auto-fix, and never writes Claude's inventory — removing the leftover
-// rows is the operator's call inside Claude.
+// changes the claude-plugin-cache / claude-plugin-version results and
+// never writes Claude's inventory — removing the leftover rows is the
+// operator's call inside Claude. The WARN carries a guided FixCommand and
+// a print-only fixer: `doctor --fix --dry-run` lists the leftover paths
+// and `doctor --fix` prints the same list without mutating anything,
+// because no host CLI can uninstall a local-scope row whose project
+// directory is already gone.
 func (c *RootCLI) inspectClaudePluginLocalLeftovers() *doctorCheck {
 	if c == nil || c.pluginDetector == nil {
 		return nil
@@ -142,14 +146,23 @@ func (c *RootCLI) inspectClaudePluginLocalLeftovers() *doctorCheck {
 	if remainder > 0 {
 		sampleText = localizef("%s, and %d more", "%s ほか %d 件", sampleText, remainder)
 	}
+	fixCommand := "traceary doctor --fix --dry-run --client claude"
+	leftoverPaths := append([]string(nil), scan.LeftoverPaths...)
+	inventoryPath := scan.InventoryPath
 	return &doctorCheck{
-		Name:   "claude-plugin-local-leftovers",
-		Status: doctorStatusWarn,
+		Name:       "claude-plugin-local-leftovers",
+		Status:     doctorStatusWarn,
+		FixCommand: fixCommand,
 		Hint: localizef(
-			"inspect %s and remove the leftover local Traceary rows from Claude's inventory yourself (`claude plugin disable --scope local` only works inside a live project directory); Traceary never rewrites Claude's inventory",
-			"%s を確認し、leftover の local Traceary 行を Claude の inventory から自分で削除してください (`claude plugin disable --scope local` は生存している project 内でのみ動作します)。Traceary が Claude の inventory を書き換えることはありません",
-			scan.InventoryPath,
+			"preview the leftover rows with `%s` (print-only); then remove the leftover local Traceary rows from Claude's inventory yourself — `claude plugin disable --scope local` only works inside a live project directory, and no host CLI can uninstall a row whose project directory is gone. Traceary never rewrites Claude's inventory: %s",
+			"`%s` で leftover 行をプレビューしてください (print-only)。その後、leftover の local Traceary 行を Claude の inventory から自分で削除してください。`claude plugin disable --scope local` は生存している project 内でのみ動作し、project ディレクトリが消えた行を uninstall できる host CLI はありません。Traceary が Claude の inventory を書き換えることはありません: %s",
+			fixCommand,
+			inventoryPath,
 		),
+		AutoFixAvailable: true,
+		FixFunc: func(_ context.Context, dryRun bool) (string, error) {
+			return claudeLocalLeftoverPrintOnlyFix(inventoryPath, leftoverPaths, dryRun), nil
+		},
 		Message: localizef(
 			"claude plugin inventory lists %d enabled local Traceary install(s) whose project directory no longer exists: %s",
 			"claude plugin inventory に project ディレクトリが消えた enabled な local Traceary install が %d 件あります: %s",
@@ -157,6 +170,36 @@ func (c *RootCLI) inspectClaudePluginLocalLeftovers() *doctorCheck {
 			sampleText,
 		),
 	}
+}
+
+// claudeLocalLeftoverPrintOnlyFix renders the operator-guided cleanup list
+// for the claude-plugin-local-leftovers WARN. Both the dry-run preview and
+// the apply path only print the leftover projectPath values — the apply
+// path is a deliberate no-op that never rewrites Claude's inventory and
+// never deletes files, because removing the rows is the operator's call
+// inside Claude.
+func claudeLocalLeftoverPrintOnlyFix(inventoryPath string, leftoverPaths []string, dryRun bool) string {
+	lines := make([]string, 0, len(leftoverPaths))
+	for _, path := range leftoverPaths {
+		lines = append(lines, "  - "+path)
+	}
+	list := strings.Join(lines, "\n")
+	if dryRun {
+		return localizef(
+			"would list %d leftover local Traceary install row(s) for manual removal from %s (no host CLI can uninstall a local-scope row whose project directory is gone):\n%s",
+			"%s から手動削除すべき leftover local Traceary install 行 %d 件を一覧します (project ディレクトリが消えた local-scope 行を uninstall できる host CLI はありません):\n%s",
+			len(leftoverPaths),
+			inventoryPath,
+			list,
+		)
+	}
+	return localizef(
+		"print-only: no changes were made to %s; remove these %d leftover local Traceary install row(s) from Claude's inventory yourself:\n%s",
+		"print-only: %s への変更は行っていません。以下の %d 件の leftover local Traceary install 行を Claude の inventory から自分で削除してください:\n%s",
+		inventoryPath,
+		len(leftoverPaths),
+		list,
+	)
 }
 
 // inspectHostCapabilityGaps surfaces informational notes about host

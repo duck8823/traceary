@@ -7,6 +7,9 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 
 ## [Unreleased]
 
+### Fixed
+- **Claude `--scope local` の leftover install に operator 向け FixCommand を追加 (#2236)** — `claude-plugin-local-leftovers` WARN が `traceary doctor --fix --dry-run --client claude` を表示する。dry-run は leftover path をすべて一覧し、apply は print だけの no-op。Claude の inventory は引き続き書き換えず、user-scope / marketplace install には触れない。親 #2230 は open のまま。
+
 ## [v0.46.0] - 2026-08-21
 
 ### Fixed
