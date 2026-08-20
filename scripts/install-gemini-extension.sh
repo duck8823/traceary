@@ -4,9 +4,15 @@ set -euo pipefail
 
 usage() {
     cat >&2 <<'EOF'
-usage: scripts/install-gemini-extension.sh [--ref <git-ref>]
+usage: scripts/install-gemini-extension.sh [--ref <git-ref>] [--hooks]
 
-Installs the Traceary Gemini extension, then installs project hooks.
+Installs the Traceary Gemini extension. Project hooks are NOT installed
+by default: when the repo's .gemini/settings.json already contains
+Traceary Gemini hooks, rewriting it would only churn JSON key order.
+Use --hooks to opt into writing project hooks at the repository root
+(still skipped when hooks are already present). To refresh managed hook
+generation, run `traceary doctor --fix --client gemini` instead.
+
 Existing installs are copied aside first. Gemini CLI cannot overlay an
 already-installed name, so the script then uninstalls and installs. A
 failed or timed-out gemini CLI call restores the previous directory.
@@ -25,6 +31,7 @@ EOF
 
 REF="${TRACEARY_GEMINI_REF:-}"
 TIMEOUT="${TRACEARY_GEMINI_TIMEOUT:-60}"
+INSTALL_HOOKS=0
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --ref)
@@ -34,6 +41,10 @@ while [[ $# -gt 0 ]]; do
             fi
             REF="$2"
             shift 2
+            ;;
+        --hooks)
+            INSTALL_HOOKS=1
+            shift
             ;;
         -h|--help)
             usage
@@ -156,8 +167,22 @@ if [[ "$install_rc" -ne 0 ]]; then
     exit 1
 fi
 
-echo "Configuring Traceary hooks for Gemini CLI in current project..."
-traceary hooks install --client gemini --project-dir .
+SETTINGS_JSON="${REPO_ROOT}/.gemini/settings.json"
+hooks_present=0
+if [[ -f "$SETTINGS_JSON" ]] && grep -qF "traceary-session-start" "$SETTINGS_JSON"; then
+    hooks_present=1
+fi
+
+if [[ "$hooks_present" -eq 1 ]]; then
+    echo "Project Gemini hooks already present in ${SETTINGS_JSON}; skipping 'traceary hooks install'."
+elif [[ "$INSTALL_HOOKS" -eq 1 ]]; then
+    echo "Configuring Traceary hooks for Gemini CLI in ${REPO_ROOT}..."
+    traceary hooks install --client gemini --project-dir "$REPO_ROOT"
+else
+    echo "Skipping project hooks install (no Traceary Gemini hooks in ${SETTINGS_JSON})."
+    echo "To write project hooks: scripts/install-gemini-extension.sh --hooks, or"
+    echo "  traceary hooks install --client gemini --project-dir ${REPO_ROOT}"
+fi
 
 echo "Traceary Gemini extension installed and configured successfully."
 echo "Pinned to ${REF}. Run 'traceary doctor --client gemini' to verify."
