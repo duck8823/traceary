@@ -253,8 +253,8 @@ func inspectHostCapabilityGaps(client, configPath string) []doctorCheck {
 		)
 	case "gemini":
 		checks[0].Message = localizef(
-			"gemini host: matrix-wired lifecycle coverage is %s. Memory manager agent and auto-memory remain experimental on Gemini CLI and are not Traceary lifecycle events (hooks config: %s)",
-			"gemini ホスト: matrix 上の wired lifecycle は %s です。memory manager agent / auto-memory は Gemini CLI の experimental 機能であり Traceary lifecycle event ではありません (hooks config: %s)",
+			"gemini host: matrix-wired lifecycle coverage is %s. Memory manager agent and auto-memory remain experimental on Gemini CLI and are not Traceary lifecycle events (hooks config: %s). Wired cells describe Traceary's hook wiring, not per-account eligibility: an account rejected with IneligibleTierError records no prompt — see gemini-host-eligibility",
+			"gemini ホスト: matrix 上の wired lifecycle は %s です。memory manager agent / auto-memory は Gemini CLI の experimental 機能であり Traceary lifecycle event ではありません (hooks config: %s)。wired セルは Traceary 側の hook 配線を表し、アカウント単位の eligibility を保証しません。IneligibleTierError で拒否されたアカウントでは prompt は記録されません。gemini-host-eligibility を参照してください",
 			wiredList,
 			configPath,
 		)

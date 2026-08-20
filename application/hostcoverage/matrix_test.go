@@ -54,6 +54,31 @@ func TestLoad_GrokSessionEndedIsAvailableNotWired(t *testing.T) {
 	}
 }
 
+func TestLoad_GeminiPromptStaysWiredWithIneligibleTierCaveat(t *testing.T) {
+	t.Parallel()
+
+	m, err := hostcoverage.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	host, ok := m.HostByDoctorClient("gemini")
+	if !ok {
+		t.Fatal("missing gemini host")
+	}
+	// The 2026-08-21 dogfood probe on an individual (free-tier) account failed
+	// with IneligibleTierError and recorded only session_started/session_ended.
+	// The wiring itself is intact (eligible accounts still capture prompt), so
+	// the cell stays wired but the summary must carry the ineligible-tier
+	// caveat — silently staying "wired" was the defect behind #2237.
+	cell := host.Events["prompt"]
+	if cell.Status != hostcoverage.StatusWired {
+		t.Fatalf("gemini prompt status = %q, want wired (wiring is intact; eligibility is per-account)", cell.Status)
+	}
+	if !strings.Contains(cell.Summary.EN, "IneligibleTierError") || !strings.Contains(cell.Summary.JA, "IneligibleTierError") {
+		t.Fatalf("gemini prompt summary lost the ineligible-tier caveat: en=%q ja=%q", cell.Summary.EN, cell.Summary.JA)
+	}
+}
+
 func TestLoad_KimiCoreEventsAreWired(t *testing.T) {
 	t.Parallel()
 
