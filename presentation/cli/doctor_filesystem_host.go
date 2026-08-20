@@ -7,9 +7,12 @@ import (
 	"github.com/duck8823/traceary/domain/types"
 )
 
-// appendFilesystemHostDoctorChecks emits host-file hook and config checks
-// that never open the Traceary SQLite store. Large-store doctor uses this
-// so operators still see gemini-config / hook queues / cancellations.
+// appendFilesystemHostDoctorChecks emits host-file hook and config checks.
+// Large-store doctor uses this so operators still see gemini-config / hook
+// queues / cancellations. These checks never initialize or migrate the
+// Traceary SQLite store; the only store read is the bounded mode=ro
+// session-id keyed ended-session probe behind
+// inspectClaudeHookCancellationDiagnosticsFilesystem (#2235).
 func (c *RootCLI) appendFilesystemHostDoctorChecks(
 	ctx context.Context,
 	report *doctorReport,

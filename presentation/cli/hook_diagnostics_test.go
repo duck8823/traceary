@@ -12,7 +12,9 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
+	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
+	sqliteinfra "github.com/duck8823/traceary/infrastructure/sqlite"
 )
 
 type hookDiagnosticSessionLookupStub struct {
@@ -479,5 +481,165 @@ func TestScanHookCancellationDiagnosticsSkipsEmptyMarkers(t *testing.T) {
 	}
 	if !strings.Contains(check.Message, "unreadable nonempty") || !strings.Contains(check.Message, garbage) {
 		t.Fatalf("nonempty unreadable must remain reported: %q", check.Message)
+	}
+}
+
+type endedSessionInspectorStub struct {
+	ended   map[types.SessionID]struct{}
+	err     error
+	dbPaths []string
+}
+
+func (s *endedSessionInspectorStub) FindEndedSessionIDs(_ context.Context, dbPath string, _ []types.SessionID) (map[types.SessionID]struct{}, error) {
+	s.dbPaths = append(s.dbPaths, dbPath)
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.ended, nil
+}
+
+// The filesystem (large-store) inspect must resolve markers whose sessions
+// already ended instead of reporting every same-store marker actionable the
+// way the previous nil lookup did (#2235).
+func TestInspectClaudeHookCancellationDiagnosticsFilesystem_ResolvesEndedSession(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	diagDir := filepath.Join(stateDir, hookDiagnosticsDirName)
+	if err := os.MkdirAll(diagDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const dbPath = "/store/current.db"
+	writeHookCancellationDiagnosticForTest(t, filepath.Join(diagDir, "ended.json"), hookCancellationDiagnostic{
+		SchemaVersion: hookCancellationDiagnosticSchemaVersion,
+		Client:        "claude",
+		HostEvent:     "SessionEnd",
+		SessionID:     "ended-session",
+		DBPath:        dbPath,
+		Status:        hookCancellationDiagnosticStatusStarted,
+		StartedAt:     time.Now().UTC().Add(-time.Hour),
+	})
+
+	inspector := &endedSessionInspectorStub{ended: map[types.SessionID]struct{}{"ended-session": {}}}
+	root := &RootCLI{endedSessionInspector: inspector}
+	check := root.inspectClaudeHookCancellationDiagnosticsFilesystem(context.Background(), dbPath, "")
+	if check.Status != doctorStatusWarn {
+		t.Fatalf("status=%q message=%q", check.Status, check.Message)
+	}
+	if strings.Contains(check.Message, "unresolved") {
+		t.Fatalf("ended session marker must not stay unresolved: %q", check.Message)
+	}
+	if !strings.Contains(check.Message, "resolved=1") {
+		t.Fatalf("message %q, want resolved=1 cleanup path", check.Message)
+	}
+	if !check.AutoFixAvailable || check.FixFunc == nil {
+		t.Fatalf("resolved marker must stay auto-fixable: %+v", check)
+	}
+	if len(inspector.dbPaths) != 1 || inspector.dbPaths[0] != dbPath {
+		t.Fatalf("inspector dbPaths = %v, want [%s]", inspector.dbPaths, dbPath)
+	}
+}
+
+// A marker without an ended (or any) session row stays actionable; only the
+// marker backed by a real session_ended resolves. Drives the shipped
+// filesystem inspect against a real store so the nil-lookup blind spot
+// cannot regress (#2235).
+func TestInspectClaudeHookCancellationDiagnosticsFilesystem_EndToEndStore(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	diagDir := filepath.Join(stateDir, hookDiagnosticsDirName)
+	if err := os.MkdirAll(diagDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	database := sqliteinfra.NewDatabase(dbPath, os.DirFS(filepath.Join("..", "..", "schema", "sqlite", "migrations")))
+	if err := sqliteinfra.NewStoreManagementDatasource(database).Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	sessionDS := sqliteinfra.NewSessionDatasource(database)
+	agent, err := types.AgentFrom("claude")
+	if err != nil {
+		t.Fatalf("AgentFrom() error = %v", err)
+	}
+	startedAt := time.Date(2026, 8, 20, 10, 0, 0, 0, time.UTC)
+	endedID := types.SessionID("ended-session")
+	openID := types.SessionID("open-session")
+	for _, sessionID := range []types.SessionID{endedID, openID} {
+		session := model.NewSession(sessionID, startedAt, types.Client("cli"), agent, types.Workspace("workspace"))
+		event := model.EventOf(types.EventID("start-"+sessionID.String()), types.EventKindSessionStarted, types.Client("cli"), agent, sessionID, types.Workspace("workspace"), "started", startedAt)
+		if err := sessionDS.SaveBoundary(ctx, session, event); err != nil {
+			t.Fatalf("SaveBoundary(start %s) error = %v", sessionID, err)
+		}
+	}
+	ended, err := sessionDS.FindByID(ctx, endedID)
+	if err != nil {
+		t.Fatalf("FindByID() error = %v", err)
+	}
+	endedSession, ok := ended.Value()
+	if !ok {
+		t.Fatal("ended session is missing")
+	}
+	endedAt := startedAt.Add(time.Minute)
+	if err := endedSession.End(endedAt, "done"); err != nil {
+		t.Fatalf("End() error = %v", err)
+	}
+	endEvent := model.EventOf(types.EventID("end-ended-session"), types.EventKindSessionEnded, types.Client("cli"), agent, endedID, types.Workspace("workspace"), "ended", endedAt)
+	if err := sessionDS.SaveBoundary(ctx, endedSession, endEvent); err != nil {
+		t.Fatalf("SaveBoundary(end) error = %v", err)
+	}
+
+	now := time.Now().UTC()
+	write := func(name, sessionID string) string {
+		path := filepath.Join(diagDir, name)
+		writeHookCancellationDiagnosticForTest(t, path, hookCancellationDiagnostic{
+			SchemaVersion: hookCancellationDiagnosticSchemaVersion,
+			Client:        "claude",
+			HostEvent:     "SessionEnd",
+			SessionID:     sessionID,
+			DBPath:        dbPath,
+			Status:        hookCancellationDiagnosticStatusStarted,
+			StartedAt:     now.Add(-time.Hour),
+		})
+		return path
+	}
+	endedPath := write("ended.json", endedID.String())
+	openPath := write("open.json", openID.String())
+	ghostPath := write("ghost.json", "ghost-session")
+
+	root := &RootCLI{endedSessionInspector: sqliteinfra.NewEndedSessionInspector()}
+	check := root.inspectClaudeHookCancellationDiagnosticsFilesystem(ctx, dbPath, "")
+	if check.Status != doctorStatusWarn {
+		t.Fatalf("status=%q message=%q", check.Status, check.Message)
+	}
+	if !strings.Contains(check.Message, "found 2 unresolved") {
+		t.Fatalf("message %q, want open and ghost sessions still unresolved", check.Message)
+	}
+	if !strings.Contains(check.Message, "1 resolved") {
+		t.Fatalf("message %q, want 1 resolved", check.Message)
+	}
+	if !check.AutoFixAvailable || check.FixFunc == nil {
+		t.Fatalf("resolved marker must be auto-fixable: %+v", check)
+	}
+
+	action, err := check.FixFunc(ctx, true)
+	if err != nil {
+		t.Fatalf("dry-run: %v", err)
+	}
+	if !strings.Contains(action, "would remove 1") {
+		t.Fatalf("dry-run action=%q, want 1 removal", action)
+	}
+	if _, err := check.FixFunc(ctx, false); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if _, err := os.Stat(endedPath); !os.IsNotExist(err) {
+		t.Fatalf("ended marker survived --fix: err=%v", err)
+	}
+	for _, path := range []string{openPath, ghostPath} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("unresolved marker %s must remain: %v", path, err)
+		}
 	}
 }

@@ -242,6 +242,7 @@ func run() error {
 		cli.WithStoreManagement(storeManagementUsecase),
 		cli.WithCapacityInspector(sqlite.NewCapacityInspector(db)),
 		cli.WithPageMetadataInspector(sqlite.NewPageMetadataInspector()),
+		cli.WithEndedSessionInspector(sqlite.NewEndedSessionInspector()),
 		cli.WithOperatorCostInspector(sqlite.NewOperatorCostInspector(db)),
 		cli.WithPayloadCodecInspector(sqlite.NewPayloadCodecInspector(db)),
 		cli.WithAttestationAnchorInspector(sqlite.NewAttestationAnchorInspector(db)),
