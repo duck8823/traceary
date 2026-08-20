@@ -36,15 +36,19 @@ hook route）は引き続き bounded report から除外されます。
   read command を使用してください。raw event body、prompt/response payload、credential、
   identifier list を incident report にコピーしないでください。
 
-この mode の既定コマンドは data を変更しません。`--fix` は small store では従来どおり
-ですが、metadata-only の結果から retention 操作には進みません。
+この mode の既定コマンドは data を変更しません。`--fix` は report を
+metadata-only のまま保ちつつ hook spool に作用します。transient dead-letter を
+再キューし、spool replay で未処理 record を drain し、14 日より古い
+dead-letter と orphan `*.tmp` を prune します。spool replay は event 書き込みの
+ためだけに SQLite を開くことがあります。dbstat、event body、store 容量は
+読みません。`--fix --dry-run` は何も開きません。
 
 ## 2 つの doctor mode と check のスコープ
 
 | Mode | いつ | Store アクセス | `hook-spool` の単位 |
 |---|---|---|---|
 | **Full** | store file が無い、または 2 GiB 未満 | store-scoped check のために SQLite を開く | 選択中 `--client` 向けの **decoded records**。比較用に `filesystem pending files (store-independent)=N` も同じ行に出す |
-| **Metadata-only** | regular store file が 2 GiB 以上（`mode: "metadata_only_large_store"`） | filesystem metadata と O(1) の `mode=ro` page/projection 読み | **files**（`metadata-only, store-independent`）。`pending=` はディレクトリエントリ数であり decoded record 数ではない |
+| **Metadata-only** | regular store file が 2 GiB 以上（`mode: "metadata_only_large_store"`） | filesystem metadata と O(1) の `mode=ro` page/projection 読み。`--fix` は hook spool replay のためだけに追加で SQLite を開くことがある | **files**（`metadata-only, store-independent`）。`pending=` はディレクトリエントリ数であり decoded record 数ではない |
 
 store-independent な check（hook spool、hook-state residue、SessionEnd cancellation marker、plugin cache、`path` / `config`）は出力行に `store-independent` と書きます。SQLite store ではなく host file を見ます。store-scoped な check（capacity、memory activation、projection）は `DB_PATH` の store を見ます。
 
