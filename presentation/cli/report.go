@@ -39,6 +39,11 @@ func (c *RootCLI) newReportCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "report",
 		Short: Localize("Period-scoped retrospective digest (sessions, coverage, failures, commands, usage)", "期間指定の振り返りダイジェスト（sessions / coverage / failures / commands / usage）"),
+		Long: Localize(
+			"Period-scoped retrospective digest (sessions, coverage, failures, commands, usage).\n\n"+
+				"Note: --limit is a deprecated alias for --page-size. It sets the internal scan chunk size, NOT a result cap (unlike list --limit). Use --result-cap for a partial aggregate, or omit both for the default 5000 page.",
+			"期間指定の振り返りダイジェスト（sessions / coverage / failures / commands / usage）。\n\n"+
+				"注意: --limit は --page-size の非推奨 alias です。内部スキャンのチャンクサイズを指定するもので、結果件数の上限ではありません（list --limit とは異なります）。部分集計には --result-cap を、既定の 5000 ページでよければ両方を省略してください。"),
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return nil
@@ -52,7 +57,7 @@ func (c *RootCLI) newReportCommand() *cobra.Command {
 			))
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return c.runReport(cmd.Context(), cmd.OutOrStdout(), reportCommandInput{
+			return c.runReport(cmd.Context(), cmd.ErrOrStderr(), cmd.OutOrStdout(), reportCommandInput{
 				dbPath: dbPath, workspace: workspace, from: from, since: since,
 				to: to, until: until, client: client, timezone: timezone,
 				pageSize: pageSize, resultCap: resultCap, legacyLimit: legacyLimit,
@@ -71,8 +76,11 @@ func (c *RootCLI) newReportCommand() *cobra.Command {
 	cmd.Flags().StringVar(&timezone, "timezone", "UTC", Localize("IANA timezone for date-only bounds (default: UTC)", "日付のみの境界に使う IANA タイムゾーン（既定: UTC）"))
 	cmd.Flags().IntVar(&pageSize, "page-size", defaultReportPageSize, Localize("internal database page size, maximum 100000 (does not cap aggregate results)", "DB 内部のページサイズ、最大 100000（集計結果の上限ではありません）"))
 	cmd.Flags().IntVar(&resultCap, "result-cap", 0, Localize("maximum rows per aggregate source; 0 means complete aggregation", "集計元ごとの最大行数（0 は全件集計）"))
-	cmd.Flags().IntVar(&legacyLimit, "limit", 0, Localize("deprecated alias for --page-size", "--page-size の非推奨 alias"))
-	_ = cmd.Flags().MarkDeprecated("limit", Localize("use --page-size; use --result-cap only for an explicit partial aggregate", "--page-size を使ってください。部分集計を明示する場合だけ --result-cap を使います"))
+	cmd.Flags().IntVar(&legacyLimit, "limit", 0, Localize("deprecated alias for --page-size (scan chunk, NOT a result cap); use --result-cap for a partial aggregate", "--page-size の非推奨 alias（スキャンのチャンクサイズであり、結果件数の上限ではありません）。部分集計には --result-cap を使います"))
+	// Keep the alias hidden rather than MarkDeprecated: pflag's deprecation
+	// notice is flushed to stdout on successful runs, which would corrupt
+	// --json output. The stderr warning in runReport carries the notice.
+	_ = cmd.Flags().MarkHidden("limit")
 	cmd.Flags().BoolVar(&asJSON, "json", false, Localize("emit JSON", "JSON で出力する"))
 	return cmd
 }
@@ -94,7 +102,7 @@ type reportCommandInput struct {
 	asJSON         bool
 }
 
-func (c *RootCLI) runReport(ctx context.Context, output io.Writer, input reportCommandInput) error {
+func (c *RootCLI) runReport(ctx context.Context, stderr io.Writer, output io.Writer, input reportCommandInput) error {
 	if c.storeManagement == nil {
 		return xerrors.New(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
@@ -105,6 +113,11 @@ func (c *RootCLI) runReport(ctx context.Context, output io.Writer, input reportC
 		return xerrors.New(Localize("--limit and --page-size cannot be used together", "--limit と --page-size は同時に指定できません"))
 	}
 	if input.legacyLimitSet {
+		// The alias still works for existing scripts, but it only changes the
+		// scan chunk size; say so because list --limit is a result cap.
+		_, _ = fmt.Fprintln(stderr, Localize(
+			"warning: --limit is a deprecated alias for --page-size (scan chunk size, not a result cap); use --result-cap for a partial aggregate, or omit both for the default 5000 page",
+			"警告: --limit は --page-size の非推奨 alias です（スキャンのチャンクサイズであり、結果件数の上限ではありません）。部分集計には --result-cap を、既定の 5000 ページでよければ両方を省略してください"))
 		input.pageSize = input.legacyLimit
 	}
 

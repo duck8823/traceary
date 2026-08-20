@@ -888,7 +888,7 @@ v0.15.0 で削除されており、**サポート対象の uninstall 面では�
 
 日付だけの `--to` は明示した `--timezone`（既定は UTC）の指定日を含み、RFC3339 の `--to` は正確な排他時刻のままです。ホスト依存の特殊なゾーン名 `Local` は拒否します。テキストには要求した暦日の終了をそのまま表示します。JSON は `requested_from` / `requested_to` と `effective_from_inclusive` / `effective_to_exclusive` を分け、`timezone` と共通の `snapshot_at` も返します。両方の境界を省略した場合、要求値は空のままにし、実効値には `snapshot_at` で終わる既定の 7 日間を格納します。互換用の `period.from` / `period.to` は引き続き実効境界を v0.30.0 より前と同じ秒精度で返します。
 
-既定では全件を集計します。`--page-size` は 1 以上 100,000 以下で、本文を含まない SQLite 内部読み取りのページサイズだけを制御し、集計件数の上限にはなりません。正の `--result-cap` を指定した場合だけ、データ源ごとの部分集計を明示的に要求します。その場合、JSON は `aggregation.coverage=partial`、session/event/command/usage ごとの観測件数と時刻範囲、`truncation_reason=result_cap` を返し、不完全な分母から割合を計算せず該当フィールドを省略します。非推奨の `--limit` は `--page-size` の別名としてだけ動作し、併用できません。
+既定では全件を集計します。`--page-size` は 1 以上 100,000 以下で、本文を含まない SQLite 内部読み取りのページサイズだけを制御し、集計件数の上限にはなりません。正の `--result-cap` を指定した場合だけ、データ源ごとの部分集計を明示的に要求します。その場合、JSON は `aggregation.coverage=partial`、session/event/command/usage ごとの観測件数と時刻範囲、`truncation_reason=result_cap` を返し、不完全な分母から割合を計算せず該当フィールドを省略します。非推奨の `--limit` は `--page-size` の別名としてだけ動作し、併用できません。これはスキャンのチャンクサイズであり、`list --limit` のような結果件数の上限ではありません。指定すると、マッピングと `--result-cap` / 既定値を示す 1 行の警告を stderr に出力します。
 
 `usage` オブジェクトは、現在有効な確定済み観測を provider、engine、model、repository、ticket、pull request、batch ごとに集計します。token フィールドは既知の観測件数と取得不能な観測件数を分けるため、既知の 0 と証拠不足を混同しません。`accounted_observations` は加算対象外の代替証拠を除き、`excluded_observations` はその証拠の存在を可視化します。`unavailable_observations` はデータ源をまったく読めなかった観測を数えるため、取得不能を収集成功の 0 と見なしません。cost 行は `origin` ごとに分離し、`estimated` を `provider_reported` として表示しません。run の packet bytes と tool output bytes は run identity で重複排除し、`usage.runs` に出力します。role、round、wall time は正式な値が永続化されていないため、現在は `unavailable` と表示します。
 
