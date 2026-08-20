@@ -266,6 +266,12 @@ func (c *RootCLI) applyDoctorFixes(ctx context.Context, report *doctorReport, dr
 	if report == nil {
 		return nil
 	}
+	// One shared wall for the whole apply phase: hook-spool requeue+drain
+	// take their deadline from the same clock, and once the wall (or the
+	// caller context) is exhausted, later auto-fixes are skipped instead of
+	// each adding its own unbounded work. Dry-run previews never consume the
+	// wall — they open no SQLite and move no files.
+	applyDeadline := hookSpoolDeadRequeueNow().Add(hookSpoolDeadRequeueDoctorWall)
 	fixes := []doctorFixLog{}
 	for _, check := range report.Checks {
 		if check.Severity != doctorSeverityWarn && check.Severity != doctorSeverityFail {
@@ -274,6 +280,11 @@ func (c *RootCLI) applyDoctorFixes(ctx context.Context, report *doctorReport, dr
 		log := doctorFixLog{Name: check.Name, Before: check.Status}
 		if !check.AutoFixAvailable || (check.FixFunc == nil && check.StructuredFixFunc == nil) {
 			log.Action = guidedDoctorFixAction(check)
+			fixes = append(fixes, log)
+			continue
+		}
+		if !dryRun && (ctx.Err() != nil || !hookSpoolDeadRequeueNow().Before(applyDeadline)) {
+			log.Action = Localize("skip: doctor --fix wall exhausted", "skip: doctor --fix の wall 制限時間を使い切りました")
 			fixes = append(fixes, log)
 			continue
 		}
