@@ -277,29 +277,22 @@ func (c *RootCLI) runMemoryInboxList(ctx context.Context, output io.Writer, inpu
 	// sort would only re-order the current page and could let a prioritized
 	// row that lives just past the page boundary stay hidden until later pages
 	// (#856/#857).
-	criteriaBuilder := apptypes.NewMemoryListCriteriaBuilder(input.limit).
-		Offset(input.offset).
-		Scopes(scopes).
-		Statuses([]domtypes.MemoryStatus{domtypes.MemoryStatusCandidate}).
-		MemoryTypes(memoryTypes).
-		Sources(listSources).
-		RememberIntentPriority(true)
-	criteriaBuilder = applyMemoryInboxAgeFilters(criteriaBuilder, input.olderThan, input.newerThan, time.Now())
-	criteria := criteriaBuilder.Build()
-	summaries, err := c.memory.List(ctx, criteria)
-	if err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to list memory review queue candidates", "メモリ候補の確認キューの一覧取得に失敗しました"), err)
+	//
+	// --limit applies AFTER the quality filter: the shared selector pages the
+	// queue until limit matching candidates are collected (or the queue is
+	// exhausted / the fetch row cap is hit), so quality matches that live
+	// beyond the first page stay reachable (#2210).
+	filters := memoryInboxCandidateFilters{
+		scopes:      scopes,
+		memoryTypes: memoryTypes,
+		sources:     listSources,
+		olderThan:   input.olderThan,
+		newerThan:   input.newerThan,
+		now:         time.Now(),
 	}
-
-	items := make([]apptypes.MemoryDetails, 0, len(summaries))
-	for _, summary := range summaries {
-		details, err := c.memory.Show(ctx, summary.MemoryID())
-		if err != nil {
-			return xerrors.Errorf("failed to load memory %s: %w", summary.MemoryID().String(), err)
-		}
-		if memoryInboxDetailsMatchesQuality(details, quality, lowQualityIDs) {
-			items = append(items, details)
-		}
+	items, err := c.loadMemoryInboxQualityMatchedDetails(ctx, filters, quality, lowQualityIDs, input.limit, input.offset)
+	if err != nil {
+		return err
 	}
 	if err := writeMemoryInboxList(output, items, input.asJSON); err != nil {
 		return err
@@ -307,7 +300,7 @@ func (c *RootCLI) runMemoryInboxList(ctx context.Context, output io.Writer, inpu
 	if input.asJSON {
 		return nil
 	}
-	return c.writeMemoryInboxListPoolSummary(ctx, output, criteriaBuilder, countSources, len(items), quality)
+	return c.writeMemoryInboxListPoolSummary(ctx, output, filters.newCriteriaBuilder(input.limit, input.offset), countSources, len(items), quality)
 }
 
 func (c *RootCLI) runMemoryInboxShow(ctx context.Context, output io.Writer, input memoryInboxShowCommandInput) error {
@@ -416,25 +409,110 @@ func (c *RootCLI) loadMemoryInboxCleanupCandidates(ctx context.Context, input me
 		return nil, err
 	}
 	sources = applyExtractedHiddenDefault(sources, input.includeHidden)
-	criteriaBuilder := apptypes.NewMemoryListCriteriaBuilder(input.limit).
-		Scopes(scopes).
-		Statuses([]domtypes.MemoryStatus{domtypes.MemoryStatusCandidate}).
-		MemoryTypes(memoryTypes).
-		Sources(sources).
-		RememberIntentPriority(true)
-	criteriaBuilder = applyMemoryInboxAgeFilters(criteriaBuilder, input.olderThan, input.newerThan, now)
-	summaries, err := c.memory.List(ctx, criteriaBuilder.Build())
-	if err != nil {
-		return nil, xerrors.Errorf("%s: %w", Localize("failed to list cleanup memory candidates", "cleanup 対象メモリ候補の一覧取得に失敗しました"), err)
+	filters := memoryInboxCandidateFilters{
+		scopes:      scopes,
+		memoryTypes: memoryTypes,
+		sources:     sources,
+		olderThan:   input.olderThan,
+		newerThan:   input.newerThan,
+		now:         now,
 	}
-	items := make([]apptypes.MemoryDetails, 0, len(summaries))
-	for _, summary := range summaries {
-		details, err := c.memory.Show(ctx, summary.MemoryID())
-		if err != nil {
-			return nil, xerrors.Errorf("failed to load memory %s: %w", summary.MemoryID().String(), err)
-		}
-		if memoryInboxDetailsMatchesQuality(details, quality, lowQualityIDs) {
+	items, err := c.loadMemoryInboxQualityMatchedDetails(ctx, filters, quality, lowQualityIDs, input.limit, 0)
+	if err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+// memoryInboxCandidateFilters captures the review-queue filters shared by
+// `memory inbox list` and `memory inbox cleanup` so both surfaces page the
+// same candidate set in the same remember-intent-priority order (#2210).
+type memoryInboxCandidateFilters struct {
+	scopes      []domtypes.MemoryScope
+	memoryTypes []domtypes.MemoryType
+	sources     []domtypes.MemorySource
+	olderThan   time.Duration
+	newerThan   time.Duration
+	now         time.Time
+}
+
+func (f memoryInboxCandidateFilters) newCriteriaBuilder(limit, offset int) *apptypes.MemoryListCriteriaBuilder {
+	builder := apptypes.NewMemoryListCriteriaBuilder(limit).
+		Offset(offset).
+		Scopes(f.scopes).
+		Statuses([]domtypes.MemoryStatus{domtypes.MemoryStatusCandidate}).
+		MemoryTypes(f.memoryTypes).
+		Sources(f.sources).
+		RememberIntentPriority(true)
+	return applyMemoryInboxAgeFilters(builder, f.olderThan, f.newerThan, f.now)
+}
+
+// memoryInboxQualityFetchRowCap bounds how many review-queue rows the
+// quality-filtered paging loop may scan while collecting up to --limit
+// matches. It mirrors the memory hygiene scan source-row ceiling
+// (defaultMemoryHygieneMaxRows in application/types) so a quality filter can
+// never turn list/cleanup into an unbounded whole-store scan (#2210).
+const memoryInboxQualityFetchRowCap = 2_000
+
+// loadMemoryInboxQualityMatchedDetails resolves --limit as "up to limit
+// candidates matching the quality filter" instead of "first limit rows, then
+// filter" (#2210). With --quality any there is no post-filter, so a single
+// bounded page preserves the historical contract. With low/normal the helper
+// pages the queue in remember-intent-priority order until limit matches are
+// collected, the queue is exhausted, or memoryInboxQualityFetchRowCap rows
+// have been scanned. Shared by `memory inbox list --quality` and
+// `memory inbox cleanup --quality`.
+func (c *RootCLI) loadMemoryInboxQualityMatchedDetails(ctx context.Context, filters memoryInboxCandidateFilters, quality memoryInboxQuality, lowQualityIDs map[string]struct{}, limit, offset int) ([]apptypes.MemoryDetails, error) {
+	loadDetails := func(summaries []apptypes.MemorySummary) ([]apptypes.MemoryDetails, error) {
+		items := make([]apptypes.MemoryDetails, 0, len(summaries))
+		for _, summary := range summaries {
+			details, err := c.memory.Show(ctx, summary.MemoryID())
+			if err != nil {
+				return nil, xerrors.Errorf("failed to load memory %s: %w", summary.MemoryID().String(), err)
+			}
 			items = append(items, details)
+		}
+		return items, nil
+	}
+	if quality == memoryInboxQualityAny {
+		summaries, err := c.memory.List(ctx, filters.newCriteriaBuilder(limit, offset).Build())
+		if err != nil {
+			return nil, xerrors.Errorf("%s: %w", Localize("failed to list memory review queue candidates", "メモリ候補の確認キューの一覧取得に失敗しました"), err)
+		}
+		return loadDetails(summaries)
+	}
+	items := make([]apptypes.MemoryDetails, 0, limit)
+	scanned := 0
+	for len(items) < limit {
+		pageLimit := limit - len(items)
+		if remaining := memoryInboxQualityFetchRowCap - scanned; remaining < pageLimit {
+			pageLimit = remaining
+		}
+		if pageLimit < 1 {
+			break
+		}
+		summaries, err := c.memory.List(ctx, filters.newCriteriaBuilder(pageLimit, offset+scanned).Build())
+		if err != nil {
+			return nil, xerrors.Errorf("%s: %w", Localize("failed to list memory review queue candidates", "メモリ候補の確認キューの一覧取得に失敗しました"), err)
+		}
+		if len(summaries) == 0 {
+			break
+		}
+		page, err := loadDetails(summaries)
+		if err != nil {
+			return nil, err
+		}
+		for _, details := range page {
+			if memoryInboxDetailsMatchesQuality(details, quality, lowQualityIDs) {
+				items = append(items, details)
+				if len(items) >= limit {
+					break
+				}
+			}
+		}
+		scanned += len(summaries)
+		if len(summaries) < pageLimit {
+			break
 		}
 	}
 	return items, nil
