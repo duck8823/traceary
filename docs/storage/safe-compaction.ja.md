@@ -81,10 +81,13 @@ attestation）。しかし compacted store が実使用で正しいことの証�
 そのため Traceary は commit 時にも次回の成功 open 時にも
 `<db>.rollback-<run>` を削除せず、release 用の新コマンドも追加しません。
 
-operator が解放する手段は、compact 成功 JSON の `rollback_path`
-（`rollback_retained: true`）を削除することです。削除するとその run の
-`traceary store compact rollback RUN_ID` は使えなくなります。
+operator が解放する手段は、書き換えを受け入れたあとの `traceary doctor --fix`
+です（または compact 成功 JSON の `rollback_path` / `rollback_retained: true`
+を手で削除します）。compact の commit では sibling を消しません。削除するとその
+run の `traceary store compact rollback RUN_ID` は使えなくなります。
 `traceary doctor` は隣に残った copy を `compact-rollback-copy` として報告します。
+in-flight ではない abandoned `<db>.compact-*` / `*.work-journal` leftover も
+`doctor --fix` が削除します。
 
 ## maintenance手順
 

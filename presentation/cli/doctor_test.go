@@ -563,7 +563,8 @@ func TestRootCLI_DoctorLargeStoreReturnsBoundedMetadataOnlyReport(t *testing.T) 
 	stdout := &bytes.Buffer{}
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
-	// Even --fix must stay non-destructive in metadata-only mode.
+	// --fix may unlink compact rollback siblings (filesystem only) but must
+	// still not open SQLite or run InitializeAuthorized.
 	rootCmd.SetArgs([]string{"doctor", "--db-path", largeStore, "--json", "--warnings-ok", "--fix"})
 
 	started := time.Now()
@@ -605,8 +606,11 @@ func TestRootCLI_DoctorLargeStoreReturnsBoundedMetadataOnlyReport(t *testing.T) 
 		t.Fatalf("large-store-diagnostics = %#v, want explicit metadata-only warning", check)
 	}
 	rollback := statusByName(report, "compact-rollback-copy")
-	if rollback.Status != "warn" || !strings.Contains(rollback.Message, rollbackPath) {
-		t.Fatalf("compact-rollback-copy = %#v, want warn naming %s", rollback, rollbackPath)
+	if rollback.Status != "pass" {
+		t.Fatalf("compact-rollback-copy = %#v, want pass after --fix unlinked %s", rollback, rollbackPath)
+	}
+	if _, err := os.Lstat(rollbackPath); !os.IsNotExist(err) {
+		t.Fatalf("rollback copy still present after metadata-only --fix: %v", err)
 	}
 	cost := statusByName(report, "store-operator-cost")
 	if cost.Status != "skip" || report.OperatorCost == nil || report.OperatorCost.ResidentBytes != 2<<30 {

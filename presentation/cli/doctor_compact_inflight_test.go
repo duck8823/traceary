@@ -95,3 +95,77 @@ func TestInspectCompactInFlightJournals_SwapIntentWarnsWithoutAutoFix(t *testing
 		t.Fatalf("check=%#v, want warn without autofix", check)
 	}
 }
+
+func TestInspectCompactInFlightJournals_AbandonedLeftoverIsFixable(t *testing.T) {
+	root := t.TempDir()
+	dbPath := filepath.Join(root, "traceary.db")
+	if err := os.WriteFile(dbPath, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	leftover := dbPath + ".compact-deadbeefdeadbeefdeadbeefdeadbeef-journal"
+	if err := os.WriteFile(leftover, []byte("sqlite-journal"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	work := filepath.Join(root, "traceary.db.compact-deadbeefdeadbeefdeadbeefdeadbeef.work-journal")
+	if err := os.WriteFile(work, []byte("work"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	check := inspectCompactInFlightJournals(dbPath, time.Now().UTC())
+	if check.Status != doctorStatusWarn || !check.AutoFixAvailable || check.StructuredFixFunc == nil {
+		t.Fatalf("check=%#v, want warn with leftover autofix", check)
+	}
+	if !strings.Contains(check.Message, leftover) {
+		t.Fatalf("message=%q, want leftover path", check.Message)
+	}
+	if _, err := check.StructuredFixFunc(t.Context(), true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(leftover); err != nil {
+		t.Fatalf("dry-run removed leftover: %v", err)
+	}
+	if _, err := check.StructuredFixFunc(t.Context(), false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(leftover); !os.IsNotExist(err) {
+		t.Fatalf("leftover still present: %v", err)
+	}
+	if _, err := os.Lstat(work); !os.IsNotExist(err) {
+		t.Fatalf("work-journal still present: %v", err)
+	}
+	after := inspectCompactInFlightJournals(dbPath, time.Now().UTC())
+	if after.Status != doctorStatusPass {
+		t.Fatalf("after=%#v, want pass", after)
+	}
+}
+
+func TestInspectCompactInFlightJournals_DoesNotDeleteInFlightWork(t *testing.T) {
+	root := t.TempDir()
+	dbPath := filepath.Join(root, "traceary.db")
+	dir := filepath.Join(root, compactJournalDirName)
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	run := domain.CompactionRun{
+		ID:        "dddddddddddddddddddddddddddddddd",
+		Phase:     domain.CompactionSwapIntent,
+		UpdatedAt: time.Now().UTC(),
+	}
+	encoded, err := json.Marshal(run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, run.ID+".jsonl"), append(encoded, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	work := dbPath + ".compact-" + run.ID + "-journal"
+	if err := os.WriteFile(work, []byte("live"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	check := inspectCompactInFlightJournals(dbPath, time.Now().UTC())
+	if check.AutoFixAvailable {
+		t.Fatalf("in-flight swap_intent leftover must not be auto-fixed: %+v", check)
+	}
+	if _, err := os.Lstat(work); err != nil {
+		t.Fatalf("in-flight work missing: %v", err)
+	}
+}
