@@ -26,12 +26,12 @@ exit 0
 `)
 	writeStub(t, filepath.Join(bin, "gemini"), `#!/bin/sh
 echo "$*" >> "$STUB_LOG"
-if [ "$1" = "extensions" ] && [ "$2" = "install" ]; then
-  exit 1
-fi
 if [ "$1" = "extensions" ] && [ "$2" = "uninstall" ]; then
   rm -rf "$GEMINI_EXTENSION_HOME/traceary"
   exit 0
+fi
+if [ "$1" = "extensions" ] && [ "$2" = "install" ]; then
+  exit 1
 fi
 exit 0
 `)
@@ -56,6 +56,16 @@ exit 0
 	}
 	if string(got) != "previous" {
 		t.Fatalf("marker=%q, want previous; output=%s", got, out)
+	}
+	logBytes, logErr := os.ReadFile(logPath)
+	if logErr != nil {
+		t.Fatalf("stub log: %v", logErr)
+	}
+	logged := string(logBytes)
+	uninst := strings.Index(logged, "extensions uninstall traceary")
+	inst := strings.Index(logged, "extensions install --consent")
+	if uninst < 0 || inst < 0 || uninst > inst {
+		t.Fatalf("gemini call order = %q, want uninstall then install", logged)
 	}
 }
 

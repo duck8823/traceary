@@ -99,7 +99,7 @@ gemini extensions link integrations/gemini-extension
 ./scripts/install-gemini-extension.sh --ref v0.43.0
 ```
 
-スクリプトは新しい package が成功するまで既存 install を残します。各 `gemini` 呼び出しは `TRACEARY_GEMINI_TIMEOUT`（既定 60 秒）で打ち切ります。失敗や timeout では以前の extension を残すか復元します。`--ref` がこの checkout の `VERSION` と一致する場合は temp clone ではなく `integrations/gemini-extension` から入れます（temp clone は Gemini の 2 段目 folder-trust でハングしたことがあります）。
+Gemini CLI は同名が既に install 済みだと `extensions install` を拒否するため、スクリプトは既存 extension を退避してから uninstall → install します。各 `gemini` 呼び出しは `TRACEARY_GEMINI_TIMEOUT`（既定 60 秒）で打ち切ります。失敗や timeout では退避した copy を復元します。`--ref` がこの checkout の `VERSION` と一致する場合は temp clone ではなく `integrations/gemini-extension` から入れます（temp clone は Gemini の 2 段目 folder-trust でハングしたことがあります）。
 
 uninstall-first の古い経路で host が空になったときの復旧:
 

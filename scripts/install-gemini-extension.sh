@@ -7,8 +7,9 @@ usage() {
 usage: scripts/install-gemini-extension.sh [--ref <git-ref>]
 
 Installs the Traceary Gemini extension, then installs project hooks.
-Existing installs are kept until the new package is verified: a failed
-or timed-out gemini CLI call restores the previous extension directory.
+Existing installs are copied aside first. Gemini CLI cannot overlay an
+already-installed name, so the script then uninstalls and installs. A
+failed or timed-out gemini CLI call restores the previous directory.
 
 `gemini extensions update` prompts interactively on local installs and
 is not used.
@@ -127,9 +128,19 @@ fi
 if [[ -d "$EXT_DIR" ]]; then
     BACKUP_DIR="${TMP_DIR}/previous-traceary"
     cp -a "$EXT_DIR" "$BACKUP_DIR"
+    echo "Copied previous Gemini extension aside (gemini cannot overlay an installed name)..."
+    set +e
+    run_gemini gemini extensions uninstall traceary
+    uninstall_rc=$?
+    set -e
+    if [[ "$uninstall_rc" -eq 124 ]]; then
+        restore_previous
+        echo "error: gemini extensions uninstall timed out; previous extension restored. Recovery: gemini extensions install --consent ${REPO_ROOT}/integrations/gemini-extension" >&2
+        exit 124
+    fi
 fi
 
-echo "Installing Gemini extension from ${src} (keeping the previous install until this succeeds)..."
+echo "Installing Gemini extension from ${src}..."
 set +e
 run_gemini gemini extensions install --consent "$src"
 install_rc=$?

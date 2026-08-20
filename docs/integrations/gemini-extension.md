@@ -122,9 +122,11 @@ headless runs. Use the install script, pinned to the running CLI tag:
 ./scripts/install-gemini-extension.sh --ref v0.43.0
 ```
 
-The script installs the new package before dropping the old one. Each
-`gemini` invocation is bounded by `TRACEARY_GEMINI_TIMEOUT` (default 60s).
-A failed or timed-out install leaves (or restores) the previous extension.
+Gemini CLI refuses `extensions install` when the same name is already
+installed, so the script copies the previous extension aside, uninstalls,
+then installs the new package. Each `gemini` invocation is bounded by
+`TRACEARY_GEMINI_TIMEOUT` (default 60s). A failed or timed-out call
+restores the copy.
 When `--ref` matches this checkout's `VERSION`, it installs from
 `integrations/gemini-extension` instead of a temp clone (temp clones have
 hung on Gemini's second folder-trust prompt).
