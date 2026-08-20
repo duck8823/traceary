@@ -860,6 +860,12 @@ func TestRootCLI_DoctorLargeStoreReportsHookSpoolMetadataWithoutPayloadReads(t *
 	if !strings.Contains(spool.Message, "pending=1") || !strings.Contains(spool.Message, "dead=1") {
 		t.Fatalf("hook-spool message = %q, want pending and dead metadata counts", spool.Message)
 	}
+	if !strings.Contains(spool.Message, "metadata-only") || !strings.Contains(spool.Message, "store-independent") {
+		t.Fatalf("hook-spool message = %q, want metadata-only store-independent file units", spool.Message)
+	}
+	if spool.FixCommand == "" || !strings.Contains(spool.FixCommand, "--db-path") {
+		t.Fatalf("large-store hook-spool FixCommand = %q, want --db-path of the inspected store", spool.FixCommand)
+	}
 	if strings.Contains(spool.Message, secretPayload) || strings.Contains(spool.Hint, secretPayload) {
 		t.Fatalf("large-store doctor leaked spool payload body: %#v", spool)
 	}
@@ -1181,6 +1187,9 @@ func TestRootCLI_DoctorCodexMemoryActivationStatus(t *testing.T) {
 	if !strings.Contains(check.Message, targetPath) || !strings.Contains(check.Message, "--dry-run --diff") || !strings.Contains(check.FixCommand, "--apply") {
 		t.Fatalf("unexpected activation doctor check: %+v", check)
 	}
+	if strings.Contains(check.FixCommand, "--db-path") {
+		t.Fatalf("default-store doctor must not inject --db-path: %q", check.FixCommand)
+	}
 	if len(memoryStub.activationStatusCalls) != 1 {
 		t.Fatalf("activation status calls = %d, want 1", len(memoryStub.activationStatusCalls))
 	}
@@ -1190,6 +1199,51 @@ func TestRootCLI_DoctorCodexMemoryActivationStatus(t *testing.T) {
 	}
 	if len(call.Scopes) != 1 || call.Scopes[0].Kind() != types.MemoryScopeKindWorkspace || call.Scopes[0].Key() != projectDir {
 		t.Fatalf("activation status scope = %+v, want workspace %s", call.Scopes, projectDir)
+	}
+}
+
+func TestRootCLI_DoctorCodexMemoryActivationStatus_IncludesInspectedDBPath(t *testing.T) {
+	homeDir := t.TempDir()
+	projectDir := t.TempDir()
+	dbPath := filepath.Join(t.TempDir(), "inspected.db")
+	t.Setenv("HOME", homeDir)
+	t.Setenv("TRACEARY_WORKSPACE", "")
+	setTracearyPathToCurrentExecutable(t)
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	targetPath := filepath.Join(homeDir, ".codex", "memories", "traceary.md")
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(&memoryUsecaseStub{
+			activationStatus: apptypes.MemoryActivationStatusResult{
+				Target:         apptypes.MemoryBridgeTargetCodex,
+				TargetPath:     targetPath,
+				State:          apptypes.MemoryActivationStatusMissing,
+				Existing:       false,
+				ActivatedCount: 2,
+				Message:        "activation target file is missing",
+			},
+		}),
+	).Command()
+	stdout := &bytes.Buffer{}
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"doctor", "--client", "codex", "--project-dir", projectDir, "--db-path", dbPath, "--json"})
+
+	executeDoctorAllowWarnings(t, rootCmd)
+
+	report := decodeDoctorReport(t, stdout.Bytes())
+	check := statusByName(report, "codex-memory-activation")
+	if !strings.Contains(check.FixCommand, "--db-path") || !strings.Contains(check.FixCommand, dbPath) {
+		t.Fatalf("FixCommand = %q, want inspected --db-path", check.FixCommand)
+	}
+	if !strings.Contains(check.Message, "--db-path") {
+		t.Fatalf("message = %q, want backticked activate command to include --db-path", check.Message)
+	}
+	spool := statusByName(report, "hook-spool")
+	if !strings.Contains(spool.Message, "store-independent") {
+		t.Fatalf("hook-spool message = %q, want store-independent label", spool.Message)
 	}
 }
 

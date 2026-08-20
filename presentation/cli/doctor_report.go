@@ -70,6 +70,7 @@ func finalizeDoctorReport(report *doctorReport, warningsOK bool) {
 	if report == nil {
 		return
 	}
+	annotateDoctorScopeAndDBPathHints(report)
 	for i := range report.Checks {
 		applyDoctorSeverity(&report.Checks[i])
 		report.Checks[i].Section = doctorSectionNameForCheck(report.Checks[i].Name)

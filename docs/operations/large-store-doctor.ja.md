@@ -38,3 +38,14 @@ hook route）は引き続き bounded report から除外されます。
 
 この mode の既定コマンドは data を変更しません。`--fix` は small store では従来どおり
 ですが、metadata-only の結果から retention 操作には進みません。
+
+## 2 つの doctor mode と check のスコープ
+
+| Mode | いつ | Store アクセス | `hook-spool` の単位 |
+|---|---|---|---|
+| **Full** | store file が無い、または 2 GiB 未満 | store-scoped check のために SQLite を開く | 選択中 `--client` 向けの **decoded records**。比較用に `filesystem pending files (store-independent)=N` も同じ行に出す |
+| **Metadata-only** | regular store file が 2 GiB 以上（`mode: "metadata_only_large_store"`） | filesystem metadata と O(1) の `mode=ro` page/projection 読み | **files**（`metadata-only, store-independent`）。`pending=` はディレクトリエントリ数であり decoded record 数ではない |
+
+store-independent な check（hook spool、hook-state residue、SessionEnd cancellation marker、plugin cache、`path` / `config`）は出力行に `store-independent` と書きます。SQLite store ではなく host file を見ます。store-scoped な check（capacity、memory activation、projection）は `DB_PATH` の store を見ます。
+
+doctor が `--db-path` または `TRACEARY_DB_PATH` 付きで走ったとき、store を対象とする hint（`traceary doctor`、`traceary store`、`traceary memory`）には `--db-path` が付きます。そのまま実行しても検査した store に届きます。host-only なコマンド（`claude plugins update`、`which -a traceary`）は変えません。既定の home store では `--db-path` を足しません。

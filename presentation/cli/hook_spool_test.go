@@ -193,7 +193,7 @@ func TestRunHookDurably_RetainsSpoolAfterFailure(t *testing.T) {
 	}
 
 	check := c.inspectHookSpoolDiagnostics([]string{"claude"})
-	if check.Status != doctorStatusWarn || !strings.Contains(check.Message, "1 pending") {
+	if check.Status != doctorStatusWarn || !strings.Contains(check.Message, "1 decoded pending") {
 		t.Fatalf("doctor check = %#v", check)
 	}
 	if !check.AutoFixAvailable || check.FixFunc == nil {
@@ -1627,6 +1627,9 @@ func TestInspectHookSpoolFilesystemMetadata_CountsWithoutReadingPayloads(t *test
 	if !strings.Contains(check.Message, "pending=1") || !strings.Contains(check.Message, "dead=1") {
 		t.Fatalf("message=%q, want pending and dead counts", check.Message)
 	}
+	if !strings.Contains(check.Message, "hook spool files") || !strings.Contains(check.Message, "metadata-only") || !strings.Contains(check.Message, doctorStoreIndependentLabel) {
+		t.Fatalf("message=%q, want labeled metadata-only file units", check.Message)
+	}
 	if strings.Contains(check.Message, secretPayload) || strings.Contains(check.Hint, secretPayload) {
 		t.Fatalf("doctor leaked payload body: %#v", check)
 	}
@@ -1663,8 +1666,11 @@ func TestInspectHookSpoolDiagnostics_ReportsPendingAndTerminalCounts(t *testing.
 	if check.Status != doctorStatusWarn {
 		t.Fatalf("status=%q, want warn", check.Status)
 	}
-	if !strings.Contains(check.Message, "1 pending") || !strings.Contains(check.Message, "1 terminal") {
-		t.Fatalf("message=%q, want pending and terminal counts", check.Message)
+	if !strings.Contains(check.Message, "1 decoded pending") || !strings.Contains(check.Message, "1 terminal") {
+		t.Fatalf("message=%q, want decoded pending and terminal counts", check.Message)
+	}
+	if !strings.Contains(check.Message, "filesystem pending files (store-independent)=1") {
+		t.Fatalf("message=%q, want filesystem pending file count for comparison", check.Message)
 	}
 }
 
