@@ -28,6 +28,18 @@ func (s *kimiUsageCaptureStub) Capture(
 	return usecase.KimiUsageCaptureResult{}, s.err
 }
 
+// kimiSessionEndPayload keeps the payload shape of the removed
+// testdata/kimi_hooks/v0.27.0/session_end.json fixture. Kimi Code 0.38.0 no
+// longer dispatches SessionEnd on `-p` (see docs/hooks/host-contract.json),
+// so the contract cannot reference a live fixture anymore; the adapter path
+// stays covered because the packaged plugin still declares SessionEnd.
+const kimiSessionEndPayload = `{
+  "hook_event_name": "SessionEnd",
+  "session_id": "session_00000000-0000-4000-8000-000000000001",
+  "cwd": "/workspace/kimi-contract-probe",
+  "reason": "exit"
+}`
+
 func TestRootCLI_HookKimiCoreEvents(t *testing.T) {
 	t.Setenv("TRACEARY_HOOK_STATE_DIR", t.TempDir())
 	t.Setenv("TRACEARY_HOOK_STATE_KEY", "kimi-core-events")
@@ -67,7 +79,7 @@ func TestRootCLI_HookKimiCoreEvents(t *testing.T) {
 	})
 
 	t.Run("records session end with Kimi identity", func(t *testing.T) {
-		payload := readKimiFixture(t, "session_end.json")
+		payload := kimiSessionEndPayload
 		sessionStub := &sessionUsecaseStub{}
 
 		stdout, _, gotSession := runKimiHook(t, "session-end", payload, nil, sessionStub)
@@ -547,18 +559,18 @@ func TestRootCLI_HookKimiUsageBoundaries(t *testing.T) {
 	usage := &kimiUsageCaptureStub{}
 	for _, tc := range []struct {
 		event    string
-		fixture  string
+		payload  string
 		boundary usecase.KimiUsageBoundary
 	}{
-		{event: "stop", fixture: "stop.json", boundary: usecase.KimiUsageBoundaryStop},
-		{event: "session-end", fixture: "session_end.json", boundary: usecase.KimiUsageBoundarySessionEnd},
+		{event: "stop", payload: readKimiFixture(t, "stop.json"), boundary: usecase.KimiUsageBoundaryStop},
+		{event: "session-end", payload: kimiSessionEndPayload, boundary: usecase.KimiUsageBoundarySessionEnd},
 	} {
 		t.Run(tc.event, func(t *testing.T) {
 			usage.inputs = nil
 			runKimiHook(
 				t,
 				tc.event,
-				readKimiFixture(t, tc.fixture),
+				tc.payload,
 				nil,
 				&sessionUsecaseStub{},
 				cli.WithKimiUsage(usage),

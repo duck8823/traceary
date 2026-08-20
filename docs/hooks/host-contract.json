@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "last_verified": "2026-07-19",
+  "last_verified": "2026-08-21",
   "hosts": {
     "kimi": {
-      "host_version": "0.27.0",
+      "host_version": "0.38.0",
       "host_version_fixtures": "0.27.0",
       "official_contract": "https://www.kimi.com/code/docs/en/kimi-code-cli/customization/hooks.html",
-      "verification_method": "Live hooks captured on 2026-07-19 from a sanitized empty workspace via temporary [[hooks]] rules in ~/.kimi-code/config.toml (backup restored afterwards); raw payloads remained outside the repository.",
+      "verification_method": "Live hooks captured on 2026-07-19 from a sanitized empty workspace via temporary [[hooks]] rules in ~/.kimi-code/config.toml (backup restored afterwards); raw payloads remained outside the repository. SessionEnd re-probed 2026-08-21 on Kimi Code 0.38.0 with an isolated throwaway TRACEARY_DB_PATH/TRACEARY_HOOK_STATE_DIR `-p` run and the packaged plugin: session_started/prompt/transcript were recorded but the host never dispatched SessionEnd.",
       "field_availability": {
         "session_id": "present on every observed event; resume keeps the same session_id",
         "cwd": "present on every observed event",
@@ -85,12 +85,12 @@
         },
         "SessionEnd": {
           "documented": true,
-          "observed": true,
-          "verification": "live_observed",
-          "traceary_support": "supported",
-          "traceary_event": "session_ended",
-          "fixture": "presentation/cli/testdata/kimi_hooks/v0.27.0/session_end.json",
-          "note": "reason=exit on print-mode close; unlike Grok Build, Kimi Code emits a true session-end signal"
+          "observed": false,
+          "verification": "live_not_emitted",
+          "traceary_support": "unavailable",
+          "traceary_event": null,
+          "fixture": null,
+          "note": "Not dispatched on an isolated 0.38.0 `-p` probe (2026-08-21): session_started/prompt/transcript were recorded on the same run, TRACEARY_HOOK_DEBUG showed no session-end or suppressed-error lines, and the leftover kimi-<pid> hook-state file still held the session id after exit 0. Last live-observed on 0.27.0 (reason=exit on print-mode close). The packaged plugin still declares SessionEnd; Stop remains a turn boundary, and Traceary does not synthesize session_ended from process exit."
         },
         "SubagentStart": {
           "documented": true,
