@@ -43,14 +43,22 @@ func inspectCompactInFlightJournalsWithFix(dbPath string, now time.Time, fix fun
 			Message: localizef("failed to inspect compaction journals: %v", "compaction journal を検査できません: %v", err),
 		}
 	}
-	if len(journals) == 0 {
+	leftovers, leftoverErr := listAbandonedCompactLeftovers(dbPath)
+	if leftoverErr != nil {
+		return doctorCheck{
+			Name:    name,
+			Status:  doctorStatusWarn,
+			Message: localizef("failed to inspect compact leftovers: %v", "compact leftover を検査できません: %v", leftoverErr),
+		}
+	}
+	if len(journals) == 0 && len(leftovers) == 0 {
 		return doctorCheck{
 			Name:    name,
 			Status:  doctorStatusPass,
 			Message: Localize("no in-flight compaction journal is present", "進行中の compaction journal はありません"),
 		}
 	}
-	parts := make([]string, 0, len(journals))
+	parts := make([]string, 0, len(journals)+1)
 	prePub := 0
 	for _, journal := range journals {
 		age := now.Sub(journal.UpdatedAt).Truncate(time.Second)
@@ -68,29 +76,85 @@ func inspectCompactInFlightJournalsWithFix(dbPath string, now time.Time, fix fun
 			prePub++
 		}
 	}
-	check := doctorCheck{
-		Name:   name,
-		Status: doctorStatusWarn,
-		Message: localizef(
-			"in-flight compaction journal(s): %s",
-			"進行中の compaction journal: %s",
-			strings.Join(parts, "; "),
-		),
-		Hint: Localize(
-			"Pre-publication phases (planned / copy_intent / copy_retry_intent / candidate_prepared) can be abandoned by `traceary doctor --fix` or the next `store compact` when the source identity has moved. swap_intent and later keep today's resume/rollback semantics.",
-			"publication 前の phase（planned / copy_intent / copy_retry_intent / candidate_prepared）は、source identity が動いていれば `traceary doctor --fix` または次の `store compact` が abandon します。swap_intent 以降は従来の resume/rollback です。",
-		),
+	if len(leftovers) > 0 {
+		parts = append(parts, localizef(
+			"abandoned leftover(s)=%s",
+			"abandoned leftover=%s",
+			strings.Join(leftovers, ", "),
+		))
 	}
-	if prePub > 0 && fix != nil {
-		check.FixCommand = "traceary doctor --fix"
+	hint := Localize(
+		"Pre-publication phases (planned / copy_intent / copy_retry_intent / candidate_prepared) can be abandoned by `traceary doctor --fix` or the next `store compact` when the source identity has moved. swap_intent and later keep today's resume/rollback semantics. Abandoned leftover `<db>.compact-*` / `*.work-journal` files with no in-flight journal are removed by `traceary doctor --fix`. In-flight work files are never deleted.",
+		"publication 前の phase（planned / copy_intent / copy_retry_intent / candidate_prepared）は、source identity が動いていれば `traceary doctor --fix` または次の `store compact` が abandon します。swap_intent 以降は従来の resume/rollback です。in-flight journal が無い abandoned leftover（`<db>.compact-*` / `*.work-journal`）は `traceary doctor --fix` が削除します。in-flight の work file は消しません。",
+	)
+	message := localizef(
+		"in-flight compaction journal(s): %s",
+		"進行中の compaction journal: %s",
+		strings.Join(parts, "; "),
+	)
+	if len(journals) == 0 {
+		message = localizef(
+			"abandoned compact leftover file(s) with no in-flight journal: %s",
+			"in-flight journal が無い abandoned compact leftover: %s",
+			strings.Join(leftovers, ", "),
+		)
+	}
+	check := doctorCheck{
+		Name:    name,
+		Status:  doctorStatusWarn,
+		Message: message,
+		Hint:    hint,
+	}
+	combined := composeCompactInFlightFix(dbPath, fix, leftovers)
+	if (prePub > 0 && fix != nil) || len(leftovers) > 0 {
+		check.FixCommand = doctorFixCommand(dbPath)
 		check.AutoFixAvailable = true
-		check.StructuredFixFunc = fix
+		check.StructuredFixFunc = combined
 		check.FixFunc = func(ctx context.Context, dryRun bool) (string, error) {
-			result, err := fix(ctx, dryRun)
+			result, err := combined(ctx, dryRun)
 			return result.Action, err
 		}
 	}
 	return check
+}
+
+func composeCompactInFlightFix(
+	dbPath string,
+	journalFix func(context.Context, bool) (doctorFixResult, error),
+	leftovers []string,
+) func(context.Context, bool) (doctorFixResult, error) {
+	return func(ctx context.Context, dryRun bool) (doctorFixResult, error) {
+		action := ""
+		metrics := map[string]int{}
+		if journalFix != nil {
+			result, err := journalFix(ctx, dryRun)
+			if err != nil {
+				return doctorFixResult{}, xerrors.Errorf("failed to abandon stale compaction journal: %w", err)
+			}
+			action = result.Action
+			for k, v := range result.Metrics {
+				metrics[k] = v
+			}
+		}
+		if len(leftovers) > 0 {
+			left, err := fixAbandonedCompactLeftovers(ctx, dbPath, dryRun)
+			if err != nil {
+				return doctorFixResult{}, xerrors.Errorf("failed to remove abandoned compact leftovers: %w", err)
+			}
+			if action == "" {
+				action = left.Action
+			} else {
+				action = action + "; " + left.Action
+			}
+			for k, v := range left.Metrics {
+				metrics[k] = v
+			}
+		}
+		if action == "" {
+			action = Localize("no compact leftover was removed", "削除した compact leftover はありません")
+		}
+		return doctorFixResult{Action: action, Metrics: metrics}, nil
+	}
 }
 
 func (c *RootCLI) inspectCompactInFlight(dbPath string, now time.Time) doctorCheck {

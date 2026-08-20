@@ -96,10 +96,13 @@ correct in use. Traceary therefore **does not** delete `<db>.rollback-<run>`
 on commit or on the next successful open, and it does not add a release
 subcommand.
 
-The operator releases the copy by deleting the path named in the compact
-success JSON (`rollback_path`, with `rollback_retained: true`). Deleting it
-gives up `traceary store compact rollback RUN_ID` for that run.
-`traceary doctor` reports a leftover sibling as `compact-rollback-copy`.
+The operator releases the copy with `traceary doctor --fix` after accepting
+the rewrite (or by deleting the path named in the compact success JSON:
+`rollback_path`, with `rollback_retained: true`). Compact commit never deletes
+the sibling. Deleting it gives up `traceary store compact rollback RUN_ID` for
+that run. `traceary doctor` reports a leftover sibling as
+`compact-rollback-copy`. Abandoned `<db>.compact-*` / `*.work-journal`
+leftovers that are not in-flight are also removed by `doctor --fix`.
 
 ## Maintenance sequence
 
