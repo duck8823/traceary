@@ -7,6 +7,9 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ## [Unreleased]
 
+### Fixed
+- **Leftover Claude `--scope local` installs get an operator-guided FixCommand (#2236)** — the `claude-plugin-local-leftovers` WARN now prints `traceary doctor --fix --dry-run --client claude`; the dry-run lists every leftover path and apply is a print-only no-op. Claude's inventory is still never rewritten, and user-scope / marketplace installs are untouched. Leaves parent #2230 open.
+
 ## [v0.46.0] - 2026-08-21
 
 ### Fixed

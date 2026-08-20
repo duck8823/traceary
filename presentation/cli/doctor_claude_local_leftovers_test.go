@@ -59,14 +59,69 @@ func TestInspectClaudePluginLocalLeftoversWarnsWithCountAndSample(t *testing.T) 
 	if !strings.Contains(check.Hint, "installed_plugins.json") {
 		t.Fatalf("hint = %q, want it to name installed_plugins.json", check.Hint)
 	}
-	if check.AutoFixAvailable {
-		t.Fatal("AutoFixAvailable = true, want false")
+	if check.FixCommand == "" {
+		t.Fatal("FixCommand = empty, want a guided cleanup command")
 	}
-	if check.FixCommand != "" {
-		t.Fatalf("FixCommand = %q, want empty", check.FixCommand)
+	if !strings.Contains(check.FixCommand, "traceary doctor --fix --dry-run") {
+		t.Fatalf("FixCommand = %q, want the print-only dry-run wrapper", check.FixCommand)
 	}
-	if check.FixFunc != nil || check.StructuredFixFunc != nil {
-		t.Fatal("leftover check must not carry a fixer (doctor --fix must not write Claude config)")
+	if !check.AutoFixAvailable {
+		t.Fatal("AutoFixAvailable = false, want true (print-only fixer)")
+	}
+	if check.FixFunc == nil {
+		t.Fatal("FixFunc = nil, want a print-only fixer")
+	}
+	dryRun, err := check.FixFunc(context.Background(), true)
+	if err != nil {
+		t.Fatalf("FixFunc(dry-run) error = %v", err)
+	}
+	for _, path := range missing {
+		if !strings.Contains(dryRun, path) {
+			t.Fatalf("dry-run action = %q, want leftover path %q", dryRun, path)
+		}
+	}
+	applied, err := check.FixFunc(context.Background(), false)
+	if err != nil {
+		t.Fatalf("FixFunc(apply) error = %v", err)
+	}
+	if !strings.Contains(applied, "print-only") || !strings.Contains(applied, "no changes") {
+		t.Fatalf("apply action = %q, want a print-only no-op note", applied)
+	}
+	for _, path := range missing {
+		if !strings.Contains(applied, path) {
+			t.Fatalf("apply action = %q, want leftover path %q", applied, path)
+		}
+	}
+}
+
+func TestInspectClaudePluginLocalLeftoversDryRunJapaneseLocale(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "ja")
+	missing := []string{filepath.Join(t.TempDir(), "gone-a"), filepath.Join(t.TempDir(), "gone-b")}
+	cli := &RootCLI{pluginDetector: stubClaudePluginDetector{
+		scan: application.ClaudeLocalLeftoverScan{
+			InventoryPath: "/home/test/.claude/plugins/installed_plugins.json",
+			LeftoverPaths: missing,
+		},
+	}}
+
+	check := cli.inspectClaudePluginLocalLeftovers()
+	if check == nil || check.FixFunc == nil {
+		t.Fatalf("check = %+v, want WARN check with a print-only fixer", check)
+	}
+	dryRun, err := check.FixFunc(context.Background(), true)
+	if err != nil {
+		t.Fatalf("FixFunc(dry-run) error = %v", err)
+	}
+	if !strings.Contains(dryRun, "2 件") {
+		t.Fatalf("dry-run action = %q, want leftover count 2", dryRun)
+	}
+	if strings.Contains(dryRun, "%!") {
+		t.Fatalf("dry-run action = %q, want no format-verb mismatch garbling", dryRun)
+	}
+	for _, path := range missing {
+		if !strings.Contains(dryRun, path) {
+			t.Fatalf("dry-run action = %q, want leftover path %q", dryRun, path)
+		}
 	}
 }
 
@@ -238,6 +293,19 @@ func TestInspectClaudePluginLocalLeftoversRealInventory(t *testing.T) {
 	if strings.Contains(leftovers.Message, existingProject) {
 		t.Fatalf("message = %q, must not flag the existing project %q", leftovers.Message, existingProject)
 	}
+	if leftovers.FixCommand == "" || !leftovers.AutoFixAvailable || leftovers.FixFunc == nil {
+		t.Fatalf("leftovers check = %+v, want a guided FixCommand with a print-only fixer", leftovers)
+	}
+	dryRun, err := leftovers.FixFunc(context.Background(), true)
+	if err != nil {
+		t.Fatalf("FixFunc(dry-run) error = %v", err)
+	}
+	if !strings.Contains(dryRun, missingProject) {
+		t.Fatalf("dry-run action = %q, want missing path %q", dryRun, missingProject)
+	}
+	if strings.Contains(dryRun, existingProject) {
+		t.Fatalf("dry-run action = %q, must not list the existing project %q", dryRun, existingProject)
+	}
 
 	cache := cli.inspectClaudePluginCacheStatus()
 	if cache == nil || cache.Status != doctorStatusPass {
@@ -257,7 +325,7 @@ func TestInspectClaudePluginLocalLeftoversRealInventory(t *testing.T) {
 
 // TestFilesystemHostDoctorIncludesLocalLeftovers proves the bounded
 // (large-store) doctor path also reports leftover local installs and that
-// the emitted check carries no fixer, so `doctor --fix` cannot rewrite
+// the emitted fixer is print-only, so `doctor --fix` cannot rewrite
 // Claude's inventory.
 func TestFilesystemHostDoctorIncludesLocalLeftovers(t *testing.T) {
 	home := t.TempDir()
@@ -302,8 +370,15 @@ func TestFilesystemHostDoctorIncludesLocalLeftovers(t *testing.T) {
 	if leftover.Status != doctorStatusWarn {
 		t.Fatalf("status = %q, want warn", leftover.Status)
 	}
-	if leftover.FixFunc != nil || leftover.StructuredFixFunc != nil || leftover.FixCommand != "" || leftover.AutoFixAvailable {
-		t.Fatalf("leftover check must not be fixable: %+v", leftover)
+	if leftover.FixCommand == "" || !leftover.AutoFixAvailable || leftover.FixFunc == nil {
+		t.Fatalf("leftover check = %+v, want a guided FixCommand with a print-only fixer", leftover)
+	}
+	action, err := leftover.FixFunc(context.Background(), false)
+	if err != nil {
+		t.Fatalf("FixFunc(apply) error = %v", err)
+	}
+	if !strings.Contains(action, "print-only") || !strings.Contains(action, missingProject) {
+		t.Fatalf("apply action = %q, want a print-only no-op listing %q", action, missingProject)
 	}
 
 	after, err := os.ReadFile(filepath.Join(home, ".claude", "plugins", "installed_plugins.json"))

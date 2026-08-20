@@ -44,7 +44,7 @@ release 済みバイナリを更新するたびに、次を実行してくださ
 
 doctor が正確な非対話コマンドを `FixCommand` に出す場合は、そちらを優先してください。ホスト CLI のフラグを推測で追加してはいけません。
 
-`--scope local` install に関する補足: Claude の `~/.claude/plugins/installed_plugins.json` にある local install の行は、指していた project ディレクトリが削除されても残ります。doctor はこれらの行を additive な `claude-plugin-local-leftovers` WARN（件数と欠落 path の上限付きサンプル）として報告します。user cache の `claude-plugin-cache` / `claude-plugin-version` は `pass` のままです。Traceary は Claude の inventory を書き換えません。`installed_plugins.json` を確認し、leftover の local 行は Claude 側で自分で削除してください。
+`--scope local` install に関する補足: Claude の `~/.claude/plugins/installed_plugins.json` にある local install の行は、指していた project ディレクトリが削除されても残ります。doctor はこれらの行を additive な `claude-plugin-local-leftovers` WARN（件数と欠落 path の上限付きサンプル）として報告します。user cache の `claude-plugin-cache` / `claude-plugin-version` は `pass` のままです。WARN には FixCommand が付き、`traceary doctor --fix --dry-run --client claude` が leftover path をすべて一覧し、`traceary doctor --fix` は同じ一覧を print するだけの no-op です。Traceary は Claude の inventory を書き換えません。project ディレクトリが消えた local-scope 行を uninstall できる host CLI はないため、`installed_plugins.json` を確認し、leftover の local 行は Claude 側で自分で削除してください。
 
 ## 古いプロセス
 

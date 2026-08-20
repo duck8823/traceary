@@ -44,7 +44,7 @@ After every released binary upgrade:
 
 Prefer the `FixCommand` printed by doctor when it provides an exact non-interactive command. Do not invent host CLI flags.
 
-Note on `--scope local` installs: a local install row in Claude's `~/.claude/plugins/installed_plugins.json` survives the deletion of the project directory it points at. Doctor reports those rows as the additive `claude-plugin-local-leftovers` WARN (count plus a bounded sample of the missing paths); the user-cache `claude-plugin-cache` / `claude-plugin-version` checks stay `pass`. Traceary never rewrites Claude's inventory — inspect `installed_plugins.json` and remove the leftover local rows in Claude yourself.
+Note on `--scope local` installs: a local install row in Claude's `~/.claude/plugins/installed_plugins.json` survives the deletion of the project directory it points at. Doctor reports those rows as the additive `claude-plugin-local-leftovers` WARN (count plus a bounded sample of the missing paths); the user-cache `claude-plugin-cache` / `claude-plugin-version` checks stay `pass`. The WARN carries a FixCommand — `traceary doctor --fix --dry-run --client claude` lists every leftover path, and `traceary doctor --fix` prints the same list as a no-op. Traceary never rewrites Claude's inventory — no host CLI can uninstall a local-scope row whose project directory is gone, so inspect `installed_plugins.json` and remove the leftover local rows in Claude yourself.
 
 ## Stale processes
 
