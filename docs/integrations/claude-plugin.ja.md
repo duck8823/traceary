@@ -87,12 +87,28 @@ GO111MODULE=on go install github.com/duck8823/traceary@latest
 
 ## Update
 
+headless（user / local scope）。短い名前ではなく、フルの `plugin@marketplace` id が必要です。`claude plugin update traceary` は `claude plugin list` に表示されていても "Plugin not found" になります。
+
+```sh
+claude plugin marketplace update traceary-plugins
+claude plugin update traceary@traceary-plugins
+claude plugin update traceary@traceary-plugins --scope local
+```
+
+更新後は Claude Code を再起動します（"Restart to apply changes"）。確認:
+
+```sh
+traceary doctor --client claude --json
+```
+
+対話の代替:
+
 ```sh
 /plugin marketplace update traceary-plugins
 /plugin update traceary
 ```
 
-> **重要**: `brew upgrade traceary` は CLI binary を更新しますが、**Claude plugin cache には触れません**。新しい Traceary リリースが hook を追加したとき（例: v0.8 の transcript hook や built-in tool matcher hook）は、Claude Code セッション内で新 hook を有効化するために `/plugin update traceary` も実行する必要があります。`traceary doctor --client claude` は cache が marketplace manifest より古い状態を `claude-plugin-cache` check で警告します。
+> **重要**: `brew upgrade traceary` は CLI binary を更新しますが、**Claude plugin cache には触れません**。新しい Traceary リリースが hook を追加したときは上記の更新も必要です。再開した session は完全に再起動するまで古い snapshot hook を使い続けることがあります。`traceary doctor --client claude` は cache が marketplace manifest より古い状態を `claude-plugin-cache` check で警告します。
 
 ## Uninstall
 

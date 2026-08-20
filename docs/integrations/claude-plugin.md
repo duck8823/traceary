@@ -123,12 +123,30 @@ Run these commands inside Claude Code. Project/local scoping is controlled by Cl
 
 ## Update
 
+Headless (user and local scopes). The full `plugin@marketplace` id is required;
+`claude plugin update traceary` fails with "Plugin not found" even when
+`claude plugin list` shows the short name.
+
+```sh
+claude plugin marketplace update traceary-plugins
+claude plugin update traceary@traceary-plugins
+claude plugin update traceary@traceary-plugins --scope local
+```
+
+Restart Claude Code after the update ("Restart to apply changes"). Then:
+
+```sh
+traceary doctor --client claude --json
+```
+
+Interactive alternative:
+
 ```sh
 /plugin marketplace update traceary-plugins
 /plugin update traceary
 ```
 
-> **Important**: `brew upgrade traceary` refreshes the CLI binary but **does not touch the Claude plugin cache**. When new Traceary releases add hooks (for example the v0.8 transcript and built-in-tool matcher hooks), you must also run `/plugin update traceary` before the newer hooks become active in a running Claude Code session. `traceary doctor --client claude` now surfaces a `claude-plugin-cache` check that warns when the cached version is behind the marketplace manifest.
+> **Important**: `brew upgrade traceary` refreshes the CLI binary but **does not touch the Claude plugin cache**. When new Traceary releases add hooks (for example the v0.8 transcript and built-in-tool matcher hooks), you must also run the update above before the newer hooks become active. Resumed sessions may keep running old snapshot hooks until every session is fully restarted; `traceary doctor --client claude` surfaces a `claude-plugin-cache` check when the cached version is behind the marketplace manifest.
 
 ## Uninstall
 
