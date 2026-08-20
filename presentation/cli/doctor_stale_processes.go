@@ -25,6 +25,18 @@ const (
 	doctorRetiredMCPServerCommand = "mcp-server"
 	linuxProcClockTicksPerSecond  = 100
 	linuxProcStatStartTimeField   = 20
+	// doctorStaleBinaryAgeFloor is the minimum process age before a
+	// stale-binary finding is reported. Hook invocations spawn short-lived
+	// `traceary hook ...` children whose version can read as unknown
+	// (unlinked inode after a same-path upgrade, or a failed build-info
+	// inspect); without a floor those children WARN at a few seconds of age
+	// and PASS on the next run, which is additive noise with misleading reap
+	// guidance. The floor is pinned in minutes — well above any hook
+	// duration — so hook children stay PASS while genuinely long-running
+	// stale binaries (the #2155 lease-safety case) still WARN. Processes
+	// with an unknown start time are not filtered: hiding them could mask
+	// real leftovers.
+	doctorStaleBinaryAgeFloor = 15 * time.Minute
 )
 
 var cellarTracearyVersionPattern = regexp.MustCompile(`(?i)[/\\]Cellar[/\\]traceary[/\\]([^/\\]+)[/\\]`)
@@ -119,21 +131,25 @@ func classifyStaleTracearyProcesses(snapshots []tracearyProcessSnapshot, current
 		if !retired && (sameRunningBinary || versionsMatch(version, current)) {
 			continue
 		}
-		reason := "stale-binary"
 		if retired {
-			reason = "retired-mcp-server"
+			// Retired mcp-server findings have no age floor: they are the
+			// lease-safety case from #2155 and must surface even when young.
+			findings = append(findings, staleTracearyProcessFinding{
+				PID:     snapshot.PID,
+				Version: reportedVersion(version),
+				Age:     formatProcessAge(snapshot.StartedAt, now),
+				Reason:  "retired-mcp-server",
+				Exe:     exe,
+			})
+		} else if snapshot.StartedAt.IsZero() || now.IsZero() || now.Sub(snapshot.StartedAt) >= doctorStaleBinaryAgeFloor {
+			findings = append(findings, staleTracearyProcessFinding{
+				PID:     snapshot.PID,
+				Version: reportedVersion(version),
+				Age:     formatProcessAge(snapshot.StartedAt, now),
+				Reason:  "stale-binary",
+				Exe:     exe,
+			})
 		}
-		reportedVersion := version
-		if reportedVersion == "" {
-			reportedVersion = "unknown"
-		}
-		findings = append(findings, staleTracearyProcessFinding{
-			PID:     snapshot.PID,
-			Version: reportedVersion,
-			Age:     formatProcessAge(snapshot.StartedAt, now),
-			Reason:  reason,
-			Exe:     exe,
-		})
 		if len(findings) >= doctorStaleProcessScanLimit {
 			break
 		}
@@ -167,6 +183,15 @@ func processInvokesRetiredMCPServer(args []string) bool {
 		}
 	}
 	return false
+}
+
+// reportedVersion renders an empty inspected version as "unknown" for
+// report output; the raw empty string never leaves the classifier.
+func reportedVersion(version string) string {
+	if version == "" {
+		return "unknown"
+	}
+	return version
 }
 
 func versionsMatch(processVersion, currentVersion string) bool {

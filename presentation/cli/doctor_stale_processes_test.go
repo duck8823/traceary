@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -124,6 +125,93 @@ func TestInspectStaleTracearyProcesses(t *testing.T) {
 		}
 		if !strings.Contains(got.Message, "version=unknown") {
 			t.Fatalf("unlinked inode must not inherit the replacement binary version, got %q", got.Message)
+		}
+	})
+
+	t.Run("passes for a hook-duration child with unknown version below the age floor", func(t *testing.T) {
+		current := writeExecutable(t, t.TempDir(), "traceary")
+		osExecutableFunc = func() (string, error) { return current, nil }
+		// A different-inode binary with no readable build info inspects as
+		// version=unknown; at 4s of age it is a hook-duration child, not a
+		// stale long-runner.
+		other := filepath.Join(t.TempDir(), "traceary")
+		if err := os.WriteFile(other, []byte("not a go binary"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		SetListTracearyProcessSnapshotsForTest(func() ([]tracearyProcessSnapshot, error) {
+			return []tracearyProcessSnapshot{{
+				PID:        9100,
+				Executable: other,
+				Args:       []string{other, "hook", "session", "claude", "start"},
+				StartedAt:  now.Add(-4 * time.Second),
+			}}, nil
+		})
+		got := inspectStaleTracearyProcesses("0.44.1", now)
+		if got.Status != doctorStatusPass {
+			t.Fatalf("status = %q, want pass; msg=%q", got.Status, got.Message)
+		}
+	})
+
+	t.Run("passes for a young unlinked inode below the age floor", func(t *testing.T) {
+		current := writeExecutable(t, t.TempDir(), "traceary")
+		osExecutableFunc = func() (string, error) { return current, nil }
+		SetListTracearyProcessSnapshotsForTest(func() ([]tracearyProcessSnapshot, error) {
+			return []tracearyProcessSnapshot{{
+				PID:        9200,
+				Executable: current,
+				Args:       []string{current, "hook", "session", "claude", "start"},
+				StartedAt:  now.Add(-4 * time.Second),
+				Unlinked:   true,
+			}}, nil
+		})
+		got := inspectStaleTracearyProcesses("0.44.1", now)
+		if got.Status != doctorStatusPass {
+			t.Fatalf("status = %q, want pass; msg=%q", got.Status, got.Message)
+		}
+	})
+
+	t.Run("warns for an old-binary long-runner above the age floor", func(t *testing.T) {
+		osExecutableFunc = func() (string, error) {
+			return "/opt/homebrew/opt/traceary/bin/traceary", nil
+		}
+		SetListTracearyProcessSnapshotsForTest(func() ([]tracearyProcessSnapshot, error) {
+			return []tracearyProcessSnapshot{{
+				PID:        7767,
+				Executable: "/opt/homebrew/Cellar/traceary/0.33.0/bin/traceary",
+				Args:       []string{"/opt/homebrew/Cellar/traceary/0.33.0/bin/traceary", "serve"},
+				StartedAt:  now.Add(-2 * time.Hour),
+			}}, nil
+		})
+		got := inspectStaleTracearyProcesses("0.44.1", now)
+		if got.Status != doctorStatusWarn {
+			t.Fatalf("status = %q, want warn; msg=%q", got.Status, got.Message)
+		}
+		if !strings.Contains(got.Message, "pid=7767") || !strings.Contains(got.Message, "version=0.33.0") {
+			t.Fatalf("message should name pid and version, got %q", got.Message)
+		}
+		if !strings.Contains(got.Message, "age=2h") || !strings.Contains(got.Message, "stale-binary") {
+			t.Fatalf("message should name age and stale-binary reason, got %q", got.Message)
+		}
+	})
+
+	t.Run("warns for a young retired mcp-server with no age floor", func(t *testing.T) {
+		osExecutableFunc = func() (string, error) {
+			return "/opt/homebrew/opt/traceary/bin/traceary", nil
+		}
+		SetListTracearyProcessSnapshotsForTest(func() ([]tracearyProcessSnapshot, error) {
+			return []tracearyProcessSnapshot{{
+				PID:        9300,
+				Executable: "/opt/homebrew/Cellar/traceary/0.44.1/bin/traceary",
+				Args:       []string{"/opt/homebrew/Cellar/traceary/0.44.1/bin/traceary", "mcp-server"},
+				StartedAt:  now.Add(-4 * time.Second),
+			}}, nil
+		})
+		got := inspectStaleTracearyProcesses("0.44.1", now)
+		if got.Status != doctorStatusWarn {
+			t.Fatalf("status = %q, want warn; msg=%q", got.Status, got.Message)
+		}
+		if !strings.Contains(got.Message, "pid=9300") || !strings.Contains(got.Message, "retired-mcp-server") {
+			t.Fatalf("message = %q", got.Message)
 		}
 	})
 
