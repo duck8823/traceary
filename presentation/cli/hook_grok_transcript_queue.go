@@ -162,7 +162,22 @@ func (c *RootCLI) inspectHookGrokTranscriptDiagnostics(now time.Time) doctorChec
 				return localizef("would drain/GC up to %d pending Grok transcript job(s)/terminal marker(s)", "未処理 Grok transcript job/terminal marker 最大 %d 件を drain/GC します", min(len(pending)+len(terminals), hookGrokTranscriptDoctorFixLimit)), nil
 			}
 			launched, removed := c.drainHookGrokTranscriptQueue(time.Now().UTC(), hookGrokTranscriptDoctorFixLimit)
-			return localizef("drained Grok transcript queue: launched=%d removed=%d", "Grok transcript queue を drain しました: launched=%d removed=%d", launched, removed), nil
+			// A successful launch does not remove the job file; only the
+			// detached worker finalizes it. Re-scan so the Action reflects
+			// what is still outstanding instead of claiming a clean drain
+			// (#2232). Failed jobs stay on disk for operator attention.
+			remainingJobs, unreadable, scanErr := scanHookGrokTranscriptJobs()
+			if scanErr != nil {
+				return "", scanErr
+			}
+			failed := 0
+			for _, job := range remainingJobs {
+				if job.Attempts > 0 {
+					failed++
+				}
+			}
+			remaining := len(remainingJobs) + len(unreadable)
+			return localizef("drained Grok transcript queue: launched=%d removed=%d remaining=%d failed=%d", "Grok transcript queue を drain しました: launched=%d removed=%d remaining=%d failed=%d", launched, removed, remaining, failed), nil
 		},
 	}
 }
