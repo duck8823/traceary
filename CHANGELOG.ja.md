@@ -7,6 +7,22 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 
 ## [Unreleased]
 
+## [v0.45.0] - 2026-08-20
+
+### Fixed
+- **`doctor --fix` がその run の accepted compact rollback copy だけを prune する (#2184)** — in-flight の `*.work-journal` は削除しない。放棄 leftover journal は掃除するか surface する。compact の stdout JSON は不変。`committed` での自動削除はしない。親 #2188 は open のまま。
+- **idle 後の最初の CLI `search` が complete な post-v0.44.1 generation で 83s first-open を再現しない (#2185)** — 再計測。残る first-open は warm と同程度。検索 JSON 形は不変。親 #2188 は open のまま。
+- **hook spool backlog が bounded な `doctor --fix` 内で drain する (#2151)** — 既存の wall-clock 内で drain round を追加。counter JSON 形は不変。親 #2188 は open のまま。
+- **`doctor --fix` が後から `session_ended` に達した Claude SessionEnd cancellation marker を片付ける (#2153)** — 14d より古い marker は GC。session ごとに newest を残す。未終了 session は残す。親 #2188 は open のまま。
+- **doctor の spool 件数が単位を明示し、store hint に `--db-path` を付ける (#2154)** — metadata-only は files。full doctor は decoded records と filesystem pending files。store-independent check はそう書く。親 #2188 は open のまま。
+- **doctor が古い Traceary バイナリと引退した `mcp-server` プロセスを WARN する (#2155)** — pid、version、age、reap 案内。無いときは silent PASS。対象バイナリは exec しない。親 #2188 は open のまま。
+- **hygiene scan が保存済みの pre-v0.43 echo candidate を retro-hide する (#2152)** — `low_quality_candidate` が #2112 echo 検出器と #2020 structural-non-prose を extracted / compact-summary / remember-intent payload echo に適用。cleanup の dry-run は列挙、`--apply` は reject。親 #2188 は open のまま。
+- **Gemini extension install が uninstall の前に既存 package を退避する (#2156)** — 各 `gemini` 呼び出しは `TRACEARY_GEMINI_TIMEOUT` で打ち切る。失敗・timeout は copy を復元。`--ref` が checkout と一致するときは checkout から入れる。親 #2188 は open のまま。
+
+### Docs
+- Codex の headless refresh が local-path marketplace root を説明する（`codex plugin marketplace list` のあと sync と `codex plugin add traceary@traceary-marketplace`）（#2157）。親 #2188 は open のまま。
+- Claude plugin update が headless の `claude plugin update traceary@traceary-plugins`（user / local scope）を説明する（#2158）。親 #2188 は open のまま。
+
 ## [v0.44.1] - 2026-08-20
 
 ### Fixed

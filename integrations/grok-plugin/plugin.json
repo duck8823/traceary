@@ -1,6 +1,6 @@
 {
   "name": "traceary-grok",
-  "version": "0.44.1",
+  "version": "0.45.0",
   "description": "Local-first Traceary integration for Grok Build with native session, audit, transcript, and compact hooks.",
   "author": {
     "name": "Shunsuke Maeda",

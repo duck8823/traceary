@@ -7,6 +7,22 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ## [Unreleased]
 
+## [v0.45.0] - 2026-08-20
+
+### Fixed
+- **`doctor --fix` prunes the accepted compact rollback copy for that run (#2184)** — in-flight `*.work-journal` is never deleted; abandoned leftover journals are cleaned or surfaced. Compact stdout JSON is unchanged. Rollback is not auto-deleted on `committed`. Leaves parent #2188 open.
+- **First CLI `search` after idle no longer reproduces the 83s first-open on a complete post-v0.44.1 generation (#2185)** — re-measured; remaining first-open is in the warm ballpark. Search JSON is unchanged. Leaves parent #2188 open.
+- **Hook spool backlog drains inside a bounded `doctor --fix` (#2151)** — extra drain rounds run under the existing wall clock. Counter JSON shape is unchanged. Leaves parent #2188 open.
+- **`doctor --fix` resolves Claude SessionEnd cancellation markers whose sessions later reached `session_ended` (#2153)** — markers older than 14d are GC'd; per-session newest is kept; un-ended sessions stay. Leaves parent #2188 open.
+- **Doctor spool counters name their unit and pin `--db-path` on store hints (#2154)** — metadata-only reports files; full doctor reports decoded records plus filesystem pending files. Store-independent checks say so. Leaves parent #2188 open.
+- **Doctor WARNs on stale Traceary binaries and retired `mcp-server` processes (#2155)** — pid, version, age, and reap guidance; silent PASS when none. The target binary is never executed. Leaves parent #2188 open.
+- **Hygiene scan retro-hides stored pre-v0.43 echo candidates (#2152)** — `low_quality_candidate` applies the #2112 echo detector and #2020 structural-non-prose set to extracted, compact-summary, and remember-intent payload echoes. Cleanup dry-run lists; `--apply` rejects. Leaves parent #2188 open.
+- **Gemini extension install copies the previous package aside before uninstall (#2156)** — each `gemini` call is bounded by `TRACEARY_GEMINI_TIMEOUT`; failure or timeout restores the copy. Matching `--ref` installs from the checkout. Leaves parent #2188 open.
+
+### Docs
+- Codex headless refresh documents local-path marketplace roots (`codex plugin marketplace list` then sync + `codex plugin add traceary@traceary-marketplace`) (#2157). Leaves parent #2188 open.
+- Claude plugin update documents headless `claude plugin update traceary@traceary-plugins` for user and local scopes (#2158). Leaves parent #2188 open.
+
 ## [v0.44.1] - 2026-08-20
 
 ### Fixed
