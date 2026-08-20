@@ -9,6 +9,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 
 ### Fixed
 - **Claude `--scope local` の leftover install に operator 向け FixCommand を追加 (#2236)** — `claude-plugin-local-leftovers` WARN が `traceary doctor --fix --dry-run --client claude` を表示する。dry-run は leftover path をすべて一覧し、apply は print だけの no-op。Claude の inventory は引き続き書き換えず、user-scope / marketplace install には触れない。親 #2230 は open のまま。
+- **Codex `codex exec` probe に trusted git directory 要件があることを文書化 (#2238)** — ドキュメントがホスト側エラーの正確な文言（"Not inside a trusted directory and --skip-git-repo-check was not specified."）と、動作する probe の形（`-C <git-root>` と使い捨て `TRACEARY_DB_PATH`。`--skip-git-repo-check` や `-a never` は使わない）を示す。smoke の runtime probe は git root への `-C` を維持し、hook 書き込みを使い捨て store に隔離するようにした。Codex 向けの `session_ended` 合成は引き続き行わない。親 #2230 は open のまま。
 
 ## [v0.46.0] - 2026-08-21
 

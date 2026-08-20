@@ -46,6 +46,32 @@ doctor が正確な非対話コマンドを `FixCommand` に出す場合は、�
 
 `--scope local` install に関する補足: Claude の `~/.claude/plugins/installed_plugins.json` にある local install の行は、指していた project ディレクトリが削除されても残ります。doctor はこれらの行を additive な `claude-plugin-local-leftovers` WARN（件数と欠落 path の上限付きサンプル）として報告します。user cache の `claude-plugin-cache` / `claude-plugin-version` は `pass` のままです。WARN には FixCommand が付き、`traceary doctor --fix --dry-run --client claude` が leftover path をすべて一覧し、`traceary doctor --fix` は同じ一覧を print するだけの no-op です。Traceary は Claude の inventory を書き換えません。project ディレクトリが消えた local-scope 行を uninstall できる host CLI はないため、`installed_plugins.json` を確認し、leftover の local 行は Claude 側で自分で削除してください。
 
+## Codex の headless probe は trusted な git directory が必要
+
+`scripts/smoke_test_integrations.sh` が
+`TRACEARY_ENABLE_CODEX_RUNTIME_SMOKE=1` で使う形の headless
+`codex exec` probe は、git で管理されていない directory からだと即座に
+失敗します。
+
+```
+Not inside a trusted directory and --skip-git-repo-check was not specified.
+```
+
+この Codex ホスト側ポリシーを `--skip-git-repo-check` や `-a never` で
+回避してはいけません。git root から、使い捨て store を指して実行します。
+
+```sh
+tmp_db_dir="$(mktemp -d)"
+TRACEARY_DB_PATH="${tmp_db_dir}/traceary.db" \
+  codex exec -C <traceary-git-root> -s read-only '<probe prompt>'
+rm -rf "${tmp_db_dir}"
+```
+
+hook は `session_started` / `prompt` / `transcript` を使い捨て store に
+記録します。`session_ended` は合成しません。probe 手順の全体は
+[Codex plugin](../integrations/codex-plugin.ja.md#headless-codex-exec-probe-は-trusted-な-git-directory-が必要)
+を参照してください。
+
 ## 古いプロセス
 
 Homebrew / `go install` の更新は PATH 上のバイナリを置き換えますが、**すでに動いているプロセスは古い実行ファイルのまま**です。2026-08-18 の dogfood では、置き換わった Cellar バイナリ（0.32–0.34）上の `traceary mcp-server` が長時間残っていました。MCP は v0.35.0 で引退しており、これらのプロセスは store-lease プロトコルより前のものです。stale なホスト session が compact 中にそれらへリクエストすると、排他制御なしで書き込めます。

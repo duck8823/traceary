@@ -92,6 +92,34 @@ If a future or interrupted headless run records activity but no runtime
 as partial. It does not use the manifest as proof of emission and does not scan
 another rollout or unrelated private history to fill the gap.
 
+## Headless `codex exec` probes require a trusted git directory
+
+`codex exec` refuses to start outside a trusted directory. Running it from a
+non-git throwaway directory fails immediately (observed on Codex CLI 0.148.0,
+2026-08-21):
+
+```
+Not inside a trusted directory and --skip-git-repo-check was not specified.
+```
+
+That is Codex host policy; Traceary does not change it, and probes must not
+bypass it with `--skip-git-repo-check` or a blanket-approval flag such as
+`-a never`. Run the probe from a git root (`-C <git-root>` or any cwd inside
+one) and point `TRACEARY_DB_PATH` at a throwaway store so the probe's hook
+writes never touch the real one:
+
+```sh
+tmp_db_dir="$(mktemp -d)"
+TRACEARY_DB_PATH="${tmp_db_dir}/traceary.db" \
+  codex exec -C /path/to/git-root -s read-only 'Reply with exactly: ok'
+rm -rf "${tmp_db_dir}"
+```
+
+From a trusted git root, the Traceary plugin hooks record `session_started`,
+`prompt`, and `transcript` events. `Stop` supplies the transcript and remains
+a turn boundary, not a session end (see the matrix above); Traceary never
+synthesizes `session_ended` for Codex.
+
 ## Capture-gap diagnostics
 
 `traceary doctor --client codex --project-dir <workspace> --json` includes a
