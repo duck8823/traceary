@@ -91,7 +91,7 @@ gemini extensions link integrations/gemini-extension
 
 ## Update
 
-ローカル install した Traceary extension に `gemini extensions update` を使わないでください。対話プロンプトで止まり、headless ではハングします。実行中 CLI の tag に pin して uninstall → reinstall します。
+ローカル install した Traceary extension に `gemini extensions update` を使わないでください。対話プロンプトで止まり、headless ではハングします。実行中 CLI の tag に pin した install script を使います。
 
 ```sh
 ./scripts/install-gemini-extension.sh
@@ -99,11 +99,12 @@ gemini extensions link integrations/gemini-extension
 ./scripts/install-gemini-extension.sh --ref v0.43.0
 ```
 
-スクリプトはその tag を clone し（`main` ではない）、既存があれば `gemini extensions uninstall traceary` したあと `gemini extensions install --consent` で security prompt を避けます。スクリプトを使わず GitHub URL から入れる場合:
+スクリプトは新しい package が成功するまで既存 install を残します。各 `gemini` 呼び出しは `TRACEARY_GEMINI_TIMEOUT`（既定 60 秒）で打ち切ります。失敗や timeout では以前の extension を残すか復元します。`--ref` がこの checkout の `VERSION` と一致する場合は temp clone ではなく `integrations/gemini-extension` から入れます（temp clone は Gemini の 2 段目 folder-trust でハングしたことがあります）。
+
+uninstall-first の古い経路で host が空になったときの復旧:
 
 ```sh
-gemini extensions uninstall traceary
-gemini extensions install --consent https://github.com/duck8823/traceary --ref <tag>
+gemini extensions install --consent integrations/gemini-extension
 ```
 
 ## Uninstall
