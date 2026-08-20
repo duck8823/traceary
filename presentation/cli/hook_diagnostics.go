@@ -31,9 +31,12 @@ const (
 	hookCancellationDiagnosticPhaseStoreInitialized  = "store_initialized"
 
 	// hookCancellationDiagnosticRetentionWindow bounds how long a marker for a
-	// given (client, host_event) stays eligible for begin-time GC and how old
-	// an Unknown-store marker must be before `doctor --fix` removes it.
+	// given (client, host_event) stays eligible for begin-time GC.
 	hookCancellationDiagnosticRetentionWindow = 7 * 24 * time.Hour
+	// hookCancellationDiagnosticDoctorRetention is how old a marker must be
+	// before doctor --fix GCs it even when the session is still open or the
+	// store affinity is unknown. Aligned with dead-letter prune (#2153).
+	hookCancellationDiagnosticDoctorRetention = hookSpoolDeadRetention
 	// hookCancellationDiagnosticRetentionCap bounds how many markers for a
 	// given (client, host_event) survive begin-time GC regardless of age, so
 	// the diagnostics directory cannot grow unbounded even under a tight
@@ -134,8 +137,10 @@ func (c *RootCLI) inspectClaudeHookCancellationDiagnosticsWithLookup(ctx context
 		}
 	}
 
-	agedUnknown := agedHookCancellationDiagnostics(classification.Unknown, time.Now().UTC().Add(-hookCancellationDiagnosticRetentionWindow))
-	fixRecords := append(append([]hookCancellationDiagnostic{}, classification.Resolved...), agedUnknown...)
+	now := time.Now().UTC()
+	fixRecords := hookCancellationDiagnosticCleanupRecords(classification, now)
+	remainingActionable := excludeHookCancellationDiagnostics(classification.Actionable, fixRecords)
+	agedUnknown := agedHookCancellationDiagnostics(classification.Unknown, now.Add(-hookCancellationDiagnosticDoctorRetention))
 	fixCommand := ""
 	var fix doctorFixFunc
 	if len(fixRecords) > 0 {
@@ -143,19 +148,25 @@ func (c *RootCLI) inspectClaudeHookCancellationDiagnosticsWithLookup(ctx context
 		fix = resolvedHookCancellationDiagnosticFix(fixRecords)
 	}
 
-	if len(classification.Actionable) == 0 {
+	if len(remainingActionable) == 0 {
 		if len(fixRecords) > 0 {
+			duplicateOrAged := len(fixRecords) - len(classification.Resolved) - len(agedUnknown)
+			if duplicateOrAged < 0 {
+				duplicateOrAged = 0
+			}
 			return doctorCheck{
 				Name:   checkName,
 				Status: doctorStatusWarn,
 				Hint: Localize(
-					"the referenced sessions have ended, or the markers reference another store and have aged past the retention window; preview the safe marker cleanup with the fix command",
-					"参照先 session は終了済みか、marker が別ストアを参照したまま retention window を超えています。fix command で安全な marker cleanup を preview してください",
+					"the referenced sessions have ended, older duplicate markers were kept, or the markers have aged past the 14-day retention window; preview the safe marker cleanup with the fix command",
+					"参照先 session は終了済みか、同一 session の古い duplicate、または 14 日の retention window を超えた marker です。fix command で安全な marker cleanup を preview してください",
 				),
 				Message: localizef(
-					"found %d resolved and %d aged unknown-store Claude SessionEnd hook cancellation diagnostic(s) eligible for cleanup%s",
-					"cleanup 可能な解決済み Claude SessionEnd hook cancellation diagnostic が %d 件、別ストア参照で retention window を超えた marker が %d 件あります%s",
+					"found %d Claude SessionEnd hook cancellation diagnostic(s) eligible for cleanup (resolved=%d, duplicate_or_aged=%d, aged_unknown=%d)%s",
+					"cleanup 可能な Claude SessionEnd hook cancellation diagnostic が %d 件あります (resolved=%d, duplicate_or_aged=%d, aged_unknown=%d)%s",
+					len(fixRecords),
 					len(classification.Resolved),
+					duplicateOrAged,
 					len(agedUnknown),
 					formatUnreadableHookDiagnosticsSuffix(scan.Unreadable),
 				),
@@ -195,18 +206,18 @@ func (c *RootCLI) inspectClaudeHookCancellationDiagnosticsWithLookup(ctx context
 		}
 	}
 
-	latest := classification.Actionable[0]
+	latest := remainingActionable[0]
 	check := doctorCheck{
 		Name:   checkName,
 		Status: doctorStatusWarn,
 		Hint: Localize(
-			"the marker means Traceary reached Claude SessionEnd but did not complete cleanly; inspect the file and recent `traceary list --agent claude` output, then remove the marker after confirming it is stale. If Claude cancels before Traceary starts, no marker can be written.",
-			"この marker は Traceary が Claude SessionEnd まで到達したものの正常完了していないことを示します。file と最近の `traceary list --agent claude` を確認し、stale と判断できたら marker を削除してください。Claude が Traceary 起動前に cancel した場合、marker は書けません。",
+			"the marker means Traceary reached Claude SessionEnd but did not complete cleanly; inspect the file and recent `traceary list --agent claude` output. `traceary doctor --fix` removes markers whose sessions later ended, older duplicate markers for the same session, and markers older than 14 days. Remove any remaining marker after confirming it is stale. If Claude cancels before Traceary starts, no marker can be written.",
+			"この marker は Traceary が Claude SessionEnd まで到達したものの正常完了していないことを示します。file と最近の `traceary list --agent claude` を確認してください。`traceary doctor --fix` は後から終了した session の marker、同一 session の古い duplicate、14 日を超えた marker を削除します。残った marker は stale と判断できたら削除してください。Claude が Traceary 起動前に cancel した場合、marker は書けません。",
 		),
 		Message: localizef(
 			"found %d unresolved Claude SessionEnd hook cancellation diagnostic(s), %d resolved, %d unknown-store; latest phase=%s host_event=%s hook_command=%s hook_path=%s workspace=%s session_id=%s started_at=%s path=%s%s",
 			"未解決の Claude SessionEnd hook cancellation diagnostic が %d 件、解決済みが %d 件、ストア不明が %d 件あります。latest phase=%s host_event=%s hook_command=%s hook_path=%s workspace=%s session_id=%s started_at=%s path=%s%s",
-			len(classification.Actionable),
+			len(remainingActionable),
 			len(classification.Resolved),
 			len(classification.Unknown),
 			emptyAsDash(latest.Phase),
@@ -300,15 +311,91 @@ func resolvedHookCancellationDiagnosticFix(records []hookCancellationDiagnostic)
 	}
 	return func(_ context.Context, dryRun bool) (string, error) {
 		if dryRun {
-			return fmt.Sprintf("would remove %d resolved Claude SessionEnd hook cancellation diagnostic(s)", len(paths)), nil
+			return fmt.Sprintf("would remove %d Claude SessionEnd hook cancellation diagnostic(s)", len(paths)), nil
 		}
 		for _, path := range paths {
 			if err := clearHookCancellationDiagnostic(path); err != nil {
 				return "", err
 			}
 		}
-		return fmt.Sprintf("removed %d resolved Claude SessionEnd hook cancellation diagnostic(s)", len(paths)), nil
+		return fmt.Sprintf("removed %d Claude SessionEnd hook cancellation diagnostic(s)", len(paths)), nil
 	}
+}
+
+// olderDuplicateHookCancellationDiagnostics returns older markers that share a
+// session_id with a newer marker. Empty session IDs cannot be deduped.
+func olderDuplicateHookCancellationDiagnostics(records []hookCancellationDiagnostic) []hookCancellationDiagnostic {
+	sorted := append([]hookCancellationDiagnostic{}, records...)
+	sort.Slice(sorted, func(i, j int) bool {
+		if !sorted[i].StartedAt.Equal(sorted[j].StartedAt) {
+			return sorted[i].StartedAt.After(sorted[j].StartedAt)
+		}
+		return sorted[i].Path < sorted[j].Path
+	})
+	seen := make(map[string]struct{}, len(sorted))
+	older := make([]hookCancellationDiagnostic, 0)
+	for _, record := range sorted {
+		id := strings.TrimSpace(record.SessionID)
+		if id == "" {
+			continue
+		}
+		if _, exists := seen[id]; exists {
+			older = append(older, record)
+			continue
+		}
+		seen[id] = struct{}{}
+	}
+	return older
+}
+
+func uniqueHookCancellationDiagnosticsByPath(groups ...[]hookCancellationDiagnostic) []hookCancellationDiagnostic {
+	seen := map[string]struct{}{}
+	out := make([]hookCancellationDiagnostic, 0)
+	for _, group := range groups {
+		for _, record := range group {
+			path := strings.TrimSpace(record.Path)
+			if path == "" {
+				continue
+			}
+			if _, ok := seen[path]; ok {
+				continue
+			}
+			seen[path] = struct{}{}
+			out = append(out, record)
+		}
+	}
+	return out
+}
+
+func excludeHookCancellationDiagnostics(records, excluded []hookCancellationDiagnostic) []hookCancellationDiagnostic {
+	skip := make(map[string]struct{}, len(excluded))
+	for _, record := range excluded {
+		skip[strings.TrimSpace(record.Path)] = struct{}{}
+	}
+	out := make([]hookCancellationDiagnostic, 0, len(records))
+	for _, record := range records {
+		if _, ok := skip[strings.TrimSpace(record.Path)]; ok {
+			continue
+		}
+		out = append(out, record)
+	}
+	return out
+}
+
+// hookCancellationDiagnosticCleanupRecords is the --fix set: ended sessions,
+// older per-session duplicates, and markers older than the 14-day window.
+func hookCancellationDiagnosticCleanupRecords(
+	classification hookCancellationDiagnosticClassification,
+	now time.Time,
+) []hookCancellationDiagnostic {
+	cutoff := now.Add(-hookCancellationDiagnosticDoctorRetention)
+	sameStore := append(append([]hookCancellationDiagnostic{}, classification.Actionable...), classification.Resolved...)
+	return uniqueHookCancellationDiagnosticsByPath(
+		classification.Resolved,
+		olderDuplicateHookCancellationDiagnostics(sameStore),
+		agedHookCancellationDiagnostics(classification.Actionable, cutoff),
+		agedHookCancellationDiagnostics(classification.Unknown, cutoff),
+	)
 }
 
 func beginHookCancellationDiagnostic(client, hostEvent, hookCommand string, sessionID types.SessionID, workspace types.Workspace, dbPath string) (string, error) {

@@ -122,7 +122,7 @@ func TestResolvedHookCancellationDiagnosticFix(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dry-run fix error = %v", err)
 	}
-	if action != "would remove 1 resolved Claude SessionEnd hook cancellation diagnostic(s)" {
+	if action != "would remove 1 Claude SessionEnd hook cancellation diagnostic(s)" {
 		t.Fatalf("dry-run action = %q", action)
 	}
 	if _, err := os.Stat(path); err != nil {
@@ -133,11 +133,157 @@ func TestResolvedHookCancellationDiagnosticFix(t *testing.T) {
 	if err != nil {
 		t.Fatalf("apply fix error = %v", err)
 	}
-	if action != "removed 1 resolved Claude SessionEnd hook cancellation diagnostic(s)" {
+	if action != "removed 1 Claude SessionEnd hook cancellation diagnostic(s)" {
 		t.Fatalf("apply action = %q", action)
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("marker still exists after apply: %v", err)
+	}
+}
+
+func TestOlderDuplicateHookCancellationDiagnostics(t *testing.T) {
+	t.Parallel()
+	newer := time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC)
+	records := []hookCancellationDiagnostic{
+		{Path: "old.json", SessionID: "same", StartedAt: newer.Add(-48 * time.Hour)},
+		{Path: "newest.json", SessionID: "same", StartedAt: newer},
+		{Path: "mid.json", SessionID: "same", StartedAt: newer.Add(-time.Hour)},
+		{Path: "other.json", SessionID: "other", StartedAt: newer.Add(-time.Hour)},
+		{Path: "empty.json", SessionID: "", StartedAt: newer.Add(-time.Hour)},
+	}
+	got := olderDuplicateHookCancellationDiagnostics(records)
+	if diff := cmp.Diff([]string{"mid.json", "old.json"}, diagnosticPaths(got)); diff != "" {
+		t.Fatalf("older duplicate paths mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestHookCancellationDiagnosticCleanupRecords(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 8, 20, 12, 0, 0, 0, time.UTC)
+	classification := hookCancellationDiagnosticClassification{
+		Actionable: []hookCancellationDiagnostic{
+			{Path: "newest-open.json", SessionID: "open", StartedAt: now.Add(-time.Hour)},
+			{Path: "older-open.json", SessionID: "open", StartedAt: now.Add(-2 * time.Hour)},
+			{Path: "ancient-open.json", SessionID: "ancient", StartedAt: now.Add(-hookCancellationDiagnosticDoctorRetention - time.Hour)},
+		},
+		Resolved: []hookCancellationDiagnostic{
+			{Path: "ended.json", SessionID: "ended", StartedAt: now.Add(-time.Hour)},
+		},
+		Unknown: []hookCancellationDiagnostic{
+			{Path: "fresh-unknown.json", SessionID: "other-store", StartedAt: now.Add(-time.Hour)},
+			{Path: "aged-unknown.json", SessionID: "other-store-old", StartedAt: now.Add(-hookCancellationDiagnosticDoctorRetention - time.Hour)},
+		},
+	}
+	got := hookCancellationDiagnosticCleanupRecords(classification, now)
+	if diff := cmp.Diff([]string{"ended.json", "older-open.json", "ancient-open.json", "aged-unknown.json"}, diagnosticPaths(got)); diff != "" {
+		t.Fatalf("cleanup paths mismatch (-want +got):\n%s", diff)
+	}
+	remaining := excludeHookCancellationDiagnostics(classification.Actionable, got)
+	if diff := cmp.Diff([]string{"newest-open.json"}, diagnosticPaths(remaining)); diff != "" {
+		t.Fatalf("remaining actionable mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestInspectClaudeHookCancellationDiagnostics_FixEndedDuplicatesAndAncient(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	diagDir := filepath.Join(stateDir, hookDiagnosticsDirName)
+	if err := os.MkdirAll(diagDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	const dbPath = "/store/current.db"
+	write := func(name, sessionID string, startedAt time.Time) string {
+		path := filepath.Join(diagDir, name)
+		writeHookCancellationDiagnosticForTest(t, path, hookCancellationDiagnostic{
+			SchemaVersion: hookCancellationDiagnosticSchemaVersion,
+			Client:        "claude",
+			HostEvent:     "SessionEnd",
+			HookCommand:   "cmd",
+			SessionID:     sessionID,
+			DBPath:        dbPath,
+			Status:        hookCancellationDiagnosticStatusStarted,
+			StartedAt:     startedAt,
+		})
+		return path
+	}
+	endedPath := write("ended.json", "ended-session", now.Add(-2*time.Hour))
+	newestOpen := write("open-new.json", "open-session", now.Add(-time.Hour))
+	olderOpen := write("open-old.json", "open-session", now.Add(-3*time.Hour))
+	ancientPath := write("ancient.json", "ancient-session", now.Add(-hookCancellationDiagnosticDoctorRetention-time.Hour))
+	genuinePath := newestOpen
+
+	lookup := &hookDiagnosticSessionLookupStub{ended: map[types.SessionID]struct{}{"ended-session": {}}}
+	root := &RootCLI{}
+	check := root.inspectClaudeHookCancellationDiagnosticsWithLookup(context.Background(), dbPath, "", lookup)
+	if check.Status != doctorStatusWarn {
+		t.Fatalf("status=%q message=%q", check.Status, check.Message)
+	}
+	if !strings.Contains(check.Hint, "doctor --fix") {
+		t.Fatalf("hint %q, want doctor --fix automatic path", check.Hint)
+	}
+	if !strings.Contains(check.Message, "found 1 unresolved") {
+		t.Fatalf("message %q, want 1 unresolved remaining", check.Message)
+	}
+	if !check.AutoFixAvailable || check.FixFunc == nil {
+		t.Fatalf("expected auto-fix: %+v", check)
+	}
+
+	action, err := check.FixFunc(context.Background(), true)
+	if err != nil {
+		t.Fatalf("dry-run: %v", err)
+	}
+	if !strings.Contains(action, "would remove 3") {
+		t.Fatalf("dry-run action=%q, want 3 removals", action)
+	}
+	for _, path := range []string{endedPath, olderOpen, ancientPath, genuinePath} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("dry-run removed %s: %v", path, err)
+		}
+	}
+
+	if _, err := check.FixFunc(context.Background(), false); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if _, err := os.Stat(genuinePath); err != nil {
+		t.Fatalf("genuine un-ended newest marker must remain: %v", err)
+	}
+	for _, path := range []string{endedPath, olderOpen, ancientPath} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("%s survived --fix: err=%v", path, err)
+		}
+	}
+}
+
+func TestInspectClaudeHookCancellationDiagnosticsFilesystem_DedupesWithoutLookup(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	diagDir := filepath.Join(stateDir, hookDiagnosticsDirName)
+	if err := os.MkdirAll(diagDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	const dbPath = "/store/current.db"
+	for i, age := range []time.Duration{time.Hour, 2 * time.Hour, 3 * time.Hour} {
+		writeHookCancellationDiagnosticForTest(t, filepath.Join(diagDir, fmt.Sprintf("dup-%d.json", i)), hookCancellationDiagnostic{
+			SchemaVersion: hookCancellationDiagnosticSchemaVersion,
+			Client:        "claude",
+			HostEvent:     "SessionEnd",
+			SessionID:     "same-session",
+			DBPath:        dbPath,
+			Status:        hookCancellationDiagnosticStatusStarted,
+			StartedAt:     now.Add(-age),
+		})
+	}
+	root := &RootCLI{}
+	check := root.inspectClaudeHookCancellationDiagnosticsFilesystem(context.Background(), dbPath, "")
+	if !strings.Contains(check.Message, "found 1 unresolved") {
+		t.Fatalf("filesystem inspect must dedupe without SQLite lookup: %q", check.Message)
+	}
+	if !check.AutoFixAvailable {
+		t.Fatalf("older duplicates must still be auto-fixable without session lookup")
 	}
 }
 
