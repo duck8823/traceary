@@ -7,6 +7,19 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 
 ## [Unreleased]
 
+## [v0.46.0] - 2026-08-21
+
+### Fixed
+- **大きいストアの `doctor --fix` が dead letter 再キュー後に hook spool を drain する (#2207)** — 再キューしたレコードを pending のまま残さず同じ run で drain する。`doctor --inspect` は filesystem metadata のまま（dbstat なし）。親 #2208 は open のまま。
+- **Grok の doctor がローカル plugin Source 欠落で FAIL し、coverage が Grok 1.0.5 plugin hooks を wired ではなく available と記録する (#2209)** — 削除済み source が PASS しなくなる。`session_ended` の合成はしない。親 #2208 は open のまま。
+- **`memory inbox cleanup` / `list --quality low --limit N` が hygiene ヒットを最大 N 件選択する (#2210)** — hygiene が候補を列挙しているのに cleanup が 0 件を返さなくなる。親 #2208 は open のまま。
+- **Kimi の `session_ended` を 0.38.0 の `-p` では available に降格 (#2206)** — plugin は SessionEnd を宣言したままだが、host が発火しない境界を合成しない。親 #2208 は open のまま。
+- **stale-processes の WARN が stale バイナリに 15 分の age floor を設ける（`version=unknown` を含む） (#2211)** — hook 実行時間分の子プロセスは WARN しない。引退した `mcp-server` プロセスには floor なし。親 #2208 は open のまま。
+- **Codex runtime smoke probe が `exec -s read-only` を使う (#2213)** — 拒否された `-a never` フラグを廃止。probe は opt-in のまま。親 #2208 は open のまま。
+- **doctor の FixCommand / hint を upgrade 後の docs に揃える (#2214)** — Claude は `claude plugin update traceary@traceary-plugins` を提案。Gemini は `gemini extensions update` ではなく install script を指す。親 #2208 は open のまま。
+- **Gemini install script が既存の hooks install を skip し `--project-dir` を repo ルートに pin する (#2215)** — 追跡中の `.gemini/settings.json` への key 順だけの書き換えをしない。親 #2208 は open のまま。
+- **`report --limit` が `list --limit` ではなく page-size エイリアスだと警告する (#2216)** — 廃止予定のエイリアスが通知を出す。report の JSON は不変。親 #2208 は open のまま。
+
 ### Added
 - **doctor が削除済み worktree の Claude `--scope local` leftover install を報告 (#2212)** — additive かつ store-independent な `claude-plugin-local-leftovers` check が `~/.claude/plugins/installed_plugins.json` だけを読み、project ディレクトリが消えた enabled な local Traceary 行の件数と上限付きサンプルを WARN します。auto-fix なし。Claude の inventory は書き換えず、user cache の `claude-plugin-cache` / `claude-plugin-version` は PASS のままです。親 #2208 は open のままにします。
 

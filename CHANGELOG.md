@@ -7,6 +7,19 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ## [Unreleased]
 
+## [v0.46.0] - 2026-08-21
+
+### Fixed
+- **Large-store `doctor --fix` drains the hook spool after requeueing dead letters (#2207)** — requeued records are drained in the same run instead of being left pending; `doctor --inspect` stays filesystem metadata (no dbstat). Leaves parent #2208 open.
+- **Grok doctor FAILs a missing local plugin Source and coverage marks Grok 1.0.5 plugin hooks as available, not wired (#2209)** — a deleted source no longer PASSes doctor; no `session_ended` synthesis is attempted. Leaves parent #2208 open.
+- **`memory inbox cleanup` / `list --quality low --limit N` selects up to N hygiene hits (#2210)** — cleanup no longer returns 0 while hygiene lists candidates. Leaves parent #2208 open.
+- **Kimi `session_ended` is demoted to available on 0.38.0 `-p` (#2206)** — the plugin still declares SessionEnd, but no synthesis records a boundary the host never fires. Leaves parent #2208 open.
+- **Stale-process WARNs get a 15-minute age floor for stale binaries, including `version=unknown` (#2211)** — hook-duration children no longer warn; the retired `mcp-server` process has no floor. Leaves parent #2208 open.
+- **Codex runtime smoke probe uses `exec -s read-only` (#2213)** — the rejected `-a never` flag is gone; the probe stays opt-in. Leaves parent #2208 open.
+- **Doctor FixCommand and hints match the post-upgrade docs (#2214)** — Claude suggests `claude plugin update traceary@traceary-plugins`; Gemini points at the install script instead of `gemini extensions update`. Leaves parent #2208 open.
+- **Gemini install script skips the hooks install when already present and pins `--project-dir` to the repo root (#2215)** — tracked `.gemini/settings.json` no longer gets key-order-only churn. Leaves parent #2208 open.
+- **`report --limit` warns it is a page-size alias, not `list --limit` (#2216)** — the deprecated alias prints a notice; report JSON is unchanged. Leaves parent #2208 open.
+
 ### Added
 - **Doctor surfaces leftover Claude `--scope local` installs in deleted worktrees (#2212)** — the additive store-independent `claude-plugin-local-leftovers` check reads only `~/.claude/plugins/installed_plugins.json` and WARNs with a count plus a bounded sample of enabled local Traceary rows whose project directory is gone. No auto-fix; Claude's inventory is never rewritten, and the user-cache `claude-plugin-cache` / `claude-plugin-version` checks stay PASS. Leaves parent #2208 open.
 
