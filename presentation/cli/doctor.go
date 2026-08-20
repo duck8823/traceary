@@ -387,7 +387,9 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 			report.Checks = append(report.Checks, c.inspectAttestationAnchor(ctx, resolvedDBPath, false))
 		}
 		// This is an intentional, successful bounded outcome. The only SQLite
-		// open is the O(1) mode=ro pragma + projection-state read. Do not
+		// opens are the O(1) mode=ro pragma + projection-state read and the
+		// session-id keyed ended-session probe behind the hook-cancellation
+		// check (#2235). Do not
 		// initialize, list events, open spool payloads, inspect payload codec,
 		// walk dbstat, or inspect client state here: those operations can
 		// block behind a live writer and some inspect event bodies/payloads.

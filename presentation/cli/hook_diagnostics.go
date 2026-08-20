@@ -14,6 +14,7 @@ import (
 
 	"golang.org/x/xerrors"
 
+	"github.com/duck8823/traceary/application"
 	"github.com/duck8823/traceary/domain/types"
 )
 
@@ -87,7 +88,34 @@ func (c *RootCLI) inspectClaudeHookCancellationDiagnostics(ctx context.Context, 
 }
 
 func (c *RootCLI) inspectClaudeHookCancellationDiagnosticsFilesystem(ctx context.Context, dbPath, projectDir string) doctorCheck {
-	return c.inspectClaudeHookCancellationDiagnosticsWithLookup(ctx, dbPath, projectDir, nil)
+	// Large-store doctor resolves markers through the bounded path-based
+	// ended-session probe (session-id keyed, mode=ro, no event bodies/dbstat)
+	// so a SessionEnd that recorded session_ended before the host killed the
+	// hook classifies Resolved instead of staying Actionable forever (#2235).
+	// Without an inspector (or a resolved store path) the nil lookup keeps
+	// the previous same-store Actionable fallback.
+	var sessions hookDiagnosticSessionLookup
+	if c != nil && c.endedSessionInspector != nil && strings.TrimSpace(dbPath) != "" {
+		sessions = hookDiagnosticFilesystemSessionLookup{inspector: c.endedSessionInspector, dbPath: dbPath}
+	}
+	return c.inspectClaudeHookCancellationDiagnosticsWithLookup(ctx, dbPath, projectDir, sessions)
+}
+
+// hookDiagnosticFilesystemSessionLookup binds the path-based ended-session
+// inspector to the store the filesystem doctor inspects.
+type hookDiagnosticFilesystemSessionLookup struct {
+	inspector application.EndedSessionInspector
+	dbPath    string
+}
+
+func (l hookDiagnosticFilesystemSessionLookup) FindEndedSessionIDs(ctx context.Context, sessionIDs []types.SessionID) (map[types.SessionID]struct{}, error) {
+	lookupCtx, cancel := context.WithTimeout(ctx, largeStoreO1InspectTimeout)
+	defer cancel()
+	ended, err := l.inspector.FindEndedSessionIDs(lookupCtx, l.dbPath, sessionIDs)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to look up ended sessions for filesystem doctor: %w", err)
+	}
+	return ended, nil
 }
 
 func (c *RootCLI) inspectClaudeHookCancellationDiagnosticsWithLookup(ctx context.Context, dbPath, projectDir string, sessions hookDiagnosticSessionLookup) doctorCheck {

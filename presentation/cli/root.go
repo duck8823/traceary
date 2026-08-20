@@ -41,6 +41,7 @@ type RootCLI struct {
 	storeManagement            usecase.StoreManagementUsecase
 	capacityInspector          application.CapacityInspector
 	pageMetadataInspector      application.PageMetadataInspector
+	endedSessionInspector      application.EndedSessionInspector
 	operatorCostInspector      application.OperatorCostInspector
 	payloadCodecInspector      application.PayloadCodecInspector
 	attestationAnchorInspector application.AttestationAnchorInspector
@@ -221,6 +222,12 @@ func WithCapacityInspector(inspector application.CapacityInspector) RootCLIOptio
 // WithPageMetadataInspector injects the O(1) large-store pragma reader.
 func WithPageMetadataInspector(inspector application.PageMetadataInspector) RootCLIOption {
 	return func(c *RootCLI) { c.pageMetadataInspector = inspector }
+}
+
+// WithEndedSessionInspector injects the bounded path-based ended-session
+// reader large-store doctor uses to resolve hook cancellation markers.
+func WithEndedSessionInspector(inspector application.EndedSessionInspector) RootCLIOption {
+	return func(c *RootCLI) { c.endedSessionInspector = inspector }
 }
 
 // WithOperatorCostInspector injects this-store measured cost for doctor.
