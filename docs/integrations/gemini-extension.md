@@ -114,8 +114,7 @@ gemini extensions link integrations/gemini-extension
 
 Do not use `gemini extensions update` for a locally installed Traceary
 extension: that command waits on an interactive prompt and can hang in
-headless runs. Uninstall and reinstall instead, pinned to the running CLI
-tag:
+headless runs. Use the install script, pinned to the running CLI tag:
 
 ```sh
 ./scripts/install-gemini-extension.sh
@@ -123,14 +122,19 @@ tag:
 ./scripts/install-gemini-extension.sh --ref v0.43.0
 ```
 
-The script clones that tag (not `main`), runs `gemini extensions uninstall
-traceary` when a copy is already installed, then `gemini extensions install
---consent` so the security prompt does not block. To pin a GitHub URL install
-without the script:
+Gemini CLI refuses `extensions install` when the same name is already
+installed, so the script copies the previous extension aside, uninstalls,
+then installs the new package. Each `gemini` invocation is bounded by
+`TRACEARY_GEMINI_TIMEOUT` (default 60s). A failed or timed-out call
+restores the copy.
+When `--ref` matches this checkout's `VERSION`, it installs from
+`integrations/gemini-extension` instead of a temp clone (temp clones have
+hung on Gemini's second folder-trust prompt).
+
+Recovery if an older uninstall-first run left the host bare:
 
 ```sh
-gemini extensions uninstall traceary
-gemini extensions install --consent https://github.com/duck8823/traceary --ref <tag>
+gemini extensions install --consent integrations/gemini-extension
 ```
 
 ## Uninstall
