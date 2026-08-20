@@ -189,9 +189,11 @@ func TestProbeGrokDoctorStateDoesNotTrustProvidesHooksBoolean(t *testing.T) {
 
 // TestProbeGrokDoctorStateWarnsWhenPluginHooksNotDispatched reproduces the
 // Grok 1.0.5 dogfood: the traceary-grok plugin is installed and enabled and
-// its on-disk hook file satisfies the seven-event contract, yet inspect
-// dispatches only user-level hook sources. A listed plugin is not capture, so
-// grok-hooks must WARN instead of claiming the native route covers all events.
+// its on-disk hook file satisfies the seven-event contract, yet inspect lists
+// the plugin only as a file-type manifest listing (hookType=file,
+// event "(plugin)") while every dispatched lifecycle hook is a user-level
+// command hook. A listed plugin is not capture, so grok-hooks must WARN
+// instead of claiming the native route covers all events.
 func TestProbeGrokDoctorStateWarnsWhenPluginHooksNotDispatched(t *testing.T) {
 	t.Setenv("TRACEARY_LANG", "en")
 	originalLookPath, originalOutput, originalHome := grokDoctorLookPath, grokDoctorOutput, currentUserHomeDirFunc()
@@ -217,7 +219,11 @@ func TestProbeGrokDoctorStateWarnsWhenPluginHooksNotDispatched(t *testing.T) {
 		case "plugin list --json":
 			return []byte(`[{"name":"traceary-grok","version":"0.46.0","path":` + strconv.Quote(filepath.Dir(filepath.Dir(pluginHook))) + `}]`), nil
 		case "--cwd " + projectDir + " inspect --json":
-			return []byte(`{"projectTrusted":true,"plugins":[{"name":"traceary-grok","enabled":true,"provides":{"skills":4,"hooks":true,"mcpServers":0}}],"hooks":[{"target":` + strconv.Quote(userHookPath) + `,"source":{"type":"user"}}]}`), nil
+			return []byte(`{"projectTrusted":true,"plugins":[{"name":"traceary-grok","enabled":true,"provides":{"skills":4,"hooks":true,"mcpServers":0}}],"hooks":[` +
+				`{"target":` + strconv.Quote(pluginHook) + `,"hookType":"file","event":"(plugin)","source":{"type":"plugin","plugin_name":"traceary-grok"}},` +
+				`{"target":` + strconv.Quote(userHookPath) + `,"hookType":"command","event":"session_start","source":{"type":"user"}},` +
+				`{"target":` + strconv.Quote(userHookPath) + `,"hookType":"command","event":"user_prompt_submit","source":{"type":"user"}}` +
+				`]}`), nil
 		default:
 			t.Fatalf("unexpected Grok arguments: %v", args)
 			return nil, nil
@@ -260,8 +266,9 @@ func TestProbeGrokDoctorStateWarnsWhenPluginHooksNotDispatched(t *testing.T) {
 }
 
 // TestProbeGrokDoctorStatePassesWhenPluginSourceDispatched keeps the happy
-// path honest: inspect reporting a plugin-source traceary-grok hook whose
-// target file still has verified seven-event coverage passes grok-hooks.
+// path honest: inspect dispatching a plugin-source traceary-grok hook
+// (hookType=command, a concrete lifecycle event) whose target file still has
+// verified seven-event coverage passes grok-hooks.
 func TestProbeGrokDoctorStatePassesWhenPluginSourceDispatched(t *testing.T) {
 	t.Setenv("TRACEARY_LANG", "en")
 	originalLookPath, originalOutput := grokDoctorLookPath, grokDoctorOutput
@@ -278,7 +285,7 @@ func TestProbeGrokDoctorStatePassesWhenPluginSourceDispatched(t *testing.T) {
 		case "plugin list --json":
 			return []byte(`[{"name":"traceary-grok","version":"0.46.0","path":"/cache/grok-plugin-traceary-grok"}]`), nil
 		case "--cwd " + projectDir + " inspect --json":
-			return []byte(`{"projectTrusted":true,"plugins":[{"name":"traceary-grok","enabled":true,"provides":{"skills":4,"mcpServers":0}}],"hooks":[{"target":` + strconv.Quote(pluginHook) + `,"source":{"type":"plugin","plugin_name":"traceary-grok"}}]}`), nil
+			return []byte(`{"projectTrusted":true,"plugins":[{"name":"traceary-grok","enabled":true,"provides":{"skills":4,"mcpServers":0}}],"hooks":[{"target":` + strconv.Quote(pluginHook) + `,"hookType":"command","event":"SessionStart","source":{"type":"plugin","plugin_name":"traceary-grok"}}]}`), nil
 		default:
 			t.Fatalf("unexpected Grok arguments: %v", args)
 			return nil, nil
@@ -297,6 +304,34 @@ func TestProbeGrokDoctorStatePassesWhenPluginSourceDispatched(t *testing.T) {
 		if check.Name == "grok-hooks" && (check.Status != doctorStatusPass || !strings.Contains(check.Message, "cover all seven")) {
 			t.Fatalf("grok-hooks = %+v, want PASS for dispatched plugin-source route", check)
 		}
+	}
+}
+
+func TestGrokInspectHookIsDispatch(t *testing.T) {
+	hook := func(hookType, event string) grokInspectHook {
+		var h grokInspectHook
+		h.HookType, h.Event = hookType, event
+		return h
+	}
+	tests := []struct {
+		name string
+		hook grokInspectHook
+		want bool
+	}{
+		{name: "command lifecycle hook is dispatched", hook: hook("command", "session_start"), want: true},
+		{name: "command hook with PascalCase event is dispatched", hook: hook("command", "SessionStart"), want: true},
+		{name: "non-file hookType without event is dispatched", hook: hook("command", ""), want: true},
+		{name: "file listing is not dispatch", hook: hook("file", "(plugin)")},
+		{name: "file hookType alone is not dispatch", hook: hook("file", "session_start")},
+		{name: "plugin event marker alone is not dispatch", hook: hook("", "(plugin)")},
+		{name: "legacy entry without hookType or event is dispatched", hook: hook("", ""), want: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := grokInspectHookIsDispatch(tc.hook); got != tc.want {
+				t.Fatalf("grokInspectHookIsDispatch(%+v) = %v, want %v", tc.hook, got, tc.want)
+			}
+		})
 	}
 }
 

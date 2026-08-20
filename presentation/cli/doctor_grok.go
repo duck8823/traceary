@@ -65,7 +65,9 @@ type grokDoctorState struct {
 	// still merges that route even when coverage is incomplete/stale, so
 	// duplicate-route detection must use presence rather than verified
 	// coverage. A plugin that is merely installed/listed does not count: Grok
-	// can list plugin hooks while dispatching only user-level routes.
+	// can list plugin hooks while dispatching only user-level routes, and the
+	// inspect hooks[] entry for the plugin manifest itself (hookType=file,
+	// event "(plugin)") is a listing, not a dispatched hook.
 	NativeHooksPresent bool
 	// NativeHooks is true only when the dispatched plugin-source route also
 	// passes the exact seven-event verified coverage contract. Used by
@@ -88,16 +90,20 @@ type grokPluginListEntry struct {
 	Source  string `json:"source"`
 }
 
+type grokInspectHook struct {
+	Target   string `json:"target"`
+	HookType string `json:"hookType"`
+	Event    string `json:"event"`
+	Source   struct {
+		Type       string `json:"type"`
+		PluginName string `json:"plugin_name"`
+	} `json:"source"`
+}
+
 type grokInspectDocument struct {
-	ProjectTrusted bool `json:"projectTrusted"`
-	Hooks          []struct {
-		Target string `json:"target"`
-		Source struct {
-			Type       string `json:"type"`
-			PluginName string `json:"plugin_name"`
-		} `json:"source"`
-	} `json:"hooks"`
-	Plugins []struct {
+	ProjectTrusted bool              `json:"projectTrusted"`
+	Hooks          []grokInspectHook `json:"hooks"`
+	Plugins        []struct {
 		Name     string `json:"name"`
 		Enabled  bool   `json:"enabled"`
 		Path     string `json:"path"`
@@ -194,7 +200,7 @@ func probeGrokDoctorState(ctx context.Context, projectDir string) (grokDoctorSta
 		if hook.Source.PluginName == legacyTracearyPluginName {
 			state.LegacyPluginDetected = true
 		}
-		if hook.Source.Type == "plugin" && hook.Source.PluginName == grokTracearyPluginName && pathClass == grokPluginPathClassNative {
+		if hook.Source.Type == "plugin" && hook.Source.PluginName == grokTracearyPluginName && pathClass == grokPluginPathClassNative && grokInspectHookIsDispatch(hook) {
 			state.NativeHooksPresent = true
 			if grokHookFileHasVerifiedCoverage(hook.Target) {
 				state.NativeHooks = true
@@ -216,6 +222,21 @@ func probeGrokUserHooksFile(state *grokDoctorState, userPath string) {
 	if readErr != nil || !json.Valid(data) {
 		state.UserHooksInvalid = true
 	}
+}
+
+// grokInspectHookIsDispatch reports whether an inspect hooks[] entry is a
+// dispatched lifecycle hook rather than the plugin's file listing. Grok 1.0.5
+// lists the plugin manifest target (hooks/hooks.json) as hookType=file with
+// event "(plugin)": that entry proves the plugin is installed, not that Grok
+// dispatches any plugin hook for it. Dispatched hooks carry a concrete
+// hookType such as "command" and a lifecycle event name. Entries from Grok
+// versions that predate the hookType/event fields are treated as dispatched,
+// matching the pre-listing inspect contract.
+func grokInspectHookIsDispatch(hook grokInspectHook) bool {
+	if strings.EqualFold(strings.TrimSpace(hook.HookType), "file") {
+		return false
+	}
+	return strings.TrimSpace(hook.Event) != "(plugin)"
 }
 
 // grokIsTracearyUserHookTarget reports whether an inspect hook target looks like
