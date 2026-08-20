@@ -182,8 +182,8 @@ func (s *stubMemoryQueryService) ScanMemoryHygienePage(
 				continue
 			}
 			if criteria.Phase == apptypes.MemoryHygieneScanPhaseCandidateRows {
-				if summary.Status() != domtypes.MemoryStatusCandidate || (summary.Source() != domtypes.MemorySourceExtracted &&
-					(!criteria.IncludeHiddenCandidates || summary.Source() != domtypes.MemorySourceExtractedHidden)) {
+				if summary.Status() != domtypes.MemoryStatusCandidate ||
+					!apptypes.IsHygieneCandidateNoiseSource(summary.Source(), criteria.IncludeHiddenCandidates) {
 					continue
 				}
 			}

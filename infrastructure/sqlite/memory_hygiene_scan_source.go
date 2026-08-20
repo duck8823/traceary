@@ -90,11 +90,14 @@ func (d *MemoryDatasource) ScanMemoryHygienePage(
 	case apptypes.MemoryHygieneScanPhaseAcceptedRows:
 		err = scanMemoryHygieneRows(ctx, tx, criteria, []domtypes.MemoryStatus{domtypes.MemoryStatusAccepted}, nil, &result)
 	case apptypes.MemoryHygieneScanPhaseCandidateRows:
-		sources := []domtypes.MemorySource{domtypes.MemorySourceExtracted}
-		if criteria.IncludeHiddenCandidates {
-			sources = append(sources, domtypes.MemorySourceExtractedHidden)
-		}
-		err = scanMemoryHygieneRows(ctx, tx, criteria, []domtypes.MemoryStatus{domtypes.MemoryStatusCandidate}, sources, &result)
+		err = scanMemoryHygieneRows(
+			ctx,
+			tx,
+			criteria,
+			[]domtypes.MemoryStatus{domtypes.MemoryStatusCandidate},
+			apptypes.HygieneCandidateNoiseSources(criteria.IncludeHiddenCandidates),
+			&result,
+		)
 	case apptypes.MemoryHygieneScanPhaseExactDuplicates:
 		err = scanMemoryHygieneDuplicates(ctx, tx, criteria, &result)
 	case apptypes.MemoryHygieneScanPhaseSimilarityPairs:

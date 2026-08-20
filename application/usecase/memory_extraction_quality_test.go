@@ -20,7 +20,7 @@ func TestClassifyExtractionNoise(t *testing.T) {
 		{name: "added line tab indented", fact: "+\tfunc handler(ctx context.Context) {", want: []string{"diff_fragment"}},
 		{name: "added line two-space indented", fact: "+  func main() {", want: []string{"diff_fragment"}},
 		{name: "removed line two-space indented", fact: "-  oldHelper()", want: []string{"diff_fragment"}},
-		{name: "hunk header", fact: "@@ -1,3 +1,5 @@", want: []string{"diff_header"}},
+		{name: "hunk header", fact: "@@ -1,3 +1,5 @@", want: []string{"diff_header", "structural_non_prose"}},
 		{name: "diff command header", fact: "diff --git a/foo b/foo", want: []string{"diff_header"}},
 		{name: "file header plus", fact: "+++ a/foo.go", want: []string{"diff_header"}},
 		{name: "file header minus", fact: "--- a/foo.go", want: []string{"diff_header"}},
@@ -51,7 +51,7 @@ func TestClassifyExtractionNoise(t *testing.T) {
 		// the drop alternatives are anchored to the whole line (#1169 Codex
 		// round-8 finding).
 		{name: "diff-git header then prose", fact: "diff --git a/foo b/foo output must be redacted before sharing logs", want: []string{"diff_fragment"}},
-		{name: "hunk header then prose", fact: "@@ -1,3 +1,5 @@ marks a hunk", want: []string{"diff_fragment"}},
+		{name: "hunk header then prose", fact: "@@ -1,3 +1,5 @@ marks a hunk", want: []string{"diff_fragment", "structural_non_prose"}},
 		{name: "file header then prose", fact: "--- a/foo.go is the old-file marker", want: []string{"diff_fragment"}},
 		// Genuine diff structure still drops as diff_header.
 		{name: "file header minus dev-null", fact: "--- /dev/null", want: []string{"diff_header"}},

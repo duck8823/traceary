@@ -65,6 +65,16 @@ func TestClassifyExtractionNoise_HidesInstructionEchoFragmentAndPayload(t *testi
 		{name: "short durable fact", fact: "The two-pillar target is 41 invocables", want: nil},
 		{name: "declarative numbered fact", fact: "1. Search projection generation is complete", want: nil},
 		{name: "declarative bullet fact", fact: "- Freelist pages are reclaimable via store compact", want: nil},
+		{
+			name: "markdown heading is structural non-prose",
+			fact: "## Durable memory commands",
+			want: []string{extractionNoiseStructuralNonProse},
+		},
+		{
+			name: "hunk header with trailing context is fragment and structural",
+			fact: "@@ -135,85 +135,85 @@ func inspect()",
+			want: []string{extractionNoiseDiffFragment, extractionNoiseStructuralNonProse},
+		},
 		{name: "lowercase complete claim", fact: "the store stays local-first after compact", want: nil},
 	}
 

@@ -471,6 +471,51 @@ func TestMemoryInboxList_AgeAndQualityFilters(t *testing.T) {
 	}
 }
 
+func TestMemoryInboxCleanup_DryRunListsEchoCandidatesAndSkipsDurable(t *testing.T) {
+	t.Parallel()
+
+	echo := buildInboxCandidateDetails(t, "memory-a94b92a4214b2fbb29a03d353a82f884", `{ "ephemeralMessage": "Remember to check for lint errors" }`, domtypes.MemorySourceExtracted)
+	hunk := buildInboxCandidateDetails(t, "memory-8433a201ee57689075069e12bf38dd41", "@@ -135,85 +135,85 @@ func inspect()", domtypes.MemorySourceExtracted)
+	durable := buildInboxCandidateDetails(t, "memory-durable-keep", "The two-pillar target is 41 invocables", domtypes.MemorySourceExtracted)
+	memoryStub := &memoryUsecaseStub{
+		listResult: []apptypes.MemorySummary{echo.Summary(), hunk.Summary(), durable.Summary()},
+		showDetailsByID: map[domtypes.MemoryID]apptypes.MemoryDetails{
+			echo.Summary().MemoryID():    echo,
+			hunk.Summary().MemoryID():    hunk,
+			durable.Summary().MemoryID(): durable,
+		},
+		scanResult: apptypes.MemoryHygieneScanResult{
+			LowQualityCandidateCount: 2,
+			Suggestions: []apptypes.MemoryHygieneSuggestion{
+				{MemoryID: echo.Summary().MemoryID(), Kind: apptypes.MemoryHygieneSuggestionLowQualityCandidate},
+				{MemoryID: hunk.Summary().MemoryID(), Kind: apptypes.MemoryHygieneSuggestionLowQualityCandidate},
+			},
+		},
+	}
+	root := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(memoryStub),
+	)
+	cmd := root.Command()
+	stdout := &bytes.Buffer{}
+	cmd.SetOut(stdout)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"memory", "inbox", "cleanup", "--limit", "20", "--db-path", t.TempDir() + "/t.db"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if memoryStub.rejectCallCount != 0 {
+		t.Fatalf("dry-run cleanup called Reject %d time(s), want 0", memoryStub.rejectCallCount)
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "memory-a94b92a4214b2fbb29a03d353a82f884") || !strings.Contains(out, "memory-8433a201ee57689075069e12bf38dd41") {
+		t.Fatalf("dry-run missing echo ids:\n%s", out)
+	}
+	if strings.Contains(out, "memory-durable-keep") {
+		t.Fatalf("dry-run listed a non-echo candidate:\n%s", out)
+	}
+}
+
 func TestMemoryInboxCleanup_DryRunDoesNotReject(t *testing.T) {
 	t.Parallel()
 

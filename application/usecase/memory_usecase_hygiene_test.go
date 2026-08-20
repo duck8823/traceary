@@ -967,6 +967,54 @@ func TestMemoryHygieneScan_LowQualityCandidatesSurfaceWithReasons(t *testing.T) 
 	}
 }
 
+func TestMemoryHygieneScan_RetroHidesPreV043EchoCandidates(t *testing.T) {
+	t.Parallel()
+
+	scope := workspaceScope(t, "github.com/example/repo")
+	now := time.Date(2026, 8, 10, 12, 0, 0, 0, time.UTC)
+
+	payloadID := "memory-a94b92a4214b2fbb29a03d353a82f884"
+	hunkID := "memory-8433a201ee57689075069e12bf38dd41"
+	query := &stubMemoryQueryService{
+		summaries: []apptypes.MemorySummary{
+			candidateSummary(t, payloadID, scope, `{ "ephemeralMessage": "Remember to check for lint errors" }`, domtypes.MemorySourceExtracted, now),
+			candidateSummary(t, hunkID, scope, "@@ -135,85 +135,85 @@ func inspect()", domtypes.MemorySourceExtracted, now),
+			candidateSummary(t, "memory-heading", scope, "## Durable memory commands", domtypes.MemorySourceExtracted, now),
+			candidateSummary(t, "memory-instruction", scope, "1. Always run gofmt before opening a PR", domtypes.MemorySourceExtracted, now),
+			candidateSummary(t, "memory-durable", scope, "The two-pillar target is 41 invocables", domtypes.MemorySourceExtracted, now),
+			candidateSummary(t, "memory-remember-echo", scope, `{"ephemeralMessage":"remember that we ship the keep list"}`, domtypes.MemorySourceRememberIntent, now),
+			candidateSummary(t, "memory-remember-keep", scope, "Prefer brew binaries against the live store", domtypes.MemorySourceRememberIntent, now),
+			candidateSummary(t, "memory-compact-echo", scope, "- Use the official brew binary against the live store", domtypes.MemorySourceCompactSummary, now),
+		},
+	}
+	sut := usecase.NewMemoryUsecase(&stubImportMemoryUsecase{}, query, nil)
+
+	result, err := sut.Scan(context.Background(), apptypes.MemoryHygieneScanCriteria{Now: now})
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	flagged := map[string]apptypes.MemoryHygieneSuggestion{}
+	for _, suggestion := range result.Suggestions {
+		if suggestion.Kind == apptypes.MemoryHygieneSuggestionLowQualityCandidate {
+			flagged[suggestion.MemoryID.String()] = suggestion
+		}
+	}
+	for _, id := range []string{payloadID, hunkID, "memory-heading", "memory-instruction", "memory-remember-echo", "memory-compact-echo"} {
+		if _, ok := flagged[id]; !ok {
+			t.Fatalf("expected %s to be flagged as low_quality_candidate, got %v", id, flagged)
+		}
+	}
+	if _, ok := flagged["memory-durable"]; ok {
+		t.Fatalf("non-echo candidate in the same date range must stay unflagged")
+	}
+	if _, ok := flagged["memory-remember-keep"]; ok {
+		t.Fatalf("remember-intent durable fact must stay unflagged")
+	}
+	if result.LowQualityCandidateCount != 6 {
+		t.Fatalf("LowQualityCandidateCount = %d, want 6", result.LowQualityCandidateCount)
+	}
+}
+
 func TestMemoryHygieneScan_HiddenCandidatesRequireOptIn(t *testing.T) {
 	t.Parallel()
 
@@ -1023,6 +1071,16 @@ type candidateApplyMemoryRepository struct {
 
 func newCandidateApplyMemoryRepository(t *testing.T, scope domtypes.MemoryScope, candidates map[string]string) *candidateApplyMemoryRepository {
 	t.Helper()
+	return newCandidateApplyMemoryRepositoryWithSource(t, scope, candidates, domtypes.MemorySourceExtracted)
+}
+
+func newCandidateApplyMemoryRepositoryWithSource(
+	t *testing.T,
+	scope domtypes.MemoryScope,
+	candidates map[string]string,
+	source domtypes.MemorySource,
+) *candidateApplyMemoryRepository {
+	t.Helper()
 	repo := &candidateApplyMemoryRepository{candidates: make(map[string]*model.Memory, len(candidates))}
 	for id, fact := range candidates {
 		evidence, err := domtypes.EvidenceRefFrom(domtypes.EvidenceRefKindFile, "/tmp/MEMORY.md#L1-L1")
@@ -1034,7 +1092,7 @@ func newCandidateApplyMemoryRepository(t *testing.T, scope domtypes.MemoryScope,
 			domtypes.MemoryTypePreference,
 			scope,
 			fact,
-			domtypes.MemorySourceExtracted,
+			source,
 			[]domtypes.EvidenceRef{evidence},
 			nil,
 			domtypes.None[domtypes.MemoryID](),
@@ -1085,6 +1143,40 @@ func (r *candidateApplyMemoryRepository) rejectedIDs() []string {
 		}
 	}
 	return ids
+}
+
+func TestMemoryHygieneApply_RejectsEchoCandidateAndLeavesDurable(t *testing.T) {
+	t.Parallel()
+
+	scope := workspaceScope(t, "github.com/example/repo")
+	now := time.Date(2026, 8, 10, 12, 0, 0, 0, time.UTC)
+	echoFact := `{ "ephemeralMessage": "Remember to check for lint errors" }`
+	durableFact := "The two-pillar target is 41 invocables"
+	echo := candidateSummary(t, "memory-a94b92a4214b2fbb29a03d353a82f884", scope, echoFact, domtypes.MemorySourceExtracted, now)
+	durable := candidateSummary(t, "memory-durable-keep", scope, durableFact, domtypes.MemorySourceExtracted, now)
+	query := &stubMemoryQueryService{summaries: []apptypes.MemorySummary{echo, durable}}
+	repo := newCandidateApplyMemoryRepository(t, scope, map[string]string{
+		"memory-a94b92a4214b2fbb29a03d353a82f884": echoFact,
+		"memory-durable-keep":                     durableFact,
+	})
+	sut := usecase.NewMemoryUsecase(repo, query, nil)
+
+	result, err := sut.Apply(context.Background(), apptypes.MemoryHygieneApplyCriteria{
+		MemoryIDs: []string{"memory-a94b92a4214b2fbb29a03d353a82f884", "memory-durable-keep"},
+		Now:       now,
+	})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if len(result.Applied) != 1 || result.Applied[0].MemoryID != "memory-a94b92a4214b2fbb29a03d353a82f884" {
+		t.Fatalf("Applied = %+v, want the echo id only", result.Applied)
+	}
+	if len(result.Failures) != 1 || result.Failures[0].MemoryID != "memory-durable-keep" {
+		t.Fatalf("Failures = %+v, want durable id (no current hygiene suggestion)", result.Failures)
+	}
+	if rejected := repo.rejectedIDs(); len(rejected) != 1 || rejected[0] != "memory-a94b92a4214b2fbb29a03d353a82f884" {
+		t.Fatalf("rejected ids = %v", rejected)
+	}
 }
 
 func TestMemoryHygieneApply_RejectsLowQualityCandidate(t *testing.T) {

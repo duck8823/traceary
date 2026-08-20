@@ -45,14 +45,42 @@ const (
 	MemoryHygieneSuggestionValidityOverlapSupersede MemoryHygieneSuggestionKind = "validity_overlap_supersede"
 	// MemoryHygieneSuggestionLowQualityCandidate flags a status=candidate
 	// memory whose fact text matches the deterministic low-quality
-	// classifier (#857). The apply path rejects the candidate so the
+	// classifier (#857, #2112). The apply path rejects the candidate so the
 	// inbox view stays focused on durable signals; accepted memories are
-	// never touched. The suggestion only fires for status=candidate, and
+	// never touched. The suggestion only fires for status=candidate.
 	// extracted-hidden rows are inspected only when the caller opts in
 	// via MemoryHygieneScanCriteria.IncludeHiddenCandidates so the
-	// default scan stays predictable.
+	// default scan stays predictable. remember-intent rows are inspected
+	// only for noise that extraction hides despite remember-intent
+	// (payload echo). compact-summary uses the same classifier as extracted.
 	MemoryHygieneSuggestionLowQualityCandidate MemoryHygieneSuggestionKind = "low_quality_candidate"
 )
+
+// HygieneCandidateNoiseSources is the candidate source set the hygiene
+// scan's candidate-rows phase walks. extracted-hidden is opt-in so the
+// default matches the visible inbox.
+func HygieneCandidateNoiseSources(includeHidden bool) []domtypes.MemorySource {
+	sources := []domtypes.MemorySource{
+		domtypes.MemorySourceExtracted,
+		domtypes.MemorySourceRememberIntent,
+		domtypes.MemorySourceCompactSummary,
+	}
+	if includeHidden {
+		sources = append(sources, domtypes.MemorySourceExtractedHidden)
+	}
+	return sources
+}
+
+// IsHygieneCandidateNoiseSource reports whether a stored candidate source
+// is eligible for the low-quality / echo noise pass.
+func IsHygieneCandidateNoiseSource(source domtypes.MemorySource, includeHidden bool) bool {
+	for _, candidate := range HygieneCandidateNoiseSources(includeHidden) {
+		if source == candidate {
+			return true
+		}
+	}
+	return false
+}
 
 // MemoryHygieneScanCriteria carries the inputs the hygiene scanner
 // consumes. Scopes default to every scope when empty; the staleness
