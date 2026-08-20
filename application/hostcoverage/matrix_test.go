@@ -65,12 +65,33 @@ func TestLoad_KimiCoreEventsAreWired(t *testing.T) {
 	if !ok {
 		t.Fatal("missing kimi host")
 	}
-	for _, id := range []string{"session_started", "prompt", "command_executed", "transcript", "compact_summary", "session_ended"} {
+	for _, id := range []string{"session_started", "prompt", "command_executed", "transcript", "compact_summary"} {
 		if cell := host.Events[id]; cell.Status != hostcoverage.StatusWired {
 			t.Fatalf("kimi %s status = %q, want wired", id, cell.Status)
 		}
 	}
 	if !m.ExpectsSessionEnrichment("kimi") {
 		t.Fatal("kimi should expect session enrichment once core capture is wired")
+	}
+}
+
+func TestLoad_KimiSessionEndedIsNotWired(t *testing.T) {
+	t.Parallel()
+
+	m, err := hostcoverage.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	host, ok := m.HostByDoctorClient("kimi")
+	if !ok {
+		t.Fatal("missing kimi host")
+	}
+	// Kimi Code 0.38.0 `-p` probes (2026-08-21, isolated store) recorded
+	// session_started/prompt/transcript but the host never dispatched
+	// SessionEnd, so the cell must not claim capture. It stays `available`
+	// while the packaged plugin still declares SessionEnd.
+	cell := host.Events["session_ended"]
+	if cell.Status != hostcoverage.StatusAvailable {
+		t.Fatalf("kimi session_ended status = %q, want available (never wired without a live 0.38.0 capture)", cell.Status)
 	}
 }

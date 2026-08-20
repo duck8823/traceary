@@ -10,13 +10,14 @@ Recorded hook events use `client=hook` and `agent=kimi`.
 
 ## Supported coverage
 
-The package targets the live-verified Kimi Code 0.27.0 contract
+The package targets the Kimi Code hook contract — live-verified on 0.27.0
+and re-probed on 0.38.0
 ([machine-readable contract](../hooks/host-contract.json)).
 
 | Kimi Code event | Traceary behavior |
 | --- | --- |
 | `SessionStart` | Starts the native Kimi session; `source=resume` re-fires with the same session id and is recorded idempotently |
-| `SessionEnd` | Ends the session (`reason=exit`) |
+| `SessionEnd` | Ends the session (`reason=exit`) — **not dispatched by Kimi Code 0.38.0 `-p`** (isolated probe 2026-08-21 recorded `session_started`/`prompt`/`transcript` but no SessionEnd; last live capture 0.27.0). The plugin still declares the hook; un-ended sessions close via `traceary session end` or stale GC |
 | `UserPromptSubmit` | Records the user prompt (content-block array flattened to text) |
 | `PreToolUse` (`matcher = "Agent"`) | Starts the correlated child session for a subagent |
 | `PostToolUse` | Records one completed command audit (`tool_output` captured) |
@@ -134,6 +135,12 @@ Traceary does not merge TOML into your config.
 - **Hooks fire but nothing is recorded**: the plugin invokes `traceary` from
   `PATH`. Make sure the kimi-aware Traceary binary (v0.29.0+) comes first on
   `PATH`; `traceary doctor` reports PATH mismatches.
+- **No `session_ended` events**: Kimi Code 0.38.0 `-p` does not dispatch
+  `SessionEnd` (verified 2026-08-21 on an isolated store; last live capture
+  0.27.0). A leftover `kimi-<pid>` hook-state file after exit 0 is evidence
+  the host did not fire the hook — Traceary never synthesizes `session_ended`
+  from process exit. Close sessions explicitly with `traceary session end`,
+  or let stale GC reap them.
 - **No transcript events**: transcripts are recovered best-effort from the
   main agent's wire log, located through Kimi Code's own
   `~/.kimi-code/session_index.jsonl`. Older sessions without an index entry

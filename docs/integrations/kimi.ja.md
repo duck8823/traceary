@@ -6,12 +6,12 @@ Traceary v0.29.0 で native な Kimi Code 連携を追加しました。[`integr
 
 ## サポートするカバレッジ
 
-live 検証済みの Kimi Code 0.27.0 の contract が対象です（[機械可読な contract](../hooks/host-contract.json)）。
+live 検証済み（0.27.0）かつ 0.38.0 で再 probe 済みの Kimi Code contract が対象です（[機械可読な contract](../hooks/host-contract.json)）。
 
 | Kimi Code event | Traceary の動作 |
 | --- | --- |
 | `SessionStart` | native の Kimi session を開始します。`source=resume` は同一 session id で再発火し、冪等に記録されます |
-| `SessionEnd` | session を終了します（`reason=exit`） |
+| `SessionEnd` | session を終了します（`reason=exit`）— **Kimi Code 0.38.0 の `-p` では dispatch されません**（2026-08-21 の隔離 probe で `session_started`/`prompt`/`transcript` は記録されたが SessionEnd は未発火。最終 live 観測は 0.27.0）。plugin は hook の宣言を維持します。終了しなかった session は `traceary session end` または stale GC で閉じます |
 | `UserPromptSubmit` | user prompt を記録します（content block 配列をテキスト化） |
 | `PreToolUse`（`matcher = "Agent"`） | subagent の子 session を相関付けて開始します |
 | `PostToolUse` | 完了した command audit を 1 件記録します（`tool_output` を捕捉） |
@@ -113,6 +113,7 @@ traceary hooks install --dry-run --client kimi
 ## トラブルシューティング
 
 - **hook は発火するが何も記録されない**: plugin は `PATH` 上の `traceary` を呼び出します。kimi 対応の Traceary バイナリ（v0.29.0 以降）が `PATH` の先頭にあることを確認してください。`traceary doctor` が PATH の不一致を報告します。
+- **`session_ended` event が記録されない**: Kimi Code 0.38.0 の `-p` は `SessionEnd` を dispatch しません（2026-08-21 に隔離 store で検証。最終 live 観測は 0.27.0）。終了コード 0 の後に残る `kimi-<pid>` hook-state ファイルは host が hook を発火しなかった証拠であり、Traceary がプロセス終了から `session_ended` を合成することはありません。`traceary session end` で明示的に session を閉じるか、stale GC による回収を利用してください。
 - **transcript event が出ない**: transcript は Kimi 自身の `~/.kimi-code/session_index.jsonl` から解決した main agent の wire log から best-effort で復元します。index にエントリがない古い session は設計どおり静かにスキップされます。
 - **plugin はインストール済み表示だが hook が発火しない**: `~/.kimi-code/plugins/installed.json` の `traceary` エントリが `"enabled": true` かつ `"state": "ok"` であることを確認し、`/plugins reload` を実行してください。
 - **アップグレード後の不整合**: 管理下の plugin version が実行中の Traceary バイナリと一致しない場合、`traceary doctor --client kimi` が警告します。対応する release tag から `scripts/install-kimi-plugin.sh` で再インストールしてください。
