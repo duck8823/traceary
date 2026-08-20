@@ -381,8 +381,10 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		// walk dbstat, or inspect client state here: those operations can
 		// block behind a live writer and some inspect event bodies/payloads.
 		// Hook spool is still reported via directory entry counts and byte
-		// sizes only (pending / stale inflight / dead-letter).
-		report.Checks = append(report.Checks, inspectHookSpoolFilesystemMetadata())
+		// sizes only (pending / stale inflight / dead-letter). --fix on this
+		// check is allowed to open SQLite for spool replay only (requeue +
+		// drain + prune); inspect and --fix --dry-run stay filesystem-only.
+		report.Checks = append(report.Checks, c.inspectHookSpoolFilesystemMetadata())
 		if c.workspaceIdentity != nil {
 			report.Checks = append(report.Checks, skippedWorkspaceAliasesCheck())
 		}

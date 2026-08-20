@@ -1250,8 +1250,11 @@ func pruneHookSpoolOrphanTmpFiles(now time.Time, dryRun bool) (pruned, remaining
 
 // inspectHookSpoolFilesystemMetadata builds a doctor check from directory
 // metadata only (entry counts + byte sizes). Safe on the large-store early
-// path: no SQLite open. Fix reads last_error envelope fields only.
-func inspectHookSpoolFilesystemMetadata() doctorCheck {
+// path: inspect opens no SQLite. --fix requeues transient dead letters by
+// reading last_error envelope fields only, then drains pending records via
+// the shared fixer; that spool replay may open SQLite (never dbstat or
+// capacity), while --fix --dry-run performs no file moves and opens nothing.
+func (c *RootCLI) inspectHookSpoolFilesystemMetadata() doctorCheck {
 	const name = "hook-spool"
 	stats, err := inspectHookSpoolFilesystemStats(time.Now().UTC())
 	if err != nil {
@@ -1287,25 +1290,36 @@ func inspectHookSpoolFilesystemMetadata() doctorCheck {
 			formatByteSize(stats.DeadBytes),
 		),
 		Hint: Localize(
-			"metadata-only counts from the hook spool directory (no payload bodies). Pending records drain on later hook invocations. `traceary doctor --fix` requeues transient dead letters and prunes dead-letter files and orphan *.tmp leftovers older than 14 days without opening SQLite.",
-			"hook spool ディレクトリのメタデータのみの件数です（payload body は読みません）。未処理 record は後続 hook で drain されます。`traceary doctor --fix` は SQLite を開かず transient dead-letter を再キューし、14 日より古い dead-letter と orphan *.tmp を prune します。",
+			"metadata-only counts from the hook spool directory (no payload bodies). Pending records drain on later hook invocations. `traceary doctor --fix` requeues transient dead letters, drains pending records (spool replay may open SQLite; `--fix --dry-run` does not), and prunes dead-letter files and orphan *.tmp leftovers older than 14 days.",
+			"hook spool ディレクトリのメタデータのみの件数です（payload body は読みません）。未処理 record は後続 hook で drain されます。`traceary doctor --fix` は transient dead-letter を再キューし、未処理 record を drain し（spool replay は SQLite を開くことがあります。`--fix --dry-run` は開きません）、14 日より古い dead-letter と orphan *.tmp を prune します。",
 		),
 	}
 	if status == doctorStatusWarn {
 		check.FixCommand = "traceary doctor --fix"
 		check.AutoFixAvailable = true
 		check.StructuredFixFunc = func(ctx context.Context, dryRun bool) (doctorFixResult, error) {
-			return fixHookSpoolDeadLettersFilesystem(ctx, time.Now().UTC(), dryRun)
+			return c.fixHookSpoolRequeueThenDrain(ctx, time.Now().UTC(), dryRun)
 		}
 		check.FixFunc = func(ctx context.Context, dryRun bool) (string, error) {
-			result, err := fixHookSpoolDeadLettersFilesystem(ctx, time.Now().UTC(), dryRun)
+			result, err := c.fixHookSpoolRequeueThenDrain(ctx, time.Now().UTC(), dryRun)
 			return result.Action, err
 		}
 	}
 	return check
 }
 
-func fixHookSpoolDeadLettersFilesystem(ctx context.Context, now time.Time, dryRun bool) (doctorFixResult, error) {
+// fixHookSpoolRequeueThenDrain is the shared doctor --fix body for both the
+// full-scan and the large-store metadata-only hook-spool checks: requeue
+// transient dead letters, drain pending records through the existing spool
+// replay, then prune aged dead-letter and orphan tmp files. Dry-run performs
+// no file moves and does not open SQLite. Apply may open SQLite only for
+// spool replay via drainHookSpoolRecordsUntil / replayHookSpoolRecord — never
+// dbstat or store capacity.
+func (c *RootCLI) fixHookSpoolRequeueThenDrain(ctx context.Context, now time.Time, dryRun bool) (doctorFixResult, error) {
+	pending, err := countHookSpoolPendingPaths(now)
+	if err != nil {
+		return doctorFixResult{}, err
+	}
 	requeued, skippedNontransient, _, err := requeueHookSpoolDeadLettersUntil(ctx, now, dryRun)
 	if err != nil {
 		return doctorFixResult{}, err
@@ -1320,20 +1334,29 @@ func fixHookSpoolDeadLettersFilesystem(ctx context.Context, now time.Time, dryRu
 	}
 	if dryRun {
 		return doctorFixResult{Action: localizef(
-			"would requeue %d transient dead-letter(s), skip %d non-transient, prune %d aged dead-letter file(s), and prune %d orphan tmp file(s)",
-			"transient dead-letter %d 件を再キューし、非 transient %d 件をスキップし、古い dead-letter %d 件と orphan tmp %d 件を prune します",
+			"would requeue %d transient dead-letter(s), skip %d non-transient, drain up to %d pending hook spool record(s), prune %d aged dead-letter file(s), and prune %d orphan tmp file(s)",
+			"transient dead-letter %d 件を再キューし、非 transient %d 件をスキップし、未処理 hook spool record 最大 %d 件を drain し、古い dead-letter %d 件と orphan tmp %d 件を prune します",
 			requeued,
 			skippedNontransient,
+			pending+requeued,
 			pruned,
 			prunedTmp,
 		)}, nil
 	}
+	result := c.drainHookSpoolRecordsUntil(ctx, pending+requeued)
+	if result.Err != nil {
+		return doctorFixResult{}, result.Err
+	}
 	return doctorFixResult{
 		Action: localizef(
-			"requeued=%d skipped_nontransient=%d pruned_dead=%d dead_remaining=%d pruned_tmp=%d",
-			"requeued=%d skipped_nontransient=%d pruned_dead=%d dead_remaining=%d pruned_tmp=%d",
+			"drained hook spool: requeued=%d skipped_nontransient=%d replayed=%d failed=%d unreadable=%d remaining=%d; pruned_dead=%d dead_remaining=%d pruned_tmp=%d",
+			"hook spool を drain しました: requeued=%d skipped_nontransient=%d replayed=%d failed=%d unreadable=%d remaining=%d; pruned_dead=%d dead_remaining=%d pruned_tmp=%d",
 			requeued,
 			skippedNontransient,
+			result.Replayed,
+			result.Failed,
+			result.Unreadable,
+			result.Remaining,
 			pruned,
 			deadRemaining,
 			prunedTmp,
@@ -1341,6 +1364,10 @@ func fixHookSpoolDeadLettersFilesystem(ctx context.Context, now time.Time, dryRu
 		Metrics: map[string]int{
 			"requeued":             requeued,
 			"skipped_nontransient": skippedNontransient,
+			"replayed":             result.Replayed,
+			"failed":               result.Failed,
+			"remaining":            result.Remaining,
+			"unreadable":           result.Unreadable,
 			"pruned_dead":          pruned,
 			"dead_remaining":       deadRemaining,
 			"pruned_tmp":           prunedTmp,
@@ -1443,64 +1470,7 @@ func (c *RootCLI) inspectHookSpoolDiagnosticsFromScan(
 		}
 	}
 	structuredFix := func(ctx context.Context, dryRun bool) (doctorFixResult, error) {
-		now := time.Now().UTC()
-		pending, err := countHookSpoolPendingPaths(now)
-		if err != nil {
-			return doctorFixResult{}, err
-		}
-		requeued, skippedNontransient, _, err := requeueHookSpoolDeadLettersUntil(ctx, now, dryRun)
-		if err != nil {
-			return doctorFixResult{}, err
-		}
-		pruned, deadRemaining, err := pruneHookSpoolDeadLetters(now, dryRun)
-		if err != nil {
-			return doctorFixResult{}, err
-		}
-		prunedTmp, _, err := pruneHookSpoolOrphanTmpFiles(now, dryRun)
-		if err != nil {
-			return doctorFixResult{}, err
-		}
-		if dryRun {
-			return doctorFixResult{Action: localizef(
-				"would requeue %d transient dead-letter(s), skip %d non-transient, drain up to %d pending hook spool record(s), prune %d aged dead-letter file(s), and prune %d orphan tmp file(s)",
-				"transient dead-letter %d 件を再キューし、非 transient %d 件をスキップし、未処理 hook spool record 最大 %d 件を drain し、古い dead-letter %d 件と orphan tmp %d 件を prune します",
-				requeued,
-				skippedNontransient,
-				pending+requeued,
-				pruned,
-				prunedTmp,
-			)}, nil
-		}
-		result := c.drainHookSpoolRecordsUntil(ctx, pending+requeued)
-		if result.Err != nil {
-			return doctorFixResult{}, result.Err
-		}
-		return doctorFixResult{
-			Action: localizef(
-				"drained hook spool: requeued=%d skipped_nontransient=%d replayed=%d failed=%d unreadable=%d remaining=%d; pruned_dead=%d dead_remaining=%d pruned_tmp=%d",
-				"hook spool を drain しました: requeued=%d skipped_nontransient=%d replayed=%d failed=%d unreadable=%d remaining=%d; pruned_dead=%d dead_remaining=%d pruned_tmp=%d",
-				requeued,
-				skippedNontransient,
-				result.Replayed,
-				result.Failed,
-				result.Unreadable,
-				result.Remaining,
-				pruned,
-				deadRemaining,
-				prunedTmp,
-			),
-			Metrics: map[string]int{
-				"requeued":             requeued,
-				"skipped_nontransient": skippedNontransient,
-				"replayed":             result.Replayed,
-				"failed":               result.Failed,
-				"remaining":            result.Remaining,
-				"unreadable":           result.Unreadable,
-				"pruned_dead":          pruned,
-				"dead_remaining":       deadRemaining,
-				"pruned_tmp":           prunedTmp,
-			},
-		}, nil
+		return c.fixHookSpoolRequeueThenDrain(ctx, time.Now().UTC(), dryRun)
 	}
 	latest := "-"
 	if len(records) > 0 {
