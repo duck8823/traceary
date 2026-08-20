@@ -52,4 +52,4 @@ dead-letter と orphan `*.tmp` を prune します。spool replay は event 書�
 
 store-independent な check（hook spool、hook-state residue、SessionEnd cancellation marker、plugin cache、`path` / `config`）は出力行に `store-independent` と書きます。SQLite store ではなく host file を見ます。store-scoped な check（capacity、memory activation、projection）は `DB_PATH` の store を見ます。
 
-doctor が `--db-path` または `TRACEARY_DB_PATH` 付きで走ったとき、store を対象とする hint（`traceary doctor`、`traceary store`、`traceary memory`）には `--db-path` が付きます。そのまま実行しても検査した store に届きます。host-only なコマンド（`claude plugins update`、`which -a traceary`）は変えません。既定の home store では `--db-path` を足しません。
+doctor が `--db-path` または `TRACEARY_DB_PATH` 付きで走ったとき、store を対象とする hint（`traceary doctor`、`traceary store`、`traceary memory`）には `--db-path` が付きます。そのまま実行しても検査した store に届きます。host-only なコマンド（`claude plugin update`、`which -a traceary`）は変えません。既定の home store では `--db-path` を足しません。

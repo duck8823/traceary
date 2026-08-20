@@ -277,9 +277,9 @@ func (c *RootCLI) inspectInstalledClaudePluginHookCoverage(pluginKey string) ins
 
 func claudePluginUpdateCommand(pluginKey string) string {
 	if pluginKey == "" {
-		return "claude plugins update"
+		return "claude plugin update traceary@traceary-plugins"
 	}
-	return "claude plugins update " + pluginKey
+	return "claude plugin update " + pluginKey
 }
 
 // inspectClaudePluginCacheStatus compares the cached Traceary Claude
@@ -287,7 +287,7 @@ func claudePluginUpdateCommand(pluginKey string) string {
 // registered from. A stale cache is the exact failure mode v0.8.0
 // dogfooding revealed: `brew upgrade traceary` does not refresh the
 // plugin cache, so new hooks (#606 transcript / #605 matcher expansion)
-// stay dark until the operator runs `claude plugins update`. The check
+// stay dark until the operator runs `claude plugin update`. The check
 // returns nil when the plugin is not active or when either side cannot
 // be resolved (reported indirectly by the existing claude-config check).
 
