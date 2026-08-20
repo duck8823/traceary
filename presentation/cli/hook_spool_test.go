@@ -230,6 +230,32 @@ func TestHookSpoolDrainAllowance(t *testing.T) {
 	}
 }
 
+func TestHookSpoolBacklogDrainLimit(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name      string
+		pending   int
+		remaining time.Duration
+		want      int
+	}{
+		{name: "reserve wins over backlog", pending: 3000, remaining: 2 * time.Second, want: 0},
+		{name: "low headroom stays 1", pending: 3000, remaining: 3 * time.Second, want: 1},
+		{name: "empty backlog uses minimum batch", pending: 0, remaining: 8 * time.Second, want: hookSpoolReplayBatchLimit},
+		{name: "small backlog uses minimum batch", pending: 5, remaining: 8 * time.Second, want: hookSpoolReplayBatchLimit},
+		{name: "500 pending still minimum", pending: 500, remaining: 8 * time.Second, want: hookSpoolReplayBatchLimit},
+		{name: "3000 pending scales to 30", pending: 3000, remaining: 8 * time.Second, want: 30},
+		{name: "huge backlog hits cap", pending: 10000, remaining: 8 * time.Second, want: hookSpoolReplayBacklogCap},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := hookSpoolBacklogDrainLimit(tc.pending, tc.remaining); got != tc.want {
+				t.Fatalf("hookSpoolBacklogDrainLimit(%d, %v) = %d, want %d", tc.pending, tc.remaining, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestHookSpoolDrainRemaining_NoDeadlineUsesPackagedBudget(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 8, 13, 12, 0, 0, 0, time.UTC)
@@ -973,6 +999,40 @@ func TestInspectHookSpoolDiagnostics_FixFuncDrains(t *testing.T) {
 	}
 	if len(records) != 0 {
 		t.Fatalf("after doctor --fix, remaining=%d", len(records))
+	}
+}
+
+func TestDrainHookSpoolRecordsUntil_LoopsPastRoundLimit(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	eventStub := &spoolEventUsecaseStub{}
+	root := NewRootCLI(
+		WithStoreManagement(&spoolStoreManagementStub{}),
+		WithEvent(eventStub),
+	)
+	total := hookSpoolDoctorDrainRoundLimit + 5
+	base := time.Now().UTC().Add(-time.Minute)
+	for i := 0; i < total; i++ {
+		record := hookSpoolRecord{
+			SchemaVersion: hookSpoolSchemaVersion,
+			Command:       "prompt",
+			Client:        "claude",
+			Payload:       fmt.Sprintf(`{"prompt":"until-%d","session_id":"s-%d","cwd":"/tmp"}`, i, i),
+			CreatedAt:     base.Add(time.Duration(i) * time.Millisecond),
+		}
+		if _, err := persistHookSpoolRecord(record); err != nil {
+			t.Fatalf("persist %d: %v", i, err)
+		}
+	}
+	result := root.drainHookSpoolRecordsUntil(context.Background(), total)
+	if result.Err != nil {
+		t.Fatalf("until: %v", result.Err)
+	}
+	if result.Replayed != total {
+		t.Fatalf("replayed=%d remaining=%d, want %d", result.Replayed, result.Remaining, total)
+	}
+	if eventStub.logCalls != total {
+		t.Fatalf("logCalls=%d, want %d", eventStub.logCalls, total)
 	}
 }
 

@@ -20,9 +20,15 @@ import (
 
 const (
 	hookSpoolSchemaVersion = 1
-	// hookSpoolReplayBatchLimit caps opportunistic drain work per hook
-	// invocation so replay cannot exhaust the host timeout budget.
+	// hookSpoolReplayBatchLimit is the minimum opportunistic drain batch when
+	// remaining host budget is outside the low-headroom window.
 	hookSpoolReplayBatchLimit = 5
+	// hookSpoolReplayBacklogCap is the maximum opportunistic drain batch when
+	// pending backlog is large. Time allowance still wins (0 / 1 in reserve).
+	hookSpoolReplayBacklogCap = 32
+	// hookSpoolDoctorDrainRoundLimit is one drain round inside doctor --fix.
+	// Rounds repeat until the 45s wall or the queue is empty.
+	hookSpoolDoctorDrainRoundLimit = 200
 	// hookSpoolRetryLimit is the maximum number of delivery attempts for a
 	// replayable spool record (first delivery + 2 retries). After this many
 	// failed attempts the record is retained under spool/dead/ and excluded
@@ -78,6 +84,26 @@ func hookSpoolDrainAllowance(remaining time.Duration) int {
 		return 1
 	}
 	return hookSpoolReplayBatchLimit
+}
+
+// hookSpoolBacklogDrainLimit scales opportunistic drain with pending count
+// while preserving the 0 / 1 time-allowance bands.
+func hookSpoolBacklogDrainLimit(pending int, remaining time.Duration) int {
+	allowance := hookSpoolDrainAllowance(remaining)
+	if allowance <= 1 {
+		return allowance
+	}
+	if pending < 0 {
+		pending = 0
+	}
+	scaled := pending / 100
+	if scaled < hookSpoolReplayBatchLimit {
+		scaled = hookSpoolReplayBatchLimit
+	}
+	if scaled > hookSpoolReplayBacklogCap {
+		scaled = hookSpoolReplayBacklogCap
+	}
+	return scaled
 }
 
 // hookSpoolDrainRemaining is the wall-clock budget left for opportunistic
@@ -203,10 +229,16 @@ func (c *RootCLI) runHookDurably(
 		// remaining budget is inside the reserve window so host watchdogs do
 		// not kill an already-successful hook.
 		if ctx.Err() == nil {
-			limit := hookSpoolDrainAllowance(hookSpoolDrainRemaining(ctx, startedAt, time.Now()))
+			remaining := hookSpoolDrainRemaining(ctx, startedAt, time.Now())
+			pending, pendingErr := countHookSpoolPendingPaths(time.Now().UTC())
+			if pendingErr != nil {
+				slog.Debug("hook spool drain pending count failed", "error", pendingErr)
+				pending = 0
+			}
+			limit := hookSpoolBacklogDrainLimit(pending, remaining)
 			if limit > 0 {
 				if replayed, failed := c.drainHookSpoolRecords(ctx, limit); replayed > 0 || failed > 0 {
-					slog.Debug("hook spool drain", "replayed", replayed, "failed", failed, "limit", limit)
+					slog.Debug("hook spool drain", "replayed", replayed, "failed", failed, "limit", limit, "pending", pending, "drained", replayed)
 				}
 			}
 		}
@@ -233,6 +265,44 @@ func (c *RootCLI) drainHookSpoolRecords(ctx context.Context, limit int) (replaye
 	// the structured result keeps replay failures and unreadable records
 	// disjoint.
 	return result.Replayed, result.Failed + result.Unreadable
+}
+
+func (c *RootCLI) drainHookSpoolRecordsUntil(ctx context.Context, pending int) hookSpoolDrainResult {
+	aggregated := hookSpoolDrainResult{}
+	deadline := hookSpoolDeadRequeueNow().Add(hookSpoolDeadRequeueDoctorWall)
+	remaining := pending
+	for remaining > 0 {
+		if err := ctx.Err(); err != nil {
+			aggregated.Err = xerrors.Errorf("hook spool drain cancelled: %w", err)
+			return aggregated
+		}
+		if !hookSpoolDeadRequeueNow().Before(deadline) {
+			aggregated.Remaining = remaining
+			return aggregated
+		}
+		round := remaining
+		if round > hookSpoolDoctorDrainRoundLimit {
+			round = hookSpoolDoctorDrainRoundLimit
+		}
+		result := c.drainHookSpoolRecordsDetailed(ctx, round)
+		if result.Err != nil {
+			aggregated.Err = result.Err
+			aggregated.Remaining = result.Remaining
+			return aggregated
+		}
+		if result.Replayed == 0 {
+			if aggregated.Replayed == 0 && aggregated.Failed == 0 && aggregated.Unreadable == 0 {
+				return result
+			}
+			return aggregated
+		}
+		aggregated.Replayed += result.Replayed
+		aggregated.Failed += result.Failed
+		aggregated.Unreadable += result.Unreadable
+		aggregated.Remaining = result.Remaining
+		remaining = result.Remaining
+	}
+	return aggregated
 }
 
 func (c *RootCLI) drainHookSpoolRecordsDetailed(ctx context.Context, limit int) hookSpoolDrainResult {
@@ -1388,13 +1458,12 @@ func (c *RootCLI) inspectHookSpoolDiagnosticsFromScan(
 				"transient dead-letter %d 件を再キューし、非 transient %d 件をスキップし、未処理 hook spool record 最大 %d 件を drain し、古い dead-letter %d 件と orphan tmp %d 件を prune します",
 				requeued,
 				skippedNontransient,
-				min(pending+requeued, 200),
+				pending+requeued,
 				pruned,
 				prunedTmp,
 			)}, nil
 		}
-		limit := min(pending+requeued, 200)
-		result := c.drainHookSpoolRecordsDetailed(ctx, limit)
+		result := c.drainHookSpoolRecordsUntil(ctx, pending+requeued)
 		if result.Err != nil {
 			return doctorFixResult{}, result.Err
 		}
