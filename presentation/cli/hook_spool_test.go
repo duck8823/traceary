@@ -1617,7 +1617,7 @@ func TestInspectHookSpoolFilesystemMetadata_CountsWithoutReadingPayloads(t *test
 		t.Fatalf("byte sizes must be positive: %+v", stats)
 	}
 
-	check := inspectHookSpoolFilesystemMetadata()
+	check := (&RootCLI{}).inspectHookSpoolFilesystemMetadata()
 	if check.Status != doctorStatusWarn {
 		t.Fatalf("status=%q, want warn", check.Status)
 	}
@@ -1878,7 +1878,7 @@ func TestRequeueHookSpoolDeadLettersUntil_StopsWhenWallClockExpires(t *testing.T
 	}
 }
 
-func TestFixHookSpoolDeadLettersFilesystem_DryRunPreviewsFullDrain(t *testing.T) {
+func TestFixHookSpoolRequeueThenDrain_DryRunPreviewsFullDrain(t *testing.T) {
 	stateDir := t.TempDir()
 	t.Setenv(hookStateDirEnvKey, stateDir)
 	deadDir := filepath.Join(stateDir, "spool", hookSpoolDeadDirName)
@@ -1889,64 +1889,146 @@ func TestFixHookSpoolDeadLettersFilesystem_DryRunPreviewsFullDrain(t *testing.T)
 	for i := 0; i < total; i++ {
 		writeTransientDeadLetter(t, deadDir, fmt.Sprintf("t-%04d.json", i))
 	}
-	result, err := fixHookSpoolDeadLettersFilesystem(context.Background(), time.Now().UTC(), true)
+	result, err := (&RootCLI{}).fixHookSpoolRequeueThenDrain(context.Background(), time.Now().UTC(), true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(result.Action, fmt.Sprintf("would requeue %d transient", total)) {
 		t.Fatalf("dry-run action=%q, want full planned count %d", result.Action, total)
 	}
+	if !strings.Contains(result.Action, fmt.Sprintf("drain up to %d pending hook spool record(s)", total)) {
+		t.Fatalf("dry-run action=%q, want drain plan for %d requeued records", result.Action, total)
+	}
 	if entries, err := os.ReadDir(deadDir); err != nil || len(entries) != total {
 		t.Fatalf("dry-run must leave files, n=%d err=%v", len(entries), err)
 	}
 }
 
-func TestInspectHookSpoolFilesystemMetadata_FixRequeuesWithoutDrain(t *testing.T) {
-	stateDir := t.TempDir()
-	t.Setenv(hookStateDirEnvKey, stateDir)
-	deadDir := filepath.Join(stateDir, "spool", hookSpoolDeadDirName)
-	if err := os.MkdirAll(deadDir, 0o700); err != nil {
-		t.Fatal(err)
+func TestInspectHookSpoolFilesystemMetadata_FixRequeuesAndDrains(t *testing.T) {
+	writeDeadLetter := func(t *testing.T, deadDir, name, payload, lastError string) {
+		t.Helper()
+		record := hookSpoolRecord{
+			SchemaVersion: hookSpoolSchemaVersion,
+			Command:       "prompt",
+			Client:        "claude",
+			Payload:       payload,
+			CreatedAt:     time.Now().UTC(),
+			AttemptCount:  hookSpoolRetryLimit,
+			LastError:     lastError,
+		}
+		encoded, err := json.Marshal(record)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(deadDir, name), append(encoded, '\n'), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
-	record := hookSpoolRecord{
-		SchemaVersion: hookSpoolSchemaVersion,
-		Command:       "audit",
-		Client:        "claude",
-		Payload:       `{"sentinel":"PRIVATE-BODY"}`,
-		CreatedAt:     time.Now().UTC(),
-		AttemptCount:  hookSpoolRetryLimit,
-		LastError:     "failed to ping SQLite DB: context deadline exceeded",
+	persistPending := func(t *testing.T, prompt string) {
+		t.Helper()
+		if _, err := persistHookSpoolRecord(hookSpoolRecord{
+			SchemaVersion: hookSpoolSchemaVersion,
+			Command:       "prompt",
+			Client:        "claude",
+			Payload:       fmt.Sprintf(`{"prompt":%q,"session_id":"s-fix","cwd":"/tmp"}`, prompt),
+			CreatedAt:     time.Now().UTC().Add(-time.Minute),
+		}); err != nil {
+			t.Fatal(err)
+		}
 	}
-	encoded, err := json.Marshal(record)
-	if err != nil {
-		t.Fatal(err)
+	setupSpool := func(t *testing.T) (stateDir, deadDir string) {
+		t.Helper()
+		stateDir = t.TempDir()
+		t.Setenv(hookStateDirEnvKey, stateDir)
+		deadDir = filepath.Join(stateDir, "spool", hookSpoolDeadDirName)
+		if err := os.MkdirAll(deadDir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		return stateDir, deadDir
 	}
-	if err := os.WriteFile(filepath.Join(deadDir, "deadline.json"), append(encoded, '\n'), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := persistHookSpoolRecord(hookSpoolRecord{
-		SchemaVersion: hookSpoolSchemaVersion,
-		Command:       "prompt",
-		Client:        "claude",
-		Payload:       `{}`,
-		CreatedAt:     time.Now().UTC(),
-	}); err != nil {
-		t.Fatal(err)
-	}
-	check := inspectHookSpoolFilesystemMetadata()
-	if !check.AutoFixAvailable || check.StructuredFixFunc == nil {
-		t.Fatal("expected filesystem auto-fix")
-	}
-	result, err := check.StructuredFixFunc(context.Background(), false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Metrics["requeued"] != 1 || strings.Contains(result.Action, "PRIVATE-BODY") {
-		t.Fatalf("result=%+v", result)
-	}
-	if _, err := os.Stat(filepath.Join(deadDir, "deadline.json")); !os.IsNotExist(err) {
-		t.Fatalf("dead letter must be requeued, stat err=%v", err)
-	}
+
+	t.Run("dry-run names drain and leaves files unchanged", func(t *testing.T) {
+		_, deadDir := setupSpool(t)
+		writeDeadLetter(t, deadDir, "deadline.json", `{"prompt":"PRIVATE-BODY","session_id":"s-dead","cwd":"/tmp"}`, "failed to ping SQLite DB: context deadline exceeded")
+		persistPending(t, "pending-prompt")
+
+		check := (&RootCLI{}).inspectHookSpoolFilesystemMetadata()
+		if !check.AutoFixAvailable || check.StructuredFixFunc == nil {
+			t.Fatal("expected filesystem auto-fix")
+		}
+		result, err := check.StructuredFixFunc(context.Background(), true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(result.Action, "drain up to 2 pending hook spool record(s)") {
+			t.Fatalf("dry-run action=%q, want drain plan for pending+requeued", result.Action)
+		}
+		if strings.Contains(result.Action, "PRIVATE-BODY") {
+			t.Fatalf("dry-run action leaked payload body: %q", result.Action)
+		}
+		if entries, err := os.ReadDir(deadDir); err != nil || len(entries) != 1 {
+			t.Fatalf("dry-run must leave dead letters, n=%d err=%v", len(entries), err)
+		}
+		if pending, err := countHookSpoolPendingPaths(time.Now().UTC()); err != nil || pending != 1 {
+			t.Fatalf("dry-run must leave pending files, pending=%d err=%v", pending, err)
+		}
+	})
+
+	t.Run("apply requeues transient dead letters and drains pending", func(t *testing.T) {
+		_, deadDir := setupSpool(t)
+		writeDeadLetter(t, deadDir, "deadline.json", `{"prompt":"PRIVATE-BODY","session_id":"s-dead","cwd":"/tmp"}`, "failed to ping SQLite DB: context deadline exceeded")
+		persistPending(t, "pending-prompt")
+
+		eventStub := &spoolEventUsecaseStub{}
+		root := NewRootCLI(
+			WithStoreManagement(&spoolStoreManagementStub{}),
+			WithEvent(eventStub),
+		)
+		check := root.inspectHookSpoolFilesystemMetadata()
+		if !check.AutoFixAvailable || check.StructuredFixFunc == nil {
+			t.Fatal("expected filesystem auto-fix")
+		}
+		result, err := check.StructuredFixFunc(context.Background(), false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Metrics["requeued"] != 1 {
+			t.Fatalf("requeued=%d, want 1", result.Metrics["requeued"])
+		}
+		if result.Metrics["replayed"] != 2 || !strings.Contains(result.Action, "replayed=2") {
+			t.Fatalf("result=%+v, want replayed=2 (pending + requeued)", result)
+		}
+		if strings.Contains(result.Action, "PRIVATE-BODY") {
+			t.Fatalf("action leaked payload body: %q", result.Action)
+		}
+		if _, err := os.Stat(filepath.Join(deadDir, "deadline.json")); !os.IsNotExist(err) {
+			t.Fatalf("dead letter must be requeued, stat err=%v", err)
+		}
+		if pending, err := countHookSpoolRecordPaths(); err != nil || pending != 0 {
+			t.Fatalf("drain must empty the spool, pending=%d err=%v", pending, err)
+		}
+		if eventStub.logCalls != 2 {
+			t.Fatalf("logCalls=%d, want 2", eventStub.logCalls)
+		}
+	})
+
+	t.Run("apply skips non-transient dead letters", func(t *testing.T) {
+		_, deadDir := setupSpool(t)
+		writeDeadLetter(t, deadDir, "poison.json", `{"prompt":"x","session_id":"s-poison","cwd":"/tmp"}`, "invalid Claude usage JSON event")
+
+		// A single dead letter is below the WARN threshold, so drive the
+		// shared fixer directly instead of via the check.
+		result, err := (&RootCLI{}).fixHookSpoolRequeueThenDrain(context.Background(), time.Now().UTC(), false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Metrics["skipped_nontransient"] != 1 || result.Metrics["requeued"] != 0 {
+			t.Fatalf("metrics=%v, want skipped_nontransient=1 requeued=0", result.Metrics)
+		}
+		if _, err := os.Stat(filepath.Join(deadDir, "poison.json")); err != nil {
+			t.Fatalf("non-transient dead letter must stay in dead/, stat err=%v", err)
+		}
+	})
 }
 
 func TestPruneHookSpoolDeadLetters_RemovesAgedFilesOnlyOnFix(t *testing.T) {
@@ -2405,7 +2487,7 @@ func TestInspectHookSpoolFilesystemStats_CountsAgedTmpAsStaleInflight(t *testing
 		t.Fatalf("stale bytes=%d, want aged tmp size", stats.StaleInflightBytes)
 	}
 
-	check := inspectHookSpoolFilesystemMetadata()
+	check := (&RootCLI{}).inspectHookSpoolFilesystemMetadata()
 	if check.Status != doctorStatusWarn {
 		t.Fatalf("status=%q, want warn", check.Status)
 	}
@@ -2458,7 +2540,7 @@ func TestPruneHookSpoolOrphanTmpFiles_RemovesAgedFilesOnlyOnFix(t *testing.T) {
 		t.Fatalf("1h tmp must be kept until 14d: %v", err)
 	}
 
-	check := inspectHookSpoolFilesystemMetadata()
+	check := (&RootCLI{}).inspectHookSpoolFilesystemMetadata()
 	if !check.AutoFixAvailable || check.StructuredFixFunc == nil {
 		t.Fatal("stale tmp must expose doctor --fix")
 	}
@@ -2471,7 +2553,7 @@ func TestPruneHookSpoolOrphanTmpFiles_RemovesAgedFilesOnlyOnFix(t *testing.T) {
 	}
 }
 
-func TestFixHookSpoolDeadLettersFilesystem_PrunesRetentionAgedTmp(t *testing.T) {
+func TestFixHookSpoolRequeueThenDrain_PrunesRetentionAgedTmp(t *testing.T) {
 	stateDir := t.TempDir()
 	t.Setenv(hookStateDirEnvKey, stateDir)
 	spoolDir := filepath.Join(stateDir, "spool")
@@ -2487,7 +2569,7 @@ func TestFixHookSpoolDeadLettersFilesystem_PrunesRetentionAgedTmp(t *testing.T) 
 		t.Fatalf("stats=%+v, want stale_inflight=2", stats)
 	}
 
-	result, err := fixHookSpoolDeadLettersFilesystem(context.Background(), time.Now().UTC(), true)
+	result, err := (&RootCLI{}).fixHookSpoolRequeueThenDrain(context.Background(), time.Now().UTC(), true)
 	if err != nil {
 		t.Fatalf("dry-run fix: %v", err)
 	}
@@ -2498,7 +2580,7 @@ func TestFixHookSpoolDeadLettersFilesystem_PrunesRetentionAgedTmp(t *testing.T) 
 		t.Fatalf("dry-run must keep july tmp: %v", err)
 	}
 
-	result, err = fixHookSpoolDeadLettersFilesystem(context.Background(), time.Now().UTC(), false)
+	result, err = (&RootCLI{}).fixHookSpoolRequeueThenDrain(context.Background(), time.Now().UTC(), false)
 	if err != nil {
 		t.Fatalf("fix: %v", err)
 	}
