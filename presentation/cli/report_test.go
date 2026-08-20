@@ -205,15 +205,63 @@ func TestRootCLI_Report_TextPreservesRequestedCalendarEnd(t *testing.T) {
 func TestRootCLI_Report_LegacyLimitMapsOnlyToPageSize(t *testing.T) {
 	t.Parallel()
 	stub := &reportUsecaseStub{}
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
 	rootCmd := cli.NewRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{}), cli.WithReport(stub)).Command()
-	rootCmd.SetOut(&bytes.Buffer{})
-	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(stderr)
 	rootCmd.SetArgs([]string{"report", "--db-path", "/tmp/test-traceary.db", "--limit", "7", "--json"})
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
 	if stub.criteria.PageSize() != 7 || stub.criteria.ResultCap() != 0 {
 		t.Fatalf("legacy limit mapped to page=%d cap=%d", stub.criteria.PageSize(), stub.criteria.ResultCap())
+	}
+	var got apptypes.ReportSnapshot
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v; the alias must keep the JSON path working", err)
+	}
+	warning := stderr.String()
+	for _, want := range []string{"--limit", "--page-size", "not a result cap", "--result-cap", "5000"} {
+		if !strings.Contains(warning, want) {
+			t.Fatalf("stderr warning missing %q: %s", want, warning)
+		}
+	}
+	if strings.Count(strings.TrimSpace(warning), "\n") != 0 {
+		t.Fatalf("warning must be a single line: %q", warning)
+	}
+}
+
+func TestRootCLI_Report_LegacyLimitHelpStatesAliasMeaning(t *testing.T) {
+	t.Parallel()
+	stdout := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{}), cli.WithReport(&reportUsecaseStub{})).Command()
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"report", "--help"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	help := stdout.String()
+	for _, want := range []string{"--limit is a deprecated alias for --page-size", "NOT a result cap", "--result-cap", "default 5000 page"} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("report --help missing %q:\n%s", want, help)
+		}
+	}
+}
+
+func TestRootCLI_Report_NoLegacyLimitWarningByDefault(t *testing.T) {
+	t.Parallel()
+	stderr := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{}), cli.WithReport(&reportUsecaseStub{})).Command()
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(stderr)
+	rootCmd.SetArgs([]string{"report", "--db-path", "/tmp/test-traceary.db", "--json"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if strings.Contains(stderr.String(), "--limit") {
+		t.Fatalf("default path must not warn about --limit: %s", stderr.String())
 	}
 }
 
