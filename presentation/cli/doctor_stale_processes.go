@@ -34,6 +34,11 @@ type tracearyProcessSnapshot struct {
 	Executable string
 	Args       []string
 	StartedAt  time.Time
+	// Unlinked is true when the kernel still runs an inode that is no
+	// longer at Executable (Linux `/proc/<pid>/exe` ends with
+	// " (deleted)"). The path then names a replacement file — version
+	// and same-file checks against it would inspect the new binary.
+	Unlinked bool
 }
 
 type staleTracearyProcessFinding struct {
@@ -106,8 +111,11 @@ func classifyStaleTracearyProcesses(snapshots []tracearyProcessSnapshot, current
 			exe = snapshot.Args[0]
 		}
 		retired := processInvokesRetiredMCPServer(snapshot.Args)
-		sameRunningBinary := currentExe != "" && exe != "" && sameFile(exe, currentExe)
+		sameRunningBinary := !snapshot.Unlinked && currentExe != "" && exe != "" && sameFile(exe, currentExe)
 		version := inspectTracearyProcessVersion(exe, currentVersion, sameRunningBinary)
+		if snapshot.Unlinked {
+			version = ""
+		}
 		if !retired && (sameRunningBinary || versionsMatch(version, current)) {
 			continue
 		}
@@ -353,7 +361,7 @@ func listTracearyProcessSnapshotsLinux() ([]tracearyProcessSnapshot, error) {
 		if argsErr != nil || len(args) == 0 {
 			continue
 		}
-		exe := linuxProcExecutable(pid, args[0])
+		exe, unlinked := linuxProcExecutable(pid, args[0])
 		if !looksLikeTracearyExecutable(exe) && !looksLikeTracearyExecutable(args[0]) && !processInvokesRetiredMCPServer(args) {
 			continue
 		}
@@ -368,6 +376,7 @@ func listTracearyProcessSnapshotsLinux() ([]tracearyProcessSnapshot, error) {
 			Executable: exe,
 			Args:       args,
 			StartedAt:  startedAt,
+			Unlinked:   unlinked,
 		})
 	}
 	return snapshots, nil
@@ -392,13 +401,14 @@ func readProcCmdline(pid int) ([]string, error) {
 	return args, nil
 }
 
-func linuxProcExecutable(pid int, argv0 string) string {
+func linuxProcExecutable(pid int, argv0 string) (string, bool) {
 	target, err := os.Readlink(filepath.Join("/proc", strconv.Itoa(pid), "exe"))
 	if err != nil {
-		return argv0
+		return argv0, false
 	}
+	unlinked := strings.HasSuffix(target, " (deleted)")
 	target = strings.TrimSuffix(target, " (deleted)")
-	return target
+	return target, unlinked
 }
 
 func linuxBootTime(now time.Time) (time.Time, error) {

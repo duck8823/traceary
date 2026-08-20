@@ -103,6 +103,30 @@ func TestInspectStaleTracearyProcesses(t *testing.T) {
 		}
 	})
 
+	t.Run("warns when Linux reports the executable inode as deleted after a same-path replace", func(t *testing.T) {
+		current := writeExecutable(t, t.TempDir(), "traceary")
+		osExecutableFunc = func() (string, error) { return current, nil }
+		SetListTracearyProcessSnapshotsForTest(func() ([]tracearyProcessSnapshot, error) {
+			return []tracearyProcessSnapshot{{
+				PID:        8800,
+				Executable: current,
+				Args:       []string{current, "hook", "session", "claude", "start"},
+				StartedAt:  now.Add(-2 * 24 * time.Hour),
+				Unlinked:   true,
+			}}, nil
+		})
+		got := inspectStaleTracearyProcesses("0.44.1", now)
+		if got.Status != doctorStatusWarn {
+			t.Fatalf("status = %q, want warn; msg=%q", got.Status, got.Message)
+		}
+		if !strings.Contains(got.Message, "pid=8800") || !strings.Contains(got.Message, "stale-binary") {
+			t.Fatalf("message = %q", got.Message)
+		}
+		if !strings.Contains(got.Message, "version=unknown") {
+			t.Fatalf("unlinked inode must not inherit the replacement binary version, got %q", got.Message)
+		}
+	})
+
 	t.Run("warns when process listing fails", func(t *testing.T) {
 		SetListTracearyProcessSnapshotsForTest(func() ([]tracearyProcessSnapshot, error) {
 			return nil, errors.New("ps: unavailable")
