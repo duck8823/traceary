@@ -304,21 +304,11 @@ func (u *memoryHygieneUsecase) matchesForScanUnit(
 		}
 		return []memoryHygieneMatch{match}
 	case apptypes.MemoryHygieneScanPhaseCandidateRows:
-		reasons := classifyExtractionNoise(unit.Row.Fact())
+		reasons := storedCandidateHygieneReasons(unit.Row)
 		if len(reasons) == 0 {
 			return nil
 		}
-		return []memoryHygieneMatch{{
-			MemoryID:       unit.Row.MemoryID(),
-			Kind:           apptypes.MemoryHygieneSuggestionLowQualityCandidate,
-			Reason:         fmt.Sprintf("low-quality extraction: %s", strings.Join(reasons, ",")),
-			rawFact:        unit.Row.Fact(),
-			Scope:          unit.Row.Scope(),
-			UpdatedAt:      unit.Row.UpdatedAt(),
-			Status:         unit.Row.Status(),
-			Source:         unit.Row.Source(),
-			QualityReasons: reasons,
-		}}
+		return []memoryHygieneMatch{lowQualityCandidateMatch(unit.Row, reasons)}
 	default:
 		return nil
 	}
@@ -473,6 +463,38 @@ func truncateMemoryHygienePreview(value string, maxBytes int) (string, bool) {
 		cut--
 	}
 	return value[:cut] + marker, true
+}
+
+func storedCandidateHygieneReasons(summary apptypes.MemorySummary) []string {
+	reasons := classifyExtractionNoise(summary.Fact())
+	if len(reasons) == 0 {
+		return nil
+	}
+	switch summary.Source() {
+	case domtypes.MemorySourceExtracted, domtypes.MemorySourceExtractedHidden, domtypes.MemorySourceCompactSummary:
+		return reasons
+	case domtypes.MemorySourceRememberIntent:
+		if hidesDespiteRememberIntent(reasons) {
+			return reasons
+		}
+		return nil
+	default:
+		return nil
+	}
+}
+
+func lowQualityCandidateMatch(summary apptypes.MemorySummary, reasons []string) memoryHygieneMatch {
+	return memoryHygieneMatch{
+		MemoryID:       summary.MemoryID(),
+		Kind:           apptypes.MemoryHygieneSuggestionLowQualityCandidate,
+		Reason:         fmt.Sprintf("low-quality extraction: %s", strings.Join(reasons, ",")),
+		rawFact:        summary.Fact(),
+		Scope:          summary.Scope(),
+		UpdatedAt:      summary.UpdatedAt(),
+		Status:         summary.Status(),
+		Source:         summary.Source(),
+		QualityReasons: reasons,
+	}
 }
 
 func incrementMemoryHygieneCount(result *apptypes.MemoryHygieneScanResult, kind apptypes.MemoryHygieneSuggestionKind) {
@@ -780,23 +802,12 @@ func (u *memoryHygieneUsecase) suggestionForMemoryHygieneRevalidation(
 			}
 		}
 	case domtypes.MemoryStatusCandidate:
-		if target.Source() != domtypes.MemorySourceExtracted &&
-			(!includeHiddenCandidates || target.Source() != domtypes.MemorySourceExtractedHidden) {
+		if !apptypes.IsHygieneCandidateNoiseSource(target.Source(), includeHiddenCandidates) {
 			return apptypes.MemoryHygieneSuggestion{}, false
 		}
-		reasons := classifyExtractionNoise(target.Fact())
+		reasons := storedCandidateHygieneReasons(target)
 		if len(reasons) > 0 {
-			selectMatch(memoryHygieneMatch{
-				MemoryID:       target.MemoryID(),
-				Kind:           apptypes.MemoryHygieneSuggestionLowQualityCandidate,
-				Reason:         fmt.Sprintf("low-quality extraction: %s", strings.Join(reasons, ",")),
-				rawFact:        target.Fact(),
-				Scope:          target.Scope(),
-				UpdatedAt:      target.UpdatedAt(),
-				Status:         target.Status(),
-				Source:         target.Source(),
-				QualityReasons: reasons,
-			})
+			selectMatch(lowQualityCandidateMatch(target, reasons))
 		}
 	}
 	if !hasSelected {

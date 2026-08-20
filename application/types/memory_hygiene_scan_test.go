@@ -4,7 +4,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+
 	apptypes "github.com/duck8823/traceary/application/types"
+	domtypes "github.com/duck8823/traceary/domain/types"
 )
 
 func TestMemoryHygieneScanBudgetFrom_ZeroValueUsesFiniteDefaults(t *testing.T) {
@@ -86,5 +89,41 @@ func TestMemoryHygieneScanBudgetFrom_PreservesExplicitLimits(t *testing.T) {
 			budget.MaxComparisons(),
 			budget.MaxDuration(),
 		)
+	}
+}
+
+func TestHygieneCandidateNoiseSources_HiddenIsOptIn(t *testing.T) {
+	t.Parallel()
+
+	wantVisible := []domtypes.MemorySource{
+		domtypes.MemorySourceExtracted,
+		domtypes.MemorySourceRememberIntent,
+		domtypes.MemorySourceCompactSummary,
+	}
+	if diff := cmp.Diff(wantVisible, apptypes.HygieneCandidateNoiseSources(false)); diff != "" {
+		t.Fatalf("HygieneCandidateNoiseSources(false) mismatch (-want +got):\n%s", diff)
+	}
+	wantHidden := append(append([]domtypes.MemorySource(nil), wantVisible...), domtypes.MemorySourceExtractedHidden)
+	if diff := cmp.Diff(wantHidden, apptypes.HygieneCandidateNoiseSources(true)); diff != "" {
+		t.Fatalf("HygieneCandidateNoiseSources(true) mismatch (-want +got):\n%s", diff)
+	}
+
+	cases := []struct {
+		source  domtypes.MemorySource
+		hidden  bool
+		want    bool
+	}{
+		{source: domtypes.MemorySourceExtracted, hidden: false, want: true},
+		{source: domtypes.MemorySourceRememberIntent, hidden: false, want: true},
+		{source: domtypes.MemorySourceCompactSummary, hidden: false, want: true},
+		{source: domtypes.MemorySourceExtractedHidden, hidden: false, want: false},
+		{source: domtypes.MemorySourceExtractedHidden, hidden: true, want: true},
+		{source: domtypes.MemorySourceManual, hidden: true, want: false},
+	}
+	for _, tc := range cases {
+		if got := apptypes.IsHygieneCandidateNoiseSource(tc.source, tc.hidden); got != tc.want {
+			t.Fatalf("IsHygieneCandidateNoiseSource(%q, includeHidden=%v) = %v, want %v",
+				tc.source, tc.hidden, got, tc.want)
+		}
 	}
 }

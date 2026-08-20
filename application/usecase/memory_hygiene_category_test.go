@@ -47,6 +47,7 @@ func TestIsFragmentLikeNoise(t *testing.T) {
 		{name: "diff header is fragment-like", reasons: []string{extractionNoiseDiffHeader}, want: true},
 		{name: "diff fragment is fragment-like", reasons: []string{extractionNoiseDiffFragment}, want: true},
 		{name: "generated code is fragment-like", reasons: []string{extractionNoiseGeneratedCode}, want: true},
+		{name: "structural non-prose is fragment-like", reasons: []string{extractionNoiseStructuralNonProse}, want: true},
 		{name: "diff among other reasons is fragment-like", reasons: []string{extractionNoiseStandaloneCommand, extractionNoiseDiffFragment}, want: true},
 		{name: "standalone command is not fragment-like", reasons: []string{extractionNoiseStandaloneCommand}, want: false},
 		{name: "review conclusion is not fragment-like", reasons: []string{extractionNoiseReviewConclusion}, want: false},

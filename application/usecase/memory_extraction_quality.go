@@ -19,6 +19,7 @@ const (
 	extractionNoiseTransientPRRound     = "transient_pr_round"
 	extractionNoiseReviewFixInstruction = "review_fix_instruction"
 	extractionNoiseTransientStatus      = "transient_status"
+	extractionNoiseStructuralNonProse   = "structural_non_prose"
 )
 
 var (
@@ -216,6 +217,9 @@ func classifyExtractionNoise(fact string) []string {
 	if isPayloadEcho(trimmed) {
 		reasons = append(reasons, extractionNoisePayloadEcho)
 	}
+	if isStructurallyNonProseFact(trimmed) {
+		reasons = append(reasons, extractionNoiseStructuralNonProse)
+	}
 	if len(reasons) == 0 {
 		return nil
 	}
@@ -301,7 +305,7 @@ func isStructurallyNonProseFact(fact string) bool {
 func isFragmentLikeNoise(reasons []string) bool {
 	for _, reason := range reasons {
 		switch reason {
-		case extractionNoiseDiffHeader, extractionNoiseDiffFragment, extractionNoiseGeneratedCode:
+		case extractionNoiseDiffHeader, extractionNoiseDiffFragment, extractionNoiseGeneratedCode, extractionNoiseStructuralNonProse:
 			return true
 		}
 	}

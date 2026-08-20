@@ -119,7 +119,7 @@ Since v0.21.0, only fully-formed unified-diff / git metadata is **dropped entire
 
 #### Candidate hygiene
 
-The former sessions snapshot hygiene pane was removed with `traceary sessions` in v0.42.0 (#2061). Gauge and clear the candidate backlog with `traceary memory inbox list` (text mode prints `showing N of M candidates`, including hidden unless `--source` is set) and the dry-run-first `traceary memory inbox cleanup --quality low` (add `--apply` to reject matches; cleanup only rejects candidates; it never deletes or auto-accepts). `traceary memory admin hygiene scan` adds similarity-based duplicate detection beyond exact same-scope / memory-type / fact matches.
+The former sessions snapshot hygiene pane was removed with `traceary sessions` in v0.42.0 (#2061). Gauge and clear the candidate backlog with `traceary memory inbox list` (text mode prints `showing N of M candidates`, including hidden unless `--source` is set) and the dry-run-first `traceary memory inbox cleanup --quality low` (add `--apply` to reject matches; cleanup only rejects candidates; it never deletes or auto-accepts). `traceary memory admin hygiene scan` adds similarity-based duplicate detection beyond exact same-scope / memory-type / fact matches. The same scan's `low_quality_candidate` pass applies the extraction-time echo detector (#2112) and structural-non-prose drop set (#2020) to **already stored** candidates, including compact-summary rows and remember-intent payload echoes. Dry-run cleanup lists those ids without writing; `--apply` rejects them. Cleanup never deletes or auto-accepts. Non-echo candidates in the same date range stay. `traceary memory inbox restore` still recovers expired (decayed) rows.
 
 #### Context-boundary extraction
 
