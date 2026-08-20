@@ -109,9 +109,9 @@ func TestHygieneCandidateNoiseSources_HiddenIsOptIn(t *testing.T) {
 	}
 
 	cases := []struct {
-		source  domtypes.MemorySource
-		hidden  bool
-		want    bool
+		source domtypes.MemorySource
+		hidden bool
+		want   bool
 	}{
 		{source: domtypes.MemorySourceExtracted, hidden: false, want: true},
 		{source: domtypes.MemorySourceRememberIntent, hidden: false, want: true},
