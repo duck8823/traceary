@@ -15,7 +15,7 @@ func doctorCheckIsStoreIndependent(name string) bool {
 	switch strings.TrimSpace(name) {
 	case "path", "config", "version", "project-dir", "stale-processes",
 		"hook-spool", "hook-state-residue", "hook-memory-extract", "hook-grok-transcript",
-		"claude-hook-cancellations", "claude-plugin-cache":
+		"claude-hook-cancellations", "claude-plugin-cache", "claude-plugin-local-leftovers":
 		return true
 	}
 	if strings.HasSuffix(name, "-plugin") || strings.HasSuffix(name, "-plugin-version") || strings.HasSuffix(name, "-inspect") {

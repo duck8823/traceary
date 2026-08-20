@@ -7,6 +7,9 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ## [Unreleased]
 
+### Added
+- **Doctor surfaces leftover Claude `--scope local` installs in deleted worktrees (#2212)** — the additive store-independent `claude-plugin-local-leftovers` check reads only `~/.claude/plugins/installed_plugins.json` and WARNs with a count plus a bounded sample of enabled local Traceary rows whose project directory is gone. No auto-fix; Claude's inventory is never rewritten, and the user-cache `claude-plugin-cache` / `claude-plugin-version` checks stay PASS. Leaves parent #2208 open.
+
 ## [v0.45.0] - 2026-08-20
 
 ### Fixed

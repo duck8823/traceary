@@ -572,6 +572,9 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 			if cacheCheck := c.inspectClaudePluginCacheStatus(); cacheCheck != nil {
 				report.Checks = append(report.Checks, *cacheCheck)
 			}
+			if leftoversCheck := c.inspectClaudePluginLocalLeftovers(); leftoversCheck != nil {
+				report.Checks = append(report.Checks, *leftoversCheck)
+			}
 		}
 
 		report.Checks = append(report.Checks, inspectHostCapabilityGaps(targetClient, outputPath)...)

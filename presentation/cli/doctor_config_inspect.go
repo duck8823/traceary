@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -76,6 +77,84 @@ func (c *RootCLI) inspectClaudePluginCacheStatus() *doctorCheck {
 			"claude plugin cache matches the marketplace manifest (cached %s, marketplace %s)",
 			"claude plugin cache は marketplace manifest と一致しています (cached %s, marketplace %s)",
 			status.CachedVersion, status.MarketplaceVersion,
+		),
+	}
+}
+
+// claudeLocalLeftoverSampleLimit bounds how many missing projectPath
+// values the leftover WARN message prints; the remainder is summarized
+// as a count so a pile of deleted worktrees does not flood the report.
+const claudeLocalLeftoverSampleLimit = 5
+
+// inspectClaudePluginLocalLeftovers surfaces enabled local-scope Traceary
+// installs in Claude's installed_plugins.json whose project directory no
+// longer exists (deleted worktrees). The check is additive: it never
+// changes the claude-plugin-cache / claude-plugin-version results, has no
+// auto-fix, and never writes Claude's inventory — removing the leftover
+// rows is the operator's call inside Claude.
+func (c *RootCLI) inspectClaudePluginLocalLeftovers() *doctorCheck {
+	if c == nil || c.pluginDetector == nil {
+		return nil
+	}
+	home, err := userHomeDirFunc()
+	if err != nil {
+		return nil
+	}
+	scan, err := c.pluginDetector.ListClaudeLocalPluginLeftovers(home)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return &doctorCheck{
+			Name:   "claude-plugin-local-leftovers",
+			Status: doctorStatusWarn,
+			Hint: localizef(
+				"inspect %s and repair the file so doctor can audit leftover local installs; Traceary never rewrites Claude's inventory",
+				"%s を確認してファイルを修復し、doctor が leftover local install を監査できるようにしてください。Traceary が Claude の inventory を書き換えることはありません",
+				scan.InventoryPath,
+			),
+			Message: localizef(
+				"claude plugin inventory could not be read, so leftover local Traceary installs cannot be audited: %s (%v)",
+				"claude plugin inventory を読み取れないため leftover local Traceary install を監査できません: %s (%v)",
+				scan.InventoryPath,
+				err,
+			),
+		}
+	}
+	if len(scan.LeftoverPaths) == 0 {
+		return &doctorCheck{
+			Name:   "claude-plugin-local-leftovers",
+			Status: doctorStatusPass,
+			Message: localizef(
+				"no leftover local Traceary installs in the claude plugin inventory: %s",
+				"claude plugin inventory に leftover local Traceary install はありません: %s",
+				scan.InventoryPath,
+			),
+		}
+	}
+	sample := scan.LeftoverPaths
+	remainder := 0
+	if len(sample) > claudeLocalLeftoverSampleLimit {
+		remainder = len(sample) - claudeLocalLeftoverSampleLimit
+		sample = sample[:claudeLocalLeftoverSampleLimit]
+	}
+	sampleText := strings.Join(sample, ", ")
+	if remainder > 0 {
+		sampleText = localizef("%s, and %d more", "%s ほか %d 件", sampleText, remainder)
+	}
+	return &doctorCheck{
+		Name:   "claude-plugin-local-leftovers",
+		Status: doctorStatusWarn,
+		Hint: localizef(
+			"inspect %s and remove the leftover local Traceary rows from Claude's inventory yourself (`claude plugin disable --scope local` only works inside a live project directory); Traceary never rewrites Claude's inventory",
+			"%s を確認し、leftover の local Traceary 行を Claude の inventory から自分で削除してください (`claude plugin disable --scope local` は生存している project 内でのみ動作します)。Traceary が Claude の inventory を書き換えることはありません",
+			scan.InventoryPath,
+		),
+		Message: localizef(
+			"claude plugin inventory lists %d enabled local Traceary install(s) whose project directory no longer exists: %s",
+			"claude plugin inventory に project ディレクトリが消えた enabled な local Traceary install が %d 件あります: %s",
+			len(scan.LeftoverPaths),
+			sampleText,
 		),
 	}
 }

@@ -44,6 +44,8 @@ release 済みバイナリを更新するたびに、次を実行してくださ
 
 doctor が正確な非対話コマンドを `FixCommand` に出す場合は、そちらを優先してください。ホスト CLI のフラグを推測で追加してはいけません。
 
+`--scope local` install に関する補足: Claude の `~/.claude/plugins/installed_plugins.json` にある local install の行は、指していた project ディレクトリが削除されても残ります。doctor はこれらの行を additive な `claude-plugin-local-leftovers` WARN（件数と欠落 path の上限付きサンプル）として報告します。user cache の `claude-plugin-cache` / `claude-plugin-version` は `pass` のままです。Traceary は Claude の inventory を書き換えません。`installed_plugins.json` を確認し、leftover の local 行は Claude 側で自分で削除してください。
+
 ## 古いプロセス
 
 Homebrew / `go install` の更新は PATH 上のバイナリを置き換えますが、**すでに動いているプロセスは古い実行ファイルのまま**です。2026-08-18 の dogfood では、置き換わった Cellar バイナリ（0.32–0.34）上の `traceary mcp-server` が長時間残っていました。MCP は v0.35.0 で引退しており、これらのプロセスは store-lease プロトコルより前のものです。stale なホスト session が compact 中にそれらへリクエストすると、排他制御なしで書き込めます。
