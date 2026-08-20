@@ -109,6 +109,27 @@ func TestRequireDocFragments_FailsWhenCodexLocalPathSequenceMissing(t *testing.T
 	}
 }
 
+func TestRequireDocFragments_FailsWhenClaudePluginMarketplaceIDMissing(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	rel := "docs/integrations/claude-plugin.md"
+	if err := os.MkdirAll(filepath.Join(root, filepath.Dir(rel)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, rel), []byte("/plugin update traceary\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := requireDocFragments(root, rel, []string{
+		"claude plugin marketplace update traceary-plugins",
+		"claude plugin update traceary@traceary-plugins --scope local",
+		"Plugin not found",
+	})
+	if err == nil {
+		t.Fatal("requireDocFragments() error = nil, want missing plugin@marketplace sequence")
+	}
+}
+
 func TestSharedSkillSemanticContracts_PassOnCurrentTree(t *testing.T) {
 	t.Parallel()
 

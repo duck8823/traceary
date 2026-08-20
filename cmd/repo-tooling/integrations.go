@@ -1138,6 +1138,19 @@ func checkDocs(root string) error {
 			return err
 		}
 	}
+	claudeFragments := []string{
+		"claude plugin marketplace update traceary-plugins",
+		"claude plugin update traceary@traceary-plugins --scope local",
+		"Plugin not found",
+	}
+	for _, rel := range []string{
+		"docs/integrations/claude-plugin.md",
+		"docs/integrations/claude-plugin.ja.md",
+	} {
+		if err := requireDocFragments(root, rel, claudeFragments); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
