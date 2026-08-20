@@ -13,6 +13,14 @@ The lifecycle package targets the live-verified Grok Build 0.2.99 hook
 contract. Usage capture additionally pins the Grok Build 0.2.106 headless
 terminal contract.
 
+> **Grok Build 1.0.5 caveat (probed 2026-08-21):** on Grok Build 1.0.5 the host
+> discovers and enables the plugin but never dispatches plugin-provided hooks —
+> verified in both headless `grok -p` and a short TUI session against an
+> isolated store, which recorded zero events. The table below describes the
+> contract as wired and last live-verified on 0.2.99/0.2.101; expect no
+> `agent=grok` events on 1.0.5 until a Grok Build release dispatches plugin
+> hooks again. See [host coverage](../hooks/host-coverage.md).
+
 | Grok event | Traceary behavior |
 | --- | --- |
 | `SessionStart` | Starts or refreshes the native Grok session |
@@ -229,6 +237,7 @@ removed separately if they were installed.
 | --- | --- |
 | `grok-cli` fails | Install Grok Build and ensure `grok` is on `PATH` |
 | `grok-plugin` warns | Install/reinstall the package; a version mismatch requires the package from the same Traceary release |
+| `grok-plugin` fails | `grok plugin list --json` reports a `source` that is a local path which no longer exists on disk; the cached version does not prove the plugin can load. Reinstall with `scripts/install-grok-plugin.sh` (remote git URL sources are never treated as missing) |
 | `grok-plugin-resolution` warns | Grok resolved a non-native path class, a same-name legacy package, or a local-repository identity. For a local-repository identity, review `grok plugin list --json` and run `scripts/install-grok-plugin.sh --migrate-local-repo-identity` from that checkout; otherwise run the normal installer and confirm `traceary-grok` is the enabled route. Doctor reads only inventory metadata. |
 | `grok-hook-trust` warns | Review the project hook file and use `/hooks-trust`, or remove the unused project route |
 | `grok-hooks` warns | The installed hook file is missing or has drifted from the exact seven-event contract; reinstall the plugin |

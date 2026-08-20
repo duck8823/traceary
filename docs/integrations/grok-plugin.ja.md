@@ -13,6 +13,13 @@ Traceary v0.23.0 は Grok Build をネイティブにサポートします。
 ライフサイクル用パッケージは、Grok Build 0.2.99 で実際に確認した hook 契約を
 対象にします。usage 取得は、Grok Build 0.2.106 の headless 終端契約にも固定します。
 
+> **Grok Build 1.0.5 の注意点（2026-08-21 probe）:** Grok Build 1.0.5 では host が
+> plugin を discover・enable するものの、plugin 由来 hook を一度も dispatch しません。
+> headless `grok -p` と短い TUI セッションの両方を隔離 store で検証し、記録 event は
+> 0 件でした。下表は 0.2.99/0.2.101 で live 検証済みの配線済み契約を示すものであり、
+> plugin hook を dispatch する Grok Build リリースが出るまで 1.0.5 では `agent=grok`
+> の event は記録されません。[host カバレッジ](../hooks/host-coverage.ja.md) を参照してください。
+
 | Grok event | Traceary の処理 |
 | --- | --- |
 | `SessionStart` | Grok セッションを開始または更新する |
@@ -214,6 +221,7 @@ pass であることを確認してください。
 | --- | --- |
 | `grok-cli` が失敗 | Grok Build を導入し、`grok` を `PATH` に追加する |
 | `grok-plugin` が警告 | パッケージを導入し直す。バージョン不一致の場合は同じ Traceary リリースのパッケージを使う |
+| `grok-plugin` が失敗 | `grok plugin list --json` の `source` がローカルパスで、そのパスがディスク上に存在しません。cache 上の version は plugin を読み込める証明になりません。`scripts/install-grok-plugin.sh` で再導入してください（remote の git URL source は missing とみなしません） |
 | `grok-plugin-resolution` が警告 | Grok が native 以外の path class、同名の legacy package、または local-repository identity を解決しています。local-repository identity の場合は `grok plugin list --json` を確認し、その checkout で `scripts/install-grok-plugin.sh --migrate-local-repo-identity` を実行してください。それ以外は通常の installer を実行し、`traceary-grok` が有効 route になったことを確認してください。doctor が読むのは inventory metadata だけです。 |
 | `grok-hook-trust` が警告 | project hook を確認して `/hooks-trust` を実行するか、未使用の project route を削除する |
 | `grok-hooks` が警告 | 導入済み hook file が不足しているか、7 event の厳密な契約からずれている。plugin を再導入する |

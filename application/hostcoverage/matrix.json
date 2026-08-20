@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "last_verified": "2026-07-24",
+  "last_verified": "2026-08-21",
   "notes": {
-    "en": "Last verified: 2026-07-24 (Codex CLI 0.145.0 interactive and headless/ephemeral marker probes; Kimi Code 0.27.0 live hook probe; no Traceary wiring yet — see docs/hooks/host-contract.json. Grok Build 0.2.101 re-probe for unobserved hooks + 0.2.99 fixtures; Antigravity CLI 1.1.1 and the current official hook contract; Gemini CLI re-verified 2026-06-10 against 0.43.0).",
-    "ja": "最終確認日: 2026-07-24（Codex CLI 0.145.0 の interactive および headless/ephemeral marker probe。Kimi Code 0.27.0 の live hook probe。Traceary 側の配線は未実施 — docs/hooks/host-contract.json 参照。Grok Build 0.2.101 の未観測 hook 再 probe + 0.2.99 fixture、Antigravity CLI 1.1.1 と現行公式 hook contract。Gemini CLI は 2026-06-10 に 0.43.0 で再確認済み）。"
+    "en": "Last verified: 2026-08-21 (Grok Build 1.0.5 probes on an isolated store, headless `-p` and TUI: the traceary-grok plugin is discovered, enabled, and auto-trusted, but the host dispatched only global/user-level hooks — no plugin-provided hook ran and zero Traceary events were recorded, so Grok cells move to available until a host version dispatches plugin hooks again. Previous: 2026-07-24 Codex CLI 0.145.0 interactive and headless/ephemeral marker probes; Kimi Code 0.27.0 live hook probe; no Traceary wiring yet — see docs/hooks/host-contract.json. Grok Build 0.2.101 re-probe for unobserved hooks + 0.2.99 fixtures; Antigravity CLI 1.1.1 and the current official hook contract; Gemini CLI re-verified 2026-06-10 against 0.43.0).",
+    "ja": "最終確認日: 2026-08-21（Grok Build 1.0.5 の隔離 store probe（headless `-p` と TUI）: traceary-grok plugin は discover・enable・auto-trust されるが、host が dispatch したのは global/user-level hook のみで plugin 由来 hook は一度も実行されず、Traceary event は 0 件だった。plugin hook が再び dispatch される host version が確認できるまで Grok cell は available とする。過去分: 2026-07-24 Codex CLI 0.145.0 の interactive および headless/ephemeral marker probe。Kimi Code 0.27.0 の live hook probe。Traceary 側の配線は未実施 — docs/hooks/host-contract.json 参照。Grok Build 0.2.101 の未観測 hook 再 probe + 0.2.99 fixture、Antigravity CLI 1.1.1 と現行公式 hook contract。Gemini CLI は 2026-06-10 に 0.43.0 で再確認済み）。"
   },
   "lifecycle_events": [
     {
@@ -324,52 +324,52 @@
       "id": "grok",
       "package": "grok-plugin",
       "label": {
-        "en": "Grok Build 0.2.99",
-        "ja": "Grok Build 0.2.99"
+        "en": "Grok Build 1.0.5",
+        "ja": "Grok Build 1.0.5"
       },
       "doctor_client": "grok",
       "expects_session_enrichment": true,
       "events": {
         "session_started": {
-          "status": "wired",
+          "status": "available",
           "summary": {
-            "en": "● `SessionStart` (native `agent=grok`)",
-            "ja": "● `SessionStart`（native の `agent=grok`）"
+            "en": "○ `SessionStart` is wired in the plugin, but Grok Build 1.0.5 dispatched no plugin-provided hooks in headless `-p` or TUI probes (2026-08-21); last live capture on 0.2.99/0.2.101",
+            "ja": "○ plugin は `SessionStart` を配線済みだが、Grok Build 1.0.5 は headless `-p`・TUI の probe（2026-08-21）で plugin 由来 hook を一度も dispatch せず。最後の live capture は 0.2.99/0.2.101"
           }
         },
         "prompt": {
-          "status": "wired",
+          "status": "available",
           "summary": {
-            "en": "● `UserPromptSubmit` (`prompt`; native `agent=grok`)",
-            "ja": "● `UserPromptSubmit`（`prompt`、native の `agent=grok`）"
+            "en": "○ `UserPromptSubmit` is wired in the plugin, but Grok Build 1.0.5 dispatched no plugin-provided hooks in headless `-p` or TUI probes (2026-08-21); last live capture on 0.2.99/0.2.101",
+            "ja": "○ plugin は `UserPromptSubmit` を配線済みだが、Grok Build 1.0.5 は headless `-p`・TUI の probe（2026-08-21）で plugin 由来 hook を一度も dispatch せず。最後の live capture は 0.2.99/0.2.101"
           }
         },
         "command_executed": {
-          "status": "wired",
+          "status": "available",
           "summary": {
-            "en": "● `PreToolUse` validation + `PostToolUse` completed audit (input/result are co-located; missing/denied reads are failed result variants)",
-            "ja": "● `PreToolUse` の検証 + `PostToolUse` の完了監査（input/result は同一 payload。missing/denied read は失敗 result variant）"
+            "en": "○ `PreToolUse`/`PostToolUse` are wired in the plugin, but Grok Build 1.0.5 dispatched no plugin-provided hooks in headless `-p` or TUI probes (2026-08-21); last live capture on 0.2.99/0.2.101",
+            "ja": "○ plugin は `PreToolUse`/`PostToolUse` を配線済みだが、Grok Build 1.0.5 は headless `-p`・TUI の probe（2026-08-21）で plugin 由来 hook を一度も dispatch せず。最後の live capture は 0.2.99/0.2.101"
           }
         },
         "transcript": {
-          "status": "wired",
+          "status": "available",
           "summary": {
-            "en": "● `Stop` (best-effort current-prompt message chunks from `updates.jsonl`; no model field)",
-            "ja": "● `Stop`（`updates.jsonl` から現在の prompt の message chunk を best-effort 取得。model field はない）"
+            "en": "○ `Stop` is wired in the plugin, but Grok Build 1.0.5 dispatched no plugin-provided hooks in headless `-p` or TUI probes (2026-08-21); last live capture on 0.2.99/0.2.101",
+            "ja": "○ plugin は `Stop` を配線済みだが、Grok Build 1.0.5 は headless `-p`・TUI の probe（2026-08-21）で plugin 由来 hook を一度も dispatch せず。最後の live capture は 0.2.99/0.2.101"
           }
         },
         "compact_summary": {
-          "status": "wired",
+          "status": "available",
           "summary": {
-            "en": "● `PreCompact` + `PostCompact` (native live-observed markers from `source`; no summary body)",
-            "ja": "● `PreCompact` + `PostCompact`（native で live 確認済みの `source` marker。summary 本文なし）"
+            "en": "○ `PreCompact`/`PostCompact` are wired in the plugin, but Grok Build 1.0.5 dispatched no plugin-provided hooks in headless `-p` or TUI probes (2026-08-21); last live capture on 0.2.99/0.2.101",
+            "ja": "○ plugin は `PreCompact`/`PostCompact` を配線済みだが、Grok Build 1.0.5 は headless `-p`・TUI の probe（2026-08-21）で plugin 由来 hook を一度も dispatch せず。最後の live capture は 0.2.99/0.2.101"
           }
         },
         "session_ended": {
           "status": "available",
           "summary": {
-            "en": "○ documented `SessionEnd`, but not emitted by headless completion, TUI `/quit`, or TUI `/new` probes",
-            "ja": "○ `SessionEnd` は文書化済みだが、headless 完了・TUI `/quit`・TUI `/new` の probe では未発火"
+            "en": "○ documented `SessionEnd`; 1.0.5 probes dispatched it to user-level hooks at teardown, but plugin-provided hooks (Traceary's route) are not dispatched",
+            "ja": "○ `SessionEnd` は文書化済み。1.0.5 の probe では teardown 時に user-level hook へ dispatch されたが、plugin 由来 hook（Traceary の経路）は dispatch されない"
           }
         }
       }

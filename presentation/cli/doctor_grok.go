@@ -35,12 +35,17 @@ const (
 var releaseTracearyVersionPattern = regexp.MustCompile(`^v?\d+\.\d+\.\d+$`)
 
 type grokDoctorState struct {
-	CLIAvailable         bool
-	HostVersion          string
-	PluginInstalled      bool
-	PluginEnabled        bool
-	PluginVersion        string
-	PluginPath           string
+	CLIAvailable    bool
+	HostVersion     string
+	PluginInstalled bool
+	PluginEnabled   bool
+	PluginVersion   string
+	PluginPath      string
+	// PluginSource is the `grok plugin list` Source for the canonical plugin.
+	// PluginSourceMissing is true when that Source is a local filesystem path
+	// that does not exist on disk; remote git URLs are never "missing".
+	PluginSource         string
+	PluginSourceMissing  bool
 	ResolvedPathClass    string
 	LegacyPluginDetected bool
 	LocalRepoConflict    bool
@@ -121,6 +126,12 @@ func probeGrokDoctorState(ctx context.Context, projectDir string) (grokDoctorSta
 			state.PluginInstalled = true
 			state.PluginVersion = plugin.Version
 			state.PluginPath = plugin.Path
+			state.PluginSource = plugin.Source
+			if localSource, ok := grokPluginSourceLocalPath(plugin.Source); ok {
+				if _, statErr := os.Stat(localSource); statErr != nil {
+					state.PluginSourceMissing = true
+				}
+			}
 		}
 		if grokIsLocalRepositoryIdentity(plugin) {
 			state.LocalRepoConflict = true
@@ -218,6 +229,26 @@ func grokIsLocalRepositoryIdentity(plugin grokPluginListEntry) bool {
 	return strings.HasSuffix(normalizedSource, "/integrations/grok-plugin")
 }
 
+// grokPluginSourceLocalPath resolves a `grok plugin list` Source value to a
+// local filesystem path to stat. Remote git sources (http(s)://, any scheme
+// URL, SCP-style git@) and empty values are never "missing" and return false.
+// A tilde-prefixed Source is expanded against the user home; when home cannot
+// be resolved the Source is left unverified rather than falsely flagged.
+func grokPluginSourceLocalPath(source string) (string, bool) {
+	trimmed := strings.TrimSpace(source)
+	if trimmed == "" || strings.Contains(trimmed, "://") || strings.HasPrefix(trimmed, "git@") {
+		return "", false
+	}
+	if strings.HasPrefix(trimmed, "~/") {
+		home, err := userHomeDirFunc()
+		if err != nil || strings.TrimSpace(home) == "" {
+			return "", false
+		}
+		return filepath.Join(home, strings.TrimPrefix(trimmed, "~/")), true
+	}
+	return trimmed, true
+}
+
 // grokPluginPathClass classifies only the installation host encoded in a hook
 // target path. It deliberately does not read configuration or plugin payloads.
 func grokPluginPathClass(path string) string {
@@ -306,7 +337,11 @@ func buildGrokDoctorChecks(state grokDoctorState, tracearyVersion string) []doct
 		pluginStatus := doctorStatusPass
 		pluginMessage := localizef("native Traceary Grok plugin traceary-grok %s is installed and enabled", "native Traceary Grok plugin traceary-grok %s はインストール済みで有効です", state.PluginVersion)
 		pluginHint := ""
-		if !state.PluginEnabled || state.LegacyPluginDetected || state.LocalRepoConflict {
+		if state.PluginSourceMissing {
+			pluginStatus = doctorStatusFail
+			pluginMessage = localizef("native Traceary Grok plugin source %s is a local path that does not exist on disk; the cached version %s does not prove the plugin can load", "native Traceary Grok plugin の source %s はローカルパスですがディスク上に存在しません。cache 上の version %s は plugin を読み込めることの証明になりません", grokDoctorDisplayPath(state.PluginSource), state.PluginVersion)
+			pluginHint = Localize("reinstall the native plugin with scripts/install-grok-plugin.sh", "scripts/install-grok-plugin.sh で native plugin を再インストールしてください")
+		} else if !state.PluginEnabled || state.LegacyPluginDetected || state.LocalRepoConflict {
 			pluginStatus, pluginMessage = doctorStatusWarn, Localize("native Traceary Grok plugin traceary-grok is installed but a legacy traceary route is also resolved, or the canonical route is disabled", "native Traceary Grok plugin traceary-grok はインストール済みですが legacy traceary route も解決されているか、canonical route が無効です")
 			pluginHint = "grok plugin enable traceary-grok"
 			if state.LocalRepoConflict {

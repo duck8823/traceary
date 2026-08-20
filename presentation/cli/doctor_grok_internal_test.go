@@ -25,6 +25,7 @@ func TestBuildGrokDoctorChecks(t *testing.T) {
 		{name: "untrusted project hooks", mutate: func(s *grokDoctorState) { s.ProjectHooks, s.ProjectTrusted = true, false }, check: "grok-hook-trust", status: doctorStatusWarn, messageSub: "not trusted"},
 		{name: "missing skills", mutate: func(s *grokDoctorState) { s.Skills = 2 }, check: "grok-skills", status: doctorStatusWarn, messageSub: "2"},
 		{name: "missing hooks", mutate: func(s *grokDoctorState) { s.NativeHooks = false }, check: "grok-hooks", status: doctorStatusWarn, messageSub: "incomplete"},
+		{name: "missing local plugin source", mutate: func(s *grokDoctorState) { s.PluginSource, s.PluginSourceMissing = "/does/not/exist/traceary", true }, check: "grok-plugin", status: doctorStatusFail, messageSub: "does not exist"},
 		{name: "healthy", mutate: func(*grokDoctorState) {}, check: "grok-plugin", status: doctorStatusPass, messageSub: "enabled"},
 	}
 	for _, tc := range tests {
@@ -637,6 +638,85 @@ func TestProbeGrokDoctorStateWarnsDuplicateWhenNativeCoverageIncomplete(t *testi
 		if !strings.Contains(routesCheck.Message+routesCheck.Hint, sub) {
 			t.Fatalf("grok-hooks-routes = %+v, want substring %q", routesCheck, sub)
 		}
+	}
+}
+
+// TestProbeGrokDoctorStateDetectsMissingLocalPluginSource drives the shipped
+// probe and check builder with a stubbed Grok CLI: a local plugin Source that
+// is absent on disk must surface as a FAIL (never a version PASS), while
+// present local Sources and remote git URLs must not be flagged.
+func TestProbeGrokDoctorStateDetectsMissingLocalPluginSource(t *testing.T) {
+	originalLookPath, originalOutput := grokDoctorLookPath, grokDoctorOutput
+	t.Cleanup(func() { grokDoctorLookPath, grokDoctorOutput = originalLookPath, originalOutput })
+	grokDoctorLookPath = func(string) (string, error) { return "/usr/local/bin/grok", nil }
+
+	presentSource := t.TempDir()
+	if err := os.WriteFile(filepath.Join(presentSource, "plugin.json"), []byte(`{"name":"traceary-grok","version":"0.45.0"}`), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	missingSource := filepath.Join(t.TempDir(), "does-not-exist")
+
+	tests := []struct {
+		name        string
+		source      string
+		wantMissing bool
+		wantStatus  string
+	}{
+		{name: "missing local source fails despite cached version", source: missingSource, wantMissing: true, wantStatus: doctorStatusFail},
+		{name: "present local source passes", source: presentSource, wantMissing: false, wantStatus: doctorStatusPass},
+		{name: "https git source is not missing", source: "https://github.com/duck8823/traceary.git", wantMissing: false, wantStatus: doctorStatusPass},
+		{name: "scp-style git source is not missing", source: "git@github.com:duck8823/traceary.git", wantMissing: false, wantStatus: doctorStatusPass},
+		{name: "empty source is not flagged", source: "", wantMissing: false, wantStatus: doctorStatusPass},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			projectDir := t.TempDir()
+			grokDoctorOutput = func(_ context.Context, args ...string) ([]byte, error) {
+				switch strings.Join(args, " ") {
+				case "--version":
+					return []byte("grok 1.0.5\n"), nil
+				case "plugin list --json":
+					return []byte(`[{"name":"traceary-grok","version":"0.45.0","path":"/cache/grok-plugin-13dae94b","source":` + strconv.Quote(tc.source) + `}]`), nil
+				case "--cwd " + projectDir + " inspect --json":
+					return []byte(`{"projectTrusted":true,"plugins":[{"name":"traceary-grok","enabled":true,"provides":{"skills":4,"mcpServers":0}}],"hooks":[]}`), nil
+				default:
+					t.Fatalf("unexpected Grok arguments: %v", args)
+					return nil, nil
+				}
+			}
+
+			state, err := probeGrokDoctorState(context.Background(), projectDir)
+			if err != nil {
+				t.Fatalf("probeGrokDoctorState() error = %v", err)
+			}
+			if !state.PluginInstalled || state.PluginVersion != "0.45.0" {
+				t.Fatalf("state = %+v, want installed cached plugin 0.45.0", state)
+			}
+			if state.PluginSourceMissing != tc.wantMissing {
+				t.Fatalf("state.PluginSourceMissing = %v, want %v (state = %+v)", state.PluginSourceMissing, tc.wantMissing, state)
+			}
+			var found *doctorCheck
+			checks := buildGrokDoctorChecks(state, "0.45.0")
+			for i := range checks {
+				if checks[i].Name == "grok-plugin" {
+					found = &checks[i]
+					break
+				}
+			}
+			if found == nil || found.Status != tc.wantStatus {
+				t.Fatalf("grok-plugin check = %+v, want status %s", found, tc.wantStatus)
+			}
+			if tc.wantMissing {
+				if !strings.Contains(found.Message, tc.source) || !strings.Contains(found.Hint, "install-grok-plugin.sh") {
+					t.Fatalf("grok-plugin check = %+v, want missing source path and reinstall hint", found)
+				}
+			}
+			for _, check := range checks {
+				if strings.Contains(check.Message+check.Hint, "/private/") {
+					t.Fatalf("check exposed private path: %+v", check)
+				}
+			}
+		})
 	}
 }
 
