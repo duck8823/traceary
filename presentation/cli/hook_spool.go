@@ -1266,7 +1266,7 @@ func inspectHookSpoolFilesystemMetadata() doctorCheck {
 		return doctorCheck{
 			Name:    name,
 			Status:  doctorStatusPass,
-			Message: Localize("no pending or terminal hook spool records found", "未処理および terminal の hook spool record はありません"),
+			Message: Localize("no pending or terminal hook spool files (metadata-only, store-independent)", "未処理および terminal の hook spool file はありません (metadata-only, store-independent)"),
 		}
 	}
 	status := doctorStatusPass
@@ -1277,8 +1277,8 @@ func inspectHookSpoolFilesystemMetadata() doctorCheck {
 		Name:   name,
 		Status: status,
 		Message: localizef(
-			"hook spool filesystem metadata: pending=%d (%s), stale_inflight=%d (%s), dead=%d (%s)",
-			"hook spool ファイルシステムメタデータ: pending=%d (%s), stale_inflight=%d (%s), dead=%d (%s)",
+			"hook spool files (metadata-only, store-independent): pending=%d (%s), stale_inflight=%d (%s), dead=%d (%s)",
+			"hook spool files (metadata-only, store-independent): pending=%d (%s), stale_inflight=%d (%s), dead=%d (%s)",
 			stats.PendingCount,
 			formatByteSize(stats.PendingBytes),
 			stats.StaleInflightCount,
@@ -1432,7 +1432,15 @@ func (c *RootCLI) inspectHookSpoolDiagnosticsFromScan(
 		return doctorCheck{Name: name, Status: doctorStatusFail, Message: localizef("failed to inspect hook spool metadata: %v", "hook spool メタデータの検査に失敗しました: %v", statsErr)}
 	}
 	if len(records) == 0 && len(unreadable) == 0 && stats.DeadCount == 0 && stats.StaleInflightCount == 0 {
-		return doctorCheck{Name: name, Status: doctorStatusPass, Message: Localize("no pending hook spool records found", "未処理の hook spool record はありません")}
+		return doctorCheck{
+			Name:   name,
+			Status: doctorStatusPass,
+			Message: localizef(
+				"no decoded pending hook spool records for the selected doctor client(s); filesystem pending files (store-independent)=%d",
+				"選択中の doctor client 向け decoded pending hook spool record はありません。filesystem pending files (store-independent)=%d",
+				stats.PendingCount,
+			),
+		}
 	}
 	structuredFix := func(ctx context.Context, dryRun bool) (doctorFixResult, error) {
 		now := time.Now().UTC()
@@ -1503,9 +1511,9 @@ func (c *RootCLI) inspectHookSpoolDiagnosticsFromScan(
 		status = doctorStatusWarn
 	}
 	message := localizef(
-		"found %d pending hook spool record(s), %d terminal dead-letter record(s), %d unreadable record(s), and %d stale inflight file(s); latest %s",
-		"未処理の hook spool record が %d 件、terminal dead-letter が %d 件、読めない record が %d 件、stale inflight が %d 件あります。latest %s",
-		len(records), stats.DeadCount, len(unreadable), stats.StaleInflightCount, latest,
+		"found %d decoded pending hook spool record(s) for the selected doctor client(s), %d terminal dead-letter record(s), %d unreadable record(s), and %d stale inflight file(s); filesystem pending files (store-independent)=%d; latest %s",
+		"選択中の doctor client 向け decoded pending hook spool record が %d 件、terminal dead-letter が %d 件、読めない record が %d 件、stale inflight が %d 件あります。filesystem pending files (store-independent)=%d。latest %s",
+		len(records), stats.DeadCount, len(unreadable), stats.StaleInflightCount, stats.PendingCount, latest,
 	)
 	check := doctorCheck{
 		Name:    name,

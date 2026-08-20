@@ -30,7 +30,7 @@
       "severity": "PASS",
       "section": "Database",
       "message": "capacity breakdown skipped (SQLite store file does not exist yet); filesystem size=0 B",
-      "hint": "inspect a reviewed copy with `traceary doctor` when the default path stays metadata-only",
+      "hint": "inspect a reviewed copy with `traceary doctor --db-path '/tmp/test-traceary.db'` when the default path stays metadata-only",
       "fix_command": "",
       "auto_fix_available": false
     },
@@ -59,7 +59,7 @@
       "status": "pass",
       "severity": "PASS",
       "section": "Environment",
-      "message": "PATH resolves traceary to /tmp/traceary-json-golden-bin/traceary (directory: /tmp/traceary-json-golden-bin)",
+      "message": "PATH resolves traceary to /tmp/traceary-json-golden-bin/traceary (directory: /tmp/traceary-json-golden-bin) (store-independent)",
       "hint": "",
       "fix_command": "",
       "auto_fix_available": false
@@ -69,7 +69,7 @@
       "status": "pass",
       "severity": "PASS",
       "section": "Environment",
-      "message": "optional config file is not present yet; built-in defaults remain active: /tmp/traceary-json-golden-home/.config/traceary/config.json",
+      "message": "optional config file is not present yet; built-in defaults remain active: /tmp/traceary-json-golden-home/.config/traceary/config.json (store-independent)",
       "hint": "",
       "fix_command": "",
       "auto_fix_available": false
@@ -189,7 +189,7 @@
       "status": "pass",
       "severity": "PASS",
       "section": "Environment",
-      "message": "resolved project directory: /tmp/traceary-json-golden-project",
+      "message": "resolved project directory: /tmp/traceary-json-golden-project (store-independent)",
       "hint": "",
       "fix_command": "",
       "auto_fix_available": false
@@ -199,7 +199,7 @@
       "status": "pass",
       "severity": "PASS",
       "section": "Hooks",
-      "message": "no pending hook spool records found",
+      "message": "no decoded pending hook spool records for the selected doctor client(s); filesystem pending files (store-independent)=0",
       "hint": "",
       "fix_command": "",
       "auto_fix_available": false
@@ -209,7 +209,7 @@
       "status": "pass",
       "severity": "PASS",
       "section": "Hooks",
-      "message": "no leftover hook state, diagnostics, or ended markers",
+      "message": "no leftover hook state, diagnostics, or ended markers (store-independent)",
       "hint": "",
       "fix_command": "",
       "auto_fix_available": false
@@ -219,7 +219,7 @@
       "status": "pass",
       "severity": "PASS",
       "section": "Hooks",
-      "message": "no pending hook memory extraction jobs found",
+      "message": "no pending hook memory extraction jobs found (store-independent)",
       "hint": "",
       "fix_command": "",
       "auto_fix_available": false
@@ -239,7 +239,7 @@
       "status": "pass",
       "severity": "PASS",
       "section": "Hooks",
-      "message": "no pending Grok transcript jobs found",
+      "message": "no pending Grok transcript jobs found (store-independent)",
       "hint": "",
       "fix_command": "",
       "auto_fix_available": false
@@ -279,7 +279,7 @@
       "status": "skip",
       "severity": "PASS",
       "section": "Environment",
-      "message": "version check skipped: current version unknown",
+      "message": "version check skipped: current version unknown (store-independent)",
       "hint": "",
       "fix_command": "",
       "auto_fix_available": false
@@ -294,7 +294,7 @@
           "status": "pass",
           "severity": "PASS",
           "section": "Environment",
-          "message": "PATH resolves traceary to /tmp/traceary-json-golden-bin/traceary (directory: /tmp/traceary-json-golden-bin)",
+          "message": "PATH resolves traceary to /tmp/traceary-json-golden-bin/traceary (directory: /tmp/traceary-json-golden-bin) (store-independent)",
           "hint": "",
           "fix_command": "",
           "auto_fix_available": false
@@ -304,7 +304,7 @@
           "status": "pass",
           "severity": "PASS",
           "section": "Environment",
-          "message": "optional config file is not present yet; built-in defaults remain active: /tmp/traceary-json-golden-home/.config/traceary/config.json",
+          "message": "optional config file is not present yet; built-in defaults remain active: /tmp/traceary-json-golden-home/.config/traceary/config.json (store-independent)",
           "hint": "",
           "fix_command": "",
           "auto_fix_available": false
@@ -314,7 +314,7 @@
           "status": "pass",
           "severity": "PASS",
           "section": "Environment",
-          "message": "resolved project directory: /tmp/traceary-json-golden-project",
+          "message": "resolved project directory: /tmp/traceary-json-golden-project (store-independent)",
           "hint": "",
           "fix_command": "",
           "auto_fix_available": false
@@ -324,7 +324,7 @@
           "status": "skip",
           "severity": "PASS",
           "section": "Environment",
-          "message": "version check skipped: current version unknown",
+          "message": "version check skipped: current version unknown (store-independent)",
           "hint": "",
           "fix_command": "",
           "auto_fix_available": false
@@ -350,7 +350,7 @@
           "severity": "PASS",
           "section": "Database",
           "message": "capacity breakdown skipped (SQLite store file does not exist yet); filesystem size=0 B",
-          "hint": "inspect a reviewed copy with `traceary doctor` when the default path stays metadata-only",
+          "hint": "inspect a reviewed copy with `traceary doctor --db-path '/tmp/test-traceary.db'` when the default path stays metadata-only",
           "fix_command": "",
           "auto_fix_available": false
         },
@@ -508,7 +508,7 @@
           "status": "pass",
           "severity": "PASS",
           "section": "Hooks",
-          "message": "no pending hook spool records found",
+          "message": "no decoded pending hook spool records for the selected doctor client(s); filesystem pending files (store-independent)=0",
           "hint": "",
           "fix_command": "",
           "auto_fix_available": false
@@ -518,7 +518,7 @@
           "status": "pass",
           "severity": "PASS",
           "section": "Hooks",
-          "message": "no leftover hook state, diagnostics, or ended markers",
+          "message": "no leftover hook state, diagnostics, or ended markers (store-independent)",
           "hint": "",
           "fix_command": "",
           "auto_fix_available": false
@@ -528,7 +528,7 @@
           "status": "pass",
           "severity": "PASS",
           "section": "Hooks",
-          "message": "no pending hook memory extraction jobs found",
+          "message": "no pending hook memory extraction jobs found (store-independent)",
           "hint": "",
           "fix_command": "",
           "auto_fix_available": false
@@ -548,7 +548,7 @@
           "status": "pass",
           "severity": "PASS",
           "section": "Hooks",
-          "message": "no pending Grok transcript jobs found",
+          "message": "no pending Grok transcript jobs found (store-independent)",
           "hint": "",
           "fix_command": "",
           "auto_fix_available": false

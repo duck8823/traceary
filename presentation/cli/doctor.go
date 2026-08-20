@@ -85,6 +85,10 @@ type doctorReport struct {
 	Summary           doctorSummary                `json:"summary"`
 	ExitCode          int                          `json:"exit_code"`
 	Fixes             []doctorFixLog               `json:"fixes,omitempty"`
+	// hintDBPath is the store doctor inspected when the operator passed
+	// --db-path or TRACEARY_DB_PATH. Empty for the default home store so
+	// hint commands stay short. Not serialized.
+	hintDBPath string `json:"-"`
 }
 
 type doctorExitError struct {
@@ -337,6 +341,9 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 	}
 	c.applyDatabasePath(resolvedDBPath)
 	report.DBPath = resolvedDBPath
+	if doctorDBPathWasExplicit(input.dbPath) {
+		report.hintDBPath = resolvedDBPath
+	}
 	report.Checks = append(report.Checks, doctorCheck{
 		Name:    "db-path",
 		Status:  doctorStatusPass,
