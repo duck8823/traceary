@@ -87,6 +87,28 @@ func TestVerifyIntegrations_FailsWhenRootIncomplete(t *testing.T) {
 	}
 }
 
+func TestRequireDocFragments_FailsWhenCodexLocalPathSequenceMissing(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	rel := "docs/integrations/codex-plugin.md"
+	if err := os.MkdirAll(filepath.Join(root, filepath.Dir(rel)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, rel), []byte("clone only refresh\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := requireDocFragments(root, rel, []string{
+		"codex plugin marketplace list",
+		"codex plugin add traceary@traceary-marketplace",
+		"git -C <marketplace-root>",
+		"No configured Git marketplaces",
+	})
+	if err == nil {
+		t.Fatal("requireDocFragments() error = nil, want missing local-path sequence")
+	}
+}
+
 func TestSharedSkillSemanticContracts_PassOnCurrentTree(t *testing.T) {
 	t.Parallel()
 

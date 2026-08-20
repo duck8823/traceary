@@ -1124,6 +1124,34 @@ func checkDocs(root string) error {
 			return err
 		}
 	}
+	codexFragments := []string{
+		"codex plugin marketplace list",
+		"codex plugin add traceary@traceary-marketplace",
+		"git -C <marketplace-root>",
+		"No configured Git marketplaces",
+	}
+	for _, rel := range []string{
+		"docs/integrations/codex-plugin.md",
+		"docs/integrations/codex-plugin.ja.md",
+	} {
+		if err := requireDocFragments(root, rel, codexFragments); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func requireDocFragments(root, rel string, fragments []string) error {
+	data, err := os.ReadFile(filepath.Join(root, rel)) // #nosec G304 -- docs path under repo root
+	if err != nil {
+		return xerrors.Errorf("read %s: %w", rel, err)
+	}
+	body := string(data)
+	for _, fragment := range fragments {
+		if !strings.Contains(body, fragment) {
+			return xerrors.Errorf("%s must document %q", rel, fragment)
+		}
+	}
 	return nil
 }
 
