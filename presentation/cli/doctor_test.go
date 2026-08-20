@@ -941,6 +941,9 @@ func TestRootCLI_DoctorCommand_ClaudeHookCancellationDiagnostics(t *testing.T) {
 		if check.Hint == "" || !strings.Contains(check.Hint, "Traceary reached Claude SessionEnd") {
 			t.Fatalf("claude-hook-cancellations hint = %q, want actionable cancellation hint", check.Hint)
 		}
+		if !strings.Contains(check.Hint, "doctor --fix") {
+			t.Fatalf("claude-hook-cancellations hint = %q, want automatic doctor --fix path", check.Hint)
+		}
 	})
 
 	t.Run("marker from another store is unknown, not actionable", func(t *testing.T) {
@@ -1021,7 +1024,7 @@ func TestRootCLI_DoctorCommand_ClaudeHookCancellationDiagnostics(t *testing.T) {
   "status": "started",
   "started_at": %q
 }
-`, time.Now().UTC().Add(-8*24*time.Hour).Format(time.RFC3339Nano))
+`, time.Now().UTC().Add(-15*24*time.Hour).Format(time.RFC3339Nano))
 		agedPath := filepath.Join(diagnosticsDir, "claude-SessionEnd-aged-unknown.json")
 		if err := os.WriteFile(agedPath, []byte(agedUnknown), 0o600); err != nil {
 			t.Fatalf("WriteFile(aged unknown marker) error = %v", err)
