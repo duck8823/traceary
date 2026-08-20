@@ -335,11 +335,114 @@ func TestInspectHookGrokTranscriptDiagnosticsFixFuncDrainsAndGCs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FixFunc(apply) error = %v", err)
 	}
-	if !strings.Contains(fixMessage, "launched=1") {
-		t.Fatalf("fixMessage = %q, want launched=1", fixMessage)
+	// The launcher succeeded but did not finalize the job, so the Action must
+	// not claim a clean drain: the job is still outstanding (#2232).
+	for _, want := range []string{"launched=1", "removed=0", "remaining=1", "failed=0"} {
+		if !strings.Contains(fixMessage, want) {
+			t.Fatalf("fixMessage = %q, want %q", fixMessage, want)
+		}
 	}
 	if len(launched) != 1 {
 		t.Fatalf("launched = %v, want exactly one relaunch", launched)
+	}
+	jobs, _, err := scanHookGrokTranscriptJobs()
+	if err != nil {
+		t.Fatalf("scanHookGrokTranscriptJobs() error = %v", err)
+	}
+	if len(jobs) != 1 {
+		t.Fatalf("jobs = %d, want the launched job to remain on disk", len(jobs))
+	}
+	reinspect := c.inspectHookGrokTranscriptDiagnostics(time.Now().UTC())
+	if reinspect.Status != doctorStatusWarn {
+		t.Fatalf("re-inspect check = %+v, want warning while jobs remain", reinspect)
+	}
+}
+
+func TestInspectHookGrokTranscriptDiagnosticsFixFuncReportsFailedRemainingJobs(t *testing.T) {
+	t.Setenv(hookStateDirEnvKey, t.TempDir())
+	now := time.Now().UTC()
+
+	var paths []string
+	for _, sessionID := range []string{"refail-session-a", "refail-session-b"} {
+		payload := []byte(`{"session_id":"` + sessionID + `","prompt_id":"prompt-1","transcript_path":"/private/transcript/updates.jsonl"}`)
+		path, _, err := enqueueHookGrokTranscript(payload, "", now.Add(-time.Minute))
+		if err != nil {
+			t.Fatalf("enqueueHookGrokTranscript(%s) error = %v", sessionID, err)
+		}
+		paths = append(paths, path)
+	}
+
+	c := &RootCLI{}
+	// Launcher "succeeds" (returns nil) but the worker never finalizes: the
+	// job stays on disk with a bumped attempt count.
+	c.hookGrokTranscriptLauncher = func(path string) error {
+		job, err := readHookGrokTranscriptJob(path)
+		if err != nil {
+			return err
+		}
+		job.Attempts++
+		job.LastAttemptAt = now
+		job.LastError = "transcript remained delayed"
+		return writeHookGrokTranscriptJob(path, job)
+	}
+
+	check := c.inspectHookGrokTranscriptDiagnostics(now)
+	if check.Status != doctorStatusWarn || check.FixFunc == nil {
+		t.Fatalf("check = %+v, want an auto-fixable warning", check)
+	}
+	fixMessage, err := check.FixFunc(context.Background(), false)
+	if err != nil {
+		t.Fatalf("FixFunc(apply) error = %v", err)
+	}
+	for _, want := range []string{"launched=2", "remaining=2", "failed=2"} {
+		if !strings.Contains(fixMessage, want) {
+			t.Fatalf("fixMessage = %q, want %q", fixMessage, want)
+		}
+	}
+	// Failed jobs must not be deleted; they still need operator attention.
+	for _, path := range paths {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("job %q must remain on disk: %v", path, err)
+		}
+	}
+	reinspect := c.inspectHookGrokTranscriptDiagnostics(time.Now().UTC())
+	if reinspect.Status != doctorStatusWarn {
+		t.Fatalf("re-inspect check = %+v, want warning while failed jobs remain", reinspect)
+	}
+}
+
+func TestInspectHookGrokTranscriptDiagnosticsFixFuncPassesWhenDrainEmptiesQueue(t *testing.T) {
+	t.Setenv(hookStateDirEnvKey, t.TempDir())
+	now := time.Now().UTC()
+
+	payload := []byte(`{"session_id":"drain-session","prompt_id":"prompt-1","transcript_path":"/private/transcript/updates.jsonl"}`)
+	if _, _, err := enqueueHookGrokTranscript(payload, "", now.Add(-time.Minute)); err != nil {
+		t.Fatalf("enqueueHookGrokTranscript() error = %v", err)
+	}
+
+	c := &RootCLI{}
+	// Test double for a worker that finalizes immediately: the job file is
+	// gone by the time the post-drain scan runs.
+	c.hookGrokTranscriptLauncher = func(path string) error {
+		return os.Remove(path)
+	}
+
+	check := c.inspectHookGrokTranscriptDiagnostics(now)
+	if check.FixFunc == nil {
+		t.Fatalf("check = %+v, want an auto-fixable check", check)
+	}
+	fixMessage, err := check.FixFunc(context.Background(), false)
+	if err != nil {
+		t.Fatalf("FixFunc(apply) error = %v", err)
+	}
+	for _, want := range []string{"launched=1", "remaining=0", "failed=0"} {
+		if !strings.Contains(fixMessage, want) {
+			t.Fatalf("fixMessage = %q, want %q", fixMessage, want)
+		}
+	}
+	reinspect := c.inspectHookGrokTranscriptDiagnostics(time.Now().UTC())
+	if reinspect.Status != doctorStatusPass {
+		t.Fatalf("re-inspect check = %+v, want pass once the queue is empty", reinspect)
 	}
 }
 
