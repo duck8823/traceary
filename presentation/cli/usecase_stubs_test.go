@@ -495,6 +495,7 @@ func (s *bundleUsecaseStub) Import(_ context.Context, _ usecase.BundleImportOpti
 type memoryUsecaseStub struct {
 	listResult          []apptypes.MemorySummary
 	listErr             error
+	listFunc            func(context.Context, apptypes.MemoryListCriteria) ([]apptypes.MemorySummary, error)
 	staleResult         apptypes.StaleMemoryListResult
 	staleErr            error
 	searchResult        []apptypes.MemorySummary
@@ -673,8 +674,11 @@ func (s *memoryUsecaseStub) SetValidity(_ context.Context, memoryID types.Memory
 	return s.setValidityDetails, s.setValidityErr
 }
 
-func (s *memoryUsecaseStub) List(_ context.Context, criteria apptypes.MemoryListCriteria) ([]apptypes.MemorySummary, error) {
+func (s *memoryUsecaseStub) List(ctx context.Context, criteria apptypes.MemoryListCriteria) ([]apptypes.MemorySummary, error) {
 	s.listCriteria = criteria
+	if s.listFunc != nil {
+		return s.listFunc(ctx, criteria)
+	}
 	return s.listResult, s.listErr
 }
 

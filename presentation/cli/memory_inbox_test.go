@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -684,6 +685,175 @@ func TestMemoryInboxCleanup_DoesNotModifyAcceptedMemories(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "cleanup only modifies memory candidates") {
 		t.Fatalf("accepted safety failure missing from output:\n%s", stdout.String())
+	}
+}
+
+// pagedMemoryListFunc adapts a static summary slice into a List stub that
+// honours criteria Limit/Offset so tests can exercise the quality-filter
+// paging loop (#2210).
+func pagedMemoryListFunc(summaries []apptypes.MemorySummary) func(context.Context, apptypes.MemoryListCriteria) ([]apptypes.MemorySummary, error) {
+	return func(_ context.Context, criteria apptypes.MemoryListCriteria) ([]apptypes.MemorySummary, error) {
+		if criteria.Offset() >= len(summaries) {
+			return nil, nil
+		}
+		end := criteria.Offset() + criteria.Limit()
+		if end > len(summaries) {
+			end = len(summaries)
+		}
+		return summaries[criteria.Offset():end], nil
+	}
+}
+
+// newInboxHygienePagingStub builds the #2210 regression fixture: the first
+// inbox rows are non-hygiene (a remember-intent keep and a manual keep) and
+// the hygiene-matching candidates sit beyond the first --limit page. List
+// honours Limit/Offset, so the quality-filter paging loop must walk past the
+// first page to reach the matches instead of returning 0.
+func newInboxHygienePagingStub(t *testing.T) *memoryInboxRestoreStub {
+	t.Helper()
+	keepRemember := buildInboxCandidateDetails(t, "memory-keep-remember", "prefer table-driven tests", domtypes.MemorySourceRememberIntent)
+	keepManual := buildInboxCandidateDetails(t, "memory-keep-manual", "keep CI green", domtypes.MemorySourceManual)
+	hygiene1 := buildInboxCandidateDetails(t, "memory-hygiene-1", "git status", domtypes.MemorySourceExtracted)
+	hygiene2 := buildInboxCandidateDetails(t, "memory-hygiene-2", "gh pr checks", domtypes.MemorySourceExtracted)
+	hygiene3 := buildInboxCandidateDetails(t, "memory-hygiene-3", "go build ./...", domtypes.MemorySourceExtracted)
+	summaries := []apptypes.MemorySummary{
+		keepRemember.Summary(),
+		keepManual.Summary(),
+		hygiene1.Summary(),
+		hygiene2.Summary(),
+		hygiene3.Summary(),
+	}
+	return &memoryInboxRestoreStub{
+		memoryUsecaseStub: memoryUsecaseStub{
+			listResult: summaries,
+			listFunc:   pagedMemoryListFunc(summaries),
+			showDetailsByID: map[domtypes.MemoryID]apptypes.MemoryDetails{
+				keepRemember.Summary().MemoryID(): keepRemember,
+				keepManual.Summary().MemoryID():   keepManual,
+				hygiene1.Summary().MemoryID():     hygiene1,
+				hygiene2.Summary().MemoryID():     hygiene2,
+				hygiene3.Summary().MemoryID():     hygiene3,
+			},
+			scanResult: apptypes.MemoryHygieneScanResult{
+				LowQualityCandidateCount: 3,
+				Suggestions: []apptypes.MemoryHygieneSuggestion{
+					{MemoryID: hygiene1.Summary().MemoryID(), Kind: apptypes.MemoryHygieneSuggestionLowQualityCandidate},
+					{MemoryID: hygiene2.Summary().MemoryID(), Kind: apptypes.MemoryHygieneSuggestionLowQualityCandidate},
+					{MemoryID: hygiene3.Summary().MemoryID(), Kind: apptypes.MemoryHygieneSuggestionLowQualityCandidate},
+				},
+			},
+		},
+	}
+}
+
+func TestMemoryInboxQualityFilter_PagesPastNonHygieneRows(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		args func(dbPath string) []string
+	}{
+		{
+			name: "cleanup dry-run lists hygiene ids beyond the first page",
+			args: func(dbPath string) []string {
+				return []string{"memory", "inbox", "cleanup", "--quality", "low", "--limit", "2", "--db-path", dbPath}
+			},
+		},
+		{
+			name: "inbox list returns up to limit hygiene hits",
+			args: func(dbPath string) []string {
+				return []string{"memory", "inbox", "list", "--quality", "low", "--limit", "2", "--db-path", dbPath}
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			memoryStub := newInboxHygienePagingStub(t)
+			root := cli.NewRootCLI(
+				cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+				cli.WithMemory(memoryStub),
+			)
+			cmd := root.Command()
+			stdout := &bytes.Buffer{}
+			cmd.SetOut(stdout)
+			cmd.SetErr(&bytes.Buffer{})
+			cmd.SetArgs(tt.args(t.TempDir() + "/t.db"))
+			if err := cmd.Execute(); err != nil {
+				t.Fatalf("execute: %v", err)
+			}
+			if memoryStub.rejectCallCount != 0 {
+				t.Fatalf("no --apply run must not call Reject, got %d call(s)", memoryStub.rejectCallCount)
+			}
+			out := stdout.String()
+			for _, want := range []string{"memory-hygiene-1", "memory-hygiene-2"} {
+				if !strings.Contains(out, want) {
+					t.Fatalf("hygiene id %s missing from quality-filtered output:\n%s", want, out)
+				}
+			}
+			if strings.Contains(out, "memory-hygiene-3") {
+				t.Fatalf("--limit 2 must stop at 2 quality matches:\n%s", out)
+			}
+			for _, keep := range []string{"memory-keep-remember", "memory-keep-manual"} {
+				if strings.Contains(out, keep) {
+					t.Fatalf("non-hygiene row %s leaked into quality-filtered output:\n%s", keep, out)
+				}
+			}
+		})
+	}
+}
+
+func TestMemoryInboxCleanup_ApplyRejectsOnlyHygieneMatchesAndRestoreRecovers(t *testing.T) {
+	t.Parallel()
+
+	memoryStub := newInboxHygienePagingStub(t)
+	rejected1 := buildInboxMemoryDetails(t, "memory-hygiene-1", "git status", domtypes.MemoryStatusRejected, domtypes.MemorySourceExtracted)
+	rejected2 := buildInboxMemoryDetails(t, "memory-hygiene-2", "gh pr checks", domtypes.MemoryStatusRejected, domtypes.MemorySourceExtracted)
+	memoryStub.rejectDetailsByID = map[domtypes.MemoryID]apptypes.MemoryDetails{
+		rejected1.Summary().MemoryID(): rejected1,
+		rejected2.Summary().MemoryID(): rejected2,
+	}
+	root := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(memoryStub),
+	)
+	cmd := root.Command()
+	stdout := &bytes.Buffer{}
+	cmd.SetOut(stdout)
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"memory", "inbox", "cleanup", "--apply", "--quality", "low", "--limit", "2", "--db-path", t.TempDir() + "/t.db"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if memoryStub.rejectCallCount != 2 {
+		t.Fatalf("apply rejected %d candidate(s), want exactly the 2 hygiene matches", memoryStub.rejectCallCount)
+	}
+	out := stdout.String()
+	for _, want := range []string{"memory-hygiene-1", "memory-hygiene-2"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("rejected hygiene id %s missing from output:\n%s", want, out)
+		}
+	}
+	for _, keep := range []string{"memory-keep-remember", "memory-keep-manual"} {
+		if strings.Contains(out, keep) {
+			t.Fatalf("non-hygiene row %s must stay untouched by apply:\n%s", keep, out)
+		}
+	}
+
+	// `memory inbox restore` must still recover one of the rejected ids.
+	restoreCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+		cli.WithMemory(memoryStub),
+	).Command()
+	restoreCmd.SetOut(&bytes.Buffer{})
+	restoreCmd.SetErr(&bytes.Buffer{})
+	restoreCmd.SetArgs([]string{"memory", "inbox", "restore", "--db-path", t.TempDir() + "/t.db", "--ids", "memory-hygiene-1"})
+	if err := restoreCmd.Execute(); err != nil {
+		t.Fatalf("restore execute: %v", err)
+	}
+	if len(memoryStub.restored) != 1 || memoryStub.restored[0].String() != "memory-hygiene-1" {
+		t.Fatalf("restored ids = %v, want [memory-hygiene-1]", memoryStub.restored)
 	}
 }
 
