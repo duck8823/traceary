@@ -423,11 +423,17 @@ func buildGrokDoctorChecks(state grokDoctorState, tracearyVersion string) []doct
 		// file coverage is not capture.
 		hookStatus = doctorStatusWarn
 		hookMessage = Localize("native Traceary Grok plugin hooks are installed but Grok does not dispatch them: inspect lists only user-level hook sources, so no plugin hook route is active", "native Traceary Grok plugin の hook はインストールされていますが Grok が dispatch していません。inspect では user-level の hook source のみが列挙され、plugin の hook 経路は有効ではありません")
-		hookHint = Localize("run grok inspect --json to confirm which hook sources Grok dispatches; a listed plugin is not necessarily an active hook route", "grok inspect --json で Grok が dispatch している hook source を確認してください。一覧にある plugin が有効な hook 経路とは限りません")
+		hookHint = Localize("Grok 1.0.5 executes ~/.grok/hooks command files, not the plugin listing. Install the recording route with: traceary hooks install --client grok --global", "Grok 1.0.5 が実行するのは ~/.grok/hooks の command ファイルであり、plugin の一覧表示ではありません。記録経路は traceary hooks install --client grok --global で導入します")
+		// Hint names the operator command; FixCommand is the same so doctor JSON
+		// consumers can run it without parsing the sentence.
 	case !state.NativeHooks:
 		hookStatus, hookMessage = doctorStatusWarn, Localize("native Grok hook coverage is missing or incomplete", "native Grok hook coverage が不足しています")
 	}
-	checks = append(checks, doctorCheck{Name: "grok-hooks", Status: hookStatus, Message: hookMessage, Hint: hookHint})
+	hooksCheck := doctorCheck{Name: "grok-hooks", Status: hookStatus, Message: hookMessage, Hint: hookHint}
+	if hookStatus == doctorStatusWarn && !state.NativeHooksPresent {
+		hooksCheck.FixCommand = "traceary hooks install --client grok --global"
+	}
+	checks = append(checks, hooksCheck)
 	checks = append(checks, buildGrokUserHooksCheck(state), buildGrokHookRoutesSummary(state))
 	skillStatus := doctorStatusPass
 	skillMessage := Localize("native Grok plugin exposes all four Traceary skills", "native Grok plugin は Traceary skill を4件すべて公開しています")
@@ -460,18 +466,37 @@ func grokUserHooksDisplayPath(path string) string {
 	return path
 }
 
-// buildGrokUserHooksCheck reports the optional user-level hook route. Absent is
-// SKIP (optional when the native plugin is used); present is PASS; invalid is
-// FAIL because Grok cannot load a malformed hooks document from that path.
+// buildGrokUserHooksCheck reports the user-level hook route. Grok 1.0.5
+// executes command hooks from ~/.grok/hooks, not a listed plugin manifest, so
+// a missing user file is WARN when no dispatched plugin-source or project
+// route exists. Absent is SKIP only when another executed Traceary route is
+// already active. Present is PASS; invalid is FAIL because Grok cannot load a
+// malformed hooks document from that path.
 func buildGrokUserHooksCheck(state grokDoctorState) doctorCheck {
 	displayPath := grokUserHooksDisplayPath(state.UserHooksPath)
 	if !state.UserHooks {
+		if !state.NativeHooksPresent && !state.ProjectHooks {
+			return doctorCheck{
+				Name:   "grok-hooks-user",
+				Status: doctorStatusWarn,
+				Message: localizef(
+					"no executed Traceary Grok hook route: Grok 1.0.5 dispatches user-level command hooks at %s, and a listed plugin is not execution",
+					"実行される Traceary Grok hook 経路がありません。Grok 1.0.5 が dispatch するのは user-level の command hook (%s) であり、一覧表示の plugin は実行ではありません",
+					displayPath,
+				),
+				Hint: Localize(
+					"install the recording route with: traceary hooks install --client grok --global",
+					"記録経路は次で導入します: traceary hooks install --client grok --global",
+				),
+				FixCommand: "traceary hooks install --client grok --global",
+			}
+		}
 		return doctorCheck{
 			Name:   "grok-hooks-user",
 			Status: doctorStatusSkip,
 			Message: localizef(
-				"no user-level Grok Traceary hooks at %s (optional when the native plugin or project route is active)",
-				"user-level の Grok Traceary hooks (%s) はありません（native plugin または project route が有効なら任意です）",
+				"no user-level Grok Traceary hooks at %s (optional when a dispatched plugin-source or project route is already active)",
+				"user-level の Grok Traceary hooks (%s) はありません（dispatch 済みの plugin-source または project route が既に有効なら任意です）",
 				displayPath,
 			),
 		}
@@ -486,8 +511,8 @@ func buildGrokUserHooksCheck(state grokDoctorState) doctorCheck {
 				displayPath,
 			),
 			Hint: Localize(
-				"remove or fix ~/.grok/hooks/traceary.json; prefer the native plugin traceary-grok",
-				"~/.grok/hooks/traceary.json を削除または修正してください。native plugin traceary-grok を優先してください",
+				"remove or fix ~/.grok/hooks/traceary.json; keep it when Grok does not dispatch plugin-source command hooks",
+				"~/.grok/hooks/traceary.json を削除または修正してください。Grok が plugin-source の command hook を dispatch しない間は残してください",
 			),
 		}
 	}
@@ -502,11 +527,10 @@ func buildGrokUserHooksCheck(state grokDoctorState) doctorCheck {
 	}
 }
 
-// buildGrokHookRoutesSummary warns when more than one Grok hook route is active.
-// Grok merges every source, so user-level leftovers next to the native plugin
-// (or project route) can fire duplicate handlers — the same class of problem as
-// Antigravity multi-route setups. Native route presence (not verified coverage)
-// counts, because a stale/partial plugin file is still executed by Grok.
+// buildGrokHookRoutesSummary warns when more than one *executed* Grok hook
+// route is active. A listed plugin (hookType=file, event "(plugin)") is not
+// NativeHooksPresent and does not count. User-level leftovers next to a
+// dispatched plugin-source route can fire duplicate Traceary handlers.
 // Diagnosis only; no files are removed.
 func buildGrokHookRoutesSummary(state grokDoctorState) doctorCheck {
 	active := make([]string, 0, 3)
@@ -530,8 +554,8 @@ func buildGrokHookRoutesSummary(state grokDoctorState) doctorCheck {
 				strings.Join(active, ", "),
 			),
 			Hint: localizef(
-				"Retain exactly one Grok hook route. Prefer the native plugin traceary-grok; remove %s if the plugin is installed. Do not copy plugin hooks into the user or project route",
-				"Grok hook 経路は 1 つだけ残してください。native plugin traceary-grok を優先し、plugin を導入済みなら %s を削除してください。plugin hooks を user または project route にコピーしないでください",
+				"Retain exactly one executed Grok hook route. A listed plugin is not an executed route. Remove %s only when grok inspect --json dispatches plugin-source command hooks for traceary-grok",
+				"実行される Grok hook 経路は 1 つだけ残してください。一覧表示の plugin は実行経路ではありません。%s を削除してよいのは grok inspect --json が traceary-grok の plugin-source command hook を dispatch しているときだけです",
 				displayPath,
 			),
 		}

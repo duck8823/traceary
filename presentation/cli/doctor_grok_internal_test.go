@@ -263,6 +263,81 @@ func TestProbeGrokDoctorStateWarnsWhenPluginHooksNotDispatched(t *testing.T) {
 	if !ok || routesCheck.Status != doctorStatusPass || !strings.Contains(routesCheck.Message, "user-level") {
 		t.Fatalf("grok-hooks-routes = %+v, want single user-level route", routesCheck)
 	}
+	if hooksCheck.FixCommand != "traceary hooks install --client grok --global" {
+		t.Fatalf("grok-hooks FixCommand = %q, want user-level install", hooksCheck.FixCommand)
+	}
+	userCheck, ok := byName["grok-hooks-user"]
+	if !ok || userCheck.Status != doctorStatusPass {
+		t.Fatalf("grok-hooks-user = %+v, want PASS for the executed user-level file", userCheck)
+	}
+}
+
+// TestProbeGrokDoctorStateWarnsWhenExecutedRecordingRouteMissing is the
+// operator-visible 1.0.5 gap: plugin listed, inspect dispatches no
+// plugin-source command, and ~/.grok/hooks/traceary.json is absent, so there
+// is no Traceary command on the executed list.
+func TestProbeGrokDoctorStateWarnsWhenExecutedRecordingRouteMissing(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+	originalLookPath, originalOutput, originalHome := grokDoctorLookPath, grokDoctorOutput, currentUserHomeDirFunc()
+	t.Cleanup(func() {
+		grokDoctorLookPath, grokDoctorOutput = originalLookPath, originalOutput
+		storeUserHomeDirFunc(originalHome)
+	})
+
+	home := t.TempDir()
+	storeUserHomeDirFunc(func() (string, error) { return home, nil })
+	grokDoctorLookPath = func(string) (string, error) { return "/usr/local/bin/grok", nil }
+
+	projectDir := t.TempDir()
+	pluginHook := filepath.Join(home, ".grok", "installed-plugins", "grok-plugin-traceary-grok", "hooks", "hooks.json")
+	writeGrokDoctorHookFixture(t, pluginHook, true)
+
+	grokDoctorOutput = func(_ context.Context, args ...string) ([]byte, error) {
+		switch strings.Join(args, " ") {
+		case "--version":
+			return []byte("grok 1.0.5\n"), nil
+		case "plugin list --json":
+			return []byte(`[{"name":"traceary-grok","version":"0.47.0","path":` + strconv.Quote(filepath.Dir(filepath.Dir(pluginHook))) + `}]`), nil
+		case "--cwd " + projectDir + " inspect --json":
+			return []byte(`{"projectTrusted":true,"plugins":[{"name":"traceary-grok","enabled":true,"provides":{"skills":4,"hooks":true,"mcpServers":0}}],"hooks":[` +
+				`{"target":` + strconv.Quote(pluginHook) + `,"hookType":"file","event":"(plugin)","source":{"type":"plugin","plugin_name":"traceary-grok"}}` +
+				`]}`), nil
+		default:
+			t.Fatalf("unexpected Grok arguments: %v", args)
+			return nil, nil
+		}
+	}
+
+	state, err := probeGrokDoctorState(context.Background(), projectDir)
+	if err != nil {
+		t.Fatalf("probeGrokDoctorState() error = %v", err)
+	}
+	if state.UserHooks || state.NativeHooksPresent {
+		t.Fatalf("state = %+v, want listing-only plugin with no user file", state)
+	}
+
+	checks := buildGrokDoctorChecks(state, "0.47.0")
+	byName := map[string]doctorCheck{}
+	for _, check := range checks {
+		byName[check.Name] = check
+		if strings.Contains(check.Message+check.Hint, "/private/") {
+			t.Fatalf("check exposed private path: %+v", check)
+		}
+	}
+	userCheck, ok := byName["grok-hooks-user"]
+	if !ok || userCheck.Status != doctorStatusWarn {
+		t.Fatalf("grok-hooks-user = %+v, want WARN when no executed recording route exists", userCheck)
+	}
+	if userCheck.FixCommand != "traceary hooks install --client grok --global" {
+		t.Fatalf("grok-hooks-user FixCommand = %q", userCheck.FixCommand)
+	}
+	if !strings.Contains(userCheck.Message, "listed plugin is not execution") {
+		t.Fatalf("grok-hooks-user = %+v, want listing vs execution wording", userCheck)
+	}
+	routesCheck, ok := byName["grok-hooks-routes"]
+	if !ok || routesCheck.Status != doctorStatusSkip {
+		t.Fatalf("grok-hooks-routes = %+v, want SKIP with no executed route", routesCheck)
+	}
 }
 
 // TestProbeGrokDoctorStatePassesWhenPluginSourceDispatched keeps the happy
@@ -910,6 +985,12 @@ func TestBuildGrokHookRoutesSummary(t *testing.T) {
 			status:     doctorStatusSkip,
 			messageSub: "no Grok hook route",
 		},
+		{
+			name:       "listing-only plugin plus user is a single executed route",
+			state:      grokDoctorState{PluginInstalled: true, PluginEnabled: true, UserHooks: true, UserHooksPath: "/tmp/home/.grok/hooks/traceary.json"},
+			status:     doctorStatusPass,
+			messageSub: "user-level",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -925,6 +1006,60 @@ func TestBuildGrokHookRoutesSummary(t *testing.T) {
 			}
 			if strings.Contains(check.Message+check.Hint, "/private/") {
 				t.Fatalf("check exposed private path: %+v", check)
+			}
+			if tc.status == doctorStatusWarn && strings.Contains(check.Hint, "if the plugin is installed") {
+				t.Fatalf("duplicate-route hint still tells operators to delete the user file whenever the plugin is installed: %+v", check)
+			}
+		})
+	}
+}
+
+func TestBuildGrokUserHooksCheck(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+	tests := []struct {
+		name       string
+		state      grokDoctorState
+		status     string
+		messageSub string
+		fix        string
+	}{
+		{
+			name:       "missing user file with listing-only plugin warns",
+			state:      grokDoctorState{PluginInstalled: true, PluginEnabled: true},
+			status:     doctorStatusWarn,
+			messageSub: "listed plugin is not execution",
+			fix:        "traceary hooks install --client grok --global",
+		},
+		{
+			name:       "missing user file with dispatched plugin is optional",
+			state:      grokDoctorState{NativeHooksPresent: true},
+			status:     doctorStatusSkip,
+			messageSub: "optional",
+		},
+		{
+			name:       "missing user file with project route is optional",
+			state:      grokDoctorState{ProjectHooks: true},
+			status:     doctorStatusSkip,
+			messageSub: "optional",
+		},
+		{
+			name:       "user file present passes",
+			state:      grokDoctorState{UserHooks: true, UserHooksPath: "/tmp/home/.grok/hooks/traceary.json"},
+			status:     doctorStatusPass,
+			messageSub: "user-level",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			check := buildGrokUserHooksCheck(tc.state)
+			if check.Name != "grok-hooks-user" || check.Status != tc.status {
+				t.Fatalf("check = %+v, want status %s", check, tc.status)
+			}
+			if !strings.Contains(check.Message+check.Hint, tc.messageSub) {
+				t.Fatalf("check = %+v, want substring %q", check, tc.messageSub)
+			}
+			if check.FixCommand != tc.fix {
+				t.Fatalf("FixCommand = %q, want %q", check.FixCommand, tc.fix)
 			}
 		})
 	}
