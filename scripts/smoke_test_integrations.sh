@@ -121,6 +121,11 @@ run_post_upgrade_plugin_refresh() {
   echo 'ok: post-upgrade plugin refresh gate behavior passed'
 }
 
+run_post_upgrade_live_capture() {
+  "${ROOT_DIR}/scripts/test-verify-post-upgrade-live-capture.sh"
+  echo 'ok: post-upgrade live capture gate behavior passed'
+}
+
 case "${TARGET}" in
   all)
     run_claude
@@ -128,6 +133,7 @@ case "${TARGET}" in
     run_gemini
     run_grok
     run_post_upgrade_plugin_refresh
+    run_post_upgrade_live_capture
     ;;
   claude)
     run_claude
@@ -144,8 +150,11 @@ case "${TARGET}" in
   post-upgrade-plugin-refresh)
     run_post_upgrade_plugin_refresh
     ;;
+  post-upgrade-live-capture)
+    run_post_upgrade_live_capture
+    ;;
   *)
-    echo "usage: $0 [all|claude|codex|gemini|grok|post-upgrade-plugin-refresh]" >&2
+    echo "usage: $0 [all|claude|codex|gemini|grok|post-upgrade-plugin-refresh|post-upgrade-live-capture]" >&2
     exit 64
     ;;
 esac
