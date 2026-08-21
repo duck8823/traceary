@@ -11,13 +11,19 @@ usage() {
   cat >&2 <<'EOF'
 usage: scripts/install-grok-plugin.sh [--migrate-local-repo-identity]
 
-Installs the canonical traceary-grok package from this checkout.
+Installs the canonical traceary-grok package from this checkout, then installs
+user-level Grok command hooks (~/.grok/hooks/traceary.json) via
+`traceary hooks install --client grok --global`. Grok Build 1.0.5 executes
+those user-level command files; the plugin listing is not dispatch.
 
 Without the migration flag, the installer never removes a package named
 traceary. If Grok previously installed this checkout without its subdirectory
 selector, it is reported as a local-repository identity conflict instead.
 Review the bounded migration and rerun with --migrate-local-repo-identity to
 remove only that exact checkout-local conflict before installing traceary-grok.
+
+TRACEARY_BIN overrides the traceary CLI used for the user-level hook install.
+The installer never writes cmux-session.json.
 EOF
 }
 
@@ -31,6 +37,27 @@ esac
 command -v grok >/dev/null 2>&1 || {
   echo 'error: grok CLI is not installed' >&2
   exit 69
+}
+
+# Grok 1.0.5 executes ~/.grok/hooks/*.json command files. The native plugin
+# is listing-only on that host, so capture requires this user-level file.
+install_grok_user_command_hooks() {
+  local traceary_bin="${TRACEARY_BIN:-}"
+  if [[ -z "${traceary_bin}" ]]; then
+    if command -v traceary >/dev/null 2>&1; then
+      traceary_bin="$(command -v traceary)"
+    else
+      echo 'note: traceary CLI is not on PATH; after installing the CLI run: traceary hooks install --client grok --global' >&2
+      return 0
+    fi
+  fi
+  local user_hooks="${HOME}/.grok/hooks/traceary.json"
+  if [[ -f "${user_hooks}" ]]; then
+    "${traceary_bin}" hooks install --client grok --global --upgrade
+  else
+    "${traceary_bin}" hooks install --client grok --global
+  fi
+  echo 'installed user-level Grok command hooks at ~/.grok/hooks/traceary.json (Grok 1.0.5 executes this route; plugin listing is not dispatch)'
 }
 
 grok plugin validate "${PLUGIN_DIR}"
@@ -92,3 +119,4 @@ grok plugin install --trust "${PLUGIN_SOURCE}"
 grok plugin details "${PLUGIN_NAME}"
 echo 'installed traceary-grok: 7 native hook boundaries and 4 skills'
 echo 'note: the installer intentionally does not uninstall a legacy plugin named traceary because it may belong to another host'
+install_grok_user_command_hooks

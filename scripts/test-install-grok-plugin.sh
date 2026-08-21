@@ -27,8 +27,19 @@ case "$1 ${2:-} ${3:-}" in
 esac
 SCRIPT
   chmod +x "${bin_dir}/grok"
+  cat >"${bin_dir}/traceary" <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >>"${FAKE_TRACEARY_LOG}"
+exit 0
+SCRIPT
+  chmod +x "${bin_dir}/traceary"
   export PATH="${bin_dir}:${ORIGINAL_PATH}"
   export FAKE_GROK_LOG="${TMP_DIR}/${scenario}.log"
+  export FAKE_TRACEARY_LOG="${TMP_DIR}/${scenario}-traceary.log"
+  export TRACEARY_BIN="${bin_dir}/traceary"
+  export HOME="${TMP_DIR}/${scenario}/home"
+  mkdir -p "${HOME}"
 }
 
 assert_contains() {
@@ -57,6 +68,8 @@ make_fake_grok clean-home
 export FAKE_GROK_LIST='[]'
 "${INSTALLER}"
 assert_contains "plugin install --trust ${ROOT_DIR}#integrations/grok-plugin" "${FAKE_GROK_LOG}"
+assert_contains 'hooks install --client grok --global' "${FAKE_TRACEARY_LOG}"
+assert_not_contains 'cmux-session.json' "${FAKE_TRACEARY_LOG}"
 
 # Invalid host inventory must fail closed before an install or uninstall.
 make_fake_grok invalid-inventory
@@ -105,4 +118,15 @@ export FAKE_GROK_LIST='[{"name":"traceary","repo_key":"marketplace-traceary","so
 assert_not_contains 'plugin uninstall traceary' "${FAKE_GROK_LOG}"
 assert_contains "plugin install --trust ${ROOT_DIR}#integrations/grok-plugin" "${FAKE_GROK_LOG}"
 
-echo 'OK: Grok installer separates package names from local-repository identities'
+# Re-running with an existing user-level file uses --upgrade, not --force.
+make_fake_grok upgrade-user-hooks
+export FAKE_GROK_LIST='[]'
+mkdir -p "${HOME}/.grok/hooks"
+printf '%s\n' '{"hooks":{}}' >"${HOME}/.grok/hooks/traceary.json"
+printf '%s\n' '{"hooks":{}}' >"${HOME}/.grok/hooks/cmux-session.json"
+"${INSTALLER}"
+assert_contains 'hooks install --client grok --global --upgrade' "${FAKE_TRACEARY_LOG}"
+assert_not_contains 'cmux-session.json' "${FAKE_TRACEARY_LOG}"
+test -f "${HOME}/.grok/hooks/cmux-session.json"
+
+echo 'OK: Grok installer separates package names from local-repository identities and installs user-level command hooks'
