@@ -55,7 +55,7 @@ Tagged releases publish Claude Code and Codex packages versioned in-repo and tra
 
 As of v0.21.1, Traceary ships an Antigravity plugin package (`integrations/antigravity-plugin/`) against the documented public Antigravity hook/plugin surface. Install the hooks with `traceary hooks install --client antigravity` (workspace `.agents/hooks.json`) or `--global` (`~/.gemini/config/hooks.json`). See the [Antigravity hooks and plugin guide](../integrations/antigravity.md).
 
-As of v0.23.0, Traceary also ships a native Grok Build package (`integrations/grok-plugin/`) with the declared lifecycle hooks and shared memory/session skills. The declaration is the ceiling: Grok Build 1.0.5 does not dispatch plugin-provided hooks, so live capture on the current host is zero until a host release dispatches plugin hooks again (see [host coverage](../hooks/host-coverage.md)). Install the package from a checkout of the matching release tag with `scripts/install-grok-plugin.sh`, then verify it with `traceary doctor --client grok`. See the [Grok Build plugin guide](../integrations/grok-plugin.md).
+As of v0.23.0, Traceary also ships a native Grok Build package (`integrations/grok-plugin/`) with the declared lifecycle hooks and shared memory/session skills. Grok Build 1.0.5 does not dispatch plugin-provided hooks; live capture uses `~/.grok/hooks/traceary.json` (`traceary hooks install --client grok --global`, also run by `scripts/install-grok-plugin.sh`). See [host coverage](../hooks/host-coverage.md) and the [Grok Build plugin guide](../integrations/grok-plugin.md).
 
 See the [native integrations guide](../integrations/README.md) for the host-specific install flows.
 

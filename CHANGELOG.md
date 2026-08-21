@@ -7,6 +7,9 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ## [Unreleased]
 
+### Fixed
+- **Grok 1.0.5 records through user-level command hooks (#2252)** — `scripts/install-grok-plugin.sh` now also runs `traceary hooks install --client grok --global` so `~/.grok/hooks/traceary.json` sits on the route Grok actually executes (`hookType=command`). A listed plugin (`hookType=file`, event `(plugin)`) is not capture. `grok-hooks-user` WARNs when that file is missing and no dispatched plugin-source or project route exists; `grok-hooks-routes` no longer tells operators to delete the user file while the plugin is listing-only. Leaves parent #2251 open.
+
 ## [v0.47.0] - 2026-08-21
 
 ### Fixed
