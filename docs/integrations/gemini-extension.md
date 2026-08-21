@@ -182,7 +182,7 @@ Traceary hooks installed:
 PROBE_DIR="$(mktemp -d)"
 cd <your project with Traceary hooks>
 TRACEARY_DB_PATH="$PROBE_DIR/probe.db" gemini -p "Reply with the single word ok." --approval-mode plan
-TRACEARY_DB_PATH="$PROBE_DIR/probe.db" traceary list events --limit 10
+TRACEARY_DB_PATH="$PROBE_DIR/probe.db" traceary list --limit 10
 ```
 
 Interpret the result:

@@ -151,7 +151,7 @@ hook を導入済みの project から、使い捨て store への dogfood 観�
 PROBE_DIR="$(mktemp -d)"
 cd <Traceary hook を導入した project>
 TRACEARY_DB_PATH="$PROBE_DIR/probe.db" gemini -p "Reply with the single word ok." --approval-mode plan
-TRACEARY_DB_PATH="$PROBE_DIR/probe.db" traceary list events --limit 10
+TRACEARY_DB_PATH="$PROBE_DIR/probe.db" traceary list --limit 10
 ```
 
 結果の見方:
