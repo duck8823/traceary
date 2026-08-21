@@ -4,9 +4,10 @@
 
 Traceary v0.23.0 は Grok Build をネイティブにサポートします。
 [`integrations/grok-plugin/`](../../integrations/grok-plugin/) のパッケージは、
-検証済みのライフサイクル hook 7件、ローカルの Traceary CLI 1件、
-共有 skill 4 件（[skills](./skills.ja.md)）を導入します。hook 由来のイベントは
-`client=hook`、`agent=grok` として記録します。
+lifecycle hook 7 件を宣言します（0.2.99/0.2.101 で live 検証済み。現行の
+1.0.5 host は plugin hook を dispatch しません — 後述の注意点参照）。また
+ローカルの Traceary CLI 1 件、共有 skill 4 件（[skills](./skills.ja.md)）を導入します。
+hook 由来のイベントは `client=hook`、`agent=grok` として記録します。
 
 ## 対応範囲
 

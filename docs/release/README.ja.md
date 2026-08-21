@@ -55,7 +55,7 @@ GitHub Releases から自分の platform に合う archive を取得し、展開
 
 v0.21.1 以降、Traceary は文書化された公開 Antigravity hook/plugin surface に対する Antigravity plugin package（`integrations/antigravity-plugin/`）を提供します。hook の導入は `traceary hooks install --client antigravity`（workspace は `.agents/hooks.json`）または `--global`（`~/.gemini/config/hooks.json`）で行います。詳細は [Antigravity hooks / plugin ガイド](../integrations/antigravity.ja.md) を参照してください。
 
-v0.23.0 以降、検証済み lifecycle hook と共有 memory/session skill を含む Grok Build のネイティブパッケージ（`integrations/grok-plugin/`）も提供します。同じ release tag の checkout から `scripts/install-grok-plugin.sh` で導入し、`traceary doctor --client grok` で確認してください。詳細は [Grok Build plugin ガイド](../integrations/grok-plugin.ja.md) を参照してください。
+v0.23.0 以降、宣言された lifecycle hook と共有 memory/session skill を含む Grok Build のネイティブパッケージ（`integrations/grok-plugin/`）も提供します。宣言が上限です: Grok Build 1.0.5 は plugin 由来 hook を dispatch しないため、plugin hook を dispatch する host リリースが出るまで現行 host での live capture は 0 件です（[host カバレッジ](../hooks/host-coverage.ja.md) 参照）。同じ release tag の checkout から `scripts/install-grok-plugin.sh` で導入し、`traceary doctor --client grok` で確認してください。詳細は [Grok Build plugin ガイド](../integrations/grok-plugin.ja.md) を参照してください。
 
 host ごとの install 手順は [ネイティブ連携ガイド](../integrations/README.ja.md) を参照してください。
 

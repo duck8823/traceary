@@ -41,7 +41,7 @@
   - `command`: `tool_input.command`（Bash 等にある場合）
   - `input`: `tool_input` の compact JSON
   - `output`: `tool_response` の compact JSON、失敗時は `{error, is_interrupt}`
-- 失敗検出は exit code ベースではなく構造的: どの host も post-tool payload に数値 exit code を出さないため、失敗形状の payload から監査を `failed` とマークする — Claude の `PostToolUseFailure`（トップレベル `error`）と Gemini の `tool_response.error`（spawn エラーのみ）。`traceary list events` の `failures_only` はこのフラグを対象にする。Codex は構造化された失敗信号を出さないため、失敗した実行はフラグなし監査として記録される。
+- 失敗検出は exit code ベースではなく構造的: どの host も post-tool payload に数値 exit code を出さないため、失敗形状の payload から監査を `failed` とマークする — Claude の `PostToolUseFailure`（トップレベル `error`）と Gemini の `tool_response.error`（spawn エラーのみ）。`traceary list --failures` はこのフラグを対象にする。Codex は構造化された失敗信号を出さないため、失敗した実行はフラグなし監査として記録される。
 - 通常セッションで最も件数が多いイベント。検索 / timeline はほぼここを触る。
 
 ### `transcript`
