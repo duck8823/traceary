@@ -41,7 +41,7 @@ All event bodies pass through built-in secret redaction plus operator-configured
   - `command`: `tool_input.command` when present (Bash etc.)
   - `input`: compact JSON of `tool_input`
   - `output`: compact JSON of `tool_response`, or `{error, is_interrupt}` for failure payloads
-- Failure detection is structural, not exit-code based: no host puts a numeric exit code in the post-tool payload, so Traceary marks an audit `failed` from the failure-shaped payload — Claude's `PostToolUseFailure` (top-level `error`) and Gemini's `tool_response.error` (spawn errors only). `failures_only` in `traceary list events` matches that flag. Codex exposes no structured failure signal, so its failed runs are recorded as unflagged audits.
+- Failure detection is structural, not exit-code based: no host puts a numeric exit code in the post-tool payload, so Traceary marks an audit `failed` from the failure-shaped payload — Claude's `PostToolUseFailure` (top-level `error`) and Gemini's `tool_response.error` (spawn errors only). `traceary list --failures` matches that flag. Codex exposes no structured failure signal, so its failed runs are recorded as unflagged audits.
 - This is the highest-volume event kind in a typical session — most search / timeline queries touch it.
 
 ### `transcript`

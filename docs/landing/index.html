@@ -239,7 +239,7 @@ traceary search boom --json</pre>
             <td class="host">Gemini CLI <span style="font-size:0.75em;opacity:0.6;">(legacy)</span></td>
             <td>SessionStart + End</td>
             <td>Tool hooks</td>
-            <td>BeforeAgent</td>
+            <td>BeforeAgent (account-gated)</td>
             <td>PreCompress marker</td>
             <td><span class="tier basic">BASIC</span></td>
           </tr>
@@ -253,23 +253,23 @@ traceary search boom --json</pre>
           </tr>
           <tr>
             <td class="host">Grok Build</td>
-            <td>SessionStart + Stop</td>
-            <td>Pre/PostToolUse</td>
-            <td><span class="check">●</span></td>
-            <td>Pre/PostCompact markers</td>
-            <td><span class="tier partial">PARTIAL</span></td>
+            <td>SessionStart wired; 1.0.5 dispatches no plugin hooks</td>
+            <td>Pre/PostToolUse wired; not dispatched on 1.0.5</td>
+            <td><span class="dash">○</span> wired, not dispatched</td>
+            <td>Pre/PostCompact markers wired; not dispatched on 1.0.5</td>
+            <td><span class="tier basic">AVAILABLE</span></td>
           </tr>
           <tr>
             <td class="host">Kimi Code</td>
-            <td>SessionStart + End</td>
-            <td>PostToolUse</td>
+            <td>SessionStart; SessionEnd not dispatched on 0.38.0 <code>-p</code></td>
+            <td>PostToolUse + failure</td>
             <td><span class="check">●</span></td>
             <td>Pre/PostCompact markers</td>
             <td><span class="tier partial">PARTIAL</span></td>
           </tr>
         </tbody>
       </table>
-      <p style="margin-top:0.75rem;font-size:0.85rem;opacity:0.6;">Gemini CLI details are legacy compatibility for existing installs. Grok <code>Stop</code> is a turn boundary (no SessionEnd). Compact cells are markers unless the host exposes a summary body. See the hook coverage matrix.</p>
+      <p style="margin-top:0.75rem;font-size:0.85rem;opacity:0.6;">Gemini CLI details are legacy compatibility for existing installs; prompt capture is wired but gated by Google account eligibility (<code>IneligibleTierError</code> observed 2026-08-21). Grok Build 1.0.5 does not dispatch plugin-provided hooks (last live capture 0.2.99/0.2.101). Grok and Kimi <code>Stop</code> are turn boundaries, and Kimi 0.38.0 <code>-p</code> does not dispatch SessionEnd; un-ended sessions close via <code>traceary session end</code> or stale GC. Compact cells are markers unless the host exposes a summary body. See the hook coverage matrix.</p>
     </div>
   </section>
 

@@ -9,43 +9,43 @@
     {
       "id": "session_started",
       "verification": {
-        "en": "`traceary list events --kind session_started --limit 5`",
-        "ja": "`traceary list events --kind session_started --limit 5`"
+        "en": "`traceary list --kind session_started --limit 5`",
+        "ja": "`traceary list --kind session_started --limit 5`"
       }
     },
     {
       "id": "prompt",
       "verification": {
-        "en": "`traceary list events --kind prompt --limit 5`",
-        "ja": "`traceary list events --kind prompt --limit 5`"
+        "en": "`traceary list --kind prompt --limit 5`",
+        "ja": "`traceary list --kind prompt --limit 5`"
       }
     },
     {
       "id": "command_executed",
       "verification": {
-        "en": "`traceary list events --kind command_executed --limit 5`",
-        "ja": "`traceary list events --kind command_executed --limit 5`"
+        "en": "`traceary list --kind command_executed --limit 5`",
+        "ja": "`traceary list --kind command_executed --limit 5`"
       }
     },
     {
       "id": "transcript",
       "verification": {
-        "en": "`traceary list events --kind transcript --limit 5`",
-        "ja": "`traceary list events --kind transcript --limit 5`"
+        "en": "`traceary list --kind transcript --limit 5`",
+        "ja": "`traceary list --kind transcript --limit 5`"
       }
     },
     {
       "id": "compact_summary",
       "verification": {
-        "en": "`traceary list events --kind compact_summary --limit 5`",
-        "ja": "`traceary list events --kind compact_summary --limit 5`"
+        "en": "`traceary list --kind compact_summary --limit 5`",
+        "ja": "`traceary list --kind compact_summary --limit 5`"
       }
     },
     {
       "id": "session_ended",
       "verification": {
-        "en": "`traceary list events --kind session_ended --limit 5`",
-        "ja": "`traceary list events --kind session_ended --limit 5`"
+        "en": "`traceary list --kind session_ended --limit 5`",
+        "ja": "`traceary list --kind session_ended --limit 5`"
       }
     }
   ],

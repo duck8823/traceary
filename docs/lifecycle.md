@@ -20,7 +20,7 @@ SessionStart → [UserPromptSubmit → PostToolUse]* → (PreCompact → PostCom
 | PostToolUse | `Bash` | `command_executed` | Shell command with input/output |
 | PostToolUse | `mcp__.*` | `command_executed` | MCP tool invocation |
 | PostToolUse | built-in tools | `command_executed` | File I/O / search / agent / web / plan-mode exit (`Read`, `NotebookRead`, `Edit`, `MultiEdit`, `Write`, `NotebookEdit`, `Grep`, `Glob`, `Agent`, `Task`, `TodoWrite`, `WebFetch`, `WebSearch`, `ExitPlanMode`). Added in v0.8-6; expanded in v0.8-6b. |
-| PostToolUseFailure | `Bash`, `mcp__.*`, built-in tools | `command_executed` | Failed tool execution (filterable via `failures_only`) |
+| PostToolUseFailure | `Bash`, `mcp__.*`, built-in tools | `command_executed` | Failed tool execution (filterable via `traceary list --failures`) |
 | PostCompact | `*` | `compact_summary` | Structured summary on context compression |
 | Stop | `*` | `transcript` | Last assistant text blocks (reasoning) from the stop-hook `transcript_path` |
 | SessionEnd | `*` | `session_ended` | Session end |

@@ -3,8 +3,9 @@
 [日本語](./kimi.ja.md)
 
 Traceary v0.29.0 adds a native Kimi Code integration. The package under
-[`integrations/kimi-plugin/`](../../integrations/kimi-plugin/) installs ten
-live-verified lifecycle hooks, one local Traceary CLI, and the three
+[`integrations/kimi-plugin/`](../../integrations/kimi-plugin/) declares ten
+lifecycle hooks (live-verified on 0.27.0; on 0.38.0 `-p` SessionEnd is not
+dispatched — see the table below), one local Traceary CLI, and the three
 four shared skills (see [skills](./skills.md)) through a single `kimi.plugin.json` manifest.
 Recorded hook events use `client=hook` and `agent=kimi`.
 

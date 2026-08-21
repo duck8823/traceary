@@ -12,6 +12,9 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 - **Leftover Claude `--scope local` installs get an operator-guided FixCommand (#2236)** — the `claude-plugin-local-leftovers` WARN now prints `traceary doctor --fix --dry-run --client claude`; the dry-run lists every leftover path and apply is a print-only no-op. Claude's inventory is still never rewritten, and user-scope / marketplace installs are untouched. Leaves parent #2230 open.
 - **Codex `codex exec` probes documented as requiring a trusted git directory (#2238)** — docs now name the exact host error ("Not inside a trusted directory and --skip-git-repo-check was not specified.") and the working probe shape: `-C <git-root>` with a throwaway `TRACEARY_DB_PATH`, no `--skip-git-repo-check` or `-a never`. The smoke runtime probe keeps its git-root `-C` and now isolates hook writes in a throwaway store; `session_ended` is still never synthesized for Codex. Leaves parent #2230 open.
 
+### Docs
+- **Markdown and landing HTML aligned with the current CLI and the 2026-08-21 probes (#2239)** — verification commands are `traceary list --kind …` / `--failures` (no `list events` subcommand); the host-coverage matrix Verification column regenerates from `matrix.json`; Grok/Kimi probe notes say plugin 0.46.0; the landing matrix marks Grok 1.0.5 cells available (no plugin-hook dispatch) and drops unobserved SessionEnd claims for Kimi; integration guides call the Grok/Kimi hook sets declared, not live-verified, and `doctor --fix` spool drain is documented as 200-record rounds under the shared 45s wall. No runtime or doctor behavior changed. Leaves parent #2230 open.
+
 ## [v0.46.0] - 2026-08-21
 
 ### Fixed
