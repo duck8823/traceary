@@ -7,6 +7,9 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 
 ## [Unreleased]
 
+### Fixed
+- **Grok 1.0.5 は user-level command hook で記録する (#2252)** — `scripts/install-grok-plugin.sh` が `traceary hooks install --client grok --global` も実行し、Grok が実際に spawn する経路（`hookType=command`）へ `~/.grok/hooks/traceary.json` を置く。一覧表示の plugin（`hookType=file`、event `(plugin)`）は capture ではない。dispatch 済み plugin-source / project が無く user ファイルが無いとき `grok-hooks-user` は WARN。plugin が listing のみの間、`grok-hooks-routes` は user ファイル削除を案内しない。親 #2251 は open のまま。
+
 ## [v0.47.0] - 2026-08-21
 
 ### Fixed

@@ -15,13 +15,14 @@ The lifecycle package targets the live-verified Grok Build 0.2.99 hook
 contract. Usage capture additionally pins the Grok Build 0.2.106 headless
 terminal contract.
 
-> **Grok Build 1.0.5 caveat (probed 2026-08-21):** on Grok Build 1.0.5 the host
-> discovers and enables the plugin but never dispatches plugin-provided hooks —
-> verified in both headless `grok -p` and a short TUI session against an
-> isolated store, which recorded zero events. The table below describes the
-> contract as wired and last live-verified on 0.2.99/0.2.101; expect no
-> `agent=grok` events on 1.0.5 until a Grok Build release dispatches plugin
-> hooks again. See [host coverage](../hooks/host-coverage.md).
+> **Grok Build 1.0.5 recording route:** on Grok Build 1.0.5 the host
+> discovers and enables the plugin but does **not** dispatch plugin-provided
+> hooks (`inspect --json` lists them as `hookType=file`, event `(plugin)`).
+> The host **does** execute `hookType=command` files from `~/.grok/hooks/`.
+> Install that recording route with `traceary hooks install --client grok
+> --global` (the plugin installer now does this). Do not delete
+> `~/.grok/hooks/traceary.json` while inspect still shows the plugin as a
+> listing. See [host coverage](../hooks/host-coverage.md).
 
 | Grok event | Traceary behavior |
 | --- | --- |
@@ -141,42 +142,49 @@ traceary doctor --client grok --project-dir . --json
 ```
 
 A healthy installation reports `pass` for `grok-cli`, `grok-plugin`,
-`grok-hook-trust`, `grok-hooks`, and `grok-skills`. The separate
-`grok-event-coverage` check evaluates recent database evidence. With fewer
-than three recent sessions it reports that coverage is not judged yet rather
-than claiming a false pass.
+`grok-hook-trust`, and `grok-skills`. On 1.0.5 `grok-hooks` stays WARN
+(plugin listing is not dispatch) and `grok-hooks-user` must be `pass` — that
+user-level file is the recording route. The separate `grok-event-coverage`
+check evaluates recent database evidence. With fewer than three recent
+sessions it reports that coverage is not judged yet rather than claiming a
+false pass.
 
 ## Project and user hook routes
 
-The native plugin is the recommended route because it wires hooks and
-skills together. Traceary can also install hooks only:
+On Grok Build 1.0.5 the **user-level command file** is the recording route.
+The native plugin still ships skills and the declared hook file for hosts
+that dispatch plugin hooks. Keep both until inspect shows plugin-source
+`hookType=command` entries for `traceary-grok`.
 
 ```sh
+# recording route on 1.0.5: ~/.grok/hooks/traceary.json
+traceary hooks install --client grok --global
+
 # project route: <project>/.grok/hooks/traceary.json
 traceary hooks install --client grok --project-dir .
-
-# user route: ~/.grok/hooks/traceary.json
-traceary hooks install --client grok --global
 ```
 
-Grok merges hooks from every source. Keep **exactly one** route active:
+`scripts/install-grok-plugin.sh` installs the plugin **and** the user-level
+recording route. It does not write `cmux-session.json`.
 
-- Prefer the native plugin `traceary-grok` when you also want skills.
-- Use the project or user hook-only route only when you intentionally skip the
-  plugin.
-- Do not leave a leftover user file after installing the plugin, and do not
-  copy plugin hooks into the project or user route as a fallback. Duplicate
-  routes can record the same event twice (including an older user file with a
-  stale timeout).
+Keep **exactly one executed** Traceary route:
+
+- A listed plugin (`hookType=file`, event `(plugin)`) is not an executed route.
+- On 1.0.5, keep `~/.grok/hooks/traceary.json`. Deleting it after installing
+  the plugin is what produced zero live capture in v0.47.0 dogfood.
+- Remove the user file only when `grok inspect --json` dispatches
+  plugin-source **command** hooks for `traceary-grok`. Two executed Traceary
+  routes can record the same event twice.
 
 `traceary doctor --client grok` reports:
 
 - `grok-hooks` — native plugin hook coverage
-- `grok-hooks-user` — optional user-level file at `~/.grok/hooks/traceary.json`
-  (`pass` when present, `skip` when absent)
-- `grok-hooks-routes` — warns when more than one of native / project / user is
-  active, and names `~/.grok/hooks/traceary.json` in the hint when the user
-  route is involved
+- `grok-hooks-user` — user-level file at `~/.grok/hooks/traceary.json`.
+  `pass` when present; `warn` when absent and no dispatched plugin-source or
+  project route exists (1.0.5 recording gap); `skip` only when another
+  executed Traceary route is already active
+- `grok-hooks-routes` — warns when more than one **executed** route is active
+  (dispatched plugin-source, project, user). A listed plugin does not count.
 
 Grok treats project hooks as a separate trust boundary. When the project route
 is intentional, inspect the file and use Grok's `/hooks-trust` flow in that
@@ -242,9 +250,10 @@ removed separately if they were installed.
 | `grok-plugin` fails | `grok plugin list --json` reports a `source` that is a local path which no longer exists on disk; the cached version does not prove the plugin can load. Reinstall with `scripts/install-grok-plugin.sh` (remote git URL sources are never treated as missing) |
 | `grok-plugin-resolution` warns | Grok resolved a non-native path class, a same-name legacy package, or a local-repository identity. For a local-repository identity, review `grok plugin list --json` and run `scripts/install-grok-plugin.sh --migrate-local-repo-identity` from that checkout; otherwise run the normal installer and confirm `traceary-grok` is the enabled route. Doctor reads only inventory metadata. |
 | `grok-hook-trust` warns | Review the project hook file and use `/hooks-trust`, or remove the unused project route |
-| `grok-hooks` warns | The installed hook file is missing or has drifted from the exact seven-event contract; reinstall the plugin |
+| `grok-hooks` warns | The plugin is listing-only on this host, or the hook file drifted from the seven-event contract. On 1.0.5 the recording route is `traceary hooks install --client grok --global`. |
+| `grok-hooks-user` warns | No executed Traceary route. On 1.0.5 run `traceary hooks install --client grok --global`. A listed plugin is not execution. |
 | `grok-hooks-user` fails | `~/.grok/hooks/traceary.json` exists but is unreadable or not valid JSON; fix or remove it |
-| `grok-hooks-routes` warns | More than one of native plugin, project, and user-level routes is active. Retain exactly one; prefer `traceary-grok` and remove `~/.grok/hooks/traceary.json` if the plugin is installed |
+| `grok-hooks-routes` warns | More than one **executed** route is active (dispatched plugin-source command hooks plus user or project). Retain exactly one executed route. Do not delete the user file while the plugin is listing-only. |
 | `grok-skills` warns | The installed package inventory is incomplete; reinstall it |
 | `grok-event-coverage` warns | Inspect recent `agent=grok` events and pending hook/transcript queues; a healthy install alone does not prove runtime delivery |
 

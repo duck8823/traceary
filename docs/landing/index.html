@@ -253,11 +253,11 @@ traceary search boom --json</pre>
           </tr>
           <tr>
             <td class="host">Grok Build</td>
-            <td>SessionStart wired; 1.0.5 dispatches no plugin hooks</td>
-            <td>Pre/PostToolUse wired; not dispatched on 1.0.5</td>
-            <td><span class="dash">○</span> wired, not dispatched</td>
-            <td>Pre/PostCompact markers wired; not dispatched on 1.0.5</td>
-            <td><span class="tier basic">AVAILABLE</span></td>
+            <td>SessionStart via user-level hooks on 1.0.5</td>
+            <td>PostToolUse via user-level hooks on 1.0.5</td>
+            <td><span class="check">●</span> user-level command hooks</td>
+            <td>Pre/PostCompact in the user file; not in the 1.0.5 `-p` probe</td>
+            <td><span class="tier partial">PARTIAL</span></td>
           </tr>
           <tr>
             <td class="host">Kimi Code</td>
@@ -269,7 +269,7 @@ traceary search boom --json</pre>
           </tr>
         </tbody>
       </table>
-      <p style="margin-top:0.75rem;font-size:0.85rem;opacity:0.6;">Gemini CLI details are legacy compatibility for existing installs; prompt capture is wired but gated by Google account eligibility (<code>IneligibleTierError</code> observed 2026-08-21). Grok Build 1.0.5 does not dispatch plugin-provided hooks (last live capture 0.2.99/0.2.101). Grok and Kimi <code>Stop</code> are turn boundaries, and Kimi 0.38.0 <code>-p</code> does not dispatch SessionEnd; un-ended sessions close via <code>traceary session end</code> or stale GC. Compact cells are markers unless the host exposes a summary body. See the hook coverage matrix.</p>
+      <p style="margin-top:0.75rem;font-size:0.85rem;opacity:0.6;">Gemini CLI details are legacy compatibility for existing installs; prompt capture is wired but gated by Google account eligibility (<code>IneligibleTierError</code> observed 2026-08-21). Grok Build 1.0.5 records via user-level <code>~/.grok/hooks/traceary.json</code> (the plugin is listing-only). Grok and Kimi <code>Stop</code> are turn boundaries, and Kimi 0.38.0 <code>-p</code> does not dispatch SessionEnd; un-ended sessions close via <code>traceary session end</code> or stale GC. Compact cells are markers unless the host exposes a summary body. See the hook coverage matrix.</p>
     </div>
   </section>
 

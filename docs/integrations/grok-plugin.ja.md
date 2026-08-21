@@ -14,12 +14,13 @@ hook 由来のイベントは `client=hook`、`agent=grok` として記録しま
 ライフサイクル用パッケージは、Grok Build 0.2.99 で実際に確認した hook 契約を
 対象にします。usage 取得は、Grok Build 0.2.106 の headless 終端契約にも固定します。
 
-> **Grok Build 1.0.5 の注意点（2026-08-21 probe）:** Grok Build 1.0.5 では host が
-> plugin を discover・enable するものの、plugin 由来 hook を一度も dispatch しません。
-> headless `grok -p` と短い TUI セッションの両方を隔離 store で検証し、記録 event は
-> 0 件でした。下表は 0.2.99/0.2.101 で live 検証済みの配線済み契約を示すものであり、
-> plugin hook を dispatch する Grok Build リリースが出るまで 1.0.5 では `agent=grok`
-> の event は記録されません。[host カバレッジ](../hooks/host-coverage.ja.md) を参照してください。
+> **Grok Build 1.0.5 の記録経路:** Grok Build 1.0.5 では host が plugin を
+> discover・enable しますが、plugin 由来 hook は dispatch しません
+> (`inspect --json` では `hookType=file`、event `(plugin)`)。host が実行するのは
+> `~/.grok/hooks/` の `hookType=command` ファイルです。記録経路は
+> `traceary hooks install --client grok --global`（plugin installer がこれを実行します）。
+> inspect が plugin を listing のまま示す間は `~/.grok/hooks/traceary.json` を
+> 削除しないでください。[host カバレッジ](../hooks/host-coverage.ja.md) を参照してください。
 
 | Grok event | Traceary の処理 |
 | --- | --- |
@@ -134,38 +135,46 @@ operator の credentials / browser state には触れません。
 traceary doctor --client grok --project-dir . --json
 ```
 
-正常な導入では `grok-cli`、`grok-plugin`、`grok-hook-trust`、`grok-hooks`、
-`grok-skills` が `pass` になります。`grok-event-coverage` は直近 DB
-証拠を評価し、セッションが3件未満なら誤 pass せず「まだ判定しない」と報告します。
+正常な導入では `grok-cli`、`grok-plugin`、`grok-hook-trust`、`grok-skills` が
+`pass` になります。1.0.5 では plugin が listing のみのため `grok-hooks` は
+WARN のまま、`grok-hooks-user` が PASS であることが記録経路の健全さです。
+`grok-event-coverage` は直近 DB 証拠を評価し、セッションが3件未満なら誤 pass
+せず「まだ判定しない」と報告します。
 
 ## プロジェクト / user hook 経路
 
-hook と skill をまとめて配線できるため、ネイティブ plugin を推奨します。
-hook だけを導入することもできます。
+Grok Build 1.0.5 では **user-level の command ファイルが記録経路**です。
+native plugin は skill と、plugin hook を dispatch する host 向けの宣言を残します。
+inspect が `traceary-grok` の plugin-source `hookType=command` を示すまで両方を残します。
 
 ```sh
+# 1.0.5 の記録経路: ~/.grok/hooks/traceary.json
+traceary hooks install --client grok --global
+
 # project route: <project>/.grok/hooks/traceary.json
 traceary hooks install --client grok --project-dir .
-
-# user route: ~/.grok/hooks/traceary.json
-traceary hooks install --client grok --global
 ```
 
-Grok はすべての source の hook をマージします。**有効な経路は 1 つだけ**にしてください。
+`scripts/install-grok-plugin.sh` は plugin **と** user-level の記録経路を導入します。
+`cmux-session.json` は書きません。
 
-- skill も使う場合は native plugin `traceary-grok` を優先する
-- plugin を使わないときだけ project または user の hook-only 経路を使う
-- plugin 導入後に user ファイルを残さない。plugin hooks を project / user route に
-  コピーして代替しない。経路が重複すると同じイベントを二重に記録する可能性があり、
-  古い user ファイルの stale timeout が優先されることもある
+**実行される** Traceary 経路は 1 つだけにしてください。
+
+- 一覧表示の plugin（`hookType=file`、event `(plugin)`）は実行経路ではない
+- 1.0.5 では `~/.grok/hooks/traceary.json` を残す。plugin 導入後に消すと
+  v0.47.0 dogfood と同じく live capture が 0 件になる
+- user ファイルを削除してよいのは `grok inspect --json` が `traceary-grok` の
+  plugin-source **command** hook を dispatch しているときだけ。実行経路が
+  2 つあると同じイベントを二重記録する
 
 `traceary doctor --client grok` は次を報告します。
 
-- `grok-hooks` — native plugin の hook coverage
-- `grok-hooks-user` — 任意の user-level ファイル `~/.grok/hooks/traceary.json`
-  （存在すれば `pass`、なければ `skip`）
-- `grok-hooks-routes` — native / project / user のうち 2 つ以上が有効なとき警告し、
-  user route が関与する場合はヒントに `~/.grok/hooks/traceary.json` を示す
+- `grok-hooks` — native plugin の hook coverage（listing のみなら WARN）
+- `grok-hooks-user` — user-level ファイル `~/.grok/hooks/traceary.json`。
+  存在すれば `pass`。dispatch 済み plugin-source / project が無く欠けると `warn`
+  （1.0.5 の記録ギャップ）。別の実行経路があるときだけ `skip`
+- `grok-hooks-routes` — **実行される**経路が 2 つ以上のとき警告する。
+  listing のみの plugin は数えない
 
 Grok は project hook を独立した trust 境界として扱います。project route を使う場合は
 ファイル内容を確認し、そのプロジェクトで Grok の `/hooks-trust` を実行してください。
@@ -225,9 +234,10 @@ pass であることを確認してください。
 | `grok-plugin` が失敗 | `grok plugin list --json` の `source` がローカルパスで、そのパスがディスク上に存在しません。cache 上の version は plugin を読み込める証明になりません。`scripts/install-grok-plugin.sh` で再導入してください（remote の git URL source は missing とみなしません） |
 | `grok-plugin-resolution` が警告 | Grok が native 以外の path class、同名の legacy package、または local-repository identity を解決しています。local-repository identity の場合は `grok plugin list --json` を確認し、その checkout で `scripts/install-grok-plugin.sh --migrate-local-repo-identity` を実行してください。それ以外は通常の installer を実行し、`traceary-grok` が有効 route になったことを確認してください。doctor が読むのは inventory metadata だけです。 |
 | `grok-hook-trust` が警告 | project hook を確認して `/hooks-trust` を実行するか、未使用の project route を削除する |
-| `grok-hooks` が警告 | 導入済み hook file が不足しているか、7 event の厳密な契約からずれている。plugin を再導入する |
+| `grok-hooks` が警告 | plugin が listing のみ、または 7 event 契約からずれている。1.0.5 では `traceary hooks install --client grok --global` が記録経路 |
+| `grok-hooks-user` が警告 | 実行される Traceary 経路が無い。1.0.5 では `traceary hooks install --client grok --global`。一覧の plugin は実行ではない |
 | `grok-hooks-user` が失敗 | `~/.grok/hooks/traceary.json` が存在するが読み取れない、または有効な JSON ではない。修正または削除する |
-| `grok-hooks-routes` が警告 | native plugin / project / user-level の経路が 2 つ以上有効。1 つだけ残し、plugin 導入済みなら `traceary-grok` を優先して `~/.grok/hooks/traceary.json` を削除する |
+| `grok-hooks-routes` が警告 | **実行される**経路が 2 つ以上（dispatch 済み plugin-source command と user/project）。実行経路は 1 つ。plugin が listing のみの間は user ファイルを削除しない |
 | `grok-skills` が警告 | 導入済みパッケージの内容が不足している。plugin を再導入する |
 | `grok-event-coverage` が警告 | 直近の `agent=grok` event と待機中の hook/transcript queue を確認する。導入状態が正常でも実行時配送まで保証しない |
 
