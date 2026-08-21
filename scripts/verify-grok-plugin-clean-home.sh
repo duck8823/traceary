@@ -29,10 +29,8 @@ echo "== validate package =="
 grok plugin validate "${PLUGIN_DIR}"
 
 echo "== install (clean home) =="
-if grok plugin list --json 2>/dev/null | grep -q '"name"[[:space:]]*:[[:space:]]*"traceary-grok"'; then
-  grok plugin uninstall "${PLUGIN_NAME}" || true
-fi
-grok plugin install --trust "${ROOT_DIR}#integrations/grok-plugin"
+# Operator path: plugin + user-level command hooks (1.0.5 recording route).
+"${ROOT_DIR}/scripts/install-grok-plugin.sh"
 
 echo "== details =="
 grok plugin details "${PLUGIN_NAME}"
@@ -43,8 +41,7 @@ grok plugin list --json | grep -q '"name"[[:space:]]*:[[:space:]]*"traceary-grok
 echo "== reinstall (update path) =="
 # Host rejects double install of the same local path; uninstall then install
 # models the post-upgrade refresh path operators use after a binary bump.
-grok plugin uninstall "${PLUGIN_NAME}"
-grok plugin install --trust "${ROOT_DIR}#integrations/grok-plugin"
+"${ROOT_DIR}/scripts/install-grok-plugin.sh"
 grok plugin details "${PLUGIN_NAME}"
 
 echo "== doctor native plugin checks =="
@@ -61,12 +58,17 @@ with open(sys.argv[1], encoding="utf-8") as source:
 expected = {
     "grok-plugin": "pass",
     "grok-plugin-resolution": "pass",
-    "grok-hooks": "pass",
+    "grok-hooks-user": "pass",
     "grok-skills": "pass",
 }
 actual = {check.get("name"): check.get("status") for check in report.get("checks", [])}
 missing = [name for name in expected if name not in actual]
 wrong = {name: actual.get(name) for name, status in expected.items() if actual.get(name) != status}
+# grok-hooks is pass only when inspect dispatches plugin-source command hooks.
+# Grok 1.0.5 listing-only is warn.
+hooks = actual.get("grok-hooks")
+if hooks not in ("pass", "warn"):
+    wrong["grok-hooks"] = hooks
 if missing or wrong:
     raise SystemExit(
         "error: Grok native doctor checks did not converge: "
