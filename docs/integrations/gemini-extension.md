@@ -151,7 +151,7 @@ Primary runtime check:
 traceary doctor --client gemini --json
 ```
 
-`doctor` now checks two Gemini capture failure modes:
+`doctor` now checks three Gemini capture failure modes:
 
 - `gemini-config` warns when the installed Traceary-managed hooks are partial
   (for example, legacy SessionStart / SessionEnd / AfterTool only) and can be
@@ -162,6 +162,49 @@ traceary doctor --client gemini --json
   If you rely on the Gemini extension package instead of settings.json, refresh
   it with `./scripts/install-gemini-extension.sh` so the packaged BeforeAgent /
   AfterAgent hooks are reinstalled from the matching CLI tag.
+- `gemini-host-eligibility` re-runs a bounded headless `gemini -p` probe
+  (throwaway `TRACEARY_DB_PATH`, 60s timeout) once the project config passes
+  inspection, and warns when the account is rejected with `IneligibleTierError`.
+  On an ineligible account the host aborts the run after `SessionStart`, so
+  `prompt`/`transcript` events are absent even though the hooks are wired —
+  this is a Google account-tier rejection, not a broken install, and Traceary
+  cannot fix it (migrate to Antigravity or an eligible plan). When the binary
+  is missing, the probe times out, or it fails for any other reason, the check
+  reports skip rather than pass.
+
+### Isolated `-p` probe recipe (eligible tier vs missing hooks)
+
+To tell an **ineligible account** apart from a **hook wiring problem**, re-run
+the dogfood observation against a throwaway store from a project with the
+Traceary hooks installed:
+
+```sh
+PROBE_DIR="$(mktemp -d)"
+cd <your project with Traceary hooks>
+TRACEARY_DB_PATH="$PROBE_DIR/probe.db" gemini -p "Reply with the single word ok." --approval-mode plan
+TRACEARY_DB_PATH="$PROBE_DIR/probe.db" traceary list --limit 10
+```
+
+Interpret the result:
+
+- stderr shows `IneligibleTierError` ("no longer supported for Gemini Code
+  Assist for individuals") and the throwaway store lists only
+  `session_started`/`session_ended`: the **account is not eligible**. Hooks are
+  fine; the host aborts the run before `BeforeAgent`. Migrate to Antigravity or
+  switch to an eligible Gemini Code Assist / paid API plan.
+- The store lists `prompt` (and `transcript` when the host fires `AfterAgent`):
+  wiring **and** eligibility are both good on this host.
+- No `IneligibleTierError`, but `prompt` is still missing: treat it as a hook
+  wiring problem — check `gemini-config` and `gemini-event-coverage` and
+  refresh the managed hooks (`traceary doctor --client gemini --fix`, or
+  reinstall the extension from a matching release tag).
+
+The matrix `prompt` cell for Gemini stays `wired` with this ineligible-tier
+caveat: the wiring is intact and eligible accounts still capture prompts, but
+the cell is not a per-account capture guarantee. If a later Gemini build makes
+`-p` succeed on your account, evidence from the recipe above is what justifies
+a fresh probe date on the matrix.
+
 
 Package validation:
 

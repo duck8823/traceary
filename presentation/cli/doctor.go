@@ -605,6 +605,11 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 			if activationCheck := c.inspectGeminiMemoryActivationStatus(ctx, resolvedProjectDir); activationCheck != nil {
 				report.Checks = append(report.Checks, *activationCheck)
 			}
+			// The bounded `-p` probe only runs when the project config passed:
+			// that is the state where the matrix `prompt` cell could be read as
+			// a live-capture promise on an account that Google rejects with
+			// IneligibleTierError.
+			report.Checks = append(report.Checks, c.inspectGeminiHostEligibility(ctx, check.Status == doctorStatusPass, resolvedProjectDir))
 		}
 	}
 

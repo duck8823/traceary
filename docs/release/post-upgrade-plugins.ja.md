@@ -104,6 +104,8 @@ traceary doctor --fix --client gemini --project-dir <dir>
 dry-run の出力が Traceary 管理の hook エントリだけを変更する場合にのみ適用してください。
 適用後は `traceary doctor --client gemini --json` を再実行し、`gemini-plugin-version` と `gemini-config` の両方が `pass` になっていることを確認してください。
 
+`gemini-config` の pass が証明するのは配線だけで、live capture ではありません。Google が `IneligibleTierError` で拒否するアカウント（Gemini Code Assist for individuals は提供終了）では、`gemini -p` の run が `SessionStart` 直後に中断し `prompt` は記録されません。このアカウント tier 側の拒否と hook 未配線を切り分けるには、doctor の `gemini-host-eligibility` check（または [Gemini extension ガイド](../integrations/gemini-extension.ja.md) の隔離 probe 手順）を確認してください。
+
 ## Antigravity の stale dual path 修復
 
 Antigravity では、独立して materialize された次の二つの package が残ることがあります。

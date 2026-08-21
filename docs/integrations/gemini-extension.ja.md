@@ -121,7 +121,7 @@ gemini extensions uninstall traceary
 traceary doctor --client gemini --json
 ```
 
-`doctor` は Gemini capture について次の 2 つを確認します。
+`doctor` は Gemini capture について次の 3 つを確認します。
 
 - `gemini-config`: Traceary 管理の hook が一部だけ（例: 旧式の
   SessionStart / SessionEnd / AfterTool のみ）になっている場合に警告します。
@@ -132,6 +132,47 @@ traceary doctor --client gemini --json
   settings.json ではなく Gemini extension package を使っている場合は、
   `./scripts/install-gemini-extension.sh` で CLI tag に合わせた
   BeforeAgent / AfterAgent hook を入れ直してください。
+- `gemini-host-eligibility`: project config の検査を通過した場合に、bounded な
+  headless `gemini -p` probe（使い捨て `TRACEARY_DB_PATH`、60 秒 timeout）を
+  再実行し、アカウントが `IneligibleTierError` で拒否されると警告します。
+  ineligible なアカウントでは host が `SessionStart` 直後に run を中断するため、
+  hook が配線済みでも `prompt`/`transcript` event は記録されません。これは
+  Google アカウント tier 側の拒否でありインストール不良ではなく、Traceary で
+  修復できません（Antigravity への移行、または eligible なプランへの切り替えが
+  必要です）。binary が無い・timeout・その他の理由で失敗した場合は pass ではなく
+  skip を返します。
+
+### 隔離 `-p` probe 手順（ineligible tier と hook 未配線の切り分け）
+
+**アカウントの ineligible** と **hook の配線不良** を切り分けるには、Traceary
+hook を導入済みの project から、使い捨て store への dogfood 観測を再実行します。
+
+```sh
+PROBE_DIR="$(mktemp -d)"
+cd <Traceary hook を導入した project>
+TRACEARY_DB_PATH="$PROBE_DIR/probe.db" gemini -p "Reply with the single word ok." --approval-mode plan
+TRACEARY_DB_PATH="$PROBE_DIR/probe.db" traceary list --limit 10
+```
+
+結果の見方:
+
+- stderr に `IneligibleTierError`（"no longer supported for Gemini Code Assist
+  for individuals"）が出て、使い捨て store に `session_started`/`session_ended`
+  だけが記録される: **アカウントが ineligible** です。hook は正常で、host が
+  `BeforeAgent` の前に run を中断しています。Antigravity へ移行するか、
+  eligible な Gemini Code Assist / 有償 API プランへ切り替えてください。
+- store に `prompt`（host が `AfterAgent` を発火すれば `transcript` も）が
+  記録される: このホストでは配線も eligibility も正常です。
+- `IneligibleTierError` がないのに `prompt` が記録されない: hook の配線不良として
+  扱い、`gemini-config` / `gemini-event-coverage` を確認して管理 hook を更新
+  してください（`traceary doctor --client gemini --fix`、または一致する
+  release tag から extension を入れ直し）。
+
+matrix の Gemini `prompt` セルは、この ineligible-tier の caveat 付きで `wired`
+のままです。配線は健全で eligible なアカウントでは引き続き prompt を capture
+しますが、セルはアカウント単位の capture を保証するものではありません。将来の
+Gemini ビルドで `-p` が成功するようになった場合は、上記の手順による証拠が
+matrix の probe 日付を更新する根拠になります。
 
 package 自体の validate は次です。
 

@@ -111,6 +111,13 @@ Only apply if the dry-run output touches Traceary-managed hook entries only.
 After applying, rerun `traceary doctor --client gemini --json` and confirm
 both `gemini-plugin-version` and `gemini-config` are `pass`.
 
+A `gemini-config` pass proves the wiring only, not live capture: on an account
+Google rejects with `IneligibleTierError` (Gemini Code Assist for individuals
+ended), a `gemini -p` run aborts after `SessionStart` and records no `prompt`.
+Check the `gemini-host-eligibility` doctor check (or the isolated probe recipe
+in [the Gemini extension guide](../integrations/gemini-extension.md)) to tell
+that account-tier rejection apart from missing hooks.
+
 ## Antigravity stale dual-path remediation
 
 Antigravity can retain two independently materialized packages:
