@@ -7,7 +7,14 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 
 ## [Unreleased]
 
+## [v0.47.0] - 2026-08-21
+
 ### Fixed
+- **大きいストアの `doctor --fix` が共有の 45 秒 wall を守る (#2231)** — requeue と drain がそれぞれ新しい 45 秒 deadline を取らなくなる。各レコード claim の前に wall を確認し（進行中の replay は最後まで実行: 1 レコード分の余裕）、action は常に `remaining=` を報告する。apply wall 消費後の auto-fix は `skip: doctor --fix wall exhausted` と出す。親 #2230 は open のまま。
+- **`grok-transcript` の `doctor --fix` が残留 job を報告する (#2232)** — drain 後に queue を再走査し、Action に `remaining=` / `failed=`（attempts>0）を出す。failed job は operator の対応のため残す。成功した relaunch が完全 drain に見えなくなる。親 #2230 は open のまま。
+- **`grok-hooks` が一覧表示だけの plugin を PASS にしない (#2233)** — Grok 1.0.5 の `inspect --json` で plugin manifest の `hooks[]` エントリ（`hookType=file`、event `(plugin)`）は dispatch された hook ではなく一覧表示。user-level hook だけが dispatch される場合、plugin hook は install 済みだが dispatch 一覧に無いと WARN する。親 #2230 は open のまま。
+- **`kimi-hooks` が Kimi Code 0.38.0 `-p` で SessionEnd 未観測を WARN する (#2234)** — manifest は 10 event すべてを宣言するが、`-p` セッションは `session_started`/`prompt`/`transcript` のみ記録し `session_ended` は発火しない。doctor は検証済み 10 event カバレッジを主張せず、matrix は SessionEnd を available（未検証）のまま。親 #2230 は open のまま。
+- **session が既に終了している Claude SessionEnd cancellation marker を resolved に分類する (#2235)** — 大きいストアの filesystem inspect が nil の session lookup を渡さなくなる。bounded な `EndedSessionInspector`（`mode=ro`、session-id で `sessions` 主キーを参照。event body や dbstat は読まない）がそうした marker を Resolved に分類し、既存の `--fix` cleanup の対象にする。ended session 行の無い marker は従来どおり actionable。親 #2230 は open のまま。
 - **Gemini の ineligible-tier アカウントを verified prompt capture と誤読させない (#2237)** — `gemini-host-eligibility` は `IneligibleTierError` で WARN（FixCommand なし）。Gemini の `prompt` cell は `wired` のまま ineligible-tier の caveat を付ける。eligible なアカウントは引き続き capture する。Google アカウントの eligibility は Traceary では変更できない。親 #2230 は open のまま。
 - **Claude `--scope local` の leftover install に operator 向け FixCommand を追加 (#2236)** — `claude-plugin-local-leftovers` WARN が `traceary doctor --fix --dry-run --client claude` を表示する。dry-run は leftover path をすべて一覧し、apply は print だけの no-op。Claude の inventory は引き続き書き換えず、user-scope / marketplace install には触れない。親 #2230 は open のまま。
 - **Codex `codex exec` probe に trusted git directory 要件があることを文書化 (#2238)** — ドキュメントがホスト側エラーの正確な文言（"Not inside a trusted directory and --skip-git-repo-check was not specified."）と、動作する probe の形（`-C <git-root>` と使い捨て `TRACEARY_DB_PATH`。`--skip-git-repo-check` や `-a never` は使わない）を示す。smoke の runtime probe は git root への `-C` を維持し、hook 書き込みを使い捨て store に隔離するようにした。Codex 向けの `session_ended` 合成は引き続き行わない。親 #2230 は open のまま。
