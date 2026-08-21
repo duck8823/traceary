@@ -7,8 +7,13 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 
 ## [Unreleased]
 
+## [v0.47.1] - 2026-08-21
+
 ### Fixed
-- **Grok 1.0.5 は user-level command hook で記録する (#2252)** — `scripts/install-grok-plugin.sh` が `traceary hooks install --client grok --global` も実行し、Grok が実際に spawn する経路（`hookType=command`）へ `~/.grok/hooks/traceary.json` を置く。一覧表示の plugin（`hookType=file`、event `(plugin)`）は capture ではない。dispatch 済み plugin-source / project が無く user ファイルが無いとき `grok-hooks-user` は WARN。plugin が listing のみの間、`grok-hooks-routes` は user ファイル削除を案内しない。親 #2251 は open のまま。
+- **Grok 1.0.5 は user-level command hook で記録する (#2252)** — Grok inspect に並ぶ plugin（`hookType=file`、event `(plugin)`）は dispatch ではない。installer と doctor が `~/.grok/hooks/traceary.json` を保持する（`traceary hooks install --client grok --global`）。隔離した使い捨て store での `grok -p` は `session_started` / `prompt`（tool 実行時は `command_executed` も）を記録する。`session_ended` は合成しない。親 #2251 は open のまま。
+
+### Added
+- **post-upgrade live-capture gate を追加 (#2253)** — plugin-version の PASS は capture ではない。`scripts/verify-post-upgrade-live-capture.sh` は identity を再実行したうえで、隔離した使い捨て `TRACEARY_DB_PATH` から `session_started` と `prompt` を必須にする。Gemini の `IneligibleTierError` は silent pass ではなく理由付きの skip。親 #2251 は open のまま。
 
 ## [v0.47.0] - 2026-08-21
 
