@@ -11,7 +11,7 @@ release 済みバイナリを更新するたびに、次を実行してくださ
 1. `traceary -v` でバイナリを確認する。
 2. 下表に従い、導入済みホスト package をすべて更新する。
 3. doctor の収集前に、そのホストの有効化を完了する。
-4. 本文を読まない release QA gate を実行する。skip を付けていないホストの plugin-version はすべて `pass` でなければなりません。Antigravity だけは、一方の copy が pass のときに限り、不完全な dual-path twin の `skip` を追加で許可します。
+4. 本文を読まない plugin-version gate を実行する。skip を付けていないホストの plugin-version はすべて `pass` でなければなりません。Antigravity だけは、一方の copy が pass のときに限り、不完全な dual-path twin の `skip` を追加で許可します。
 
    ```sh
    ./scripts/verify-post-upgrade-plugin-refresh.sh \
@@ -31,16 +31,27 @@ release 済みバイナリを更新するたびに、次を実行してくださ
    store が大容量であることは、ホストを `--skip` する理由には**なりません**。
    `--skip` はこの機械に意図的に導入していないホスト専用です。
 
+5. 兄弟スクリプトの live capture gate で実記録を証明する。**plugin-version の PASS は capture ではありません**。v0.47.0 の dogfood では `grok-plugin` が pass なのに live の Grok 記録がゼロでした。この gate は先に plugin-version identity gate を再実行し、そのあと skip していないホストごとに新規の使い捨て `TRACEARY_DB_PATH` へ headless の一発 probe を流し、`traceary --db-path … list --json` の出力に `session_started` と `prompt` が各 1 件以上あることを必須にします（`--require-command HOST` を付けたホストは `command_executed` も必須）。`session_ended` は要求も合成もしません。読むのは JSON の kind 件数だけで、event 本文は読みません。
+
+   ```sh
+   ./scripts/verify-post-upgrade-live-capture.sh \
+     --skip claude='no headless probe in this gate' \
+     --skip gemini='IneligibleTierError' \
+     --skip antigravity='no headless probe in this gate'
+   ```
+
+   live probe が存在するのは Grok（`grok --permission-mode plan --no-subagents --max-turns 1 -p …`）、Kimi（`kimi -p …`。`--auto` / `--yolo` なし）、Codex（trusted な git root からの `codex exec`。下記 Codex 節を参照）です。Claude・Antigravity・Gemini にはこの gate の headless probe がないため、上記のように明示理由付きで skip してください。Google が `IneligibleTierError` で拒否する Gemini アカウントでは、その拒否を capture とみなしてはいけません。skip していないホストでバイナリが無い・probe が失敗した場合は silent pass ではなく FAIL で、skip していないホストの少なくとも 1 つが実際に capture を pass する必要があります。
+
 ## ホスト別の更新・有効化・検証マトリクス
 
 | Host | 更新 | 有効化 | version 検証 | 許可する skip |
 |---|---|---|---|---|
 | Claude Code | headless: `claude plugin marketplace update traceary-plugins` のあと `claude plugin update traceary@traceary-plugins`（user scope）と `--scope local`。短い名前 `claude plugin update traceary` は "Plugin not found" になる。対話の `/plugin update traceary` は従来どおり有効。更新後は再起動。再開した session は完全に再起動するまで古い snapshot hook を使い続けることがある。 | 更新済み package を読み込むため、Claude Code を再起動するか新しい process を開始します。 | `traceary doctor --client claude --json` の `claude-plugin-version` が `pass`。 | Claude Code / Traceary package を意図的に導入していない場合だけ `--skip claude='理由'`。 |
-| Codex | `codex plugin marketplace list` で root を確認。Git clone: その clone で `traceary -v` と一致する tag を `git checkout`。local-path（checkout 自体が marketplace root。manifest は `.agents/plugins/marketplace.json`）: `git -C <marketplace-root> checkout` で同じ tag。そのあと `codex plugin add traceary@traceary-marketplace`。local-path marketplace では `codex plugin marketplace upgrade` は "No configured Git marketplaces" になるので使わない。対話の `/plugins` は従来どおり有効。 | add（または `/plugins` refresh）のあと新しい Codex session を開始します。 | `traceary doctor --client codex --json` の `codex-plugin-version` が `pass`。 | Codex / Traceary package を意図的に導入していない場合だけ `--skip codex='理由'`。 |
+| Codex | `codex plugin marketplace list` で root を確認。Git clone: その clone で `traceary -v` と一致する tag を `git checkout`。local-path（checkout 自体が marketplace root。manifest は `.agents/plugins/marketplace.json`）: `git -C <marketplace-root> checkout` で同じ tag。そのあと `codex plugin add traceary@traceary-marketplace`。local-path marketplace では `codex plugin marketplace upgrade` は "No configured Git marketplaces" になるので使わない。対話の `/plugins` は従来どおり有効。 | add（または `/plugins` refresh）のあと新しい Codex session を開始します。 | `traceary doctor --client codex --json` の `codex-plugin-version` が `pass`。記録の証明には隔離 throwaway store での `session_started` / `prompt` capture が必要。plugin-version PASS は capture ではない。 | Codex / Traceary package を意図的に導入していない場合だけ `--skip codex='理由'`。 |
 | Gemini CLI（レガシー extension） | `./scripts/install-gemini-extension.sh`（uninstall + `install --consent`、tag pin）。その後 managed hook generation を更新（下記参照）。 | Gemini CLI を再起動します。 | `traceary doctor --client gemini --json` の `gemini-plugin-version` と `gemini-config` がどちらも `pass`。 | レガシー extension を意図的に導入していない場合だけ `--skip gemini='理由'`。 |
 | Antigravity | `traceary -v` と一致する checkout から `rsync -a --delete integrations/antigravity-plugin/` を `~/.gemini/config/plugins/traceary/`（と、あればレガシー `~/.gemini/antigravity-cli/plugins/traceary/`）へ、または `agy plugin install integrations/antigravity-plugin`。doctor がまだ stale twin を出す場合は下記の dual path 手順。 | Antigravity を終了して開き直すか、新しい CLI session を開始します。 | `traceary doctor --client antigravity --json` のすべての `antigravity-plugin-version` が `pass`。一方が pass で、もう一方が version のない不完全 twin なら、後者の `skip` は許可されます。 | Antigravity / Traceary package を意図的に導入していない場合だけ `--skip antigravity='理由'`。 |
 | Grok Build | `./scripts/install-grok-plugin.sh`（plugin **と** `traceary hooks install --client grok --global`。Grok 1.0.5 が実行するのは `~/.grok/hooks` の command ファイルであり、plugin の listing ではない）。inspect が plugin を `hookType=file` のまま示す間は `~/.grok/hooks/traceary.json` を削除しない。 | Grok Build を再起動するか、新しい session を開始します。 | `traceary doctor --client grok --json` の `grok-plugin` が `pass` かつ `grok-hooks-user` が `pass`（`grok-hooks` が `pass` になるのは inspect が plugin-source の **command** hook を dispatch しているときだけ）。記録の証明には隔離 throwaway store での `session_started` / `prompt` capture が必要。plugin-version PASS は capture ではない。 | Grok Build / Traceary package を意図的に導入していない場合だけ `--skip grok='理由'`。 |
-| Kimi Code | `./scripts/install-kimi-plugin.sh`。installer は新しい generation を stage し、managed `traceary` symlink を atomic に切り替え、install record を保持します。 | `/plugins reload` を実行するか、**新しい Kimi session を開始**します。 | `traceary doctor --client kimi --json` の `kimi-plugin-version` と native `kimi-plugin` が健全。 | Kimi Code / Traceary package を意図的に導入していない場合だけ `--skip kimi='理由'`。 |
+| Kimi Code | `./scripts/install-kimi-plugin.sh`。installer は新しい generation を stage し、managed `traceary` symlink を atomic に切り替え、install record を保持します。 | `/plugins reload` を実行するか、**新しい Kimi session を開始**します。 | `traceary doctor --client kimi --json` の `kimi-plugin-version` と native `kimi-plugin` が健全。記録の証明には隔離 throwaway store での `session_started` / `prompt` capture が必要。plugin-version PASS は capture ではなく、`session_ended` は要求しない。 | Kimi Code / Traceary package を意図的に導入していない場合だけ `--skip kimi='理由'`。 |
 
 doctor が正確な非対話コマンドを `FixCommand` に出す場合は、そちらを優先してください。ホスト CLI のフラグを推測で追加してはいけません。
 
