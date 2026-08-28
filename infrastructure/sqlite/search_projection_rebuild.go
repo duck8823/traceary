@@ -1030,7 +1030,7 @@ func (d *Database) MarkFailed(ctx context.Context, generation string, revision i
 	if n, rowErr := r.RowsAffected(); rowErr != nil || n != 1 {
 		return &apptypes.SearchProjectionDriftError{}
 	}
-	r, err = tx.ExecContext(ctx, `UPDATE search_projection_generation_lifecycle SET state='failed' WHERE generation_id=? AND state='rebuilding'`, generation)
+	r, err = tx.ExecContext(ctx, `UPDATE search_projection_generation_lifecycle SET state='failed',failure_class=?,terminal_at=? WHERE generation_id=? AND state='rebuilding'`, class, formatTimestamp(now), generation)
 	if err != nil {
 		return err
 	}
@@ -1326,7 +1326,8 @@ func (d *Database) AbandonSearchProjection(ctx context.Context, now time.Time) (
 	if n, _ := r.RowsAffected(); n != 1 {
 		return out, &apptypes.SearchProjectionDriftError{}
 	}
-	if r, e = tx.ExecContext(ctx, `UPDATE search_projection_generation_lifecycle SET state='abandoned',abandoned_at=? WHERE generation_id=? AND state<>'complete'`, formatTimestamp(now), generation); e != nil {
+	stamp := formatTimestamp(now)
+	if r, e = tx.ExecContext(ctx, `UPDATE search_projection_generation_lifecycle SET state='abandoned',abandoned_at=?,failure_class='abandoned',terminal_at=? WHERE generation_id=? AND state<>'complete'`, stamp, stamp, generation); e != nil {
 		return out, e
 	}
 	if n, rowErr := r.RowsAffected(); rowErr != nil || n != 1 {
@@ -1413,6 +1414,9 @@ func (d *Database) SearchProjectionStatus(ctx context.Context) (s apptypes.Searc
 		return s, xerrors.Errorf("count fingerprints: %w", e)
 	}
 	if e = measureSearchProjectionExclusions(ctx, tx, rebuildGenerationID, &s); e != nil {
+		return s, e
+	}
+	if e = measureTerminalProjectionInventory(ctx, tx, &s); e != nil {
 		return s, e
 	}
 	if e = tx.Commit(); e != nil {

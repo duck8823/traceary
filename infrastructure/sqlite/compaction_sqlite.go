@@ -125,7 +125,7 @@ func (SQLiteCompactionBuilder) Sync(_ context.Context, candidate string) error {
 	return syncDirectory(filepathDir(candidate))
 }
 
-func (SQLiteCompactionBuilder) VerifyPair(ctx context.Context, source, candidate string) error {
+func (b SQLiteCompactionBuilder) VerifyPair(ctx context.Context, source, candidate string) error {
 	sourceDB, err := openDirectReadOnly(ctx, source)
 	if err != nil {
 		return fmt.Errorf("open source: %w", err)
@@ -153,7 +153,7 @@ func (SQLiteCompactionBuilder) VerifyPair(ctx context.Context, source, candidate
 		return err
 	}
 	if sourceEvents || candidateEvents {
-		if err := verifyFilteredCandidate(ctx, sourceDB, candidateDB); err != nil {
+		if err := verifyFilteredCandidate(ctx, sourceDB, candidateDB, b.Filter); err != nil {
 			return err
 		}
 	} else {
@@ -178,7 +178,7 @@ func (SQLiteCompactionBuilder) VerifyPair(ctx context.Context, source, candidate
 	return nil
 }
 
-func verifyFilteredCandidate(ctx context.Context, sourceDB, candidateDB *sql.DB) error {
+func verifyFilteredCandidate(ctx context.Context, sourceDB, candidateDB *sql.DB, _ application.CompactFilter) error {
 	if _, err := scrubStore(ctx, sourceDB); err != nil {
 		return fmt.Errorf("scrub source: %w", err)
 	}
@@ -247,6 +247,9 @@ func verifyFilteredCandidate(ctx context.Context, sourceDB, candidateDB *sql.DB)
 		if _, stillThere := candidateEvents[survivor]; !stillThere {
 			return fmt.Errorf("candidate dropped event %s and its canonical survivor %s", id, survivor)
 		}
+	}
+	if err := verifySearchProjectionGenerations(ctx, sourceDB, candidateDB); err != nil {
+		return err
 	}
 	return nil
 }
@@ -486,39 +489,11 @@ func logicalDigest(ctx context.Context, db *sql.DB, skip map[string]bool) (strin
 			return "", err
 		}
 		query := `SELECT ` + joinQuotedIdentifiers(columns) + ` FROM ` + quoteIdentifier(table)
-		r, err := db.QueryContext(ctx, query)
+		hashed, err := hashRows(ctx, db, columns, query)
 		if err != nil {
 			return "", err
 		}
-		var count uint64
-		var xor [32]byte
-		var sums [4]uint64
-		for r.Next() {
-			values := make([]any, len(columns))
-			ptrs := make([]any, len(columns))
-			for i := range values {
-				ptrs[i] = &values[i]
-			}
-			if err := r.Scan(ptrs...); err != nil {
-				_ = r.Close()
-				return "", err
-			}
-			h := sha256.New()
-			for _, v := range values {
-				writeSQLValue(h, v)
-			}
-			digest := h.Sum(nil)
-			count++
-			for i := range xor {
-				xor[i] ^= digest[i]
-			}
-			for i := 0; i < 4; i++ {
-				sums[i] += binary.BigEndian.Uint64(digest[i*8 : (i+1)*8])
-			}
-		}
-		if err := r.Close(); err != nil {
-			return "", err
-		}
+		count, xor, sums := hashed.count, hashed.xor, hashed.sums
 		binary.Write(out, binary.BigEndian, count)
 		writeFramed(out, []byte(table), []byte(strings.Join(columns, "\x00")), xor[:])
 		for _, sum := range sums {

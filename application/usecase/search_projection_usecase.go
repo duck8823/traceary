@@ -75,6 +75,13 @@ type SearchProjectionVerifyStore interface {
 	VerifySearchProjectionSessionTier(context.Context, string) error
 }
 
+// SearchProjectionTerminalReclaimStore removes derived rows of terminal,
+// non-active generations in bounded pages (#2261).
+type SearchProjectionTerminalReclaimStore interface {
+	ListTerminalGenerations(context.Context) ([]apptypes.SearchProjectionTerminalGeneration, error)
+	ReclaimTerminalGenerationPage(context.Context, string, apptypes.SearchProjectionBudget, int, time.Time) (apptypes.SearchProjectionReclaimProgress, error)
+}
+
 // SearchProjectionCleanupNoProgressStore records consecutive cleanup-phase
 // catch-up attempts that committed no row and parks the generation after N.
 type SearchProjectionCleanupNoProgressStore interface {
@@ -327,6 +334,86 @@ func (u *SearchProjectionUsecase) resumeCatchUpBatch(ctx context.Context, b appt
 		}
 	}
 	return result.Progress, err
+}
+
+// ReclaimTerminalGenerations pages every terminal generation until Done or the
+// wall budget is spent. It never touches active or complete generations (the
+// store refuses inside the transaction) and returns partial progress on wall
+// exhaustion so the next call resumes.
+//
+//nolint:wrapcheck // Typed drift and lock-duration errors must cross this boundary.
+func (u *SearchProjectionUsecase) ReclaimTerminalGenerations(ctx context.Context, b apptypes.SearchProjectionBudget, opts apptypes.SearchProjectionRunOptions, now time.Time) (apptypes.SearchProjectionReclaimResult, error) {
+	var result apptypes.SearchProjectionReclaimResult
+	store, ok := u.store.(SearchProjectionTerminalReclaimStore)
+	if !ok {
+		return result, &apptypes.SearchProjectionNoProgressError{Reason: "projection store does not support terminal reclaim"}
+	}
+	wall := opts.TotalWallTime
+	if wall <= 0 {
+		wall = 10 * time.Minute
+	}
+	runCtx, cancel := context.WithTimeout(ctx, wall)
+	defer cancel()
+	gens, err := store.ListTerminalGenerations(runCtx)
+	if err != nil {
+		if runCtx.Err() != nil && ctx.Err() == nil {
+			result.StopReason = "wall_time"
+			return result, nil
+		}
+		return result, xerrors.Errorf("list terminal search-projection generations: %w", err)
+	}
+	result.Generations = gens
+	if len(gens) == 0 {
+		result.Complete = true
+		result.StopReason = "complete"
+		return result, nil
+	}
+	page := apptypes.SearchProjectionTerminalReclaimPageRows
+	now = now.UTC()
+	for _, g := range gens {
+		for {
+			if ctx.Err() != nil {
+				result.StopReason = "cancelled"
+				return result, nil
+			}
+			if runCtx.Err() != nil {
+				result.StopReason = "wall_time"
+				return result, nil
+			}
+			progress, pageErr := store.ReclaimTerminalGenerationPage(runCtx, g.GenerationID, b, page, now)
+			if pageErr != nil {
+				if ctx.Err() != nil {
+					result.StopReason = "cancelled"
+					return result, nil
+				}
+				if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
+					result.StopReason = "wall_time"
+					return result, nil
+				}
+				var drift *apptypes.SearchProjectionDriftError
+				if errors.As(pageErr, &drift) {
+					break
+				}
+				var noProgress *apptypes.SearchProjectionNoProgressError
+				if errors.As(pageErr, &noProgress) && noProgress.Code == apptypes.SearchProjectionNoProgressLockDurationCap {
+					if page <= 1 {
+						return result, pageErr
+					}
+					page /= 2
+					continue
+				}
+				return result, pageErr
+			}
+			result.DeletedRows += progress.Deleted
+			result.LogicalBytes += progress.LogicalBytes
+			if progress.Done {
+				break
+			}
+		}
+	}
+	result.Complete = true
+	result.StopReason = "complete"
+	return result, nil
 }
 
 func (u *SearchProjectionUsecase) Abandon(ctx context.Context, now time.Time) (apptypes.SearchProjectionAbandonResult, error) {

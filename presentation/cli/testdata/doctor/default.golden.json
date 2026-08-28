@@ -115,6 +115,16 @@
       "auto_fix_available": false
     },
     {
+      "name": "search-projection-terminal-rows",
+      "status": "skip",
+      "severity": "PASS",
+      "section": "Database",
+      "message": "search projection usecase is not configured",
+      "hint": "",
+      "fix_command": "",
+      "auto_fix_available": false
+    },
+    {
       "name": "stale-active-sessions",
       "status": "pass",
       "severity": "PASS",
@@ -415,6 +425,16 @@
           "auto_fix_available": false
         },
         {
+          "name": "search-projection-terminal-rows",
+          "status": "skip",
+          "severity": "PASS",
+          "section": "Database",
+          "message": "search projection usecase is not configured",
+          "hint": "",
+          "fix_command": "",
+          "auto_fix_available": false
+        },
+        {
           "name": "stale-active-sessions",
           "status": "pass",
           "severity": "PASS",
@@ -627,7 +647,7 @@
     }
   ],
   "summary": {
-    "pass": 29,
+    "pass": 30,
     "warn": 1,
     "fail": 0
   },

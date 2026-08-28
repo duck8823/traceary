@@ -268,7 +268,11 @@ func run() error {
 				previous := db.Path()
 				db.SetPath(store)
 				defer db.SetPath(previous)
-				return usecase.NewSearchProjectionUsecase(db).CompleteGeneration(ctx, apptypes.DefaultSearchProjectionBudget(), time.Now())
+				projection := usecase.NewSearchProjectionUsecase(db)
+				if _, err := projection.ReclaimTerminalGenerations(ctx, apptypes.DefaultSearchProjectionBudget(), apptypes.SearchProjectionRunOptions{MaxBatches: 1 << 20, TotalWallTime: 10 * time.Minute}, time.Now()); err != nil {
+					return xerrors.Errorf("reclaim terminal search-projection generations: %w", err)
+				}
+				return projection.CompleteGeneration(ctx, apptypes.DefaultSearchProjectionBudget(), time.Now())
 			})
 			return svc
 		}),
