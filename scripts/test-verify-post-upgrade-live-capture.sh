@@ -135,3 +135,80 @@ echo 'ok: rejects all explicit skips without an actual capture pass'
 all_lists ''
 bash "${REFRESH_TEST}" >/dev/null
 echo 'ok: plugin-version gate behavior tests still pass'
+
+# 11. Unskipped Claude / Antigravity report capture PASS lines, not canned skips.
+all_reports pass
+all_lists 'session_started prompt'
+fixture_args
+pass_output="$(run_fixture "${args[@]}")"
+[[ "${pass_output}" == *'PASS claude: session_started=1 prompt=1'* ]] || {
+  echo 'error: expected PASS line for claude' >&2
+  exit 1
+}
+[[ "${pass_output}" == *'PASS antigravity: session_started=1 prompt=1'* ]] || {
+  echo 'error: expected PASS line for antigravity' >&2
+  exit 1
+}
+echo 'ok: claude and antigravity report capture PASS lines, not documented skips'
+
+# 12. Plugin-version pass with missing Claude kinds still fails.
+write_list claude ''
+if claude_missing="$(run_fixture "${args[@]}" 2>&1)"; then
+  echo 'error: plugin-version pass with empty claude capture unexpectedly passed' >&2
+  exit 1
+fi
+[[ "${claude_missing}" == *'FAIL claude: missing kinds: session_started, prompt'* ]] || {
+  echo 'error: expected missing-kinds FAIL for claude' >&2
+  exit 1
+}
+echo 'ok: rejects plugin-version pass when claude capture kinds are missing'
+
+# 13. Plugin-version pass with missing Antigravity kinds still fails.
+write_list claude 'session_started prompt'
+write_list antigravity ''
+if antigravity_missing="$(run_fixture "${args[@]}" 2>&1)"; then
+  echo 'error: plugin-version pass with empty antigravity capture unexpectedly passed' >&2
+  exit 1
+fi
+[[ "${antigravity_missing}" == *'FAIL antigravity: missing kinds: session_started, prompt'* ]] || {
+  echo 'error: expected missing-kinds FAIL for antigravity' >&2
+  exit 1
+}
+echo 'ok: rejects plugin-version pass when antigravity capture kinds are missing'
+
+# 14. Explicit operator reasons remain valid skips for the newly probed hosts.
+write_list antigravity 'session_started prompt'
+skip_output="$(run_fixture \
+  --skip 'claude=not authenticated on this machine' \
+  --skip 'antigravity=intentionally unused on this machine' \
+  "${args[@]}")"
+[[ "${skip_output}" == *'SKIP claude: not authenticated on this machine'* ]] || {
+  echo 'error: expected SKIP line for claude' >&2
+  exit 1
+}
+[[ "${skip_output}" == *'SKIP antigravity: intentionally unused on this machine'* ]] || {
+  echo 'error: expected SKIP line for antigravity' >&2
+  exit 1
+}
+echo 'ok: an explicit operator reason is still a valid skip for claude and antigravity'
+
+# 15. Usage text no longer advertises canned no-headless-probe skips.
+help_output="$("${VERIFY}" --help)"
+if printf '%s\n' "${help_output}" | grep -q 'Claude, Antigravity, and Gemini have no headless probe'; then
+  echo 'error: usage still advertises no-headless-probe for Claude and Antigravity' >&2
+  exit 1
+fi
+echo 'ok: usage text no longer advertises a canned no-headless-probe skip'
+
+# 16. Source-string guard over the live-mode branch that fixtures cannot reach:
+# "no headless probe" remains only in the Gemini sentence, never as a skip reason.
+probe_mentions="$(grep -c 'no headless probe' "${VERIFY}" || true)"
+[[ "${probe_mentions}" == 1 ]] || {
+  echo "error: expected exactly one 'no headless probe' (Gemini sentence), got ${probe_mentions}" >&2
+  exit 1
+}
+if grep -n 'no headless probe' "${VERIFY}" | grep -E -- '--skip claude|--skip antigravity' >/dev/null; then
+  echo 'error: no-headless-probe is still advertised as a skip reason' >&2
+  exit 1
+fi
+echo 'ok: the script no longer offers a no-headless-probe skip reason'

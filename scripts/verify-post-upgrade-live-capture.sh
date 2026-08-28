@@ -17,6 +17,9 @@ LIST_PATHS=()
 REQUIRE_COMMAND_HOSTS=()
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REFRESH_GATE="${SCRIPT_DIR}/verify-post-upgrade-plugin-refresh.sh"
+PROBE_TIMEOUT_SECONDS=300
+PROBE_STATUS_REPORTED=70
+PROBE_ENV_COMMON=(-u TRACEARY_NO_AUDIT -u TRACEARY_RUNTIME_MODE -u TRACEARY_RUNTIME_SESSION_ID -u TRACEARY_WORKSPACE)
 
 usage() {
   cat <<'USAGE'
@@ -32,9 +35,9 @@ Options:
   --traceary PATH            Traceary binary to inspect (default: traceary)
   --project-dir PATH         Project directory used for the Codex probe
                              (default: cwd)
-  --skip HOST=REASON         Explicitly skip an intentionally unused host, a
-                             host with no headless probe in this gate, or a
-                             Gemini account rejected with IneligibleTierError.
+  --skip HOST=REASON         Explicitly skip a host that is intentionally unused
+                             or not authenticated on this machine, or a Gemini
+                             account rejected with IneligibleTierError.
   --doctor-json HOST=PATH    Test-fixture input only. Requires
                              TRACEARY_CAPTURE_TEST_MODE=1. Forwarded to the
                              plugin-version identity gate.
@@ -52,10 +55,11 @@ with the same --traceary, --project-dir, --skip, and --doctor-json arguments;
 an identity failure fails this gate before any capture probe runs. Live probes
 always write to a fresh mktemp store via TRACEARY_DB_PATH and `--db-path`,
 never the default home store, and session_ended is never required or
-synthesized. Claude, Antigravity, and Gemini have no headless probe in this
-gate; skip them with an explicit reason. The script reads only JSON check
-name/status and list kind counts, never messages, paths, prompts,
-transcripts, command output, or database-event bodies.
+synthesized. Gemini has no headless probe in this gate; skip it with an
+explicit reason. Claude uses claude --print and Antigravity uses the agy
+binary. The script reads only JSON check name/status and list kind counts,
+never messages, paths, prompts, transcripts, command output, or
+database-event bodies.
 USAGE
 }
 
@@ -116,6 +120,28 @@ command_required_for() {
   return 1
 }
 
+host_binary_for() {
+  case "$1" in
+    antigravity) printf 'agy\n' ;;
+    *) printf '%s\n' "$1" ;;
+  esac
+}
+
+# timeout(1) is not present on a stock macOS; gtimeout is when coreutils is
+# installed. Without either, agy still self-bounds via --print-timeout and the
+# Claude probe is unbounded — documented, not fatal.
+run_with_timeout() {
+  local seconds="$1"
+  shift
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "${seconds}" "$@"
+  elif command -v gtimeout >/dev/null 2>&1; then
+    gtimeout "${seconds}" "$@"
+  else
+    "$@"
+  fi
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --traceary) [[ $# -ge 2 ]] || { echo 'error: --traceary requires PATH' >&2; exit 64; }; TRACEARY_BIN="$2"; shift 2 ;;
@@ -147,6 +173,19 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Headless Claude stays in --permission-mode plan and Antigravity stays in
+# --mode plan --sandbox, so a second turn cannot reliably execute a shell
+# command without a permission prompt. Do not leave a path that reports a
+# false "missing kinds: command_executed".
+for required_host in "${REQUIRE_COMMAND_HOSTS[@]+"${REQUIRE_COMMAND_HOSTS[@]}"}"; do
+  case "${required_host}" in
+    claude|antigravity)
+      echo "error: --require-command ${required_host} is not supported; the headless probe stays in plan/sandbox mode and cannot reliably execute a shell command" >&2
+      exit 64
+      ;;
+  esac
+done
+
 # Plugin-version identity is a precondition. Reuse the sibling gate so the
 # name/status contract (grok-plugin vs *-plugin-version) stays in one place.
 refresh_args=(--traceary "${TRACEARY_BIN}" --project-dir "${PROJECT_DIR}")
@@ -169,29 +208,60 @@ trap 'rm -rf "${TMP_DIR}"' EXIT
 capture_passes=0
 
 probe_host() {
-  local host="$1" db="$2" log="$3"
+  local host="$1" db="$2" log="$3" err="$4" state="$5"
   case "${host}" in
+    claude)
+      # Body-free capture probe. --permission-mode plan keeps the probe
+      # read-only. Never pass --bare (skips hooks) or any permission bypass.
+      # Do not use --working-directory; cd into PROJECT_DIR instead.
+      ( cd "${PROJECT_DIR}" && run_with_timeout "${PROBE_TIMEOUT_SECONDS}" \
+          env "${PROBE_ENV_COMMON[@]}" \
+              TRACEARY_DB_PATH="${db}" TRACEARY_HOOK_STATE_DIR="${state}" \
+              claude --print --permission-mode plan \
+              'Reply with the single word ok.' ) >"${log}" 2>"${err}" </dev/null || return $?
+      ;;
+    antigravity)
+      # agy can exit 0 with empty stdout when a hook is auto-denied with no TTY
+      # to prompt, so permission wording on stderr is diagnosed regardless of
+      # exit status (verify-antigravity-headless-markers.sh).
+      local agy_status=0
+      # agy 1.1+ treats the argument after --print as the prompt
+      # (docs/ai-cli: "prompt is the --print argument"). Putting --mode
+      # after --print makes agy treat "--mode" as the prompt and exit 2.
+      # Combined --mode plan --sandbox on agy 1.1.22 returns a reply but
+      # writes no capture events; keep plan and omit sandbox.
+      ( cd "${PROJECT_DIR}" && run_with_timeout "${PROBE_TIMEOUT_SECONDS}" \
+          env "${PROBE_ENV_COMMON[@]}" \
+              TRACEARY_DB_PATH="${db}" TRACEARY_HOOK_STATE_DIR="${state}" \
+              agy --mode plan --print-timeout 120s \
+              --print 'Reply with the single word ok.' ) >"${log}" 2>"${err}" </dev/null || agy_status=$?
+      if grep -qi permission "${err}"; then
+        echo "FAIL antigravity: scoped hook permission is absent or shadowed (permission prompt on stderr); grant the Traceary hook permission for Antigravity or use --skip antigravity=REASON only when this host is intentionally unused" >&2
+        return "${PROBE_STATUS_REPORTED}"
+      fi
+      return "${agy_status}"
+      ;;
     grok)
       TRACEARY_DB_PATH="${db}" grok --permission-mode plan --no-subagents --max-turns 1 \
-        -p "Reply with the single word ok." >"${log}" 2>&1 </dev/null
+        -p "Reply with the single word ok." >"${log}" 2>"${err}" </dev/null
       if command_required_for grok; then
         TRACEARY_DB_PATH="${db}" grok --no-subagents --max-turns 2 \
-          -p "Run the shell command true. Then reply with the single word done." >>"${log}" 2>&1 </dev/null
+          -p "Run the shell command true. Then reply with the single word done." >>"${log}" 2>>"${err}" </dev/null
       fi
       ;;
     kimi)
       # No --auto / --yolo: default -p permission mode. SessionEnd is not
       # required and is never synthesized from process exit.
-      TRACEARY_DB_PATH="${db}" kimi -p "Reply with the single word ok." >"${log}" 2>&1 </dev/null
+      TRACEARY_DB_PATH="${db}" kimi -p "Reply with the single word ok." >"${log}" 2>"${err}" </dev/null
       if command_required_for kimi; then
-        TRACEARY_DB_PATH="${db}" kimi -p "Run the shell command true. Then reply with the single word done." >>"${log}" 2>&1 </dev/null
+        TRACEARY_DB_PATH="${db}" kimi -p "Run the shell command true. Then reply with the single word done." >>"${log}" 2>>"${err}" </dev/null
       fi
       ;;
     codex)
       # codex exec requires a trusted git directory; --project-dir must be
       # one. Do not bypass with --skip-git-repo-check or -a never (#2238).
       TRACEARY_DB_PATH="${db}" codex exec -C "${PROJECT_DIR}" -s read-only \
-        'Reply with the single word ok.' >"${log}" 2>&1 </dev/null
+        'Reply with the single word ok.' >"${log}" 2>"${err}" </dev/null
       ;;
   esac
 }
@@ -245,32 +315,40 @@ for host in "${HOSTS[@]}"; do
     fi
   else
     case "${host}" in
-      grok|kimi|codex) ;;
-      claude|antigravity)
-        echo "FAIL ${host}: no headless probe in this gate; use --skip ${host}='no headless probe in this gate'" >&2
-        exit 1
-        ;;
+      claude|antigravity|grok|kimi|codex) ;;
       gemini)
         echo "FAIL gemini: IneligibleTierError must not count as capture; use --skip gemini='IneligibleTierError' or another explicit reason" >&2
         exit 1
         ;;
     esac
-    command -v "${host}" >/dev/null 2>&1 || {
-      echo "FAIL ${host}: ${host} binary not found; install it or use --skip ${host}=REASON only when this host is intentionally unused" >&2
+    binary="$(host_binary_for "${host}")"
+    command -v "${binary}" >/dev/null 2>&1 || {
+      echo "FAIL ${host}: ${binary} binary not found; install it or use --skip ${host}=REASON only when this host is intentionally unused" >&2
       exit 1
     }
     capture_dir="${TMP_DIR}/${host}"
-    mkdir -p "${capture_dir}"
+    mkdir -p "${capture_dir}/state"
     capture_db="${capture_dir}/traceary.db"
     # Never aim a probe at the default home store or any pre-existing file.
     if [[ "${capture_db}" == "${HOME}/.config/traceary/traceary.db" || -e "${capture_db}" ]]; then
       echo "FAIL ${host}: refusing to reuse a non-throwaway store path" >&2
       exit 1
     fi
-    if ! probe_host "${host}" "${capture_db}" "${capture_dir}/probe.log"; then
-      echo "FAIL ${host}: headless probe failed; investigate the host CLI or use --skip ${host}=REASON only when this host is intentionally unused" >&2
-      exit 1
-    fi
+    probe_status=0
+    probe_host "${host}" "${capture_db}" "${capture_dir}/probe.log" \
+      "${capture_dir}/probe.err" "${capture_dir}/state" || probe_status=$?
+    case "${probe_status}" in
+      0) ;;
+      "${PROBE_STATUS_REPORTED}") exit 1 ;;
+      124)
+        echo "FAIL ${host}: headless probe timed out after ${PROBE_TIMEOUT_SECONDS}s; investigate the host CLI or use --skip ${host}=REASON only when this host is intentionally unused" >&2
+        exit 1
+        ;;
+      *)
+        echo "FAIL ${host}: headless probe failed; investigate the host CLI or use --skip ${host}=REASON only when this host is intentionally unused" >&2
+        exit 1
+        ;;
+    esac
     list_json="${capture_dir}/list.json"
     if ! "${TRACEARY_BIN}" --db-path "${capture_db}" list --json --limit 50 >"${list_json}"; then
       echo "FAIL ${host}: traceary list against the throwaway store failed" >&2
