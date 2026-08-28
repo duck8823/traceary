@@ -124,11 +124,19 @@ type ContentEventDedupeRestoreResult struct {
 // a listing those rows would be unreachable: invisible in `events`, un-restorable
 // and un-purgeable.
 type ContentEventDedupeRun struct {
-	RunID           string
-	ArchivedAt      string
-	QuarantinedRows int
+	RunID      string
+	ArchivedAt string // newest archived_at, raw (lexical MAX; see #1185)
+	// OldestArchivedAt is the earliest parseable archived_at in this run, in
+	// ts_norm's fixed-width UTC form. Empty when no row in the run has a
+	// parseable timestamp.
+	OldestArchivedAt string
+	QuarantinedRows  int
 	// BodyBytes is the total quarantined body length held by this run, in bytes.
 	BodyBytes int64
+	// Internal is true for quarantine compact minted for its own copy-filter
+	// apply (the compact-copy-filter-* namespace). Compact owns those rows; the
+	// next replica/external `store compact` drops them.
+	Internal bool
 }
 
 // ContentEventDedupeApplyError wraps a failure from an apply run (Apply:true)

@@ -178,7 +178,7 @@ func (b SQLiteCompactionBuilder) VerifyPair(ctx context.Context, source, candida
 	return nil
 }
 
-func verifyFilteredCandidate(ctx context.Context, sourceDB, candidateDB *sql.DB, _ application.CompactFilter) error {
+func verifyFilteredCandidate(ctx context.Context, sourceDB, candidateDB *sql.DB, filter application.CompactFilter) error {
 	if _, err := scrubStore(ctx, sourceDB); err != nil {
 		return fmt.Errorf("scrub source: %w", err)
 	}
@@ -252,6 +252,9 @@ func verifyFilteredCandidate(ctx context.Context, sourceDB, candidateDB *sql.DB,
 		return err
 	}
 	if err := verifySearchProjectionGenerations(ctx, sourceDB, candidateDB); err != nil {
+		return err
+	}
+	if err := verifyDedupeArchive(ctx, sourceDB, candidateDB, filter.ArchiveCutoff); err != nil {
 		return err
 	}
 	return nil
