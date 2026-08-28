@@ -39,6 +39,40 @@ type CompactResult struct {
 	ReleasedCommandBodyBytes  int64
 	EstimatedReclaimableBytes int64
 	CompactStrategy           string
+	Steps                     CompactSteps
+}
+
+// CompactStep is one attributed copy-filter step. Bytes are stored (blob)
+// bytes on the work copy, not plaintext, so they add up to file-size deltas.
+type CompactStep struct {
+	Name           string
+	Rows           int64
+	BytesBefore    int64
+	BytesAfter     int64
+	BytesReclaimed int64
+	Skipped        string
+	Detail         map[string]int64
+}
+
+// Compact step names are the JSON keys under store compact "steps".
+const (
+	CompactStepProjectionReclaim = "projection_reclaim" // #2261
+	CompactStepAuditEncode       = "audit_encode"       // #2264 (not implemented here)
+	CompactStepDedupeArchive     = "dedupe_archive"     // #2262 (not implemented here)
+	CompactStepMechanicalCover   = "mechanical_cover"   // #2268 (not implemented here)
+)
+
+// CompactSteps is the ordered list of steps a rewrite performed.
+type CompactSteps []CompactStep
+
+// Find returns the named step when the rewrite recorded it.
+func (s CompactSteps) Find(name string) (CompactStep, bool) {
+	for _, step := range s {
+		if step.Name == name {
+			return step, true
+		}
+	}
+	return CompactStep{}, false
 }
 
 // CommandBodyReclaim is the measured set of duplicated command_executed
@@ -59,6 +93,19 @@ type CompactFilter struct {
 	AfterClone func(ctx context.Context, work string, cutoff time.Time) error
 	// WorkDir stages the source-sized work copy on another volume (#2008).
 	WorkDir string
+	// OnStep receives one attributed copy-filter step after that step runs.
+	OnStep func(CompactStep)
+}
+
+// Report delivers one copy-filter step. It is a no-op when OnStep is nil.
+func (f CompactFilter) Report(step CompactStep) {
+	if f.OnStep == nil {
+		return
+	}
+	if step.BytesReclaimed < 0 {
+		step.BytesReclaimed = 0
+	}
+	f.OnStep(step)
 }
 
 // BodyGate classifies discardable-age transcript bodies on the source.

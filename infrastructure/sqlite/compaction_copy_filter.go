@@ -66,6 +66,9 @@ func applyCopyFilters(ctx context.Context, work string, filter application.Compa
 	if err := dropUnreadRecentFTSOn(ctx, db); err != nil {
 		return err
 	}
+	if err := reclaimTerminalProjectionGenerationsStep(ctx, db, filter); err != nil {
+		return err
+	}
 	if err := trimDedupeArchive(ctx, db, time.Now().UTC()); err != nil {
 		return err
 	}

@@ -172,6 +172,16 @@ vacuums into a new file.
   summaries first
 - Search-projection rebuild is `store compact --projection-rebuild` / `--projection-abort`. Parked failed recovery is `doctor --fix`. File retention of archive/backup artifacts is `store compact --retention-plan` / `--retention-apply`.
 
+### Derived generation disk bound
+
+Search-projection derived rows are keyed by `generation_id`. Disk bound for that family:
+
+- **Steady state**: one complete family — session summaries, command aggregates, session keywords, literal fingerprints, and the recent-document tier within `--index-family-bytes`. Session keywords and literal fingerprints are corpus-proportional and not evictable; only the recent tier is bounded by the family budget.
+- **Rebuild peak**: previous complete family plus the family under construction. Both stay resident until the new generation's cleanup phase finishes.
+- **Terminal families**: zero after `traceary doctor --fix` or the default `traceary store compact`; transiently at most the families that became `failed` / `abandoned` since the last recovery. Before #2261 they grew with every failed rebuild.
+
+Operator surfaces: `traceary doctor` check `search-projection-terminal-rows`, `traceary store compact` JSON `steps.projection_reclaim`. `--index-family-bytes` targets the *family*, not leftover terminal rows.
+
 After `--force` cover, compact consolidates **orphan ranges**: event spans past `session_refinements.covers_to` that an agent can no longer fold (session ended, treated as stale after 24h of inactivity, or front-loaded at a post-compact marker). For each still-unfolded range that contains more than session start/end it writes a mechanical `degraded=1` refinement (`produced_by=gc:orphan-consolidation`) covering when, which event kinds, how often, and which commands ran — not agent reasoning. A lifecycle-only tail (typically the `session_ended` event that lands after a correct fold) only advances `covers_to`; it does not attach a mechanical footnote, and `degraded` stays "contains synthesised text" rather than becoming a wake-eligibility bit. Wake injection reads `has_agent_reasoning`, so a correctly folded session stays injectable after reduction. That mechanical refinement **is** sufficient coverage for discard: what a discard removes is the text, and what it promises to keep — bytes, timestamps, counts — is exactly what the refinement records. Output reports both the orphan-refinement count and the cleanup count. `--dry-run` counts both and writes neither. There is no separate command or `--target` for this step.
 
 **A run never discards what it just folded.** The discard runs before consolidation, so it acts on the coverage that existed when the run began. A dry run consolidates without writing and therefore sees the same coverage; if an apply folded first, it would discard bodies the preview could not have counted — the one loss `--dry-run` exists to make visible. Ordering the two steps this way makes the preview exact by construction. What a run folds becomes discardable on the next run, whose preview counts it first, and coverage only ever grows, so nothing is stranded.

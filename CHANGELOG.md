@@ -8,6 +8,7 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 ## [Unreleased]
 
 ### Fixed
+- **Terminal search-projection generations reclaim derived rows (#2261)** — `failed` / `abandoned` generations no longer keep keyword and fingerprint rows until a later rebuild completes. `traceary doctor --fix` and default `store compact` page-delete those rows under lock/wall budgets, status/doctor report terminal counts separately from active-only zeros, and compact JSON includes `steps.projection_reclaim`. Leaves parent #2263 open.
 - **Post-upgrade live-capture gate probes Claude and Antigravity (#2259)** — `scripts/verify-post-upgrade-live-capture.sh` now runs `claude --print --permission-mode plan` and `agy --mode plan --print …` into a throwaway store and requires `session_started` / `prompt`. The canned `--skip …='no headless probe in this gate'` reasons are gone. Gemini stays skip-with-reason on `IneligibleTierError`. Leaves parent #2263 open.
 
 ## [v0.47.1] - 2026-08-21

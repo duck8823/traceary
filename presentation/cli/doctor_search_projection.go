@@ -6,6 +6,50 @@ import (
 	apptypes "github.com/duck8823/traceary/application/types"
 )
 
+func (c *RootCLI) inspectSearchProjectionTerminalRows(ctx context.Context) doctorCheck {
+	if c.searchProjection == nil {
+		return doctorCheck{
+			Name:    "search-projection-terminal-rows",
+			Status:  doctorStatusSkip,
+			Message: Localize("search projection usecase is not configured", "search projection usecase が設定されていません"),
+		}
+	}
+	status, err := c.searchProjection.Inspect(ctx)
+	return searchProjectionTerminalRowsDoctorCheck(status, err)
+}
+
+func searchProjectionTerminalRowsDoctorCheck(status apptypes.SearchProjectionStatus, err error) doctorCheck {
+	const name = "search-projection-terminal-rows"
+	if err != nil {
+		return doctorCheck{
+			Name:    name,
+			Status:  doctorStatusWarn,
+			Message: localizef("failed to inspect terminal search-projection rows: %v", "terminal search-projection 行を確認できません: %v", err),
+		}
+	}
+	if status.TerminalGenerations == 0 {
+		return doctorCheck{
+			Name:    name,
+			Status:  doctorStatusPass,
+			Message: Localize("no terminal search-projection generations hold derived rows", "terminal な search-projection 世代は derived 行を保持していません"),
+		}
+	}
+	logical := status.TerminalKeywordLogicalBytes + status.TerminalFingerprintLogicalBytes
+	if logical < 0 {
+		logical = 0
+	}
+	return doctorCheck{
+		Name:   name,
+		Status: doctorStatusWarn,
+		Message: localizef(
+			"%d terminal generation(s) still hold %d keyword rows / %d fingerprint rows (~%s logical)",
+			"%d 個の terminal 世代が keyword %d 行 / fingerprint %d 行（論理 ~%s）を保持しています",
+			status.TerminalGenerations, status.TerminalKeywordRows, status.TerminalFingerprintRows, formatCompactBytes(uint64(logical)),
+		),
+		Hint: apptypes.SearchProjectionRecoveryCommand,
+	}
+}
+
 func (c *RootCLI) inspectSearchProjectionParked(ctx context.Context) doctorCheck {
 	if c.searchProjection == nil {
 		return doctorCheck{

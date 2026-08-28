@@ -198,7 +198,7 @@ func (d *Database) RecordCleanupNoProgressAttempt(ctx context.Context, generatio
 	if n, rowErr := result.RowsAffected(); rowErr != nil || n != 1 {
 		return 0, false, &apptypes.SearchProjectionDriftError{}
 	}
-	result, err = tx.ExecContext(ctx, `UPDATE search_projection_generation_lifecycle SET state='failed' WHERE generation_id=? AND state IN ('rebuilding','drifted')`, generation)
+	result, err = tx.ExecContext(ctx, `UPDATE search_projection_generation_lifecycle SET state='failed',failure_class=?,terminal_at=? WHERE generation_id=? AND state IN ('rebuilding','drifted')`, apptypes.SearchProjectionFailureCleanupNoProgress, stamp, generation)
 	if err != nil {
 		return 0, false, xerrors.Errorf("park cleanup no-progress lifecycle: %w", err)
 	}

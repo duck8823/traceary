@@ -249,7 +249,7 @@ func (c *RootCLI) runStoreCompact(cmd *cobra.Command, input storeCompactInput) e
 		}
 		return err
 	}
-	return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{
+	payload := map[string]any{
 		"run_id":                      result.Run.ID,
 		"phase":                       result.Run.Phase,
 		"bytes_before":                result.BytesBefore,
@@ -265,7 +265,33 @@ func (c *RootCLI) runStoreCompact(cmd *cobra.Command, input storeCompactInput) e
 		// Apply-time VerifyPair is not in-use proof. The operator
 		// deletes this file when they accept the rewrite (#1827).
 		"rollback_retained": result.CompactStrategy != application.CompactStrategyInPlace,
-	})
+	}
+	if steps := compactStepsJSON(result.Steps); len(steps) > 0 {
+		payload["steps"] = steps
+	}
+	return json.NewEncoder(cmd.OutOrStdout()).Encode(payload)
+}
+
+func compactStepsJSON(steps application.CompactSteps) map[string]any {
+	if len(steps) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(steps))
+	for _, step := range steps {
+		detail := step.Detail
+		if detail == nil {
+			detail = map[string]int64{}
+		}
+		out[step.Name] = map[string]any{
+			"rows":            step.Rows,
+			"bytes_before":    step.BytesBefore,
+			"bytes_after":     step.BytesAfter,
+			"bytes_reclaimed": step.BytesReclaimed,
+			"skipped":         step.Skipped,
+			"detail":          detail,
+		}
+	}
+	return out
 }
 
 func validateStoreCompactAbsorbFlags(cmd *cobra.Command, input storeCompactInput) error {

@@ -70,9 +70,10 @@ func (u *storeCompactionUsecase) Compact(ctx context.Context, in application.Com
 		return application.CompactResult{}, fmt.Errorf("compaction store binding mismatch")
 	}
 	cutoff := application.CompactCutoff(in.Now, in.KeepDays)
+	collector := &compactStepCollector{u: u}
 	u.reportWindow("inspect_gate")
 	if setter, ok := u.builder.(compactFilterSetter); ok {
-		filter := application.CompactFilter{Cutoff: cutoff, WorkDir: strings.TrimSpace(in.WorkDir)}
+		filter := application.CompactFilter{Cutoff: cutoff, WorkDir: strings.TrimSpace(in.WorkDir), OnStep: collector.record}
 		if in.Force && u.cover != nil {
 			filter.AfterClone = u.cover
 		}
@@ -133,7 +134,8 @@ func (u *storeCompactionUsecase) Compact(ctx context.Context, in application.Com
 	run, err := u.compactLeased(ctx, source)
 	if err != nil {
 		if isInsufficientCompactionSpace(err) && strategy != application.CompactStrategyInPlace {
-			inPlaceErr := u.compactInPlace(ctx, source, cutoff)
+			collector.steps = nil
+			inPlaceErr := u.compactInPlace(ctx, source, cutoff, collector.record)
 			if inPlaceErr == nil {
 				after, afterErr := os.Stat(source)
 				if afterErr != nil {
@@ -156,6 +158,7 @@ func (u *storeCompactionUsecase) Compact(ctx context.Context, in application.Com
 					ReleasedCommandBodyBytes:  reclaim.Bytes,
 					EstimatedReclaimableBytes: estimated,
 					CompactStrategy:           application.CompactStrategyInPlace,
+					Steps:                     collector.steps,
 				}, nil
 			}
 			return application.CompactResult{}, fmt.Errorf("%w\n\testimated reclaimable bytes: %d\n\tattach another volume and retry with --work-dir, or free dest-sized space on this volume", err, estimated)
@@ -184,6 +187,7 @@ func (u *storeCompactionUsecase) Compact(ctx context.Context, in application.Com
 		ReleasedCommandBodyBytes:  reclaim.Bytes,
 		EstimatedReclaimableBytes: estimated,
 		CompactStrategy:           strategy,
+		Steps:                     collector.steps,
 	}, nil
 }
 
@@ -206,16 +210,31 @@ type inPlaceCompactor interface {
 	CompactInPlace(ctx context.Context, source string, filter application.CompactFilter) error
 }
 
-func (u *storeCompactionUsecase) compactInPlace(ctx context.Context, source string, cutoff time.Time) error {
+func (u *storeCompactionUsecase) compactInPlace(ctx context.Context, source string, cutoff time.Time, onStep func(application.CompactStep)) error {
 	compactor, ok := u.builder.(inPlaceCompactor)
 	if !ok {
 		return fmt.Errorf("in-place compact is not supported by this builder")
 	}
-	filter := application.CompactFilter{Cutoff: cutoff}
+	filter := application.CompactFilter{Cutoff: cutoff, OnStep: onStep}
 	if u.cover != nil {
 		filter.AfterClone = u.cover
 	}
 	return compactor.CompactInPlace(ctx, source, filter)
+}
+
+type compactStepCollector struct {
+	u     *storeCompactionUsecase
+	steps application.CompactSteps
+}
+
+func (c *compactStepCollector) record(step application.CompactStep) {
+	if c == nil {
+		return
+	}
+	c.steps = append(c.steps, step)
+	if c.u != nil {
+		c.u.reportWindow(fmt.Sprintf("%s rows=%d reclaimed=%d", step.Name, step.Rows, step.BytesReclaimed))
+	}
 }
 
 func isInsufficientCompactionSpace(err error) bool {

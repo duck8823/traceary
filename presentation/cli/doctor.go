@@ -208,6 +208,9 @@ func (c *RootCLI) runDoctor(ctx context.Context, output io.Writer, input doctorC
 		if fixLog, recorded := c.applyAuthorizedStoreInit(ctx, input); recorded {
 			authorizedFixes = append(authorizedFixes, fixLog)
 		}
+		if fixLog, recorded := c.applySearchProjectionTerminalReclaim(ctx, input); recorded {
+			authorizedFixes = append(authorizedFixes, fixLog)
+		}
 		if fixLog, recorded := c.applySearchProjectionRecovery(ctx, input); recorded {
 			authorizedFixes = append(authorizedFixes, fixLog)
 		}
@@ -448,6 +451,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		})
 		report.Checks = append(report.Checks, c.inspectSearchProjectionBudget(ctx))
 		report.Checks = append(report.Checks, c.inspectSearchProjectionParked(ctx))
+		report.Checks = append(report.Checks, c.inspectSearchProjectionTerminalRows(ctx))
 		report.Checks = append(report.Checks, c.inspectStaleActiveSessions(ctx))
 		report.Checks = append(report.Checks, c.inspectArchiveRetention(ctx, resolvedDBPath))
 		report.Checks = append(report.Checks, c.inspectOfflineMigrations(ctx))

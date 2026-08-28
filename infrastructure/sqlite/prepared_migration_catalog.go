@@ -123,6 +123,11 @@ var preparedMigrationManifest = map[int64]migrationManifestEntry{
 	// 73 adds a keyword-first secondary index. CREATE INDEX does not rewrite
 	// keyword rows; previous binaries ignore the extra index.
 	73: {73, "000073_add_session_keyword_by_kw_index.sql", "a171e67c6ffac43eb57c8cb0c2537cf42d7eb64b5654dc80a9665de992059a42", MigrationConstantInPlace},
+	// 74 adds five additive columns to search_projection_generation_lifecycle
+	// and backfills one row per generation. ALTER ... ADD COLUMN with constant
+	// defaults is metadata-only; the backfill is bounded by generation count,
+	// not by events. Same class as 41/72/73.
+	74: {74, "000074_add_search_projection_generation_reclaim_columns.sql", "53865a0caa771b84d2183c83579945190f9a8d1cd9f4ec022ac68bdcb2b60d33", MigrationConstantInPlace},
 	// 75 creates an empty bookkeeping table and two indexes on it. No event
 	// scan, no row rewrite. Same class as 46/47/72. Wave 1 reserved 74 for #2261.
 	75: {75, "000075_create_consolidation_requests.sql", "c0e9eaca0d744eb614617329d0438960269390c9d81f14087f98e540e82307e6", MigrationConstantInPlace},

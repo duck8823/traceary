@@ -83,7 +83,41 @@ const (
 	// SearchProjectionCleanupNoProgressLimit is how many consecutive
 	// zero-progress cleanup catch-up attempts park the generation.
 	SearchProjectionCleanupNoProgressLimit = 3
+	// SearchProjectionTerminalReclaimPageRows is the per-table page size of one
+	// reclaim transaction. It is deliberately larger than
+	// DefaultSearchProjectionBudget().Rows (128): a reclaim page decodes nothing
+	// and seeks on a generation-prefixed index, so the per-row cost is orders of
+	// magnitude below a projection source batch. The usecase halves it on a lock
+	// duration overrun exactly like ResumeUntil.
+	SearchProjectionTerminalReclaimPageRows = 2000
 )
+
+// SearchProjectionTerminalGeneration is payload-free evidence for one
+// failed or abandoned generation that may still hold derived rows (#2261).
+type SearchProjectionTerminalGeneration struct {
+	GenerationID   string `json:"generation_id"`
+	LifecycleState string `json:"lifecycle_state"`
+	FailureClass   string `json:"failure_class,omitempty"`
+	TerminalAt     string `json:"terminal_at,omitempty"`
+	ReclaimedAt    string `json:"reclaimed_at,omitempty"`
+	ReclaimedRows  int64  `json:"reclaimed_rows"`
+}
+
+// SearchProjectionReclaimProgress is one bounded page of terminal reclaim.
+type SearchProjectionReclaimProgress struct {
+	Deleted      int64
+	LogicalBytes int64
+	Done         bool
+}
+
+// SearchProjectionReclaimResult is one operator reclaim run (#2261).
+type SearchProjectionReclaimResult struct {
+	Generations  []SearchProjectionTerminalGeneration `json:"generations,omitempty"`
+	DeletedRows  int64                                `json:"deleted_rows"`
+	LogicalBytes int64                                `json:"logical_bytes"`
+	Complete     bool                                 `json:"complete"`
+	StopReason   string                               `json:"stop_reason"`
+}
 
 type SearchProjectionBudget struct {
 	Rows                      int
@@ -444,6 +478,14 @@ type SearchProjectionStatus struct {
 	// generation. RecoveryCommand names the operator command that replaces it.
 	ParkedReason    string `json:"parked_reason,omitempty"`
 	RecoveryCommand string `json:"recovery_command,omitempty"`
+	// Terminal* fields describe failed/abandoned generations that are not
+	// the active generation. KeywordRows / FingerprintRows stay active-only.
+	TerminalGenerations             int                                  `json:"terminal_generations"`
+	TerminalKeywordRows             int64                                `json:"terminal_keyword_rows"`
+	TerminalKeywordLogicalBytes     int64                                `json:"terminal_keyword_logical_bytes"`
+	TerminalFingerprintRows         int64                                `json:"terminal_fingerprint_rows"`
+	TerminalFingerprintLogicalBytes int64                                `json:"terminal_fingerprint_logical_bytes"`
+	TerminalGenerationEvidence      []SearchProjectionTerminalGeneration `json:"terminal_generation_evidence,omitempty"`
 }
 
 // ApplyParkedNotice fills ParkedReason and RecoveryCommand from persisted
