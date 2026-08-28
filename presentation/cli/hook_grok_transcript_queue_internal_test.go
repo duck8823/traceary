@@ -298,7 +298,7 @@ func TestDrainHookGrokTranscriptQueueRelaunchesDueJobsAndSkipsBackoffAndSkipPath
 func TestInspectHookGrokTranscriptDiagnosticsFixFuncDrainsAndGCs(t *testing.T) {
 	stateDir := t.TempDir()
 	t.Setenv(hookStateDirEnvKey, stateDir)
-	now := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	now := time.Now().UTC()
 
 	payload := []byte(`{"session_id":"fix-session","prompt_id":"prompt-1","transcript_path":"/private/transcript/updates.jsonl"}`)
 	if _, _, err := enqueueHookGrokTranscript(payload, "", now.Add(-time.Minute)); err != nil {

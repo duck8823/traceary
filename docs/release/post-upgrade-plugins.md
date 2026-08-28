@@ -35,12 +35,10 @@ After every released binary upgrade:
 
    ```sh
    ./scripts/verify-post-upgrade-live-capture.sh \
-     --skip claude='no headless probe in this gate' \
-     --skip gemini='IneligibleTierError' \
-     --skip antigravity='no headless probe in this gate'
+     --skip gemini='IneligibleTierError'
    ```
 
-   Live probes exist for Grok (`grok --permission-mode plan --no-subagents --max-turns 1 -p …`), Kimi (`kimi -p …`, no `--auto`/`--yolo`), and Codex (`codex exec` from a trusted git root — see the Codex section below). Claude, Antigravity, and Gemini have no headless probe in this gate; skip them with an explicit reason as above. On a Gemini account Google rejects with `IneligibleTierError`, that rejection must not count as capture. An unskipped host whose binary is missing or whose probe fails is a FAIL, never a silent pass, and at least one unskipped host must actually pass capture.
+   Live probes exist for Grok (`grok --permission-mode plan --no-subagents --max-turns 1 -p …`), Kimi (`kimi -p …`, no `--auto`/`--yolo`), Codex (`codex exec` from a trusted git root — see the Codex section below), Claude (`claude --print --permission-mode plan`), and Antigravity (`agy --mode plan --print-timeout 120s --print …`; the binary is `agy`, not `antigravity`; the prompt is the `--print` argument). Combined `--mode plan --sandbox` on agy 1.1.22 returned a successful reply but wrote no capture events, so the gate keeps plan and omits sandbox. Gemini has no headless probe in this gate; skip it with an explicit reason as above. `--skip claude=…` / `--skip antigravity=…` remain valid when the host is intentionally unused or not authenticated on that machine; `no headless probe in this gate` is no longer a truthful reason. An Antigravity probe that prints permission wording on stderr fails with `scoped hook permission is absent or shadowed` — grant the Traceary hook permission rather than skipping. On a Gemini account Google rejects with `IneligibleTierError`, that rejection must not count as capture. An unskipped host whose binary is missing or whose probe fails is a FAIL, never a silent pass, and at least one unskipped host must actually pass capture. A stock macOS has neither `timeout` nor `gtimeout`; install coreutils if you want the Claude probe bounded by the gate's 300s outer timeout (`agy` still self-bounds via `--print-timeout`).
 
 ## Host refresh and verification matrix
 
