@@ -219,7 +219,7 @@ fold schema より前の store には被覆の証跡が無いため、破棄候�
 
 **要件。** 初期の hook 発火で、同じ prompt/transcript が二重に書き込まれることがありました。現在の hook 書き込みが抑止するのは、ホスト由来の安定した delivery ID で証明できる完全な再送だけです。その証拠がない同一内容は正当な別イベントとして保持します。履歴上の推定 duplicate group は残り、`doctor` の `content-event-reliability` 警告や context size を膨らませます。クリーンアップは **明示的かつ可逆** でなければなりません。通常の upgrade/migration が `events` 行を移動・削除・書き換えることは決してなく、復元可能な証跡なしに hard delete することもありません（#1227）。
 
-**コマンド。** `traceary store dedupe content-events`
+**コマンド。** `traceary store dedupe content-events`（CLI 面は #1872 で削除済み。以下の箇条書きは port/usecase の説明であり、出荷コマンドではない。）
 
 - 既定は **dry-run** で、候補グループを報告するだけで何も変更しません。
 - `--apply` で duplicate を隔離します（`events` から移動）。
@@ -249,7 +249,7 @@ fold schema より前の store には被覆の証跡が無いため、破棄候�
 
 **rollback。** apply を取り消すには `traceary store dedupe content-events --restore <run-id>` を実行します（run id は `--apply` が出力し、隔離した各行にも記録されます）。run id が出力される前に apply が中断した場合は `--list-runs` で見つけられます。バッチは run id が報告される前に commit されるため、これがないとその行は restore / purge のどちらからも到達できません。念のためのコピーが欲しい場合は、`--apply` の前に `traceary store backup create` を取得してください。
 
-**apply の失敗は run id を失わない。** `Apply:true` が途中で失敗すると、`StoreManagementUsecase.DedupeContentEvents` はその error を `apptypes.ContentEventDedupeApplyError{RunID, Err}` で包みます。すでに commit 済みの batch がどの id で隔離されたかを失わないためで、`errors.As` で取り出せます。dry-run の失敗は run id を名乗りません（採番していないため）。`store compact` 内部の copy-filter apply（`deleteNonCanonicalDuplicateEvents`）も実行ごとに一意な run id を採番し、同じ型で失敗を包みますが、こちらは破棄可能な work copy 上で動作し、成功時には途中の archive も work copy ごと捨てるため、復旧手段は compact の resume / rollback であり、restore コマンドではありません。上記の `store dedupe content-events` CLI 面自体は #1872 で削除済みで、その復活はこの変更の対象外です。
+**apply の失敗は run id を失わない。** `Apply:true` が途中で失敗すると、`StoreManagementUsecase.DedupeContentEvents` はその error を `apptypes.ContentEventDedupeApplyError{RunID, Err}` で包みます。すでに commit 済みの batch がどの id で隔離されたかを失わないためで、`errors.As` で取り出せます。dry-run の失敗は run id を名乗りません（採番していないため）。`store compact` 内部の copy-filter apply（`deleteNonCanonicalDuplicateEvents`）も実行ごとに一意な `compact-copy-filter-<hex>` run id を採番し、同じ型で失敗を包みますが、compact はその quarantine を**所有**し、committed candidate には載せません。replica/external compact では保持した rollback inode（`<db>.rollback-<run>`）が compact 前の完全なストアなので、当該 run の archive 行も以前の `compact-copy-filter-*` run も candidate に残りません。duplicate 本体は `events` に残った canonical survivor の内容で復元できます。in-place fallback には rollback inode がないため、supported な restore のない quarantine を作らず **duplicate isolation 自体を行いません**（`store dedupe content-events` CLI は #1872 で削除済み）。operator が作った quarantine は compact の所有物ではないので、90 日窓の内側ではそのまま残し、`archived_at` を RFC3339 文字列ではなく **instant** として比較して期限切れを落とします。`traceary doctor` は `dedupe-archive-runs` で残量を報告し、eligible な内部 run を解放するのは replica/external の `traceary store compact` です。
 
 **バイトの回収。** 隔離は duplicate を移動するだけで、領域は解放しません。隔離された行を破棄するのは `--purge <run-id>` だけで、解放されたページをファイルシステムへ返すのはそのあとの `VACUUM` だけです。
 

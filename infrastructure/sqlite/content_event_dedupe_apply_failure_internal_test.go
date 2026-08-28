@@ -268,7 +268,7 @@ func TestDeleteNonCanonicalDuplicateEvents_WrapsFailureWithRunID(t *testing.T) {
 	// duplicate) then fails to begin its transaction, exercising the wrap
 	// path.
 	datasource := &StoreManagementDatasource{onAfterDedupeBatchCommit: func() { cancel() }}
-	err = deleteNonCanonicalDuplicateEvents(ctx, db, datasource)
+	_, err = deleteNonCanonicalDuplicateEvents(ctx, db, datasource)
 	if err == nil {
 		t.Fatalf("deleteNonCanonicalDuplicateEvents() error = nil, want failure from the canceled context")
 	}

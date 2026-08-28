@@ -69,20 +69,16 @@ func applyCopyFilters(ctx context.Context, work string, filter application.Compa
 	if err := reclaimTerminalProjectionGenerationsStep(ctx, db, filter); err != nil {
 		return err
 	}
-	if err := trimDedupeArchive(ctx, db, time.Now().UTC()); err != nil {
-		return err
-	}
 
 	hasEvents, err := tableExists(ctx, db, "events")
 	if err != nil {
 		return err
 	}
+	if err := dedupeArchiveStep(ctx, db, filter, hasEvents); err != nil {
+		return err
+	}
 	if !hasEvents {
 		return nil
-	}
-
-	if err := deleteNonCanonicalDuplicateEvents(ctx, db, &StoreManagementDatasource{}); err != nil {
-		return err
 	}
 
 	if _, err := clearDuplicatedCommandExecutedBodies(ctx, db); err != nil {
@@ -146,18 +142,152 @@ func dropLegacySearchFamilyOn(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
-func deleteNonCanonicalDuplicateEvents(ctx context.Context, db *sql.DB, datasource *StoreManagementDatasource) error {
+// compactInternalDedupeRunLo/Hi bound the half-open run-id namespace compact
+// mints for its own copy-filter applies. '.' is the byte after '-', so the
+// range is exactly the compact-copy-filter- prefix set. A range predicate is
+// used rather than LIKE because SQLite does not apply the LIKE optimization
+// to a BINARY column while case_sensitive_like is OFF.
+const (
+	compactInternalDedupeRunLo = "compact-copy-filter-"
+	compactInternalDedupeRunHi = "compact-copy-filter."
+)
+
+const compactInternalDedupeRunPredicate = `(dedupe_run_id >= '` + compactInternalDedupeRunLo + `' AND dedupe_run_id < '` + compactInternalDedupeRunHi + `')`
+
+func compactInternalDedupeRun(runID string) bool {
+	return runID >= compactInternalDedupeRunLo && runID < compactInternalDedupeRunHi
+}
+
+func dedupeArchiveSizeExpr(ctx context.Context, db *sql.DB) (string, error) {
+	hasCodec, err := databaseColumnExists(ctx, db, "event_content_dedupe_archive", "body_encoded_bytes")
+	if err != nil {
+		return "", err
+	}
+	if hasCodec {
+		return dedupeArchiveStoredSizeExpr, nil
+	}
+	return `length(CAST(body AS BLOB))`, nil
+}
+
+func archiveTableSum(ctx context.Context, db *sql.DB, sizeExpr string) (rows, bytes int64, err error) {
+	err = db.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(SUM(`+sizeExpr+`), 0) FROM event_content_dedupe_archive`).Scan(&rows, &bytes)
+	if err != nil {
+		return 0, 0, fmt.Errorf("measure dedupe archive: %w", err)
+	}
+	return rows, bytes, nil
+}
+
+// dedupeArchiveStep is compact's entire relationship with
+// event_content_dedupe_archive on the work copy.
+func dedupeArchiveStep(ctx context.Context, db *sql.DB, filter application.CompactFilter, hasEvents bool) error {
+	exists, err := tableExists(ctx, db, "event_content_dedupe_archive")
+	if err != nil {
+		return err
+	}
+	if !exists {
+		filter.Report(application.CompactStep{
+			Name:    application.CompactStepDedupeArchive,
+			Skipped: "no dedupe archive table",
+			Detail:  map[string]int64{},
+		})
+		return nil
+	}
+	sizeExpr, err := dedupeArchiveSizeExpr(ctx, db)
+	if err != nil {
+		return err
+	}
+	preRows, preBytes, err := archiveTableSum(ctx, db, sizeExpr)
+	if err != nil {
+		return err
+	}
+	_ = preRows
+	trimmedRows, trimmedBytes, unparseable, err := trimDedupeArchive(ctx, db, filter.ArchiveCutoff, sizeExpr)
+	if err != nil {
+		return err
+	}
+	if !hasEvents || !filter.DedupeArchivePolicy.RunsInternalDedupe() {
+		retainedRows, retainedBytes, err := archiveTableSum(ctx, db, sizeExpr)
+		if err != nil {
+			return err
+		}
+		skipped := "no events table"
+		if hasEvents {
+			skipped = application.DedupeArchiveSkipReason
+		}
+		filter.Report(dedupeArchiveReport(application.CompactStep{
+			Name:        application.CompactStepDedupeArchive,
+			Skipped:     skipped,
+			BytesBefore: preBytes,
+			BytesAfter:  retainedBytes,
+			Detail: map[string]int64{
+				"internal_candidate_rows":  0,
+				"internal_candidate_bytes": 0,
+				"prior_internal_rows":      0,
+				"prior_internal_bytes":     0,
+				"trimmed_rows":             trimmedRows,
+				"trimmed_bytes":            trimmedBytes,
+				"retained_rows":            retainedRows,
+				"retained_bytes":           retainedBytes,
+				"reclaimed_rows":           trimmedRows,
+				"reclaimed_bytes":          trimmedBytes,
+				"unparseable_archived_at":  unparseable,
+			},
+		}, trimmedRows, 0, 0))
+		return nil
+	}
+	runID, err := deleteNonCanonicalDuplicateEvents(ctx, db, &StoreManagementDatasource{})
+	if err != nil {
+		return err
+	}
+	counts, err := dropCompactInternalDedupeArchive(ctx, db, runID, sizeExpr)
+	if err != nil {
+		return err
+	}
+	retainedRows, retainedBytes, err := archiveTableSum(ctx, db, sizeExpr)
+	if err != nil {
+		return err
+	}
+	filter.Report(dedupeArchiveReport(application.CompactStep{
+		Name:        application.CompactStepDedupeArchive,
+		BytesBefore: preBytes + counts.ThisRunBytes,
+		BytesAfter:  retainedBytes,
+		Detail: map[string]int64{
+			"internal_candidate_rows":  counts.ThisRunRows,
+			"internal_candidate_bytes": counts.ThisRunBytes,
+			"prior_internal_rows":      counts.PriorRunRows,
+			"prior_internal_bytes":     counts.PriorRunBytes,
+			"trimmed_rows":             trimmedRows,
+			"trimmed_bytes":            trimmedBytes,
+			"retained_rows":            retainedRows,
+			"retained_bytes":           retainedBytes,
+			"reclaimed_rows":           counts.ThisRunRows + counts.PriorRunRows + trimmedRows,
+			"reclaimed_bytes":          counts.ThisRunBytes + counts.PriorRunBytes + trimmedBytes,
+			"unparseable_archived_at":  unparseable,
+		},
+	}, trimmedRows, counts.ThisRunRows, counts.PriorRunRows))
+	return nil
+}
+
+func dedupeArchiveReport(step application.CompactStep, trimmed, thisRun, prior int64) application.CompactStep {
+	step.Rows = trimmed + thisRun + prior
+	if step.BytesReclaimed == 0 {
+		step.BytesReclaimed = step.BytesBefore - step.BytesAfter
+	}
+	return step
+}
+
+func deleteNonCanonicalDuplicateEvents(ctx context.Context, db *sql.DB, datasource *StoreManagementDatasource) (string, error) {
 	survey, err := datasource.identifyDedupeGroups(ctx, db, "", 0)
 	if err != nil {
-		return fmt.Errorf("identify work-copy duplicates: %w", err)
+		return "", fmt.Errorf("identify work-copy duplicates: %w", err)
 	}
 	plan := planContentEventDedupe(survey, false)
 	if len(plan.groups) == 0 {
-		return nil
+		return "", nil
 	}
 	runID, err := newCompactCopyFilterRunID()
 	if err != nil {
-		return fmt.Errorf("mint compact copy-filter run id: %w", err)
+		return "", fmt.Errorf("mint compact copy-filter run id: %w", err)
 	}
 	params := apptypes.ContentEventDedupeParams{
 		Apply: true,
@@ -165,38 +295,68 @@ func deleteNonCanonicalDuplicateEvents(ctx context.Context, db *sql.DB, datasour
 		Now:   time.Now().UTC(),
 	}
 	if err := datasource.applyDedupeGroups(ctx, db, plan, params); err != nil {
-		return &apptypes.ContentEventDedupeApplyError{RunID: runID, Err: fmt.Errorf("delete work-copy duplicates: %w", err)}
+		return runID, &apptypes.ContentEventDedupeApplyError{RunID: runID, Err: fmt.Errorf("delete work-copy duplicates: %w", err)}
 	}
-	return nil
+	return runID, nil
 }
 
-// dedupeArchiveRetention bounds how long event_content_dedupe_archive rows
-// survive a compact. There is no dedupe-specific retention constant
-// elsewhere in the codebase; this matches the 90-day window already used as
-// the project's general staleness/retention default (see
-// application/usecase/memory_hygiene.go's defaultStalenessThreshold).
-const dedupeArchiveRetention = 90 * 24 * time.Hour
+type dedupeArchiveDropCounts struct {
+	ThisRunRows, ThisRunBytes   int64
+	PriorRunRows, PriorRunBytes int64
+}
 
-// trimDedupeArchive deletes event_content_dedupe_archive rows older than
-// dedupeArchiveRetention from the compact work copy, in place. The work copy
-// is already a full byte copy of the source database (see copyRegularFile),
-// so the table and its rows are present before this runs; trimming by
-// archived_at (rather than dropping and recopying) keeps the operation
-// agnostic to the archive's column set, including any future codec columns.
-// A store that predates the archive table is a no-op.
-func trimDedupeArchive(ctx context.Context, db *sql.DB, now time.Time) error {
+func dropCompactInternalDedupeArchive(ctx context.Context, db *sql.DB, runID, sizeExpr string) (dedupeArchiveDropCounts, error) {
+	var counts dedupeArchiveDropCounts
+	err := db.QueryRowContext(ctx, `
+SELECT
+  COALESCE(SUM(CASE WHEN dedupe_run_id =  ? THEN 1 ELSE 0 END), 0),
+  COALESCE(SUM(CASE WHEN dedupe_run_id =  ? THEN `+sizeExpr+` ELSE 0 END), 0),
+  COALESCE(SUM(CASE WHEN dedupe_run_id <> ? THEN 1 ELSE 0 END), 0),
+  COALESCE(SUM(CASE WHEN dedupe_run_id <> ? THEN `+sizeExpr+` ELSE 0 END), 0)
+  FROM event_content_dedupe_archive
+ WHERE `+compactInternalDedupeRunPredicate, runID, runID, runID, runID).Scan(
+		&counts.ThisRunRows, &counts.ThisRunBytes, &counts.PriorRunRows, &counts.PriorRunBytes,
+	)
+	if err != nil {
+		return counts, fmt.Errorf("measure compact-internal dedupe archive: %w", err)
+	}
+	if _, err := db.ExecContext(ctx, `
+DELETE FROM event_content_dedupe_archive
+ WHERE `+compactInternalDedupeRunPredicate); err != nil {
+		return counts, fmt.Errorf("drop compact-internal dedupe archive: %w", err)
+	}
+	return counts, nil
+}
+
+// trimDedupeArchive deletes event_content_dedupe_archive rows whose archived_at
+// instant is strictly before cutoff. Comparison is by instant (ts_norm), not
+// RFC3339 text. Unparseable timestamps fail closed (kept). A zero cutoff
+// skips the trim. A store that predates the archive table is a no-op.
+func trimDedupeArchive(ctx context.Context, db *sql.DB, cutoff time.Time, sizeExpr string) (rows, bytes, unparseable int64, err error) {
 	exists, err := tableExists(ctx, db, "event_content_dedupe_archive")
 	if err != nil {
-		return err
+		return 0, 0, 0, err
 	}
-	if !exists {
-		return nil
+	if !exists || cutoff.IsZero() {
+		return 0, 0, 0, nil
 	}
-	cutoff := formatTimestamp(now.Add(-dedupeArchiveRetention))
-	if _, err := db.ExecContext(ctx, `DELETE FROM event_content_dedupe_archive WHERE archived_at < ?`, cutoff); err != nil {
-		return fmt.Errorf("trim dedupe archive on work copy: %w", err)
+	bound := formatTimestamp(cutoff)
+	err = db.QueryRowContext(ctx, `
+SELECT
+  COALESCE(SUM(CASE WHEN ts_valid(archived_at) AND ts_norm(archived_at) < ts_norm(?) THEN 1 ELSE 0 END), 0),
+  COALESCE(SUM(CASE WHEN ts_valid(archived_at) AND ts_norm(archived_at) < ts_norm(?) THEN `+sizeExpr+` ELSE 0 END), 0),
+  COALESCE(SUM(CASE WHEN ts_valid(archived_at) THEN 0 ELSE 1 END), 0)
+  FROM event_content_dedupe_archive`, bound, bound).Scan(&rows, &bytes, &unparseable)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("measure dedupe archive trim: %w", err)
 	}
-	return nil
+	if _, err := db.ExecContext(ctx, `
+DELETE FROM event_content_dedupe_archive
+ WHERE ts_valid(archived_at)
+   AND ts_norm(archived_at) < ts_norm(?)`, bound); err != nil {
+		return 0, 0, 0, fmt.Errorf("trim dedupe archive on work copy: %w", err)
+	}
+	return rows, bytes, unparseable, nil
 }
 
 // newCompactCopyFilterRunID mints a per-execution id for the copy-filter's

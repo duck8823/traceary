@@ -1158,7 +1158,13 @@ func (d *StoreManagementDatasource) ListContentEventDedupeRuns(
 	}()
 
 	rows, err := db.QueryContext(ctx, `
-		SELECT dedupe_run_id, MAX(archived_at), COUNT(*), SUM(`+dedupeArchiveStoredSizeExpr+`)
+		SELECT dedupe_run_id,
+		       MAX(archived_at),
+		       MIN(CASE WHEN ts_valid(archived_at) THEN ts_norm(archived_at) END),
+		       COUNT(*),
+		       SUM(`+dedupeArchiveStoredSizeExpr+`),
+		       MAX(CASE WHEN dedupe_run_id >= '`+compactInternalDedupeRunLo+`'
+		                 AND dedupe_run_id <  '`+compactInternalDedupeRunHi+`' THEN 1 ELSE 0 END)
 		  FROM event_content_dedupe_archive
 		 GROUP BY dedupe_run_id`)
 	if err != nil {
@@ -1175,13 +1181,17 @@ func (d *StoreManagementDatasource) ListContentEventDedupeRuns(
 		var (
 			run        apptypes.ContentEventDedupeRun
 			archivedAt sql.NullString
+			oldest     sql.NullString
 			bodyBytes  sql.NullInt64
+			internal   int64
 		)
-		if err := rows.Scan(&run.RunID, &archivedAt, &run.QuarantinedRows, &bodyBytes); err != nil {
+		if err := rows.Scan(&run.RunID, &archivedAt, &oldest, &run.QuarantinedRows, &bodyBytes, &internal); err != nil {
 			return nil, xerrors.Errorf("failed to scan dedupe archive run: %w", err)
 		}
 		run.ArchivedAt = archivedAt.String
+		run.OldestArchivedAt = oldest.String
 		run.BodyBytes = bodyBytes.Int64
+		run.Internal = internal == 1 || compactInternalDedupeRun(run.RunID)
 		runs = append(runs, run)
 	}
 	if err := rows.Err(); err != nil {

@@ -1024,6 +1024,56 @@ func TestStoreManagementDatasource_ListContentEventDedupeRuns(t *testing.T) {
 	}
 }
 
+func TestListContentEventDedupeRunsReportsOldestArchivedAt(t *testing.T) {
+	t.Parallel()
+	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
+	_, storeManager := newEventDatasource(t, dbPath, onDiskSQLiteMigrations(t))
+	if err := storeManager.Initialize(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	insertListArchiveRow(t, db, "op-run", "a-early", "2026-05-30T00:00:00Z")
+	insertListArchiveRow(t, db, "op-run", "a-late", "2026-05-30T00:00:00.5Z")
+	insertListArchiveRow(t, db, "compact-copy-filter-abcd", "i-1", "2026-05-30T00:00:00Z")
+	runs, err := storeManager.ListContentEventDedupeRuns(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]apptypes.ContentEventDedupeRun{}
+	for _, run := range runs {
+		byID[run.RunID] = run
+	}
+	op := byID["op-run"]
+	if !strings.HasPrefix(op.OldestArchivedAt, "2026-05-30T00:00:00") {
+		t.Fatalf("oldest=%q, want the whole-second row (lexical MIN would pick .5Z)", op.OldestArchivedAt)
+	}
+	if strings.Contains(op.OldestArchivedAt, ".5") {
+		t.Fatalf("oldest=%q picked the later fractional row", op.OldestArchivedAt)
+	}
+	if op.Internal {
+		t.Fatal("op-run must not be internal")
+	}
+	internal := byID["compact-copy-filter-abcd"]
+	if !internal.Internal {
+		t.Fatal("compact-copy-filter-abcd must be internal")
+	}
+}
+
+func insertListArchiveRow(t *testing.T, db *sql.DB, runID, id, archivedAt string) {
+	t.Helper()
+	if _, err := db.Exec(`
+INSERT INTO event_content_dedupe_archive
+    (id, kind, client, agent, session_id, workspace, body, created_at, source_hook, kept_event_id, dedupe_run_id, archived_at, group_key, reason)
+VALUES (?, 'transcript', 'claude', 'claude', 's1', 'w1', 'body', ?, NULL, 'kept', ?, ?, 'g', 'duplicate')`,
+		id, archivedAt, runID, archivedAt); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // A row restored from retention keeps its ledger entry (restore only sets
 // restored_at), and that entry holds an ON DELETE RESTRICT reference to
 // events(id). Such a row looks entirely ordinary — body available, body intact —
