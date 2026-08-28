@@ -132,10 +132,59 @@ func (c *RootCLI) requestConsolidationIfDue(
 		return nil
 	}
 
+	// Measurement is best-effort and must never change the decision. Every
+	// failure below logs at debug and falls through to the exit-2 return: the
+	// request is still delivered, only the bookkeeping is lost.
+	c.recordConsolidationRequest(ctx, sessionID, client, result, threshold)
+
 	return consolidationExitError{
 		message:  formatConsolidationReason(sessionID, result),
 		exitCode: consolidationExitCode,
 	}
+}
+
+const consolidationSignalBodyBytes = usecase.ConsolidationSignalBodyBytes
+
+// recordConsolidationRequest writes the metadata-only measurement fact for a
+// request that is about to be delivered. It returns nothing: no outcome here
+// may alter the caller's exit status (#2273).
+func (c *RootCLI) recordConsolidationRequest(
+	ctx context.Context,
+	sessionID types.SessionID,
+	client string,
+	result usecase.ConsolidationPressureResult,
+	threshold int64,
+) {
+	if c.consolidationRequest == nil || c.sessionEventOrder == nil {
+		return
+	}
+	latest, err := c.sessionEventOrder.LatestEventID(ctx, sessionID)
+	if err != nil {
+		slog.Debug("consolidation request not recorded: latest event lookup failed",
+			"session_id", sessionID.String(), "error", err)
+		return
+	}
+	atEventID, ok := latest.Value()
+	if !ok {
+		slog.Debug("consolidation request not recorded: session has no events",
+			"session_id", sessionID.String())
+		return
+	}
+	recorded, err := c.consolidationRequest.Record(ctx, usecase.ConsolidationRequestInput{
+		SessionID:      sessionID,
+		Client:         client,
+		AtEventID:      atEventID,
+		Signal:         consolidationSignalBodyBytes,
+		PressureValue:  result.PressureBytes,
+		ThresholdValue: threshold,
+		Delivery:       types.ConsolidationDeliveryStopExit2,
+	})
+	if err != nil {
+		slog.Debug("consolidation request not recorded", "session_id", sessionID.String(), "error", err)
+		return
+	}
+	slog.Debug("consolidation request recorded",
+		"session_id", sessionID.String(), "recorded", recorded.Recorded, "re_request", recorded.ReRequest)
 }
 
 // formatConsolidationReason is the only channel that reaches the agent. Keep

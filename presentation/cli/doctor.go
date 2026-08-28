@@ -494,6 +494,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 	report.Checks = append(report.Checks, inspectHookStateResidueMetadata(time.Now().UTC()))
 	report.Checks = append(report.Checks, c.inspectHookMemoryExtractDiagnostics(time.Now().UTC()))
 	report.Checks = append(report.Checks, c.inspectMemoryInboxSaturation(ctx))
+	report.Checks = append(report.Checks, c.inspectConsolidationConversion(ctx))
 	report.Checks = append(report.Checks, c.inspectHookGrokTranscriptDiagnostics(time.Now().UTC()))
 
 	for _, targetClient := range resolvedClients {

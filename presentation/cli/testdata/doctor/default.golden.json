@@ -245,6 +245,16 @@
       "auto_fix_available": false
     },
     {
+      "name": "consolidation-conversion",
+      "status": "skip",
+      "severity": "PASS",
+      "section": "Hooks",
+      "message": "consolidation conversion query service is not configured",
+      "hint": "",
+      "fix_command": "",
+      "auto_fix_available": false
+    },
+    {
       "name": "hook-grok-transcript",
       "status": "pass",
       "severity": "PASS",
@@ -564,6 +574,16 @@
           "auto_fix_available": false
         },
         {
+          "name": "consolidation-conversion",
+          "status": "skip",
+          "severity": "PASS",
+          "section": "Hooks",
+          "message": "consolidation conversion query service is not configured",
+          "hint": "",
+          "fix_command": "",
+          "auto_fix_available": false
+        },
+        {
           "name": "hook-grok-transcript",
           "status": "pass",
           "severity": "PASS",
@@ -607,7 +627,7 @@
     }
   ],
   "summary": {
-    "pass": 28,
+    "pass": 29,
     "warn": 1,
     "fail": 0
   },
