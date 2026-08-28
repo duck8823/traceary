@@ -78,6 +78,24 @@ func (d *StoreManagementDatasource) SetGarbageCollectionNowForTest(now func() ti
 	d.now = now
 }
 
+// SchemaDigestForTest exposes schemaDigest so tests can pin that command_audits
+// DDL stays in schema comparison after the row-digest skip is added.
+func SchemaDigestForTest(ctx context.Context, db *sql.DB) (string, error) {
+	return schemaDigest(ctx, db)
+}
+
+// VerifyCommandAuditsForTest exposes the codec-independent audit projection.
+// Compact's event-level checks never authorize dropping an audit-held event
+// (dedupe skips auditHeld; GC does not delete events), so VerifyPair cannot
+// reach this permitted-absence rule on its own.
+func VerifyCommandAuditsForTest(ctx context.Context, sourceDB, candidateDB *sql.DB, candidateEventIDs map[string]struct{}) error {
+	candidateEvents := make(map[string]eventVerifyRecord, len(candidateEventIDs))
+	for id := range candidateEventIDs {
+		candidateEvents[id] = eventVerifyRecord{}
+	}
+	return verifyCommandAudits(ctx, sourceDB, candidateDB, candidateEvents)
+}
+
 // OpenStoreForTest opens a live store through the same coordinated-lease,
 // WAL, busy_timeout DSN production readers and writers use, so tests do not
 // hand-write a divergent DSN for the store they exercise.

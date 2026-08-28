@@ -105,8 +105,8 @@ func TestRecentCommandPreviewsStoredBytesPreferPlaintextOnCompressedCorpus(t *te
 func TestSearchProjectionSourceSizingPrefersAuditPlaintextBytes(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	db, _, _ := openPayloadBackfillFixture(t)
-	defer closePayloadBackfillFixture(t, db)
+	db, _ := openPayloadEncodeFixture(t)
+	defer closePayloadEncodeFixture(t, db)
 
 	const id = "proj-size"
 	command := compressibleBody("proj-cmd")

@@ -248,6 +248,9 @@ func verifyFilteredCandidate(ctx context.Context, sourceDB, candidateDB *sql.DB,
 			return fmt.Errorf("candidate dropped event %s and its canonical survivor %s", id, survivor)
 		}
 	}
+	if err := verifyCommandAudits(ctx, sourceDB, candidateDB, candidateEvents); err != nil {
+		return err
+	}
 	if err := verifySearchProjectionGenerations(ctx, sourceDB, candidateDB); err != nil {
 		return err
 	}
@@ -421,7 +424,7 @@ func scrubStore(ctx context.Context, db *sql.DB) (storeScrub, error) {
 	if err != nil {
 		return storeScrub{}, err
 	}
-	tables, err := logicalDigest(ctx, db, compactLogicalSkipTables())
+	tables, err := logicalDigest(ctx, db, compactRowDigestSkipTables())
 	if err != nil {
 		return storeScrub{}, err
 	}
@@ -460,6 +463,15 @@ func compactLogicalSkipTables() map[string]bool {
 	for _, name := range legacySearchFamilyTables {
 		skip[name] = true
 	}
+	return skip
+}
+
+// compactRowDigestSkipTables excludes tables whose *rows* a filtered compact
+// legitimately rewrites, for logicalDigest only. Schema comparison must still
+// cover them, so schemaDigest keeps using compactLogicalSkipTables.
+func compactRowDigestSkipTables() map[string]bool {
+	skip := compactLogicalSkipTables()
+	skip["command_audits"] = true
 	return skip
 }
 

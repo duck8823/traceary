@@ -107,6 +107,9 @@ func applyCopyFilters(ctx context.Context, work string, filter application.Compa
 	if err := encodeAvailableEventBodies(ctx, db); err != nil {
 		return err
 	}
+	if err := encodeCommandAuditPayloadsStep(ctx, db, filter); err != nil {
+		return err
+	}
 	if _, err := db.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
 		_ = err
 	}
@@ -262,7 +265,7 @@ func encodeAvailableEventBodies(ctx context.Context, db *sql.DB) error {
 			       body_encoded_bytes = ?,
 			       body_sha256 = ?
 			 WHERE id = ?`,
-			item.encoded.Bytes,
+			storedBodyArg(item.encoded),
 			item.encoded.Codec,
 			item.encoded.FormatVersion,
 			item.encoded.PlaintextBytes,

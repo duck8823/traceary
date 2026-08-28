@@ -162,7 +162,8 @@ Durable memory に紐づく artifact ref です。
 
 `traceary store compact` はストアファイルを書き換えます。copy の途中で退役済み
 検索インデックス、非 canonical な重複本文、破棄可能な被覆済み transcript 本文を
-落とし、残本文を符号化してから vacuum します。
+落とし、残っている event 本文とまだ plaintext の `command_audits` command /
+input / output テキストを符号化してから vacuum します。
 
 - 既定 retention: `90` 日 (`--keep-days 90`)
 - 物理容量回収は書き換えそのもの。in-place `VACUUM` ではない
@@ -177,7 +178,7 @@ search-projection の derived 行は `generation_id` でキーされます。こ
 - **再構築ピーク**: 直前の complete 世代 + 構築中の世代。新しい世代の cleanup が終わるまで両方残ります。
 - **terminal 世代**: `traceary doctor --fix` または既定の `traceary store compact` のあと 0。一時的には、前回の recovery 以降に `failed` / `abandoned` になった世代まで。#2261 以前は失敗した rebuild の回数に比例して増え続けました。
 
-操作面: `traceary doctor` の `search-projection-terminal-rows`、`traceary store compact` JSON の `steps.projection_reclaim`。`--index-family-bytes` が対象にするのは *family* であり、terminal の残り行ではありません。
+操作面: `traceary doctor` の `search-projection-terminal-rows`、`traceary store compact` JSON の `steps.projection_reclaim` と `steps.audit_encode`。`--index-family-bytes` が対象にするのは *family* であり、terminal の残り行ではありません。
 
 `--force` のあと、compact は **orphan range** を機械要約します。orphan とは `session_refinements.covers_to` より先にあり、エージェントがもう畳めないイベント範囲です（セッション終了、24h 無活動の stale 扱い、または post-compact での前倒し記録）。session start/end 以外を含む、まだ畳まれていない各範囲に対し、`degraded=1` の refinement（`produced_by=gc:orphan-consolidation`）を書きます。内容はいつ・どの kind が何回・どのコマンドかだけで、エージェントの判断理由（なぜ）は復元しません。lifecycle だけの tail（正しく fold したあとに着く `session_ended` が典型）は `covers_to` だけ進め、機械的な脚注は付けません。`degraded` は「合成テキストを含む」意味のまま、wake 適格性のビットにはしません。wake injection は `has_agent_reasoning` を読むため、正しく fold されたセッションは reduction のあとも注入対象に残ります。この機械 refinement も破棄にとって**有効な被覆**です。破棄が失うのはテキストだけであり、残すと約束している bytes・timestamps・counts はまさにこの要約が保持するためです。出力は orphan 機械要約件数と整理件数の両方を報告します。`--dry-run` は両方を数え、どちらも書きません。この処理に専用コマンドや `--target` はありません。
 
@@ -198,7 +199,7 @@ fold schema より前の store には被覆の証跡が無いため、破棄候�
 実務上の意味:
 
 - `store compact` は operator が手動で実行するもので、Traceary が background で自動的に履歴を破棄することはありません
-- `store compact` が破棄する kind は `transcript` 本文のみです。`prompt` 本文と `command_audits` のテキストは常に残ります
+- `store compact` が破棄する kind は `transcript` 本文のみです。`prompt` 本文と `command_audits` のテキストは常に残ります。ただし `store compact` は audit テキストを再符号化することがあります
 - 長期の監査履歴を残したい場合は、強めの cleanup の前に backup を取ってください
 - cold 行の export と **verify-before-delete** は [Archive-before-GC](./archive-before-gc.ja.md)（#1309）を参照。フルファイル backup は [バックアップガイド](../backup/README.ja.md)
 
@@ -266,10 +267,11 @@ migration `000023` は `hook_delivery_attempts` を追加します。各行が�
 
 ## ペイロード codec バックフィル
 
-既存の `events.body` は、writer を凍結せずにバージョン付き zstd codec で
-その場書き換えできます。詳細は [`payload-backfill.ja.md`](payload-backfill.ja.md)。
-物理的なファイル縮小は `store compact` の後にだけ現れ、検索 projection は
-`drifted`/`stale` で終わるため rebuild が必要です。
+ライブストア向け `payload-backfill` コマンドは退役しました。残っている
+`events.body` と `command_audits` テキストの符号化は `store compact` が
+バージョン付き zstd codec で行います。詳細は [`payload-backfill.ja.md`](payload-backfill.ja.md)。
+物理的なファイル縮小はその書き換えの一部として現れ、検索 projection は
+`drifted`/`stale` で終わることがあるため rebuild が必要です。
 
 live writer（bundle import、archive restore、dedupe restore、raw-body recovery）
 は native hook insert と同じ canonical encoder（縮むとき zstd）を使います。

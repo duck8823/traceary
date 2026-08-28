@@ -26,8 +26,8 @@ func TestSourceHookLegacyList_MatchesCompressedCorpus(t *testing.T) {
 	t.Run("legacy subagent_stop still matches after backfill", func(t *testing.T) {
 		t.Parallel()
 		ctx := context.Background()
-		db, backfill, path := openPayloadBackfillFixture(t)
-		defer closePayloadBackfillFixture(t, db)
+		db, path := openPayloadEncodeFixture(t)
+		defer closePayloadEncodeFixture(t, db)
 		events := NewEventDatasource(NewDatabase(path, preparedMigrations(t)))
 
 		const id = "legacy-subagent"
@@ -36,7 +36,7 @@ func TestSourceHookLegacyList_MatchesCompressedCorpus(t *testing.T) {
 			ID: id, Kind: "session_ended", Body: body,
 		})
 		assertLegacySourceHook(t, db, id, "subagent_stop")
-		runPayloadBackfill(ctx, t, backfill)
+		encodeAllPayloadLanes(ctx, t, db)
 		assertBodyCodec(t, db, id, payloadCodecZstd)
 
 		got, err := events.ListRecent(
@@ -56,8 +56,8 @@ func TestSourceHookLegacyList_MatchesCompressedCorpus(t *testing.T) {
 	t.Run("legacy pre_compact still matches after backfill", func(t *testing.T) {
 		t.Parallel()
 		ctx := context.Background()
-		db, backfill, path := openPayloadBackfillFixture(t)
-		defer closePayloadBackfillFixture(t, db)
+		db, path := openPayloadEncodeFixture(t)
+		defer closePayloadEncodeFixture(t, db)
 		events := NewEventDatasource(NewDatabase(path, preparedMigrations(t)))
 
 		const id = "legacy-precompact"
@@ -66,7 +66,7 @@ func TestSourceHookLegacyList_MatchesCompressedCorpus(t *testing.T) {
 			ID: id, Kind: "compact_summary", Body: body,
 		})
 		assertLegacySourceHook(t, db, id, "pre_compact")
-		runPayloadBackfill(ctx, t, backfill)
+		encodeAllPayloadLanes(ctx, t, db)
 		assertBodyCodec(t, db, id, payloadCodecZstd)
 
 		got, err := events.ListRecent(
@@ -86,8 +86,8 @@ func TestSourceHookLegacyList_MatchesCompressedCorpus(t *testing.T) {
 	t.Run("incompressible legacy hook survives the identity rewrite", func(t *testing.T) {
 		t.Parallel()
 		ctx := context.Background()
-		db, backfill, path := openPayloadBackfillFixture(t)
-		defer closePayloadBackfillFixture(t, db)
+		db, path := openPayloadEncodeFixture(t)
+		defer closePayloadEncodeFixture(t, db)
 		events := NewEventDatasource(NewDatabase(path, preparedMigrations(t)))
 
 		// zstd expands a short unique body, so the recipe keeps identity — but
@@ -100,7 +100,7 @@ func TestSourceHookLegacyList_MatchesCompressedCorpus(t *testing.T) {
 			ID: id, Kind: "session_ended", Body: "[phase:subagent] short",
 		})
 		assertLegacySourceHook(t, db, id, "subagent_stop")
-		runPayloadBackfill(ctx, t, backfill)
+		encodeAllPayloadLanes(ctx, t, db)
 		assertBodyCodec(t, db, id, payloadCodecIdentity)
 		assertLegacySourceHook(t, db, id, "subagent_stop")
 
@@ -121,8 +121,8 @@ func TestSourceHookLegacyList_MatchesCompressedCorpus(t *testing.T) {
 	t.Run("body-bearing and metadata paths agree on mixed corpus", func(t *testing.T) {
 		t.Parallel()
 		ctx := context.Background()
-		db, backfill, path := openPayloadBackfillFixture(t)
-		defer closePayloadBackfillFixture(t, db)
+		db, path := openPayloadEncodeFixture(t)
+		defer closePayloadEncodeFixture(t, db)
 		events := NewEventDatasource(NewDatabase(path, preparedMigrations(t)))
 
 		// Stamped primary row (source_hook set) stays on the primary branch.
@@ -145,7 +145,7 @@ func TestSourceHookLegacyList_MatchesCompressedCorpus(t *testing.T) {
 			Body: compressibleBody("other"), SourceHook: "stop",
 		})
 
-		runPayloadBackfill(ctx, t, backfill)
+		encodeAllPayloadLanes(ctx, t, db)
 		assertBodyCodec(t, db, "legacy-zstd", payloadCodecZstd)
 		assertBodyCodec(t, db, "legacy-plain", payloadCodecZstd)
 
@@ -192,8 +192,8 @@ func TestSourceHookLegacyList_MatchesCompressedCorpus(t *testing.T) {
 	t.Run("session_ended without phase marker is not returned", func(t *testing.T) {
 		t.Parallel()
 		ctx := context.Background()
-		db, backfill, path := openPayloadBackfillFixture(t)
-		defer closePayloadBackfillFixture(t, db)
+		db, path := openPayloadEncodeFixture(t)
+		defer closePayloadEncodeFixture(t, db)
 		events := NewEventDatasource(NewDatabase(path, preparedMigrations(t)))
 
 		const id = "no-phase"
@@ -202,7 +202,7 @@ func TestSourceHookLegacyList_MatchesCompressedCorpus(t *testing.T) {
 			Body: compressibleBody("no-phase-marker"),
 		})
 		assertLegacySourceHook(t, db, id, "")
-		runPayloadBackfill(ctx, t, backfill)
+		encodeAllPayloadLanes(ctx, t, db)
 		assertBodyCodec(t, db, id, payloadCodecZstd)
 
 		got, err := events.ListRecent(
@@ -226,8 +226,8 @@ func TestSessionBodyBytes_PressureIsLogicalAfterBackfill(t *testing.T) {
 	t.Run("whole-session pressure is unchanged by compression", func(t *testing.T) {
 		t.Parallel()
 		ctx := context.Background()
-		db, backfill, path := openPayloadBackfillFixture(t)
-		defer closePayloadBackfillFixture(t, db)
+		db, path := openPayloadEncodeFixture(t)
+		defer closePayloadEncodeFixture(t, db)
 		events := NewEventDatasource(NewDatabase(path, preparedMigrations(t)))
 
 		bodies := []struct {
@@ -254,7 +254,7 @@ func TestSessionBodyBytes_PressureIsLogicalAfterBackfill(t *testing.T) {
 			t.Fatalf("pre-backfill pressure mismatch (-want +got):\n%s", diff)
 		}
 
-		runPayloadBackfill(ctx, t, backfill)
+		encodeAllPayloadLanes(ctx, t, db)
 		for _, seed := range bodies {
 			assertBodyCodec(t, db, seed.id, payloadCodecZstd)
 		}
@@ -271,8 +271,8 @@ func TestSessionBodyBytes_PressureIsLogicalAfterBackfill(t *testing.T) {
 	t.Run("pressure after covers_to boundary is unchanged by compression", func(t *testing.T) {
 		t.Parallel()
 		ctx := context.Background()
-		db, backfill, path := openPayloadBackfillFixture(t)
-		defer closePayloadBackfillFixture(t, db)
+		db, path := openPayloadEncodeFixture(t)
+		defer closePayloadEncodeFixture(t, db)
 		events := NewEventDatasource(NewDatabase(path, preparedMigrations(t)))
 
 		// Distinct created_at so the covers_to boundary is meaningful under
@@ -305,7 +305,7 @@ func TestSessionBodyBytes_PressureIsLogicalAfterBackfill(t *testing.T) {
 			t.Fatalf("pre-backfill after-boundary pressure mismatch (-want +got):\n%s", diff)
 		}
 
-		runPayloadBackfill(ctx, t, backfill)
+		encodeAllPayloadLanes(ctx, t, db)
 		for _, seed := range seeds {
 			assertBodyCodec(t, db, seed.id, payloadCodecZstd)
 		}
@@ -332,8 +332,8 @@ func TestBoundedHydration_PinAfterBodySQLDeletion(t *testing.T) {
 	t.Run("canonical and plain bodies hydrate after backfill", func(t *testing.T) {
 		t.Parallel()
 		ctx := context.Background()
-		db, backfill, path := openPayloadBackfillFixture(t)
-		defer closePayloadBackfillFixture(t, db)
+		db, path := openPayloadEncodeFixture(t)
+		defer closePayloadEncodeFixture(t, db)
 		events := NewEventDatasource(NewDatabase(path, preparedMigrations(t)))
 
 		plainBody := compressibleBody("plain-bounded")
@@ -352,7 +352,7 @@ func TestBoundedHydration_PinAfterBodySQLDeletion(t *testing.T) {
 			ID: "bounded-canonical", Kind: "transcript", Body: canonicalBody,
 		})
 
-		runPayloadBackfill(ctx, t, backfill)
+		encodeAllPayloadLanes(ctx, t, db)
 		assertBodyCodec(t, db, "bounded-plain", payloadCodecZstd)
 		assertBodyCodec(t, db, "bounded-canonical", payloadCodecZstd)
 
@@ -391,15 +391,15 @@ func TestBoundedHydration_PinAfterBodySQLDeletion(t *testing.T) {
 	t.Run("rune limit truncates prefix and reports full visible count", func(t *testing.T) {
 		t.Parallel()
 		ctx := context.Background()
-		db, backfill, path := openPayloadBackfillFixture(t)
-		defer closePayloadBackfillFixture(t, db)
+		db, path := openPayloadEncodeFixture(t)
+		defer closePayloadEncodeFixture(t, db)
 		events := NewEventDatasource(NewDatabase(path, preparedMigrations(t)))
 
 		body := compressibleBody("truncate-me")
 		insertPlaintextEvent(t, db, eventSeed{
 			ID: "bounded-trunc", Kind: "note", Body: body,
 		})
-		runPayloadBackfill(ctx, t, backfill)
+		encodeAllPayloadLanes(ctx, t, db)
 		assertBodyCodec(t, db, "bounded-trunc", payloadCodecZstd)
 
 		const runeLimit = 12
@@ -435,8 +435,8 @@ func TestLoadCanonicalBodies_PinAfterBodyColumnDrop(t *testing.T) {
 	// bytes. Expected to pass both before and after the column drop.
 
 	ctx := context.Background()
-	db, backfill, path := openPayloadBackfillFixture(t)
-	defer closePayloadBackfillFixture(t, db)
+	db, path := openPayloadEncodeFixture(t)
+	defer closePayloadEncodeFixture(t, db)
 	events := NewEventDatasource(NewDatabase(path, preparedMigrations(t)))
 
 	canonicalBody, err := apptypes.MarshalEventBodyBlocks([]apptypes.EventBodyBlock{
@@ -452,7 +452,7 @@ func TestLoadCanonicalBodies_PinAfterBodyColumnDrop(t *testing.T) {
 	insertPlaintextEvent(t, db, eventSeed{
 		ID: "canon-load-2", Kind: "note", Body: plainBody,
 	})
-	runPayloadBackfill(ctx, t, backfill)
+	encodeAllPayloadLanes(ctx, t, db)
 	assertBodyCodec(t, db, "canon-load-1", payloadCodecZstd)
 	assertBodyCodec(t, db, "canon-load-2", payloadCodecZstd)
 
@@ -470,17 +470,6 @@ func TestLoadCanonicalBodies_PinAfterBodyColumnDrop(t *testing.T) {
 	}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Fatalf("LoadCanonicalBodies mismatch (-want +got):\n%s", diff)
-	}
-}
-
-func runPayloadBackfill(ctx context.Context, t *testing.T, ds *PayloadBackfillDatasource) {
-	t.Helper()
-	result, err := ds.Run(ctx, defaultBackfillConfig())
-	if err != nil {
-		t.Fatalf("payload-backfill Run: %v", err)
-	}
-	if result.State != string(apptypes.PayloadBackfillCompleted) {
-		t.Fatalf("payload-backfill state = %q, want completed", result.State)
 	}
 }
 
@@ -513,8 +502,8 @@ func TestTimelineSummary_BlankCandidateDoesNotStealTheSummary(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ctx := context.Background()
-			db, backfill, path := openPayloadBackfillFixture(t)
-			defer closePayloadBackfillFixture(t, db)
+			db, path := openPayloadEncodeFixture(t)
+			defer closePayloadEncodeFixture(t, db)
 			events := NewEventDatasource(NewDatabase(path, preparedMigrations(t)))
 
 			insertPlaintextEventAt(t, db, eventSeed{
@@ -524,7 +513,7 @@ func TestTimelineSummary_BlankCandidateDoesNotStealTheSummary(t *testing.T) {
 				ID: "timeline-real", Kind: "prompt", Body: "the real first prompt",
 			}, "2026-08-09T00:00:01Z")
 
-			runPayloadBackfill(ctx, t, backfill)
+			encodeAllPayloadLanes(ctx, t, db)
 			assertBodyCodec(t, db, "timeline-blank", tt.wantCodec)
 
 			blocks, err := events.ListTimelineBlocks(ctx, types.Workspace(""), time.Time{}, time.Time{}, 900, 10)
@@ -548,8 +537,8 @@ func TestTimelineSummary_BlankCandidateDoesNotStealTheSummary(t *testing.T) {
 func TestTimelineSummary_WalksPastTheFormerCandidateCap(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	db, backfill, path := openPayloadBackfillFixture(t)
-	defer closePayloadBackfillFixture(t, db)
+	db, path := openPayloadEncodeFixture(t)
+	defer closePayloadEncodeFixture(t, db)
 	events := NewEventDatasource(NewDatabase(path, preparedMigrations(t)))
 
 	// Depth 3 used to fall through to the next kind. Four compressed blanks
@@ -562,7 +551,7 @@ func TestTimelineSummary_WalksPastTheFormerCandidateCap(t *testing.T) {
 	insertPlaintextEventAt(t, db, eventSeed{
 		ID: "timeline-real-beyond-cap", Kind: "prompt", Body: "fourth blank then this",
 	}, "2026-08-09T00:00:04Z")
-	runPayloadBackfill(ctx, t, backfill)
+	encodeAllPayloadLanes(ctx, t, db)
 	for i := 0; i < 4; i++ {
 		assertBodyCodec(t, db, fmt.Sprintf("timeline-blank-%d", i), payloadCodecZstd)
 	}
@@ -585,13 +574,13 @@ func TestTimelineSummary_WalksPastTheFormerCandidateCap(t *testing.T) {
 
 func TestTimelineSummary_QueryCountPerRowDoesNotRegress(t *testing.T) {
 	ctx := context.Background()
-	db, backfill, path := openPayloadBackfillFixture(t)
-	defer closePayloadBackfillFixture(t, db)
+	db, path := openPayloadEncodeFixture(t)
+	defer closePayloadEncodeFixture(t, db)
 	events := NewEventDatasource(NewDatabase(path, preparedMigrations(t)))
 	insertPlaintextEventAt(t, db, eventSeed{
 		ID: "timeline-only-real", Kind: "prompt", Body: "the only prompt",
 	}, "2026-08-09T00:00:00Z")
-	runPayloadBackfill(ctx, t, backfill)
+	encodeAllPayloadLanes(ctx, t, db)
 
 	// Main hydrated one candidate as schema+body (2). The walk still decodes
 	// that one body; the schema check is once per ListTimelineBlocks.

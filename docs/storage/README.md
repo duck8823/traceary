@@ -163,7 +163,8 @@ If you need a portable copy, use `traceary store backup create` instead of editi
 
 `traceary store compact` rewrites the store file. During the copy it drops the
 retired search index family, drops non-canonical duplicate bodies, discards
-discardable-age covered transcript bodies, encodes remaining bodies, and
+discardable-age covered transcript bodies, encodes remaining event bodies and
+any still-plaintext `command_audits` command / input / output text, and
 vacuums into a new file.
 
 - default retention: `90` days (`--keep-days 90`)
@@ -180,7 +181,7 @@ Search-projection derived rows are keyed by `generation_id`. Disk bound for that
 - **Rebuild peak**: previous complete family plus the family under construction. Both stay resident until the new generation's cleanup phase finishes.
 - **Terminal families**: zero after `traceary doctor --fix` or the default `traceary store compact`; transiently at most the families that became `failed` / `abandoned` since the last recovery. Before #2261 they grew with every failed rebuild.
 
-Operator surfaces: `traceary doctor` check `search-projection-terminal-rows`, `traceary store compact` JSON `steps.projection_reclaim`. `--index-family-bytes` targets the *family*, not leftover terminal rows.
+Operator surfaces: `traceary doctor` check `search-projection-terminal-rows`, `traceary store compact` JSON `steps.projection_reclaim` and `steps.audit_encode`. `--index-family-bytes` targets the *family*, not leftover terminal rows.
 
 After `--force` cover, compact consolidates **orphan ranges**: event spans past `session_refinements.covers_to` that an agent can no longer fold (session ended, treated as stale after 24h of inactivity, or front-loaded at a post-compact marker). For each still-unfolded range that contains more than session start/end it writes a mechanical `degraded=1` refinement (`produced_by=gc:orphan-consolidation`) covering when, which event kinds, how often, and which commands ran — not agent reasoning. A lifecycle-only tail (typically the `session_ended` event that lands after a correct fold) only advances `covers_to`; it does not attach a mechanical footnote, and `degraded` stays "contains synthesised text" rather than becoming a wake-eligibility bit. Wake injection reads `has_agent_reasoning`, so a correctly folded session stays injectable after reduction. That mechanical refinement **is** sufficient coverage for discard: what a discard removes is the text, and what it promises to keep — bytes, timestamps, counts — is exactly what the refinement records. Output reports both the orphan-refinement count and the cleanup count. `--dry-run` counts both and writes neither. There is no separate command or `--target` for this step.
 
@@ -201,7 +202,7 @@ Future discard reasons must use an additive sidecar column, never a new `body_av
 Practical implications:
 
 - `store compact` is operator-initiated; Traceary does not discard history automatically in the background
-- `transcript` bodies are the only kind discarded by `store compact`; `prompt` bodies and `command_audits` text always remain
+- `transcript` bodies are the only kind discarded by `store compact`; `prompt` bodies and `command_audits` text always remain, although `store compact` may re-encode the audit text
 - if you care about long-term audit history, take a backup before an aggressive cleanup
 - for cold-row export with **verify-before-delete**, see [Archive-before-GC](./archive-before-gc.md) (#1309); full-file backup remains [Backup guide](../backup/README.md)
 
@@ -269,10 +270,11 @@ The attempted event ID is Traceary's per-callback repository identity. A later h
 
 ## Payload codec backfill
 
-Existing `events.body` rows can be rewritten in place through the versioned zstd
-codec without freezing writers. See [`payload-backfill.md`](payload-backfill.md).
-Physical file size only drops after `store compact`; the search projection ends
-`drifted`/`stale` and must be rebuilt.
+The live-store `payload-backfill` command is retired. `store compact` encodes
+remaining `events.body` and `command_audits` text through the versioned zstd
+codec. See [`payload-backfill.md`](payload-backfill.md). Physical file size
+drops as part of that rewrite; the search projection may end `drifted`/`stale`
+and must be rebuilt.
 
 Live writers, including bundle import, archive restore, dedupe restore, and
 raw-body recovery, use the same canonical encoder as native hook inserts
