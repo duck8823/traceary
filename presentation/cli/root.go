@@ -8,6 +8,7 @@ import (
 	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/application/redaction"
 	"github.com/duck8823/traceary/application/usecase"
+	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/presentation"
 )
 
@@ -24,6 +25,9 @@ type RootCLI struct {
 	sessionOrphanRange         usecase.SessionOrphanRangeUsecase
 	orphanConsolidation        usecase.OrphanConsolidationUsecase
 	consolidationPressure      usecase.ConsolidationPressureUsecase
+	consolidationRequest       usecase.ConsolidationRequestUsecase
+	consolidationConversion    queryservice.ConsolidationConversionQueryService
+	sessionEventOrder          model.SessionEventOrderRepository
 	sessionWakeSummary         queryservice.SessionWakeSummaryQueryService
 	memory                     usecase.MemoryUsecase
 	bundle                     usecase.BundleUsecase
@@ -135,6 +139,21 @@ func WithOrphanConsolidation(orphanConsolidation usecase.OrphanConsolidationUsec
 // WithConsolidationPressure injects the read-only stop-hook pressure check.
 func WithConsolidationPressure(consolidationPressure usecase.ConsolidationPressureUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.consolidationPressure = consolidationPressure }
+}
+
+// WithConsolidationRequest injects the stop-hook consolidation request ledger.
+func WithConsolidationRequest(u usecase.ConsolidationRequestUsecase) RootCLIOption {
+	return func(c *RootCLI) { c.consolidationRequest = u }
+}
+
+// WithConsolidationConversion injects the bounded doctor conversion read.
+func WithConsolidationConversion(q queryservice.ConsolidationConversionQueryService) RootCLIOption {
+	return func(c *RootCLI) { c.consolidationConversion = q }
+}
+
+// WithSessionEventOrder injects canonical event-order lookups for the Stop path.
+func WithSessionEventOrder(order model.SessionEventOrderRepository) RootCLIOption {
+	return func(c *RootCLI) { c.sessionEventOrder = order }
 }
 
 // WithSessionWakeSummary injects the read-only wake-injection summary query.

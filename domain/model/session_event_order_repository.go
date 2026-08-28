@@ -12,6 +12,8 @@ import (
 // not lexically ordered (#1185).
 type SessionEventOrderRepository interface {
 	EarliestEventID(ctx context.Context, sessionID types.SessionID) (types.Optional[types.EventID], error)
+	// LatestEventID returns the canonically latest event id in the session.
+	LatestEventID(ctx context.Context, sessionID types.SessionID) (types.Optional[types.EventID], error)
 	FindEventSessionID(ctx context.Context, eventID types.EventID) (types.Optional[types.SessionID], error)
 	EventIsStrictlyAfter(ctx context.Context, left, right types.EventID) (bool, error)
 }

@@ -53,6 +53,10 @@ func (s *eventOrderStub) EarliestEventID(context.Context, types.SessionID) (type
 	return types.None[types.EventID](), nil
 }
 
+func (s *eventOrderStub) LatestEventID(context.Context, types.SessionID) (types.Optional[types.EventID], error) {
+	return types.None[types.EventID](), nil
+}
+
 func (s *eventOrderStub) FindEventSessionID(_ context.Context, _ types.EventID) (types.Optional[types.SessionID], error) {
 	return types.Some(types.SessionID("sess-1")), nil
 }

@@ -123,6 +123,9 @@ var preparedMigrationManifest = map[int64]migrationManifestEntry{
 	// 73 adds a keyword-first secondary index. CREATE INDEX does not rewrite
 	// keyword rows; previous binaries ignore the extra index.
 	73: {73, "000073_add_session_keyword_by_kw_index.sql", "a171e67c6ffac43eb57c8cb0c2537cf42d7eb64b5654dc80a9665de992059a42", MigrationConstantInPlace},
+	// 75 creates an empty bookkeeping table and two indexes on it. No event
+	// scan, no row rewrite. Same class as 46/47/72. Wave 1 reserved 74 for #2261.
+	75: {75, "000075_create_consolidation_requests.sql", "c0e9eaca0d744eb614617329d0438960269390c9d81f14087f98e540e82307e6", MigrationConstantInPlace},
 }
 
 // PreparedMigration identifies one exact pending embedded migration.

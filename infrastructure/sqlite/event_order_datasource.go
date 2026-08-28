@@ -16,6 +16,9 @@ import (
 //go:embed sql/select_earliest_event_id_for_session.sql
 var selectEarliestEventIDForSessionQuery string
 
+//go:embed sql/select_latest_event_id_for_session_by_norm.sql
+var selectLatestEventIDForSessionByNormQuery string
+
 //go:embed sql/select_event_session_id.sql
 var selectEventSessionIDQuery string
 
@@ -59,6 +62,36 @@ func (d *EventDatasource) EarliestEventID(
 	eventID, err := types.EventIDFrom(id)
 	if err != nil {
 		return types.None[types.EventID](), xerrors.Errorf("invalid stored earliest event id: %w", err)
+	}
+	return types.Some(eventID), nil
+}
+
+// LatestEventID returns the canonically latest event id in the session.
+func (d *EventDatasource) LatestEventID(
+	ctx context.Context,
+	sessionID types.SessionID,
+) (types.Optional[types.EventID], error) {
+	db, err := d.db.open(ctx)
+	if err != nil {
+		return types.None[types.EventID](), xerrors.Errorf("failed to open DB for latest event lookup: %w", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+
+	var id string
+	err = db.QueryRowContext(ctx, selectLatestEventIDForSessionByNormQuery, sessionID.String()).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return types.None[types.EventID](), nil
+	}
+	if err != nil {
+		return types.None[types.EventID](), xerrors.Errorf("failed to resolve latest event: %w", err)
+	}
+	eventID, err := types.EventIDFrom(id)
+	if err != nil {
+		return types.None[types.EventID](), xerrors.Errorf("invalid stored latest event id: %w", err)
 	}
 	return types.Some(eventID), nil
 }

@@ -141,6 +141,16 @@ func (s *sessionEventOrderRepositoryStub) EarliestEventID(
 	return types.None[types.EventID](), nil
 }
 
+func (s *sessionEventOrderRepositoryStub) LatestEventID(
+	_ context.Context,
+	sessionID types.SessionID,
+) (types.Optional[types.EventID], error) {
+	if id, ok := s.earliest[sessionID]; ok {
+		return types.Some(id), nil
+	}
+	return types.None[types.EventID](), nil
+}
+
 func (s *sessionEventOrderRepositoryStub) FindEventSessionID(
 	_ context.Context,
 	eventID types.EventID,

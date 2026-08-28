@@ -1,9 +1,11 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -88,13 +90,15 @@ func (c *RootCLI) runSessionRefine(cmd *cobra.Command, output io.Writer, input s
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("invalid session id", "session id が不正です"), err)
 	}
-	coversTo, err := types.EventIDFrom(input.coversTo)
-	if err != nil {
-		return xerrors.Errorf("%s: %w", Localize("invalid covers-to event id", "covers-to イベント ID が不正です"), err)
-	}
 	producedBy := input.producedBy
 	if producedBy == "" {
 		producedBy = "cli"
+	}
+	coversTo, err := types.EventIDFrom(input.coversTo)
+	if err != nil {
+		c.stampConsolidationRefineOutcome(cmd.Context(), sessionID,
+			types.ConsolidationRefineRejected, usecase.ConsolidationReasonInvalidCoversTo, producedBy, types.None[int]())
+		return xerrors.Errorf("%s: %w", Localize("invalid covers-to event id", "covers-to イベント ID が不正です"), err)
 	}
 
 	result, err := c.sessionRefinement.Refine(cmd.Context(), usecase.SessionRefineInput{
@@ -107,10 +111,38 @@ func (c *RootCLI) runSessionRefine(cmd *cobra.Command, output io.Writer, input s
 		HasAgentReasoning: true,
 	})
 	if err != nil {
+		c.stampConsolidationRefineOutcome(cmd.Context(), sessionID,
+			types.ConsolidationRefineRejected, usecase.ConsolidationReasonUsecaseError, producedBy, types.None[int]())
 		return xerrors.Errorf("%s: %w", Localize("failed to refine session", "session の refine に失敗しました"), err)
 	}
+	outcome, reason := usecase.ConsolidationRefineFromSessionOutcome(result.Outcome())
+	c.stampConsolidationRefineOutcome(cmd.Context(), sessionID,
+		outcome, reason, producedBy, types.Some(result.Refinement().Generation()))
 
 	return printSessionRefineResult(output, result, input.asJSON)
+}
+
+func (c *RootCLI) stampConsolidationRefineOutcome(
+	ctx context.Context,
+	sessionID types.SessionID,
+	outcome types.ConsolidationRefineOutcome,
+	reason string,
+	producedBy string,
+	generation types.Optional[int],
+) {
+	if c.consolidationRequest == nil {
+		return
+	}
+	if _, err := c.consolidationRequest.RecordRefineOutcome(ctx, model.ConsolidationRefineStamp{
+		SessionID:  sessionID,
+		Outcome:    outcome,
+		Reason:     reason,
+		ProducedBy: producedBy,
+		Generation: generation,
+	}); err != nil {
+		slog.Debug("consolidation refine outcome not recorded",
+			"session_id", sessionID.String(), "error", err)
+	}
 }
 
 // sessionRefineJSON is the --json contract for `traceary session refine`.
