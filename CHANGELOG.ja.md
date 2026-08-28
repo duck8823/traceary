@@ -7,6 +7,9 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 
 ## [Unreleased]
 
+### Fixed
+- **post-upgrade live-capture gate が Claude と Antigravity を probe する (#2259)** — `scripts/verify-post-upgrade-live-capture.sh` は使い捨て store に対して `claude --print --permission-mode plan` と `agy --mode plan --print …` を実行し、`session_started` / `prompt` を必須にする。缶詰の `--skip …='no headless probe in this gate'` は廃止。Gemini は従来どおり `IneligibleTierError` の理由付き skip。親 #2263 は open のまま。
+
 ## [v0.47.1] - 2026-08-21
 
 ### Fixed

@@ -64,6 +64,9 @@ jobs:
       - name: Verify post-upgrade plugin refresh gate
         run: ./scripts/smoke_test_integrations.sh post-upgrade-plugin-refresh
 
+      - name: Verify post-upgrade live-capture gate
+        run: ./scripts/smoke_test_integrations.sh post-upgrade-live-capture
+
   test:
     name: Test
     runs-on: ubuntu-latest
