@@ -94,7 +94,10 @@ Since v0.34 this projection is the only maintained search-derived family: the fu
 
 The operator-facing budget is **physical bytes of the bounded search index family**
 (`search_projection_*` + `literal_search_*`), measured as active b-tree allocation
-via `dbstat` — not source text. The default is 1464 MiB (~1.43 GiB).
+via `dbstat` — not source text. The default is 1464 MiB (~1.43 GiB). The completed
+family total is measured on a live-store copy by the
+[projection rebuild completion release gate](release/gates.md#projection-rebuild-completion)
+and recorded, not enforced.
 
 ### What the budget actually bounds
 
@@ -238,7 +241,10 @@ compact` drops the virtual table on the work copy. Search stays the decode
 walk. Scratch: walk p50 ~3.7–4.4 ms vs a comparison FTS ~26–33 µs — faster,
 not worth 9 GB unread. See
 [search-projection-recent-fts](research/search-projection-recent-fts.md).
-The disk that peak consumed bought retention, not search results.
+The disk that peak consumed bought retention, not search results. The
+[projection rebuild completion gate](release/gates.md#projection-rebuild-completion)
+records `db_bytes_after` and free space per iteration so a future peak measurement
+has a starting point. A `disk_full` stop is recorded rather than retried.
 
 **Do not size free disk from the configured budget.** A rebuild can require several
 times it, and it can fail for lack of space. This is the v0.37 disk promise
