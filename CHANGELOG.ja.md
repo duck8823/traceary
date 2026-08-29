@@ -7,8 +7,12 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 
 ## [Unreleased]
 
+## [v0.48.0] - 2026-08-29
+
 ### Added
 - **due な refinement 依頼を Gemini / Antigravity / Grok と Codex の prompt 第二経路でも届ける（#2276）。** 仕事量トリガー（`min_commands` 20 / `stop_cadence` 8）と #2273 ledger は変えない。Claude / Codex / Kimi の `Stop` は従来どおり exit 2。Codex `UserPromptSubmit` は plain text（exit 0）。Gemini `BeforeAgent` は `additionalContext` JSON を 1 オブジェクトだけ書く。Antigravity `Stop` は ledger 行が書けたときだけ `{decision:continue,reason}`。Grok `Stop` は `{decision:block,reason}` を書き **常に exit 0**（docs.x.ai は `Stop` を passive と記述。changelog v0.2.107 2026-07-20 と local user-guide は envelope を名指し。host 受容は未検証）。Stop envelope と prompt context は `additional_context` token を共有し、channel は `(client, delivery)`。スキーマなし、SKILL.md 編集なし、store サブコマンド追加なし。rollback は `consolidation.min_commands: 0` または `consolidation.stop_cadence: 0`。親 #2263 は open のまま。
+- **consolidation 依頼を metadata-only の ledger に残す（#2273）。** 各依頼は session、client、pressure、threshold、再依頼フラグ、delivery path を記録する。`traceary session refine` は直近 request に outcome を stamp する。`doctor` は直近 7 日のホスト別 asked-versus-refined を出す。store サブコマンドは増やさない。親 #2263 は open のまま。
+- **projection-rebuild 完了ゲートがオペレータ copy 上で body-free JSON を残す（#2265）。** `scripts/verify-projection-completion.sh` は bounded な `store compact --projection-rebuild` を駆動し（`~/.config/traceary/` は拒否）、`wall_seconds`、lifecycle 遷移、`family_bytes.by_table`、doctor 行を記録する。完了しない rebuild は lifecycle 状態と理由付き FAIL として記録し、skip しない。family bytes と 1,464 MiB 目標の比較は記録のみで、ゲート条件にはしない。親 #2263 は open のまま。
 
 ### Changed
 - **Stop-hook の consolidation は仕事量ベース（`min_commands` 20 / `stop_cadence` 8）になり、body バイトでは発火しない（#2274）。** main セッションは `covers_to` 以降の `command_executed` が 20 件に達すると依頼される。最初の依頼に cadence 窓は不要。再依頼は直近 request の後に transcript が 8 件必要（refine outcome を問わない）。サブエージェントセッションは依頼しない。`stop_hook_active` は引き続き抑制する。`consolidation.threshold_bytes` はパースして無視し、明示時はプロセスあたり 1 回 `[WARN]`。次の minor で削除。cadence / count の lookup 失敗は fail-closed（依頼しない）。ledger insert は fail-open（依頼は届ける）。スキーマ変更なし。親 #2263 は open のまま。
@@ -23,6 +27,9 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 - **`store compact` が残っている `command_audits` テキスト列を payload codec で符号化し `steps.audit_encode` を報告する。到達不能だった `PayloadBackfillDatasource` を削除（migration 054 のテーブルは未使用のまま残す）（#2264）。** 親 #2263 は open のまま。
 - **terminal な search-projection 世代が derived 行を reclaim する (#2261)** — `failed` / `abandoned` 世代は、後続 rebuild が complete するまで keyword / fingerprint 行を残し続けない。`traceary doctor --fix` と既定の `store compact` が lock / wall 予算でページ削除し、status / doctor は active のみのゼロとは別に terminal 件数を出し、compact JSON は `steps.projection_reclaim` を含む。親 #2263 は open のまま。
 - **post-upgrade live-capture gate が Claude と Antigravity を probe する (#2259)** — `scripts/verify-post-upgrade-live-capture.sh` は使い捨て store に対して `claude --print --permission-mode plan` と `agy --mode plan --print …` を実行し、`session_started` / `prompt` を必須にする。缶詰の `--skip …='no headless probe in this gate'` は廃止。Gemini は従来どおり `IneligibleTierError` の理由付き skip。親 #2263 は open のまま。
+
+### Docs
+- **session-keyword / fingerprint プロジェクション表の `WITHOUT ROWID` 変換（#2266）は計測済み no-go として延期する。** #2265 の完了ゲートは 14 GiB のオペレータ store copy で `state=complete` に達しない。rebuild は cleanup 中に終了し（`query cleanup leftover page: context deadline exceeded`）、index family は目標 1,464 MiB に対しておよそ 9.4 GiB のまま残る。計測は `docs/release/v0.48.0-projection-completion-evidence.json`。変換は出荷せず、#2266 は open のまま。
 
 ## [v0.47.1] - 2026-08-21
 

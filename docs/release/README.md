@@ -8,6 +8,8 @@ Current release evidence:
 
 - [Release gates vs measurements](./gates.md)
 - [v0.33.0 multi-GiB release evidence](./v0.33.0-multigib-evidence.md)
+- [v0.48.0 release QA](./v0.48.0-qa.md)
+- [v0.48.0 projection-completion evidence](./v0.48.0-projection-completion-evidence.json)
 
 ## After upgrading the binary
 
