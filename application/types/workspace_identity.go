@@ -3,12 +3,18 @@ package types
 import "time"
 
 // WorkspaceIdentityCoverage reports current-event primary-observation coverage.
+// CoveredEvents / MissingEvents are frontier bookkeeping after migration 76,
+// not a per-event join against observation rows (#2269).
 type WorkspaceIdentityCoverage struct {
-	EventCount       int     `json:"event_count"`
-	CoveredEvents    int     `json:"covered_events"`
-	MissingEvents    int     `json:"missing_events"`
-	CoverageRate     float64 `json:"coverage_rate"`
-	ObservationCount int     `json:"observation_count"`
+	EventCount            int     `json:"event_count"`
+	CoveredEvents         int     `json:"covered_events"`
+	MissingEvents         int     `json:"missing_events"`
+	CoverageRate          float64 `json:"coverage_rate"`
+	ObservationCount      int     `json:"observation_count"`
+	ObservationRows       int     `json:"observation_rows"`
+	ObservationKeys       int     `json:"observation_keys"`
+	OrphanObservationRows int     `json:"orphan_observation_rows"`
+	PreCollapse           bool    `json:"-"`
 }
 
 // WorkspaceRelationshipCounts is a fixed projection of current relationship facts.

@@ -1154,3 +1154,87 @@ func gcEventPreservedFields(t *testing.T, db *sql.DB, id string) []string {
 	}
 	return []string{nullableInt(original), nullableInt(stored), createdAt, kind, strconv.Itoa(count)}
 }
+
+func TestCollectGarbage_DeletesUnreachableWorkspaceObservations(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	_, storeManager := newEventDatasource(t, dbPath, onDiskSQLiteMigrations(t))
+	if err := storeManager.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	if _, err := db.Exec(`
+		INSERT INTO session_workspace_observations (
+			session_id, workspace, observed_relationship, source_client, source_hook, observation_kind,
+			observation_count, first_observed_at, last_observed_at, observed_event_id, raw_workspace,
+			delivery_record_id, attribution_fingerprint, diagnostic_reason, observation_origin
+		) VALUES (
+			'gone-session', '/repo', 'exact', 'codex', 'user_prompt_submit', 'primary',
+			1, '2026-04-01T00:00:00Z', '2026-04-01T00:00:00Z', 'gone-event', NULL,
+			NULL, 'fp', '', 'runtime'
+		)
+	`); err != nil {
+		t.Fatalf("insert unreachable observation: %v", err)
+	}
+
+	deleted, err := storeManager.CollectGarbage(ctx, time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC), apptypes.GarbageCollectionTargetSessions, false)
+	if err != nil {
+		t.Fatalf("CollectGarbage() error = %v", err)
+	}
+	if deleted < 1 {
+		t.Fatalf("deleted = %d, want at least the unreachable observation", deleted)
+	}
+	var remaining int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM session_workspace_observations`).Scan(&remaining); err != nil {
+		t.Fatalf("count observations: %v", err)
+	}
+	if remaining != 0 {
+		t.Fatalf("remaining observations = %d, want 0", remaining)
+	}
+}
+
+func TestCollectGarbage_KeepsOrphanRangeWorkspaceObservations(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	_, storeManager := newEventDatasource(t, dbPath, onDiskSQLiteMigrations(t))
+	if err := storeManager.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	if _, err := db.Exec(`
+		INSERT INTO events (id, kind, client, agent, session_id, workspace, body, created_at, source_hook)
+		VALUES ('live-event', 'prompt', 'hook', 'codex', 'orphan-range', '/repo', 'body', '2026-04-08T00:00:00Z', 'user_prompt_submit');
+		INSERT INTO session_workspace_observations (
+			session_id, workspace, observed_relationship, source_client, source_hook, observation_kind,
+			observation_count, first_observed_at, last_observed_at, observed_event_id, raw_workspace,
+			delivery_record_id, attribution_fingerprint, diagnostic_reason, observation_origin
+		) VALUES (
+			'orphan-range', '/repo', 'exact', 'codex', 'user_prompt_submit', 'primary',
+			1, '2026-04-01T00:00:00Z', '2026-04-01T00:00:00Z', 'live-event', NULL,
+			NULL, 'fp', '', 'runtime'
+		)
+	`); err != nil {
+		t.Fatalf("insert orphan-range observation: %v", err)
+	}
+
+	if _, err := storeManager.CollectGarbage(ctx, time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC), apptypes.GarbageCollectionTargetSessions, false); err != nil {
+		t.Fatalf("CollectGarbage() error = %v", err)
+	}
+	var remaining int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM session_workspace_observations WHERE session_id = 'orphan-range'`).Scan(&remaining); err != nil {
+		t.Fatalf("count observations: %v", err)
+	}
+	if remaining != 1 {
+		t.Fatalf("remaining observations = %d, want 1 (event row still exists)", remaining)
+	}
+}

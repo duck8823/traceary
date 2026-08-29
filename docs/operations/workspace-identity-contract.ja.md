@@ -206,48 +206,41 @@ CREATE TABLE hook_delivery_attempts (
 );
 
 CREATE TABLE session_workspace_observations (
-    observation_id TEXT PRIMARY KEY,
     session_id TEXT NOT NULL,
     workspace TEXT NOT NULL,
-    raw_workspace TEXT,
-    observation_kind TEXT NOT NULL
-        CHECK (observation_kind IN ('primary', 'supplemental')),
-    observation_origin TEXT NOT NULL
-        CHECK (observation_origin IN ('runtime', 'backfill')),
     observed_relationship TEXT NOT NULL
         CHECK (observed_relationship IN ('exact', 'descendant', 'ancestor', 'explicit_alias', 'conflict', 'unknown')),
+    source_client TEXT NOT NULL DEFAULT '',
+    source_hook TEXT NOT NULL DEFAULT '',
+    observation_kind TEXT NOT NULL
+        CHECK (observation_kind IN ('primary', 'supplemental')),
+    observation_count INTEGER NOT NULL DEFAULT 1 CHECK (observation_count >= 1),
+    first_observed_at TEXT NOT NULL,
+    last_observed_at TEXT NOT NULL,
     observed_event_id TEXT,
+    raw_workspace TEXT,
     delivery_record_id TEXT,
     attribution_fingerprint TEXT NOT NULL,
     diagnostic_reason TEXT NOT NULL DEFAULT '',
-    observed_at TEXT NOT NULL,
-    source_client TEXT NOT NULL DEFAULT '',
-    source_hook TEXT NOT NULL DEFAULT ''
-);
+    observation_origin TEXT NOT NULL
+        CHECK (observation_origin IN ('runtime', 'backfill')),
+    PRIMARY KEY (session_id, workspace, observed_relationship, source_client, source_hook, observation_kind)
+) WITHOUT ROWID;
 
 CREATE INDEX idx_session_workspace_observations_relationship
-    ON session_workspace_observations(observed_relationship, observed_at DESC, session_id);
-
-CREATE UNIQUE INDEX idx_session_workspace_observations_delivery_attribution
-    ON session_workspace_observations(delivery_record_id, attribution_fingerprint)
-    WHERE delivery_record_id IS NOT NULL AND delivery_record_id <> '';
-
-CREATE UNIQUE INDEX idx_session_workspace_observations_primary_event
-    ON session_workspace_observations(observed_event_id)
-    WHERE observation_kind = 'primary'
-      AND observed_event_id IS NOT NULL AND observed_event_id <> '';
+    ON session_workspace_observations(observed_relationship, last_observed_at DESC, session_id);
 ```
 
 これらの table は attribution metadata だけを保存します。
 command input、output、prompt text、transcript text、その他の event 本文を複製しません。
-report は observation row から件数を計算しますが、件数は deduplication の判定ではありません。現行 conflict の distinct `(session_id, workspace)` pair は追加の診断であり、行の volume が review 単位を隠さないようにします。
+`session_workspace_observations` は集約です（migration 76）。attribution key あたり 1 行で、volume は `observation_count` です。同一 `(delivery_record_id, attribution_fingerprint)` の連続 exact redelivery は増やさず、別 pair を挟んだ A→B→A は増やします。report の volume は `SUM(observation_count)` であり、件数は deduplication の判定ではありません。現行 conflict の distinct `(session_id, workspace)` pair は追加の診断であり、行の volume が review 単位を隠さないようにします。
 
 alias は一つの session に限定し、reviewer と timestamp を持つ review 操作でだけ追加します。
 alias を追加しても過去の `observed_relationship` は書き換えません。
 report は ingest 時に観測した relationship と、review 済み alias を join して求めた現在の relationship を両方表示できます。
 
 両方の provenance table にある `observed_event_id` は外部キーではなく、immutable な値です。
-event を削除または archive しても append-only の delivery または workspace provenance は変更せず、report は left join で現在の event の有無を確認します。
+event を削除または archive しても delivery 行や、observation 集約に既に入っている newest `observed_event_id` は変わりません。report は left join で現在の event の有無を確認します。observation 集約は append-only ではありません。同じ key の後続観測は count と newest 属性を更新します。到達不能な集約（その session の session 行も event 行もない）は session GC が削除します。
 
 受理する reported delivery identity の namespace は `<client>:<hook-kind>:<native-session-id>:<native-delivery-id>`、または同等の型付き表現とします。
 host adapter は一つの論理 delivery に対して値を安定させ、hook kind または session ID をまたいで native ID を再利用してはいけません。
@@ -260,14 +253,14 @@ retry で正当に改善できる workspace などの attribution field は除�
 
 repository は reported identity を次の順に処理します。
 
-1. `(session_id, reported_delivery_id, delivery_fingerprint)` が既に存在する場合は、同じ論理 delivery とする。event は追加せず、`(delivery_record_id, attribution_fingerprint)` が新しい場合だけ supplemental observation を追加する。それ以外は完全に冪等な成功を返す。
-2. reported identity の accepted row がない場合は、`accepted` delivery row、event、一つの `primary` observation を atomic に追加する。
-3. 別の delivery fingerprint を持つ accepted row がある場合は、新しい fingerprint を key に `conflict` delivery row、新しい正当な event、primary observation を atomic に追加し、`diagnostic_reason=delivery_identity_conflict` を記録する。
+1. `(session_id, reported_delivery_id, delivery_fingerprint)` が既に存在する場合は、同じ論理 delivery とする。event は追加せず、`(delivery_record_id, attribution_fingerprint)` が新しい場合だけ supplemental observation を UPSERT する。それ以外は完全に冪等な成功を返す。
+2. reported identity の accepted row がない場合は、`accepted` delivery row、event、一つの `primary` observation の UPSERT を atomic に行う。
+3. 別の delivery fingerprint を持つ accepted row がある場合は、新しい fingerprint を key に `conflict` delivery row、新しい正当な event、primary observation の UPSERT を atomic に行い、`diagnostic_reason=delivery_identity_conflict` を記録する。
 
 delivery table の triple uniqueness により、保存済み conflict delivery の retry は手順 1 で解決し、event を増幅させません。
 partial accepted-identity index は最初に受理した fingerprint を識別します。
 冪等性はこの index だけではなく、application の比較と完全な ledger で実現します。
-primary-event index は保存済み event ごとに primary attribution を一つに制限し、supplemental observation は同じ event に対する改善済み retry attribution を維持できます。
+observation 集約は key ごとに newest `observed_event_id` を保持します。supplemental observation は同じ session/workspace/relationship/source の改善済み retry attribution を、event ごとに行を増やさず維持できます。
 
 同時 delivery の処理も repository 契約に含めます。
 最初の lookup 後に accepted identity または triple identity の unique collision が起きた場合、repository はその write を rollback し、新しい transaction で append-only ledger を再読込して判定を一度だけやり直します。

@@ -27,21 +27,27 @@ type workspaceObservationCatchUpResult struct {
 
 const workspaceObservationCatchUpStateTable = "workspace_observation_catchup_state"
 
-const workspaceObservationCatchUpBatchQuery = `
-	SELECT e.id, e.session_id, e.workspace, e.created_at, e.agent,
+const workspaceObservationCatchUpHeadQuery = `
+	SELECT e.id, e.session_id, e.workspace, e.created_at, e.created_at_norm, e.agent,
 	       COALESCE(e.source_hook, ''), COALESCE(s.workspace, '')
 	  FROM events e
 	  LEFT JOIN sessions s ON s.session_id = e.session_id
-	 WHERE NOT EXISTS (
-	       SELECT 1
-	         FROM session_workspace_observations o
-	        WHERE o.observed_event_id = e.id
-	          AND o.observation_kind = 'primary'
-	          AND o.observed_event_id IS NOT NULL
-	          AND o.observed_event_id <> ''
-	 )
 	 ORDER BY e.created_at_norm DESC, e.id DESC
 	 LIMIT ?`
+
+const workspaceObservationCatchUpFrontierQuery = `
+	SELECT e.id, e.session_id, e.workspace, e.created_at, e.created_at_norm, e.agent,
+	       COALESCE(e.source_hook, ''), COALESCE(s.workspace, '')
+	  FROM events e
+	  LEFT JOIN sessions s ON s.session_id = e.session_id
+	 WHERE (e.created_at_norm, e.id) < (?, ?)
+	 ORDER BY e.created_at_norm DESC, e.id DESC
+	 LIMIT ?`
+
+// workspaceObservationCatchUpBatchQuery is the frontier form used by the
+// EXPLAIN QUERY PLAN test. Head scans (frontier ”) omit the tuple predicate
+// so the planner can use idx_events_created_at_norm_id_desc as a backward walk.
+const workspaceObservationCatchUpBatchQuery = workspaceObservationCatchUpFrontierQuery
 
 func catchUpWorkspaceObservations(ctx context.Context, db *sql.DB, batchSize int) (workspaceObservationCatchUpResult, error) {
 	if batchSize <= 0 {
@@ -99,14 +105,46 @@ func catchUpWorkspaceObservations(ctx context.Context, db *sql.DB, batchSize int
 }
 
 func workspaceObservationCatchUpIsExhausted(ctx context.Context, db *sql.DB) (bool, error) {
+	exhausted, _, _, err := readWorkspaceObservationCatchUpState(ctx, db)
+	return exhausted, err
+}
+
+func readWorkspaceObservationCatchUpState(ctx context.Context, db *sql.DB) (bool, string, string, error) {
 	var exhausted int
-	if err := db.QueryRowContext(ctx, `SELECT exhausted FROM workspace_observation_catchup_state WHERE singleton = 1`).Scan(&exhausted); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return false, nil
-		}
-		return false, xerrors.Errorf("read workspace observation catch-up state: %w", err)
+	frontierNorm, frontierID := "", ""
+	hasFrontier, err := sqliteColumnExists(ctx, db, workspaceObservationCatchUpStateTable, "frontier_created_at_norm")
+	if err != nil {
+		return false, "", "", err
 	}
-	return exhausted == 1, nil
+	if hasFrontier {
+		err = db.QueryRowContext(
+			ctx,
+			`SELECT exhausted, frontier_created_at_norm, frontier_event_id
+			   FROM workspace_observation_catchup_state WHERE singleton = 1`,
+		).Scan(&exhausted, &frontierNorm, &frontierID)
+	} else {
+		err = db.QueryRowContext(ctx, `SELECT exhausted FROM workspace_observation_catchup_state WHERE singleton = 1`).Scan(&exhausted)
+	}
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, "", "", nil
+		}
+		return false, "", "", xerrors.Errorf("read workspace observation catch-up state: %w", err)
+	}
+	return exhausted == 1, frontierNorm, frontierID, nil
+}
+
+func sqliteColumnExists(ctx context.Context, db *sql.DB, table, column string) (bool, error) {
+	var exists int
+	if err := db.QueryRowContext(
+		ctx,
+		`SELECT EXISTS(SELECT 1 FROM pragma_table_info(?) WHERE name = ?)`,
+		table,
+		column,
+	).Scan(&exists); err != nil {
+		return false, xerrors.Errorf("failed to inspect SQLite column %s.%s: %w", table, column, err)
+	}
+	return exists == 1, nil
 }
 
 func markWorkspaceObservationCatchUpExhausted(ctx context.Context, db *sql.DB) error {
@@ -117,18 +155,40 @@ func markWorkspaceObservationCatchUpExhausted(ctx context.Context, db *sql.DB) e
 }
 
 func catchUpWorkspaceObservationsOnce(ctx context.Context, db *sql.DB, batchSize int) (workspaceObservationCatchUpResult, error) {
-	rows, err := db.QueryContext(ctx, workspaceObservationCatchUpBatchQuery, batchSize+1)
+	frontierNorm, frontierID := "", ""
+	stateExists, err := sqliteTableExists(ctx, db, workspaceObservationCatchUpStateTable)
+	if err != nil {
+		return workspaceObservationCatchUpResult{}, err
+	}
+	hasFrontier := false
+	if stateExists {
+		_, frontierNorm, frontierID, err = readWorkspaceObservationCatchUpState(ctx, db)
+		if err != nil {
+			return workspaceObservationCatchUpResult{}, err
+		}
+		hasFrontier, err = sqliteColumnExists(ctx, db, workspaceObservationCatchUpStateTable, "frontier_created_at_norm")
+		if err != nil {
+			return workspaceObservationCatchUpResult{}, err
+		}
+	}
+
+	var rows *sql.Rows
+	if frontierNorm == "" && frontierID == "" {
+		rows, err = db.QueryContext(ctx, workspaceObservationCatchUpHeadQuery, batchSize+1)
+	} else {
+		rows, err = db.QueryContext(ctx, workspaceObservationCatchUpFrontierQuery, frontierNorm, frontierID, batchSize+1)
+	}
 	if err != nil {
 		return workspaceObservationCatchUpResult{}, xerrors.Errorf("failed to query workspace observation catch-up batch: %w", err)
 	}
 
 	type catchUpRow struct {
-		eventID, sessionID, workspace, createdAt, agent, sourceHook, canonical string
+		eventID, sessionID, workspace, createdAt, createdAtNorm, agent, sourceHook, canonical string
 	}
 	batch := make([]catchUpRow, 0, batchSize)
 	for rows.Next() {
 		var row catchUpRow
-		if err := rows.Scan(&row.eventID, &row.sessionID, &row.workspace, &row.createdAt, &row.agent, &row.sourceHook, &row.canonical); err != nil {
+		if err := rows.Scan(&row.eventID, &row.sessionID, &row.workspace, &row.createdAt, &row.createdAtNorm, &row.agent, &row.sourceHook, &row.canonical); err != nil {
 			_ = rows.Close()
 			return workspaceObservationCatchUpResult{}, xerrors.Errorf("failed to scan workspace observation catch-up row: %w", err)
 		}
@@ -163,30 +223,43 @@ func catchUpWorkspaceObservationsOnce(ctx context.Context, db *sql.DB, batchSize
 	inserted := 0
 	for _, row := range batch {
 		relationship := model.ClassifyWorkspaceRelationship(types.Workspace(row.canonical), types.Workspace(row.workspace))
-		_, err := tx.ExecContext(ctx, `
-			INSERT INTO session_workspace_observations (
-				observation_id, session_id, workspace, raw_workspace,
-				observation_kind, observation_origin, observed_relationship,
-				observed_event_id, delivery_record_id, attribution_fingerprint,
-				diagnostic_reason, observed_at, source_client, source_hook
-			) VALUES (?, ?, ?, NULL, 'primary', 'backfill', ?, ?, NULL, ?, '', ?, ?, ?)`,
-			"backfill:"+row.eventID,
+		affected, err := upsertWorkspaceObservation(
+			ctx,
+			tx,
 			row.sessionID,
 			row.workspace,
 			string(relationship),
-			row.eventID,
-			model.WorkspaceAttributionFingerprint(types.Workspace(row.workspace), ""),
-			row.createdAt,
 			rootSourceClient(row.agent),
 			row.sourceHook,
+			"primary",
+			row.createdAt,
+			row.eventID,
+			"",
+			"",
+			model.WorkspaceAttributionFingerprint(types.Workspace(row.workspace), ""),
+			"",
+			"backfill",
 		)
 		if err != nil {
-			if isSQLiteUniqueOrPKConflict(err) {
-				continue
-			}
 			return result, xerrors.Errorf("failed to insert backfill workspace observation for event %s: %w", row.eventID, err)
 		}
-		inserted++
+		if affected == 1 {
+			inserted++
+		}
+	}
+
+	if stateExists && hasFrontier {
+		last := batch[len(batch)-1]
+		if _, err := tx.ExecContext(
+			ctx,
+			`UPDATE workspace_observation_catchup_state
+			    SET frontier_created_at_norm = ?, frontier_event_id = ?
+			  WHERE singleton = 1`,
+			last.createdAtNorm,
+			last.eventID,
+		); err != nil {
+			return result, xerrors.Errorf("failed to advance workspace observation catch-up frontier: %w", err)
+		}
 	}
 
 	if err := tx.Commit(); err != nil {

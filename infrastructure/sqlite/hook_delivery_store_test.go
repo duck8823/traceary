@@ -582,6 +582,104 @@ func TestEventDatasource_HookAuditUsesFullSemanticDeliveryFingerprint(t *testing
 	assertSQLiteCountWhere(t, dbPath, "hook_deliveries", "identity_status = 'conflict'", 1)
 }
 
+func TestEventDatasource_WorkspaceObservation_UpsertsOneRowPerKey(t *testing.T) {
+	t.Parallel()
+	dbPath, eventDS := newHookDeliveryTestStore(t)
+	first := hookDeliveryTestEventAt(t, "event-1", "session-1", "/repo", "/repo", "first", "event_id:delivery-1", time.Date(2026, 7, 22, 0, 0, 0, 0, time.UTC))
+	second := hookDeliveryTestEventAt(t, "event-2", "session-1", "/repo", "/repo", "second", "event_id:delivery-2", time.Date(2026, 7, 22, 0, 0, 1, 0, time.UTC))
+	if err := eventDS.Save(context.Background(), first); err != nil {
+		t.Fatalf("Save(first) error = %v", err)
+	}
+	if err := eventDS.Save(context.Background(), second); err != nil {
+		t.Fatalf("Save(second) error = %v", err)
+	}
+	assertSQLiteCount(t, dbPath, "session_workspace_observations", 1)
+	db := openHookDeliveryTestDB(t, dbPath)
+	defer func() { _ = db.Close() }()
+	var count int
+	var observedEventID, firstAt, lastAt string
+	if err := db.QueryRow(`
+		SELECT observation_count, observed_event_id, first_observed_at, last_observed_at
+		  FROM session_workspace_observations`).Scan(&count, &observedEventID, &firstAt, &lastAt); err != nil {
+		t.Fatalf("read aggregate: %v", err)
+	}
+	if count != 2 || observedEventID != "event-2" {
+		t.Fatalf("count=%d event=%s, want count=2 event=event-2", count, observedEventID)
+	}
+	if firstAt == lastAt {
+		t.Fatalf("first_observed_at = last_observed_at = %s, want first < last", firstAt)
+	}
+}
+
+func TestEventDatasource_WorkspaceObservation_ExactRedeliveryDoesNotInflateCount(t *testing.T) {
+	t.Parallel()
+	dbPath, eventDS := newHookDeliveryTestStore(t)
+	first := hookDeliveryTestEvent(t, "event-1", "session-1", "/repo", "/repo", "same body", "event_id:delivery-1")
+	retry := hookDeliveryTestEvent(t, "event-2", "session-1", "/repo", "/repo", "same body", "event_id:delivery-1")
+	if err := eventDS.Save(context.Background(), first); err != nil {
+		t.Fatalf("Save(first) error = %v", err)
+	}
+	if err := eventDS.Save(context.Background(), retry); err != nil {
+		t.Fatalf("Save(retry) error = %v", err)
+	}
+	assertSQLiteCount(t, dbPath, "session_workspace_observations", 1)
+	db := openHookDeliveryTestDB(t, dbPath)
+	defer func() { _ = db.Close() }()
+	var count int
+	var observedEventID string
+	if err := db.QueryRow(`SELECT observation_count, observed_event_id FROM session_workspace_observations`).Scan(&count, &observedEventID); err != nil {
+		t.Fatalf("read aggregate: %v", err)
+	}
+	if count != 1 || observedEventID != "event-1" {
+		t.Fatalf("count=%d event=%s, want unchanged primary", count, observedEventID)
+	}
+}
+
+func TestEventDatasource_WorkspaceObservation_ChangedAttributionIncrementsCount(t *testing.T) {
+	t.Parallel()
+	dbPath, eventDS := newHookDeliveryTestStore(t)
+	first := hookDeliveryTestEvent(t, "event-1", "session-1", "/repo", "/repo", "same body", "event_id:delivery-1")
+	retry := hookDeliveryTestEvent(t, "event-2", "session-1", "/repo", "/repo/sub", "same body", "event_id:delivery-1")
+	if err := eventDS.Save(context.Background(), first); err != nil {
+		t.Fatalf("Save(first) error = %v", err)
+	}
+	if err := eventDS.Save(context.Background(), retry); err != nil {
+		t.Fatalf("Save(retry) error = %v", err)
+	}
+	db := openHookDeliveryTestDB(t, dbPath)
+	defer func() { _ = db.Close() }()
+	var volume int
+	if err := db.QueryRow(`SELECT COALESCE(SUM(observation_count), 0) FROM session_workspace_observations`).Scan(&volume); err != nil {
+		t.Fatalf("sum volume: %v", err)
+	}
+	if volume != 2 {
+		t.Fatalf("volume = %d, want 2 after changed attribution", volume)
+	}
+}
+
+func TestEventDatasource_WorkspaceObservation_LegacyShapeFallsBackToInsert(t *testing.T) {
+	t.Parallel()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	eventDS, storeManager := newEventDatasource(t, dbPath, onDiskSQLiteMigrationsBefore(t, 76))
+	if err := storeManager.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize(pre-76) error = %v", err)
+	}
+	first := hookDeliveryTestEvent(t, "event-1", "session-1", "/repo", "/repo", "first", "event_id:delivery-1")
+	if err := eventDS.Save(context.Background(), first); err != nil {
+		t.Fatalf("Save(legacy) error = %v", err)
+	}
+	assertSQLiteCount(t, dbPath, "session_workspace_observations", 1)
+	db := openHookDeliveryTestDB(t, dbPath)
+	defer func() { _ = db.Close() }()
+	var observationID string
+	if err := db.QueryRow(`SELECT observation_id FROM session_workspace_observations`).Scan(&observationID); err != nil {
+		t.Fatalf("legacy observation_id: %v", err)
+	}
+	if observationID == "" {
+		t.Fatal("legacy insert must keep observation_id")
+	}
+}
+
 func newHookDeliveryTestStore(t *testing.T) (string, interface {
 	Save(context.Context, *model.Event) error
 }) {
@@ -596,6 +694,11 @@ func newHookDeliveryTestStore(t *testing.T) (string, interface {
 
 func hookDeliveryTestEvent(t *testing.T, eventID, sessionID, workspace, rawWorkspace, body, nativeID string) *model.Event {
 	t.Helper()
+	return hookDeliveryTestEventAt(t, eventID, sessionID, workspace, rawWorkspace, body, nativeID, time.Date(2026, 7, 22, 0, 0, 0, 0, time.UTC))
+}
+
+func hookDeliveryTestEventAt(t *testing.T, eventID, sessionID, workspace, rawWorkspace, body, nativeID string, createdAt time.Time) *model.Event {
+	t.Helper()
 	event := model.EventOfWithSourceHook(
 		types.EventID(eventID),
 		types.EventKindPrompt,
@@ -604,7 +707,7 @@ func hookDeliveryTestEvent(t *testing.T, eventID, sessionID, workspace, rawWorks
 		types.SessionID(sessionID),
 		types.Workspace(workspace),
 		body,
-		time.Date(2026, 7, 22, 0, 0, 0, 0, time.UTC),
+		createdAt,
 		"user_prompt_submit",
 	)
 	event.SetRawWorkspace(rawWorkspace)

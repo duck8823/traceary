@@ -154,6 +154,94 @@ func TestRootCLI_WorkspaceIdentityReportCountsConflictPairsOnDoctorJSON(t *testi
 	}
 }
 
+func TestDoctorWorkspaceObservations_WarnsOnPreCollapseShape(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+	setTracearyPathToCurrentExecutableAt(t, filepath.Join(t.TempDir(), "bin"))
+	identity := &workspaceIdentityUsecaseStub{report: apptypes.WorkspaceIdentityReport{
+		Coverage: apptypes.WorkspaceIdentityCoverage{ObservationRows: 6, ObservationKeys: 2, ObservationCount: 6, PreCollapse: true},
+	}}
+	stdout := executeDoctorJSONBytes(t, &storeManagementUsecaseStub{}, identity, func(string) {}, []string{
+		"doctor", "--db-path", filepath.Join(t.TempDir(), "traceary.db"), "--json", "--warnings-ok", "--client", "codex", "--project-dir", t.TempDir(),
+	})
+	check := doctorCheckByName(t, stdout, "workspace-observations")
+	if check.Status != "warn" || !strings.Contains(check.Message, "pre-collapse") || !strings.Contains(check.FixCommand, "traceary doctor --fix") {
+		t.Fatalf("workspace-observations = %+v", check)
+	}
+}
+
+func TestDoctorWorkspaceObservations_WarnsOnOrphans(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+	setTracearyPathToCurrentExecutableAt(t, filepath.Join(t.TempDir(), "bin"))
+	identity := &workspaceIdentityUsecaseStub{report: apptypes.WorkspaceIdentityReport{
+		Coverage: apptypes.WorkspaceIdentityCoverage{ObservationRows: 2, ObservationKeys: 2, ObservationCount: 5, OrphanObservationRows: 1},
+	}}
+	stdout := executeDoctorJSONBytes(t, &storeManagementUsecaseStub{}, identity, func(string) {}, []string{
+		"doctor", "--db-path", filepath.Join(t.TempDir(), "traceary.db"), "--json", "--warnings-ok", "--client", "codex", "--project-dir", t.TempDir(),
+	})
+	check := doctorCheckByName(t, stdout, "workspace-observations")
+	if check.Status != "warn" || !strings.Contains(check.Message, "orphan") || !strings.Contains(check.FixCommand, "store compact") {
+		t.Fatalf("workspace-observations = %+v", check)
+	}
+}
+
+func TestDoctorWorkspaceObservations_PassesAfterCollapse(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+	setTracearyPathToCurrentExecutableAt(t, filepath.Join(t.TempDir(), "bin"))
+	dbPath, identityUC, storeUC, setter := seededWorkspaceIdentityStore(t)
+	stdout := executeDoctorJSONBytes(t, storeUC, identityUC, setter, []string{
+		"doctor", "--db-path", dbPath, "--json", "--warnings-ok", "--client", "codex", "--project-dir", t.TempDir(),
+	})
+	check := doctorCheckByName(t, stdout, "workspace-observations")
+	if check.Status != "pass" || !strings.Contains(check.Message, "orphans=0") {
+		t.Fatalf("workspace-observations = %+v stdout=%s", check, stdout)
+	}
+	var report struct {
+		WorkspaceIdentity struct {
+			ObservationRows int `json:"observation_rows"`
+			ObservationKeys int `json:"observation_keys"`
+			OrphanRows      int `json:"orphan_rows"`
+		} `json:"workspace_identity"`
+	}
+	if err := json.Unmarshal(stdout, &report); err != nil {
+		t.Fatalf("JSON = %s unmarshal error = %v", stdout, err)
+	}
+	if report.WorkspaceIdentity.ObservationRows != report.WorkspaceIdentity.ObservationKeys || report.WorkspaceIdentity.OrphanRows != 0 {
+		t.Fatalf("identity footprint = %+v", report.WorkspaceIdentity)
+	}
+}
+
+func doctorCheckByName(t *testing.T, stdout []byte, name string) struct {
+	Name       string `json:"name"`
+	Status     string `json:"status"`
+	Message    string `json:"message"`
+	FixCommand string `json:"fix_command"`
+} {
+	t.Helper()
+	var report struct {
+		Checks []struct {
+			Name       string `json:"name"`
+			Status     string `json:"status"`
+			Message    string `json:"message"`
+			FixCommand string `json:"fix_command"`
+		} `json:"checks"`
+	}
+	if err := json.Unmarshal(stdout, &report); err != nil {
+		t.Fatalf("JSON = %s unmarshal error = %v", stdout, err)
+	}
+	for _, check := range report.Checks {
+		if check.Name == name {
+			return check
+		}
+	}
+	t.Fatalf("check %s missing in %s", name, stdout)
+	return struct {
+		Name       string `json:"name"`
+		Status     string `json:"status"`
+		Message    string `json:"message"`
+		FixCommand string `json:"fix_command"`
+	}{}
+}
+
 func TestRootCLI_ReportStillRunsAfterWorkspaceIdentityRemoval(t *testing.T) {
 	t.Setenv("TRACEARY_LANG", "en")
 	root := cli.NewRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{})).Command()

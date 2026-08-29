@@ -344,6 +344,72 @@ func insertHookDelivery(
 	return nil
 }
 
+// upsertWorkspaceObservationSQL collapses observations to one row per
+// (session_id, workspace, observed_relationship, source_client, source_hook,
+// observation_kind). Backfill (origin != runtime) never increments count.
+// Consecutive exact redelivery of the same delivery_record_id+fingerprint
+// is a no-op via the DO UPDATE WHERE clause; non-consecutive A→B→A does
+// increment (the dropped delivery-attribution unique index cannot be
+// expressed on the newest-only aggregate — #2269 R3).
+const upsertWorkspaceObservationSQL = `
+	INSERT INTO session_workspace_observations (
+		session_id, workspace, observed_relationship, source_client, source_hook, observation_kind,
+		observation_count, first_observed_at, last_observed_at,
+		observed_event_id, raw_workspace, delivery_record_id,
+		attribution_fingerprint, diagnostic_reason, observation_origin
+	) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)
+	ON CONFLICT (session_id, workspace, observed_relationship, source_client, source_hook, observation_kind)
+	DO UPDATE SET
+		observation_count  = session_workspace_observations.observation_count + 1,
+		first_observed_at  = CASE
+		                       WHEN ts_norm(excluded.first_observed_at) < ts_norm(session_workspace_observations.first_observed_at)
+		                       THEN excluded.first_observed_at
+		                       ELSE session_workspace_observations.first_observed_at
+		                     END,
+		last_observed_at   = CASE
+		                       WHEN ts_norm(excluded.last_observed_at) >= ts_norm(session_workspace_observations.last_observed_at)
+		                       THEN excluded.last_observed_at
+		                       ELSE session_workspace_observations.last_observed_at
+		                     END,
+		observed_event_id  = CASE
+		                       WHEN ts_norm(excluded.last_observed_at) >= ts_norm(session_workspace_observations.last_observed_at)
+		                       THEN excluded.observed_event_id
+		                       ELSE session_workspace_observations.observed_event_id
+		                     END,
+		raw_workspace      = CASE
+		                       WHEN ts_norm(excluded.last_observed_at) >= ts_norm(session_workspace_observations.last_observed_at)
+		                       THEN excluded.raw_workspace
+		                       ELSE session_workspace_observations.raw_workspace
+		                     END,
+		delivery_record_id      = excluded.delivery_record_id,
+		attribution_fingerprint = excluded.attribution_fingerprint,
+		diagnostic_reason       = excluded.diagnostic_reason,
+		observation_origin      = CASE
+		                            WHEN excluded.observation_origin = 'runtime' THEN 'runtime'
+		                            ELSE session_workspace_observations.observation_origin
+		                          END
+	WHERE excluded.observation_origin = 'runtime'
+	  AND (
+	        COALESCE(excluded.delivery_record_id, '') = ''
+	     OR COALESCE(excluded.delivery_record_id, '') <> COALESCE(session_workspace_observations.delivery_record_id, '')
+	     OR excluded.attribution_fingerprint <> session_workspace_observations.attribution_fingerprint
+	      )`
+
+const lookupWorkspaceObservationDeliveryAttributionSQL = `
+	SELECT 1
+	  FROM session_workspace_observations
+	 WHERE delivery_record_id = ?
+	   AND attribution_fingerprint = ?
+	 LIMIT 1`
+
+const insertLegacyWorkspaceObservationSQL = `
+	INSERT INTO session_workspace_observations (
+		observation_id, session_id, workspace, raw_workspace, observation_kind,
+		observation_origin, observed_relationship, observed_event_id,
+		delivery_record_id, attribution_fingerprint, diagnostic_reason,
+		observed_at, source_client, source_hook
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+
 func insertWorkspaceObservation(
 	ctx context.Context,
 	tx *sql.Tx,
@@ -364,31 +430,111 @@ func insertWorkspaceObservation(
 	if err != nil {
 		return err
 	}
-	rawWorkspace := event.RawWorkspace()
+	aggregated, err := columnExistsInTransaction(ctx, tx, "session_workspace_observations", "observation_count")
+	if err != nil {
+		return err
+	}
+	observedAt := formatTimestamp(event.CreatedAt())
+	if !aggregated {
+		return insertLegacyWorkspaceObservation(
+			ctx, tx, event, observedEventID, deliveryRecordID, kind, origin, reason,
+			attributionFingerprint, string(relationship), observedAt,
+		)
+	}
+	_, err = upsertWorkspaceObservation(
+		ctx,
+		tx,
+		event.SessionID().String(),
+		event.Workspace().String(),
+		string(relationship),
+		rootSourceClient(event.Agent().String()),
+		event.SourceHook(),
+		kind,
+		observedAt,
+		observedEventID,
+		event.RawWorkspace(),
+		deliveryRecordID,
+		attributionFingerprint,
+		reason,
+		origin,
+	)
+	return err
+}
+
+func upsertWorkspaceObservation(
+	ctx context.Context,
+	tx interface {
+		ExecContext(context.Context, string, ...any) (sql.Result, error)
+		QueryRowContext(context.Context, string, ...any) *sql.Row
+	},
+	sessionID, workspace, relationship, sourceClient, sourceHook, kind string,
+	observedAt, observedEventID, rawWorkspace, deliveryRecordID, attributionFingerprint, reason, origin string,
+) (int64, error) {
+	if deliveryRecordID != "" {
+		var present int
+		err := tx.QueryRowContext(ctx, lookupWorkspaceObservationDeliveryAttributionSQL, deliveryRecordID, attributionFingerprint).Scan(&present)
+		if err == nil {
+			// Same delivery+fingerprint already recorded (any kind). The
+			// dropped unique index on those two columns is now a lookup.
+			return 0, nil
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return 0, xerrors.Errorf("failed to lookup workspace observation delivery attribution: %w", err)
+		}
+	}
+	result, err := tx.ExecContext(
+		ctx,
+		upsertWorkspaceObservationSQL,
+		sessionID,
+		workspace,
+		relationship,
+		sourceClient,
+		sourceHook,
+		kind,
+		observedAt,
+		observedAt,
+		observedEventID,
+		nullableString(rawWorkspace),
+		nullableString(deliveryRecordID),
+		attributionFingerprint,
+		reason,
+		origin,
+	)
+	if err != nil {
+		return 0, xerrors.Errorf("failed to upsert workspace observation: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return 0, xerrors.Errorf("failed to read workspace observation upsert rows: %w", err)
+	}
+	return affected, nil
+}
+
+func insertLegacyWorkspaceObservation(
+	ctx context.Context,
+	tx *sql.Tx,
+	event *model.Event,
+	observedEventID, deliveryRecordID, kind, origin, reason, attributionFingerprint, relationship, observedAt string,
+) error {
 	observationID := "event:" + observedEventID
 	if evidence, ok := event.DeliveryEvidence().Value(); ok {
 		observationID = evidence.ObservationID()
 	}
-	_, err = tx.ExecContext(
+	_, err := tx.ExecContext(
 		ctx,
-		`INSERT INTO session_workspace_observations (
-			observation_id, session_id, workspace, raw_workspace, observation_kind,
-			observation_origin, observed_relationship, observed_event_id,
-			delivery_record_id, attribution_fingerprint, diagnostic_reason,
-			observed_at, source_client, source_hook
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		insertLegacyWorkspaceObservationSQL,
 		observationID,
 		event.SessionID().String(),
 		event.Workspace().String(),
-		nullableString(rawWorkspace),
+		nullableString(event.RawWorkspace()),
 		kind,
 		origin,
-		string(relationship),
+		relationship,
 		observedEventID,
 		nullableString(deliveryRecordID),
 		attributionFingerprint,
 		reason,
-		formatTimestamp(event.CreatedAt()),
+		observedAt,
 		rootSourceClient(event.Agent().String()),
 		event.SourceHook(),
 	)
@@ -439,6 +585,19 @@ func tableExistsInTransaction(ctx context.Context, tx *sql.Tx, table string) (bo
 		return false, xerrors.Errorf("failed to inspect SQLite schema for %s: %w", table, err)
 	}
 	return count > 0, nil
+}
+
+func columnExistsInTransaction(ctx context.Context, tx *sql.Tx, table, column string) (bool, error) {
+	var exists int
+	if err := tx.QueryRowContext(
+		ctx,
+		`SELECT EXISTS(SELECT 1 FROM pragma_table_info(?) WHERE name = ?)`,
+		table,
+		column,
+	).Scan(&exists); err != nil {
+		return false, xerrors.Errorf("failed to inspect SQLite column %s.%s: %w", table, column, err)
+	}
+	return exists == 1, nil
 }
 
 func canonicalWorkspaceForEvent(ctx context.Context, tx *sql.Tx, event *model.Event) (types.Workspace, error) {

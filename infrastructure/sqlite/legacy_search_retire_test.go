@@ -47,8 +47,8 @@ func TestMigration052_AppliesOverEveryRecordedTransitionState(t *testing.T) {
 			setSearchMaintenanceState(t, dbPath, tc.authority, tc.phase)
 
 			sut, store := newEventDatasource(t, dbPath, onDiskSQLiteMigrations(t))
-			if err := store.Initialize(ctx); err != nil {
-				t.Fatalf("Initialize() error = %v", err)
+			if err := store.InitializeAuthorized(ctx); err != nil {
+				t.Fatalf("InitializeAuthorized() error = %v", err)
 			}
 			if objectExists(t, dbPath, "search_maintenance_control") {
 				t.Fatal("search_maintenance_control survived migration 052")
@@ -73,8 +73,8 @@ func TestMigration052_LeavesTheLargeTablesForTheOperator(t *testing.T) {
 	seedPre052Store(t, dbPath)
 
 	_, store := newEventDatasource(t, dbPath, onDiskSQLiteMigrations(t))
-	if err := store.Initialize(ctx); err != nil {
-		t.Fatalf("Initialize() error = %v", err)
+	if err := store.InitializeAuthorized(ctx); err != nil {
+		t.Fatalf("InitializeAuthorized() error = %v", err)
 	}
 	for _, name := range []string{"event_search_documents", "event_search_fts", "event_search_backfill_state"} {
 		if !objectExists(t, dbPath, name) {
@@ -103,8 +103,8 @@ func TestRetireLegacySearchProjection_DropsTheFamilyAndKeepsSearchAnswering(t *t
 	seedPre052Store(t, dbPath)
 
 	database := infra.NewDatabase(dbPath, onDiskSQLiteMigrations(t))
-	if err := infra.NewStoreManagementDatasource(database).Initialize(ctx); err != nil {
-		t.Fatalf("Initialize() error = %v", err)
+	if err := infra.NewStoreManagementDatasource(database).InitializeAuthorized(ctx); err != nil {
+		t.Fatalf("InitializeAuthorized() error = %v", err)
 	}
 	sut := infra.NewEventDatasource(database)
 	before := searchLegacyFixture(ctx, t, sut)
@@ -202,8 +202,8 @@ func TestMigration052_StopsEventGarbageCollectionFromTouchingTheSearchIndex(t *t
 
 	database := infra.NewDatabase(dbPath, onDiskSQLiteMigrations(t))
 	management := infra.NewStoreManagementDatasource(database)
-	if err := management.Initialize(ctx); err != nil {
-		t.Fatalf("Initialize() error = %v", err)
+	if err := management.InitializeAuthorized(ctx); err != nil {
+		t.Fatalf("InitializeAuthorized() error = %v", err)
 	}
 	makeSeededEventDiscardable(t, dbPath)
 

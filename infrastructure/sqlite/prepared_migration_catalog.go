@@ -131,6 +131,10 @@ var preparedMigrationManifest = map[int64]migrationManifestEntry{
 	// 75 creates an empty bookkeeping table and two indexes on it. No event
 	// scan, no row rewrite. Same class as 46/47/72. Wave 1 reserved 74 for #2261.
 	75: {75, "000075_create_consolidation_requests.sql", "c0e9eaca0d744eb614617329d0438960269390c9d81f14087f98e540e82307e6", MigrationConstantInPlace},
+	// 76 rewrites the whole session_workspace_observations family (846,713 rows /
+	// 0.37 GiB on the 2026-08-28 operator store) into one row per attribution
+	// key. Not constant-in-place: cost scales with stored observations (#2269).
+	76: {76, "000076_collapse_session_workspace_observations.sql", "3531475817ba02f2f437158419b68ebb6bff47e58d5a4f5bb13a950ccd1a2b00", MigrationDataDependentOffline},
 }
 
 // PreparedMigration identifies one exact pending embedded migration.

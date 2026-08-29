@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"log/slog"
 	"sort"
 	"time"
@@ -76,21 +77,109 @@ func (d *WorkspaceIdentityDatasource) WorkspaceIdentityReport(ctx context.Contex
 }
 
 func readWorkspaceIdentityCoverage(ctx context.Context, tx *sql.Tx, coverage *apptypes.WorkspaceIdentityCoverage) error {
+	aggregated, err := columnExistsInTransaction(ctx, tx, "session_workspace_observations", "observation_count")
+	if err != nil {
+		return err
+	}
+	coverage.PreCollapse = !aggregated
+	if !aggregated {
+		if err := tx.QueryRowContext(ctx, `
+			SELECT
+				(SELECT COUNT(*) FROM events),
+				(SELECT COUNT(*)
+				   FROM session_workspace_observations o
+				   JOIN events e ON e.id = o.observed_event_id
+				  WHERE o.observation_kind = 'primary'
+				    AND o.observed_event_id IS NOT NULL
+				    AND o.observed_event_id <> ''),
+				(SELECT COUNT(*) FROM session_workspace_observations),
+				(SELECT COUNT(*) FROM (
+					SELECT 1 FROM session_workspace_observations
+					 GROUP BY session_id, workspace, observed_relationship, source_client, source_hook, observation_kind
+				))
+		`).Scan(&coverage.EventCount, &coverage.CoveredEvents, &coverage.ObservationCount, &coverage.ObservationKeys); err != nil {
+			return xerrors.Errorf("failed to read workspace identity coverage: %w", err)
+		}
+		coverage.ObservationRows = coverage.ObservationCount
+		coverage.MissingEvents = coverage.EventCount - coverage.CoveredEvents
+		coverage.CoverageRate = ratio(coverage.CoveredEvents, coverage.EventCount)
+		return readWorkspaceIdentityOrphans(ctx, tx, coverage)
+	}
+
 	if err := tx.QueryRowContext(ctx, `
 		SELECT
 			(SELECT COUNT(*) FROM events),
-			(SELECT COUNT(*)
-			   FROM session_workspace_observations o
-			   JOIN events e ON e.id = o.observed_event_id
-			  WHERE o.observation_kind = 'primary'
-			    AND o.observed_event_id IS NOT NULL
-			    AND o.observed_event_id <> ''),
-			(SELECT COUNT(*) FROM session_workspace_observations)
-	`).Scan(&coverage.EventCount, &coverage.CoveredEvents, &coverage.ObservationCount); err != nil {
+			(SELECT COUNT(*) FROM session_workspace_observations),
+			(SELECT COALESCE(SUM(observation_count), 0) FROM session_workspace_observations)
+	`).Scan(&coverage.EventCount, &coverage.ObservationRows, &coverage.ObservationCount); err != nil {
 		return xerrors.Errorf("failed to read workspace identity coverage: %w", err)
+	}
+	coverage.ObservationKeys = coverage.ObservationRows
+	if err := readWorkspaceIdentityCoveredEvents(ctx, tx, coverage); err != nil {
+		return err
 	}
 	coverage.MissingEvents = coverage.EventCount - coverage.CoveredEvents
 	coverage.CoverageRate = ratio(coverage.CoveredEvents, coverage.EventCount)
+	return readWorkspaceIdentityOrphans(ctx, tx, coverage)
+}
+
+func readWorkspaceIdentityCoveredEvents(ctx context.Context, tx *sql.Tx, coverage *apptypes.WorkspaceIdentityCoverage) error {
+	var exhausted int
+	frontierNorm, frontierID := "", ""
+	var stateExists int
+	if err := tx.QueryRowContext(
+		ctx,
+		`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'workspace_observation_catchup_state'`,
+	).Scan(&stateExists); err != nil {
+		return xerrors.Errorf("failed to inspect workspace observation catch-up state: %w", err)
+	}
+	if stateExists == 0 {
+		coverage.CoveredEvents = 0
+		return nil
+	}
+	hasFrontier, err := columnExistsInTransaction(ctx, tx, "workspace_observation_catchup_state", "frontier_created_at_norm")
+	if err != nil {
+		return err
+	}
+	if hasFrontier {
+		err = tx.QueryRowContext(
+			ctx,
+			`SELECT exhausted, frontier_created_at_norm, frontier_event_id
+			   FROM workspace_observation_catchup_state WHERE singleton = 1`,
+		).Scan(&exhausted, &frontierNorm, &frontierID)
+	} else {
+		err = tx.QueryRowContext(ctx, `SELECT exhausted FROM workspace_observation_catchup_state WHERE singleton = 1`).Scan(&exhausted)
+	}
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			coverage.CoveredEvents = 0
+			return nil
+		}
+		return xerrors.Errorf("failed to read workspace observation catch-up state: %w", err)
+	}
+	if exhausted == 1 {
+		coverage.CoveredEvents = coverage.EventCount
+		return nil
+	}
+	if frontierNorm == "" {
+		coverage.CoveredEvents = 0
+		return nil
+	}
+	if err := tx.QueryRowContext(
+		ctx,
+		`SELECT COUNT(*) FROM events WHERE (created_at_norm, id) >= (?, ?)`,
+		frontierNorm,
+		frontierID,
+	).Scan(&coverage.CoveredEvents); err != nil {
+		return xerrors.Errorf("failed to count frontier-covered events: %w", err)
+	}
+	return nil
+}
+
+func readWorkspaceIdentityOrphans(ctx context.Context, tx *sql.Tx, coverage *apptypes.WorkspaceIdentityCoverage) error {
+	if err := tx.QueryRowContext(ctx, countUnreachableWorkspaceObservationsQuery).Scan(&coverage.OrphanObservationRows); err != nil {
+		return xerrors.Errorf("failed to count unreachable workspace observations: %w", err)
+	}
 	return nil
 }
 
@@ -101,18 +190,27 @@ type workspaceIdentitySourceKey struct {
 
 func readWorkspaceIdentitySources(ctx context.Context, tx *sql.Tx) ([]apptypes.WorkspaceIdentitySourceReport, error) {
 	bySource := map[workspaceIdentitySourceKey]*apptypes.WorkspaceIdentitySourceReport{}
+	volumeExpr := "1"
+	aggregated, err := columnExistsInTransaction(ctx, tx, "session_workspace_observations", "observation_count")
+	if err != nil {
+		return nil, err
+	}
+	if aggregated {
+		volumeExpr = "observation_count"
+	}
 	rows, err := tx.QueryContext(ctx, `
-		SELECT source_client, source_hook, COUNT(*),
-		       SUM(current_relationship = 'exact'),
-		       SUM(current_relationship = 'descendant'),
-		       SUM(current_relationship = 'ancestor'),
-		       SUM(current_relationship = 'explicit_alias'),
-		       SUM(current_relationship = 'conflict'),
-		       SUM(current_relationship = 'unknown'),
-		       SUM(ingested_relationship = 'conflict')
+		SELECT source_client, source_hook, SUM(observation_count),
+		       SUM(CASE WHEN current_relationship = 'exact' THEN observation_count ELSE 0 END),
+		       SUM(CASE WHEN current_relationship = 'descendant' THEN observation_count ELSE 0 END),
+		       SUM(CASE WHEN current_relationship = 'ancestor' THEN observation_count ELSE 0 END),
+		       SUM(CASE WHEN current_relationship = 'explicit_alias' THEN observation_count ELSE 0 END),
+		       SUM(CASE WHEN current_relationship = 'conflict' THEN observation_count ELSE 0 END),
+		       SUM(CASE WHEN current_relationship = 'unknown' THEN observation_count ELSE 0 END),
+		       SUM(CASE WHEN ingested_relationship = 'conflict' THEN observation_count ELSE 0 END)
 		  FROM (
 			SELECT o.source_client, o.source_hook, o.session_id, o.workspace,
 			       o.observed_relationship AS ingested_relationship,
+			       `+volumeExpr+` AS observation_count,
 			       CASE
 			         WHEN o.observed_relationship = 'conflict' AND EXISTS (
 			           SELECT 1 FROM session_workspace_aliases a
@@ -271,11 +369,15 @@ func readWorkspaceConflictSamples(ctx context.Context, tx *sql.Tx, limit int) ([
 	if limit == 0 {
 		return result, nil
 	}
-	rows, err := tx.QueryContext(ctx, `
+	aggregated, err := columnExistsInTransaction(ctx, tx, "session_workspace_observations", "observation_count")
+	if err != nil {
+		return nil, err
+	}
+	sampleQuery := `
 		SELECT observed_event_id, session_id, workspace, source_client, source_hook
 		  FROM (
 			SELECT o.observed_event_id, o.session_id, o.workspace, o.source_client, o.source_hook,
-			       o.observed_at, o.observation_id,
+			       o.observed_at,
 			       ROW_NUMBER() OVER (
 			         PARTITION BY o.session_id, o.workspace
 			         ORDER BY ts_norm(o.observed_at) DESC, o.observation_id DESC
@@ -289,8 +391,31 @@ func readWorkspaceConflictSamples(ctx context.Context, tx *sql.Tx, limit int) ([
 			   )
 		  )
 		 WHERE rn = 1
-		 ORDER BY ts_norm(observed_at) DESC, observation_id DESC
-		 LIMIT ?`, limit)
+		 ORDER BY ts_norm(observed_at) DESC, session_id, workspace
+		 LIMIT ?`
+	if aggregated {
+		sampleQuery = `
+		SELECT observed_event_id, session_id, workspace, source_client, source_hook
+		  FROM (
+			SELECT o.observed_event_id, o.session_id, o.workspace, o.source_client, o.source_hook,
+			       o.last_observed_at,
+			       ROW_NUMBER() OVER (
+			         PARTITION BY o.session_id, o.workspace
+			         ORDER BY ts_norm(o.last_observed_at) DESC, o.source_client DESC, o.source_hook DESC
+			       ) AS rn
+			  FROM session_workspace_observations o
+			 WHERE o.observed_relationship = 'conflict'
+			   AND o.observed_event_id IS NOT NULL AND o.observed_event_id <> ''
+			   AND NOT EXISTS (
+			       SELECT 1 FROM session_workspace_aliases a
+			        WHERE a.session_id = o.session_id AND a.alias_workspace = o.workspace
+			   )
+		  )
+		 WHERE rn = 1
+		 ORDER BY ts_norm(last_observed_at) DESC, session_id, workspace
+		 LIMIT ?`
+	}
+	rows, err := tx.QueryContext(ctx, sampleQuery, limit)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to query workspace conflict samples: %w", err)
 	}
