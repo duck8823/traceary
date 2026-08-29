@@ -58,3 +58,5 @@ TRACEARY_NO_AUDIT=1 TRACEARY_DB_PATH="$SCRATCH/traceary-copy.db" \
 ```
 
 Evidence fields: `wall_seconds`, `transitions`, `final_state_row`, `final_lifecycle_row`, `family_bytes.by_table`, and `doctor`. PASS requires `state=complete` and a non-empty `active_generation_id`. A rebuild that does not complete is recorded as FAIL with the lifecycle state and reason — it is not skipped.
+
+`WITHOUT ROWID` conversion of `search_projection_session_keywords` and `literal_search_fingerprints` (#2266) stays unshipped: this gate has not recorded `state=complete` on an operator-store copy.
