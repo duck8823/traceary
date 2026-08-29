@@ -7,8 +7,12 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ## [Unreleased]
 
+## [v0.48.0] - 2026-08-29
+
 ### Added
 - **A due refinement request is delivered on Gemini, Antigravity, and Grok, plus a Codex prompt-time second channel (#2276).** The work-based trigger (`min_commands` 20 / `stop_cadence` 8) and the #2273 ledger are unchanged. Claude / Codex / Kimi `Stop` still exit 2. Codex `UserPromptSubmit` also writes plain text (exit 0). Gemini `BeforeAgent` writes one `additionalContext` JSON object. Antigravity `Stop` writes `{decision:continue,reason}` only after the ledger row is saved. Grok `Stop` writes `{decision:block,reason}` and always exits 0 (docs.x.ai still calls `Stop` passive; changelog v0.2.107, 2026-07-20, and the local user guide name the envelope — host acceptance is unverified). Stop-envelope and prompt-context rows share the `additional_context` token; the channel is `(client, delivery)`. No schema, no SKILL.md edit, no new store subcommand. Rollback is `consolidation.min_commands: 0` or `consolidation.stop_cadence: 0`. Leaves parent #2263 open.
+- **Consolidation requests persist as a metadata-only ledger (#2273).** Each ask records session, client, pressure, threshold, re-request flag, and delivery path. `traceary session refine` stamps the most recent request. `doctor` reports per-host asked-versus-refined over the last 7 days. No new store subcommand. Leaves parent #2263 open.
+- **The projection-rebuild completion release gate records body-free JSON on an operator copy (#2265).** `scripts/verify-projection-completion.sh` drives bounded `store compact --projection-rebuild` (it refuses `~/.config/traceary/`) and records `wall_seconds`, lifecycle transitions, `family_bytes.by_table`, and doctor rows. A rebuild that does not complete is recorded as FAIL with lifecycle state and reason, never skipped. Family bytes versus the 1,464 MiB target are recorded, not gated. Leaves parent #2263 open.
 
 ### Changed
 - **Stop-hook consolidation is work-based (`min_commands` 20 / `stop_cadence` 8); body-byte pressure no longer fires (#2274).** A main session is asked when `command_executed` events after `covers_to` reach 20. The first ask needs no cadence window; a later ask waits for 8 `transcript` rows after the last request (whatever its refine outcome). Sub-agent sessions (`parent_session_id`, `subagent_kind`, or `agent` containing `/`) are never asked. `stop_hook_active` still suppresses. `consolidation.threshold_bytes` is parsed, ignored, and warned once per process when set; it is removed next minor. Cadence/count lookup failures fail closed (no ask); ledger insert still fails open (ask delivered). No schema change. Leaves parent #2263 open.
@@ -23,6 +27,9 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 - **`store compact` encodes remaining `command_audits` text columns with the payload codec and reports `steps.audit_encode`; the unreachable `PayloadBackfillDatasource` is removed (its migration-054 table stays, unused) (#2264).** Leaves parent #2263 open.
 - **Terminal search-projection generations reclaim derived rows (#2261)** — `failed` / `abandoned` generations no longer keep keyword and fingerprint rows until a later rebuild completes. `traceary doctor --fix` and default `store compact` page-delete those rows under lock/wall budgets, status/doctor report terminal counts separately from active-only zeros, and compact JSON includes `steps.projection_reclaim`. Leaves parent #2263 open.
 - **Post-upgrade live-capture gate probes Claude and Antigravity (#2259)** — `scripts/verify-post-upgrade-live-capture.sh` now runs `claude --print --permission-mode plan` and `agy --mode plan --print …` into a throwaway store and requires `session_started` / `prompt`. The canned `--skip …='no headless probe in this gate'` reasons are gone. Gemini stays skip-with-reason on `IneligibleTierError`. Leaves parent #2263 open.
+
+### Docs
+- **Converting the session-keyword and fingerprint projection tables to `WITHOUT ROWID` (#2266) is deferred as a measured no-go.** The completion gate added in #2265 does not reach `state=complete` on a 14 GiB operator-store copy: the rebuild exits during cleanup (`query cleanup leftover page: context deadline exceeded`), leaving the index family at roughly 9.4 GiB against the 1,464 MiB target. `docs/release/v0.48.0-projection-completion-evidence.json` carries the measurement. No conversion shipped; #2266 stays open.
 
 ## [v0.47.1] - 2026-08-21
 
