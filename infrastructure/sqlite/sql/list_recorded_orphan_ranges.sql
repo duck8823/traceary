@@ -5,6 +5,7 @@ SELECT o.session_id,
        (SELECT e.created_at
           FROM events AS e
          WHERE e.session_id = o.session_id
+           AND NULLIF(e.created_at, '') IS NOT NULL
            AND (
                  o.from_event_id = ''
                  OR e.created_at_norm > (

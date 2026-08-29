@@ -1541,3 +1541,36 @@ func TestSessionOrphanRangeDatasource_ActiveSessionFoldTerminatesAtDefiniteEvent
 		t.Fatalf("FromEventID = %v present=%v, want evt-old-2 (exclusive: the earlier fold's terminus)", from, ok)
 	}
 }
+
+func TestDiscoverCandidatesSkipsEmptyCreatedAtAndUsesNextEvent(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fx := newOrphanFixture(t)
+	base := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
+	_ = seedOrphanSession(ctx, t, fx, "sess-empty-ts", []eventSeed{
+		{id: "evt-empty", at: base},
+		{id: "evt-next", at: base.Add(2 * time.Minute)},
+	}, true)
+
+	raw, err := sql.Open("sqlite", fx.dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = raw.Close() })
+	if _, err := raw.ExecContext(ctx, `UPDATE events SET created_at = '', created_at_norm = '' WHERE id IN ('sess-empty-ts-start', 'evt-empty')`); err != nil {
+		t.Fatalf("blank created_at: %v", err)
+	}
+
+	now := base.Add(48 * time.Hour)
+	got, err := fx.orphans.DiscoverCandidates(ctx, 24*time.Hour, now, time.Time{}, 100)
+	if err != nil {
+		t.Fatalf("DiscoverCandidates() error = %v", err)
+	}
+	found := findOrphanRangeForSession(got, "sess-empty-ts")
+	if found == nil {
+		t.Fatal("expected an orphan range after skipping the empty created_at event")
+	}
+	if !found.EarliestEventTime().Equal(base.Add(2 * time.Minute)) {
+		t.Fatalf("EarliestEventTime = %s, want evt-next", found.EarliestEventTime().UTC().Format(time.RFC3339Nano))
+	}
+}

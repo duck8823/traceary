@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log/slog"
 	"sort"
+	"strings"
 	"time"
 
 	"golang.org/x/xerrors"
@@ -755,10 +756,11 @@ func scanSessionOrphanRange(row orphanRangeScanner) (*model.SessionOrphanRange, 
 	if err != nil {
 		return nil, xerrors.Errorf("invalid orphan observed_at %q: %w", observedRaw, err)
 	}
-	if !earliestRaw.Valid {
+	if !earliestRaw.Valid || strings.TrimSpace(earliestRaw.String) == "" {
 		// The range's material was removed after the marker was recorded
-		// (e.g. compacted away). Nothing left to fold or delete; drop it
-		// rather than surface a range with an unknown earliest time.
+		// (e.g. compacted away), or created_at is an empty string that is
+		// not NULL. Nothing left to fold or delete; drop it rather than
+		// surface a range with an unknown earliest time.
 		return nil, nil
 	}
 	earliestEventTime, err := time.Parse(time.RFC3339Nano, earliestRaw.String)
