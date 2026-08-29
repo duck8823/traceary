@@ -470,6 +470,8 @@ func normalizeKimiHookPayload(input io.Reader) ([]byte, error) {
 	copyKimiHookField(normalized, "tool_response", source, "tool_output")
 	copyKimiHookField(normalized, "trigger", source, "trigger")
 	copyKimiHookField(normalized, "subagent_type", source, "agent_name")
+	// #2275: keep the host Stop continuation flag so consolidation can honour it.
+	copyKimiHookField(normalized, "stop_hook_active", source, "stop_hook_active")
 	if errorValue, ok := source["error"]; ok {
 		if message := kimiErrorMessage(errorValue); message != "" {
 			normalized["error"] = message

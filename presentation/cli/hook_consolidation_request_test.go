@@ -21,9 +21,11 @@ import (
 )
 
 type consolidationRequestUsecaseStub struct {
-	err      error
-	calls    int
-	recorded usecase.ConsolidationRequestRecorded
+	err        error
+	calls      int
+	recorded   usecase.ConsolidationRequestRecorded
+	hasOpen    bool
+	hasOpenErr error
 }
 
 func (s *consolidationRequestUsecaseStub) Record(context.Context, usecase.ConsolidationRequestInput) (usecase.ConsolidationRequestRecorded, error) {
@@ -33,6 +35,10 @@ func (s *consolidationRequestUsecaseStub) Record(context.Context, usecase.Consol
 
 func (s *consolidationRequestUsecaseStub) RecordRefineOutcome(context.Context, model.ConsolidationRefineStamp) (bool, error) {
 	return false, nil
+}
+
+func (s *consolidationRequestUsecaseStub) HasOpenRequest(context.Context, types.SessionID) (bool, error) {
+	return s.hasOpen, s.hasOpenErr
 }
 
 type latestEventOrderStub struct {
@@ -87,34 +93,50 @@ func TestHookTranscript_ConsolidationRequestLedger(t *testing.T) {
 		}
 	})
 
-	t.Run("redelivering the same stop does not insert a second row", func(t *testing.T) {
+	t.Run("redelivering the same stop is suppressed and inserts no second row", func(t *testing.T) {
 		fx := newConsolidationHookFixture(t, sessionID)
 		fx.order = &latestEventOrderStub{id: "evt-start"}
 		if code, _ := fx.runTranscript(t, "one"); code != 2 {
 			t.Fatalf("first exit = %d", code)
 		}
-		if code, _ := fx.runTranscript(t, "two"); code != 2 {
-			t.Fatalf("second exit = %d", code)
+		code, message := fx.runTranscript(t, "two")
+		if code != 0 {
+			t.Fatalf("second exit = %d, want 0; %s", code, message)
+		}
+		if strings.Contains(message, "unrefined material") {
+			t.Fatalf("second stop emitted a reason: %q", message)
 		}
 		if got := countConsolidationRequests(t, fx.dbPath); got != 1 {
 			t.Fatalf("rows = %d, want 1", got)
 		}
 	})
 
-	t.Run("a second due stop before any refinement marks re_request=1", func(t *testing.T) {
+	t.Run("a second due stop with an open request exits 0 and inserts no row", func(t *testing.T) {
 		fx := newConsolidationHookFixture(t, sessionID)
 		if code, _ := fx.runTranscript(t, "one"); code != 2 {
 			t.Fatalf("first exit = %d", code)
 		}
-		if code, _ := fx.runTranscript(t, "two"); code != 2 {
-			t.Fatalf("second exit = %d", code)
+		code, message := fx.runTranscript(t, "two")
+		if code != 0 {
+			t.Fatalf("second exit = %d, want 0; %s", code, message)
 		}
-		rows := listConsolidationRequests(t, fx.dbPath)
-		if len(rows) != 2 {
-			t.Fatalf("rows = %d, want 2", len(rows))
+		if strings.Contains(message, "unrefined material") {
+			t.Fatalf("second stop emitted a reason: %q", message)
 		}
-		if rows[0].reRequest != 0 || rows[1].reRequest != 1 {
-			t.Fatalf("re_request sequence = %d,%d want 0,1", rows[0].reRequest, rows[1].reRequest)
+		if got := countConsolidationRequests(t, fx.dbPath); got != 1 {
+			t.Fatalf("rows = %d, want 1", got)
+		}
+	})
+
+	t.Run("a ledger read failure still exits 2", func(t *testing.T) {
+		fx := newConsolidationHookFixture(t, sessionID)
+		fx.request = &consolidationRequestUsecaseStub{hasOpenErr: errors.New("locked")}
+		code, message := fx.runTranscript(t, "one")
+		if code != 2 {
+			t.Fatalf("exit = %d, want 2; %s", code, message)
+		}
+		if !strings.Contains(message, "unrefined material") {
+			t.Fatalf("reason %q does not contain unrefined material", message)
 		}
 	})
 
