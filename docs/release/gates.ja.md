@@ -58,3 +58,5 @@ TRACEARY_NO_AUDIT=1 TRACEARY_DB_PATH="$SCRATCH/traceary-copy.db" \
 ```
 
 証跡フィールドは `wall_seconds`、`transitions`、`final_state_row`、`final_lifecycle_row`、`family_bytes.by_table`、`doctor` です。PASS は `state=complete` かつ空でない `active_generation_id` です。完了しない再構築は lifecycle の状態と理由付きの FAIL として記録し、黙って skip しません。
+
+`search_projection_session_keywords` と `literal_search_fingerprints` の `WITHOUT ROWID` 変換（#2266）は出荷しません。このゲートはオペレータ store copy で `state=complete` を記録していません。

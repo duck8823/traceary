@@ -7,6 +7,9 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 
 ## [Unreleased]
 
+### Docs
+- **session-keyword / fingerprint プロジェクション表の `WITHOUT ROWID` 変換（#2266）は計測済み no-go としてクローズする。** #2265 の完了ゲートはオペレータ store copy で `state=complete` に達していないため、変換は出荷しない（filed の go/no-go であり、スコープ削減ではない）。記録した FAIL: `docs/release/v0.48.0-projection-completion-evidence.json`（cleanup leftover-page の timeout。family 10,481,233,920 B = 目標 1,464 MiB の 6.83 倍）と、その後の copy 実行（iteration 61、`inspect projection before resume: failed to ping read-only SQLite DB: context deadline exceeded`。family 8,427,220,992 B = 5.49 倍）。スキーマ変更なし。store サブコマンド追加なし。
+
 ## [v0.48.0] - 2026-08-29
 
 ### Added
