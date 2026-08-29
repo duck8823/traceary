@@ -2,7 +2,6 @@ package sqlite_test
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -20,113 +19,12 @@ import (
 	"github.com/duck8823/traceary/infrastructure/sqlite"
 )
 
-func TestCompactFailsWhenEveryDiscardableSessionIsUnrefined(t *testing.T) {
-	t.Parallel()
-	dbPath, events, store := prepareDiscardGCFixture(t)
-	_ = store
-	old := newGCEventFixture(t, "event-old", types.EventKindTranscript, "why-is-here", time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC))
-	if err := events.Save(context.Background(), old); err != nil {
-		t.Fatal(err)
+func coverReportFrom(result apptypes.OrphanConsolidationResult) application.CoverReport {
+	return application.CoverReport{
+		RefinementsProduced: result.ProducedCount(),
+		RangesAttempted:     result.Attempted(),
+		RangesSkipped:       result.Skipped(),
 	}
-	db := openRetentionDB(t, dbPath)
-	defer func() { _ = db.Close() }()
-	insertGCSession(t, db, "session-1", true)
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	svc := usecase.NewStoreCompactionUsecase(
-		dbPath,
-		&sqlite.CompactionFileJournal{Dir: filepath.Join(t.TempDir(), "journal")},
-		&sqlite.SQLiteCompactionBuilder{},
-		sqlite.StoreReplacementFiles{CallerHoldsExclusiveLease: true},
-		sqlite.StoreLeaseCoordinator{},
-	)
-	_, err := svc.Compact(context.Background(), application.CompactInput{
-		Source:   dbPath,
-		KeepDays: 90,
-		Now:      time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
-	})
-	if err == nil {
-		t.Fatal("Compact() error = nil, want unrefined refusal")
-	}
-	var unrefined application.UnrefinedMaterialError
-	if !asUnrefined(err, &unrefined) {
-		t.Fatalf("Compact() error = %v, want UnrefinedMaterialError", err)
-	}
-	if unrefined.Sessions < 1 {
-		t.Fatalf("unrefined sessions = %d", unrefined.Sessions)
-	}
-}
-
-func TestCompactReclaimsFoldedSessionAndLeavesUnrefined(t *testing.T) {
-	t.Parallel()
-	dbPath, events, store := prepareDiscardGCFixture(t)
-	_ = store
-	folded := newGCEventFixture(t, "event-folded", types.EventKindTranscript, "folded-body", time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC))
-	open := newGCEventFixture(t, "event-open", types.EventKindTranscript, "open-why", time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC))
-	if err := events.Save(context.Background(), folded); err != nil {
-		t.Fatal(err)
-	}
-	if err := events.Save(context.Background(), open); err != nil {
-		t.Fatal(err)
-	}
-	db := openRetentionDB(t, dbPath)
-	insertGCSession(t, db, "session-folded", true)
-	insertGCSession(t, db, "session-open", true)
-	insertGCFold(t, db, "session-folded", "event-folded", "event-folded")
-	if _, err := db.Exec(`UPDATE events SET session_id = 'session-folded' WHERE id = 'event-folded'`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`UPDATE events SET session_id = 'session-open' WHERE id = 'event-open'`); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	before, err := os.Stat(dbPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	svc := usecase.NewStoreCompactionUsecase(
-		dbPath,
-		&sqlite.CompactionFileJournal{Dir: filepath.Join(t.TempDir(), "journal")},
-		&sqlite.SQLiteCompactionBuilder{},
-		sqlite.StoreReplacementFiles{CallerHoldsExclusiveLease: true},
-		sqlite.StoreLeaseCoordinator{},
-	)
-	got, err := svc.Compact(context.Background(), application.CompactInput{
-		Source:   dbPath,
-		KeepDays: 90,
-		Now:      time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
-	})
-	if err != nil {
-		t.Fatalf("Compact() error = %v", err)
-	}
-	if got.UnrefinedRemaining < 1 {
-		t.Fatalf("UnrefinedRemaining = %d, want the unfolder session left", got.UnrefinedRemaining)
-	}
-
-	db = openRetentionDB(t, dbPath)
-	defer func() { _ = db.Close() }()
-	if avail := gcEventAvailability(t, db, "event-folded"); avail != "unavailable_retention" {
-		t.Fatalf("folded body availability = %s, want unavailable_retention", avail)
-	}
-	if avail := gcEventAvailability(t, db, "event-open"); avail != "available" {
-		t.Fatalf("unrefined body availability = %s, want available", avail)
-	}
-	after, err := os.Stat(dbPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if after.Size() <= 0 || before.Size() <= 0 {
-		t.Fatalf("unexpected sizes before=%d after=%d", before.Size(), after.Size())
-	}
-}
-
-func asUnrefined(err error, dest *application.UnrefinedMaterialError) bool {
-	return errors.As(err, dest)
 }
 
 func TestVerifyPairRejectsEmptyEventsCandidateWhenSourceHasUniqueEvents(t *testing.T) {
@@ -297,7 +195,7 @@ func TestVerifyPairRejectsUndecodableAvailableCandidate(t *testing.T) {
 	}
 }
 
-func TestCompactForceCoverCompletesOnRealStore(t *testing.T) {
+func TestCompactDefaultCoverCompletesOnRealStore(t *testing.T) {
 	t.Parallel()
 	dbPath, events, store := prepareDiscardGCFixture(t)
 	_ = store
@@ -319,7 +217,7 @@ func TestCompactForceCoverCompletesOnRealStore(t *testing.T) {
 		sqlite.StoreLeaseCoordinator{},
 	)
 	migrations := onDiskSQLiteMigrations(t)
-	usecase.BindCompactionWorkCover(svc, func(ctx context.Context, work string, cutoff time.Time) error {
+	usecase.BindCompactionWorkCover(svc, func(ctx context.Context, work string, cutoff time.Time) (application.CoverReport, error) {
 		database := sqlite.NewDatabase(work, migrations)
 		refine := usecase.NewSessionRefinementUsecase(
 			sqlite.NewSessionDatasource(database),
@@ -336,21 +234,20 @@ func TestCompactForceCoverCompletesOnRealStore(t *testing.T) {
 			StaleAfter: 24 * time.Hour,
 		})
 		if err != nil {
-			return fmt.Errorf("compact force cover: %w", err)
+			return application.CoverReport{}, fmt.Errorf("compact mechanical cover: %w", err)
 		}
 		if err := application.ForceCoverSafeToDelete(
 			result.HasMore(), result.EarliestUnprocessedEventTime(),
 			result.Skipped(), result.EarliestSkippedEventTime(),
 			cutoff,
 		); err != nil {
-			return fmt.Errorf("compact force cover: %w", err)
+			return application.CoverReport{}, fmt.Errorf("compact mechanical cover: %w", err)
 		}
-		return nil
+		return coverReportFrom(result), nil
 	})
 
 	got, err := svc.Compact(context.Background(), application.CompactInput{
 		Source:   dbPath,
-		Force:    true,
 		KeepDays: 90,
 		Now:      time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
 	})
@@ -358,7 +255,7 @@ func TestCompactForceCoverCompletesOnRealStore(t *testing.T) {
 		t.Fatalf("Compact() error = %v", err)
 	}
 	if got.UnrefinedRemaining != 0 {
-		t.Fatalf("UnrefinedRemaining = %d, want 0 after completed --force cover", got.UnrefinedRemaining)
+		t.Fatalf("UnrefinedRemaining = %d, want 0 after completed mechanical cover", got.UnrefinedRemaining)
 	}
 	if !got.MechanicalSummaries {
 		t.Fatal("MechanicalSummaries = false, want true")
@@ -366,11 +263,11 @@ func TestCompactForceCoverCompletesOnRealStore(t *testing.T) {
 	db = openRetentionDB(t, dbPath)
 	defer func() { _ = db.Close() }()
 	if avail := gcEventAvailability(t, db, "event-old"); avail != "unavailable_retention" {
-		t.Fatalf("forced body availability = %s, want unavailable_retention", avail)
+		t.Fatalf("covered body availability = %s, want unavailable_retention", avail)
 	}
 }
 
-// TestCompactForceCoverFoldsNeverEndingSessionsPreCutoffTail is the #1724
+// TestCompactDefaultCoverFoldsNeverEndingSessionsPreCutoffTail is the #1724
 // regression pin. A session that stays continuously active (recent activity,
 // ended_at always NULL) satisfies neither of the two discovery sources #1721
 // coordinates with: it is never "ended", and the 24h staleness rule never
@@ -378,7 +275,7 @@ func TestCompactForceCoverCompletesOnRealStore(t *testing.T) {
 //
 // Before the third discovery source existed, such a session's old material
 // was never seen by any consolidation pass, no matter how old it got: repeated
-// force-cover passes here would report ProducedCount() == 0 and leave
+// cover passes here would report ProducedCount() == 0 and leave
 // session_refinements empty for it forever, so the material stayed unfolded
 // for as long as the session kept receiving occasional activity — even though
 // select_discardable_event_bodies.sql's own ended_at IS NOT NULL clause
@@ -389,11 +286,11 @@ func TestCompactForceCoverCompletesOnRealStore(t *testing.T) {
 // bounded, oldest-first passes exist to avoid.
 //
 // This test wires the third source's RetentionCutoff through the same real
-// Compact() --force path the other #1721 tests use and asserts folding now
+// Compact() default-cover path the other #1721 tests use and asserts folding now
 // happens incrementally for the still-active session, with a terminus bounded
 // to the last event strictly before the retention cutoff — not the session's
 // true latest event.
-func TestCompactForceCoverFoldsNeverEndingSessionsPreCutoffTail(t *testing.T) {
+func TestCompactDefaultCoverFoldsNeverEndingSessionsPreCutoffTail(t *testing.T) {
 	t.Parallel()
 	dbPath, events, store := prepareDiscardGCFixture(t)
 	_ = store
@@ -429,7 +326,7 @@ func TestCompactForceCoverFoldsNeverEndingSessionsPreCutoffTail(t *testing.T) {
 	// well before the cutoff-bounded source 3 was meant to be exercised.
 	fixedNow := time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC)
 	var lastResult apptypes.OrphanConsolidationResult
-	usecase.BindCompactionWorkCover(svc, func(ctx context.Context, work string, cutoff time.Time) error {
+	usecase.BindCompactionWorkCover(svc, func(ctx context.Context, work string, cutoff time.Time) (application.CoverReport, error) {
 		database := sqlite.NewDatabase(work, migrations)
 		refine := usecase.NewSessionRefinementUsecase(
 			sqlite.NewSessionDatasource(database),
@@ -447,7 +344,7 @@ func TestCompactForceCoverFoldsNeverEndingSessionsPreCutoffTail(t *testing.T) {
 			RetentionCutoff: cutoff,
 		})
 		if err != nil {
-			return fmt.Errorf("compact force cover: %w", err)
+			return application.CoverReport{}, fmt.Errorf("compact mechanical cover: %w", err)
 		}
 		lastResult = result
 		if err := application.ForceCoverSafeToDelete(
@@ -455,9 +352,9 @@ func TestCompactForceCoverFoldsNeverEndingSessionsPreCutoffTail(t *testing.T) {
 			result.Skipped(), result.EarliestSkippedEventTime(),
 			cutoff,
 		); err != nil {
-			return fmt.Errorf("compact force cover: %w", err)
+			return application.CoverReport{}, fmt.Errorf("compact mechanical cover: %w", err)
 		}
-		return nil
+		return coverReportFrom(result), nil
 	})
 
 	// MechanicalSummaries/UnrefinedRemaining are reported from a separate
@@ -467,7 +364,6 @@ func TestCompactForceCoverFoldsNeverEndingSessionsPreCutoffTail(t *testing.T) {
 	// table) and is not asserted on here.
 	if _, err := svc.Compact(context.Background(), application.CompactInput{
 		Source:   dbPath,
-		Force:    true,
 		KeepDays: 10,
 		Now:      time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC),
 	}); err != nil {
@@ -504,7 +400,7 @@ func TestCompactForceCoverFoldsNeverEndingSessionsPreCutoffTail(t *testing.T) {
 	}
 }
 
-// TestCompactForceCoverProceedsWhenLeftoverIsNewerThanCutoff pins the #1721
+// TestCompactDefaultCoverProceedsWhenLeftoverIsNewerThanCutoff pins the #1721
 // fix: an already-covered, discardable-age session must still be deleted even
 // though a bounded cover pass leaves part of the orphan backlog unfolded, as
 // long as that leftover is entirely newer than the retention cutoff.
@@ -512,7 +408,7 @@ func TestCompactForceCoverFoldsNeverEndingSessionsPreCutoffTail(t *testing.T) {
 // leaves session-new-b (newer still) as the reported leftover; both are newer
 // than cutoff, so the safe lower bound the cover reports (session-new-a's
 // earliest event time) is newer than cutoff too.
-func TestCompactForceCoverProceedsWhenLeftoverIsNewerThanCutoff(t *testing.T) {
+func TestCompactDefaultCoverProceedsWhenLeftoverIsNewerThanCutoff(t *testing.T) {
 	t.Parallel()
 	dbPath, events, store := prepareDiscardGCFixture(t)
 	_ = store
@@ -554,7 +450,7 @@ func TestCompactForceCoverProceedsWhenLeftoverIsNewerThanCutoff(t *testing.T) {
 		sqlite.StoreLeaseCoordinator{},
 	)
 	migrations := onDiskSQLiteMigrations(t)
-	usecase.BindCompactionWorkCover(svc, func(ctx context.Context, work string, cutoff time.Time) error {
+	usecase.BindCompactionWorkCover(svc, func(ctx context.Context, work string, cutoff time.Time) (application.CoverReport, error) {
 		database := sqlite.NewDatabase(work, migrations)
 		refine := usecase.NewSessionRefinementUsecase(
 			sqlite.NewSessionDatasource(database),
@@ -572,21 +468,20 @@ func TestCompactForceCoverProceedsWhenLeftoverIsNewerThanCutoff(t *testing.T) {
 			Limit:      1,
 		})
 		if err != nil {
-			return fmt.Errorf("compact force cover: %w", err)
+			return application.CoverReport{}, fmt.Errorf("compact mechanical cover: %w", err)
 		}
 		if err := application.ForceCoverSafeToDelete(
 			result.HasMore(), result.EarliestUnprocessedEventTime(),
 			result.Skipped(), result.EarliestSkippedEventTime(),
 			cutoff,
 		); err != nil {
-			return fmt.Errorf("compact force cover: %w", err)
+			return application.CoverReport{}, fmt.Errorf("compact mechanical cover: %w", err)
 		}
-		return nil
+		return coverReportFrom(result), nil
 	})
 
 	if _, err := svc.Compact(context.Background(), application.CompactInput{
 		Source:   dbPath,
-		Force:    true,
 		KeepDays: 10,
 		Now:      time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC),
 	}); err != nil {
@@ -596,15 +491,15 @@ func TestCompactForceCoverProceedsWhenLeftoverIsNewerThanCutoff(t *testing.T) {
 	db = openRetentionDB(t, dbPath)
 	defer func() { _ = db.Close() }()
 	if avail := gcEventAvailability(t, db, "event-old"); avail != "unavailable_retention" {
-		t.Fatalf("forced body availability = %s, want unavailable_retention for the already-covered pre-cutoff session", avail)
+		t.Fatalf("covered body availability = %s, want unavailable_retention for the already-covered pre-cutoff session", avail)
 	}
 }
 
-// TestCompactForceCoverRefusesWhenLeftoverIsOlderThanCutoff is the regression
+// TestCompactCoverLeavingPreCutoffLeftoverStillFails is the regression
 // pinned by #1721: a bounded cover pass that leaves behind a range whose
 // earliest event is older than the retention cutoff must refuse rather than
 // let CollectGarbage discard material no fold has ever seen.
-func TestCompactForceCoverRefusesWhenLeftoverIsOlderThanCutoff(t *testing.T) {
+func TestCompactCoverLeavingPreCutoffLeftoverStillFails(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	fx := newOrphanFixture(t)
@@ -624,7 +519,7 @@ func TestCompactForceCoverRefusesWhenLeftoverIsOlderThanCutoff(t *testing.T) {
 		sqlite.StoreLeaseCoordinator{},
 	)
 	migrations := onDiskSQLiteMigrations(t)
-	usecase.BindCompactionWorkCover(svc, func(ctx context.Context, work string, cutoff time.Time) error {
+	usecase.BindCompactionWorkCover(svc, func(ctx context.Context, work string, cutoff time.Time) (application.CoverReport, error) {
 		database := sqlite.NewDatabase(work, migrations)
 		refine := usecase.NewSessionRefinementUsecase(
 			sqlite.NewSessionDatasource(database),
@@ -642,21 +537,20 @@ func TestCompactForceCoverRefusesWhenLeftoverIsOlderThanCutoff(t *testing.T) {
 			Limit:      1,
 		})
 		if err != nil {
-			return fmt.Errorf("compact force cover: %w", err)
+			return application.CoverReport{}, fmt.Errorf("compact mechanical cover: %w", err)
 		}
 		if err := application.ForceCoverSafeToDelete(
 			result.HasMore(), result.EarliestUnprocessedEventTime(),
 			result.Skipped(), result.EarliestSkippedEventTime(),
 			cutoff,
 		); err != nil {
-			return fmt.Errorf("compact force cover: %w", err)
+			return application.CoverReport{}, fmt.Errorf("compact mechanical cover: %w", err)
 		}
-		return nil
+		return coverReportFrom(result), nil
 	})
 
 	_, err := svc.Compact(ctx, application.CompactInput{
 		Source:   fx.dbPath,
-		Force:    true,
 		KeepDays: 10,
 		Now:      time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC),
 	})

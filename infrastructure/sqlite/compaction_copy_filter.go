@@ -448,13 +448,17 @@ func tableExists(ctx context.Context, db *sql.DB, name string) (bool, error) {
 }
 
 // InspectBodyGate counts discardable-age covered bodies versus unrefined
-// sessions on the source. Compact refuses only when covered is empty.
+// sessions on the source.
 func (b SQLiteCompactionBuilder) InspectBodyGate(ctx context.Context, source string, cutoff time.Time) (application.BodyGate, error) {
 	db, err := openDirectReadOnly(ctx, source)
 	if err != nil {
 		return application.BodyGate{}, fmt.Errorf("open source for body gate: %w", err)
 	}
 	defer func() { _ = db.Close() }()
+	return inspectBodyGateOn(ctx, db, cutoff)
+}
+
+func inspectBodyGateOn(ctx context.Context, db *sql.DB, cutoff time.Time) (application.BodyGate, error) {
 	hasEvents, err := tableExists(ctx, db, "events")
 	if err != nil {
 		return application.BodyGate{}, err
@@ -541,10 +545,8 @@ SELECT COALESCE(SUM(body_stored_bytes), 0)
 // CompactInPlace applies the copy-filter on the leased source and runs
 // incremental_vacuum so a dest replica is not required.
 func (b SQLiteCompactionBuilder) CompactInPlace(ctx context.Context, source string, filter application.CompactFilter) error {
-	if filter.AfterClone != nil {
-		if err := filter.AfterClone(ctx, source, filter.Cutoff); err != nil {
-			return fmt.Errorf("compact force cover: %w", err)
-		}
+	if err := runMechanicalCover(ctx, source, filter, false); err != nil {
+		return err
 	}
 	if err := applyCopyFilters(ctx, source, filter); err != nil {
 		return err

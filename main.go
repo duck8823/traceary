@@ -470,14 +470,14 @@ func writeCLIError(output io.Writer, err error) error {
 	return nil
 }
 
-// compactWorkCover runs the --force mechanical cover on the compact work
-// copy. Discovery folds the oldest orphan ranges first (#1721), so a bounded
+// compactWorkCover runs the mechanical cover on the compact work copy.
+// Discovery folds the oldest orphan ranges first (#1721), so a bounded
 // pass is used instead of draining the whole backlog: CollectGarbage only
 // needs every range at or past the cutoff folded, not every range that
 // exists. ForceCoverSafeToDelete checks that condition against what the pass
 // left unprocessed or skipped.
-func compactWorkCover(migrations fs.FS) func(context.Context, string, time.Time) error {
-	return func(ctx context.Context, work string, cutoff time.Time) error {
+func compactWorkCover(migrations fs.FS) func(context.Context, string, time.Time) (application.CoverReport, error) {
+	return func(ctx context.Context, work string, cutoff time.Time) (application.CoverReport, error) {
 		db := sqlite.NewDatabase(work, migrations)
 		sessionDatasource := sqlite.NewSessionDatasource(db)
 		refinementDatasource := sqlite.NewSessionRefinementDatasource(db)
@@ -502,15 +502,19 @@ func compactWorkCover(migrations fs.FS) func(context.Context, string, time.Time)
 			return nil
 		})
 		if err != nil {
-			return xerrors.Errorf("compact force cover: %w", err)
+			return application.CoverReport{}, xerrors.Errorf("compact mechanical cover: %w", err)
 		}
 		if err := application.ForceCoverSafeToDelete(
 			result.HasMore(), result.EarliestUnprocessedEventTime(),
 			result.Skipped(), result.EarliestSkippedEventTime(),
 			cutoff,
 		); err != nil {
-			return xerrors.Errorf("compact force cover: %w", err)
+			return application.CoverReport{}, xerrors.Errorf("compact mechanical cover: %w", err)
 		}
-		return nil
+		return application.CoverReport{
+			RefinementsProduced: result.ProducedCount(),
+			RangesAttempted:     result.Attempted(),
+			RangesSkipped:       result.Skipped(),
+		}, nil
 	}
 }

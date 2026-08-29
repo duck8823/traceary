@@ -184,7 +184,7 @@ func TestCompactAuditEncodeFailsClosedOnPartialMetadata(t *testing.T) {
 
 	svc := newAuditEncodeCompactionUsecase(t, dbPath)
 	result, compactErr := svc.Compact(context.Background(), application.CompactInput{
-		Source: dbPath, KeepDays: 36500, Now: time.Date(2026, 8, 28, 0, 0, 0, 0, time.UTC), Force: true,
+		Source: dbPath, KeepDays: 36500, Now: time.Date(2026, 8, 28, 0, 0, 0, 0, time.UTC),
 	})
 	if compactErr == nil {
 		t.Fatal("Compact() error = nil, want fail-closed on partial metadata")
@@ -468,7 +468,6 @@ func compactAuditEncodeStore(t *testing.T, dbPath string) application.CompactRes
 		Source:   dbPath,
 		KeepDays: 36500,
 		Now:      time.Date(2026, 8, 28, 0, 0, 0, 0, time.UTC),
-		Force:    true,
 	})
 	if err != nil {
 		t.Fatalf("Compact() error = %v", err)

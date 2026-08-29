@@ -116,9 +116,12 @@ leftovers that are not in-flight are also removed by `doctor --fix`.
 2. Fold the oldest sessions you are willing to reclaim (`traceary-session-refine`).
    Compact after a partial fold reclaims what those sessions authorize.
 3. Run `traceary store compact --db-path /path/to/traceary.db`. Never run an
-   in-place `VACUUM`. `--force` writes mechanical summaries for unrefined
-   discardable-age sessions and states the loss of agent reasoning. Compact
-   also clears leftover `command_executed` bodies that already have a
+   in-place `VACUUM`. By default compact writes mechanical summaries for
+   unrefined discardable-age sessions and discards those bodies; pass
+   `--refuse-unrefined` to stop instead (pre-v0.48 behaviour). On the in-place
+   fallback (no replica room) the cover still runs, but a leftover unrefined
+   session is reported in `unrefined_remaining` instead of failing the run.
+   Compact also clears leftover `command_executed` bodies that already have a
    `command_audits` row and reports `released_command_body_bytes` as the
    stored blob sum. File size after the rewrite is `bytes_after`.
 4. If search is drifted, run `traceary store compact --projection-rebuild`
