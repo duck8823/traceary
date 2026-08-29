@@ -17,6 +17,8 @@ import (
 	"modernc.org/sqlite" // Registers the SQLite driver and the ts_norm scalar function (see init).
 
 	"golang.org/x/xerrors"
+
+	"github.com/duck8823/traceary/application"
 )
 
 // sqlTimestampNormalizeFunc is the name of the SQLite scalar function that
@@ -227,11 +229,12 @@ func (d *Database) WithReadScope(ctx context.Context, fn func(context.Context) e
 
 	dbPath := d.Path()
 	db := openCoordinatedDB(dbPath, sqliteReadOnlyDSN(dbPath))
-	if err := db.PingContext(ctx); err != nil {
+	pingCtx := application.StoreOpenContext(ctx)
+	if err := db.PingContext(pingCtx); err != nil {
 		_ = db.Close()
 		return xerrors.Errorf("failed to ping read-only SQLite DB: %w", err)
 	}
-	if err := checkStoreCompatibility(ctx, db); err != nil {
+	if err := checkStoreCompatibility(pingCtx, db); err != nil {
 		_ = db.Close()
 		return err
 	}
@@ -319,10 +322,11 @@ func (d *Database) openAt(ctx context.Context, dbPath string) (_ *sql.DB, err er
 		}
 	}()
 
-	if err := db.PingContext(ctx); err != nil {
+	pingCtx := application.StoreOpenContext(ctx)
+	if err := db.PingContext(pingCtx); err != nil {
 		return nil, xerrors.Errorf("failed to ping SQLite DB: %w", err)
 	}
-	if err := checkStoreCompatibility(ctx, db); err != nil {
+	if err := checkStoreCompatibility(pingCtx, db); err != nil {
 		return nil, err
 	}
 
@@ -357,10 +361,11 @@ func (d *Database) openReadOnly(ctx context.Context) (_ *sql.DB, err error) {
 			}
 		}
 	}()
-	if err := db.PingContext(ctx); err != nil {
+	pingCtx := application.StoreOpenContext(ctx)
+	if err := db.PingContext(pingCtx); err != nil {
 		return nil, xerrors.Errorf("failed to ping read-only SQLite DB: %w", err)
 	}
-	if err := checkStoreCompatibility(ctx, db); err != nil {
+	if err := checkStoreCompatibility(pingCtx, db); err != nil {
 		return nil, err
 	}
 	if d.afterCompatibilityCheck != nil {

@@ -11,6 +11,7 @@ import (
 
 	"golang.org/x/xerrors"
 
+	"github.com/duck8823/traceary/application"
 	apptypes "github.com/duck8823/traceary/application/types"
 )
 
@@ -133,10 +134,6 @@ func (u *SearchProjectionUsecase) startAutomaticGeneration(ctx context.Context, 
 
 //nolint:wrapcheck // The application boundary preserves typed store errors.
 func (u *SearchProjectionUsecase) Resume(ctx context.Context, b apptypes.SearchProjectionBudget, now time.Time) (apptypes.SearchProjectionProgress, error) {
-	wallCtx, cancel := context.WithTimeout(ctx, b.WallTime)
-	defer cancel()
-	// Inspect uses the caller context: batch WallTime is 1s by default and
-	// is too short to ping a multi-GiB read-only store (#2265 / #2298).
 	status, err := u.store.SearchProjectionControlStatus(ctx)
 	if err != nil {
 		return apptypes.SearchProjectionProgress{}, xerrors.Errorf("inspect projection before resume: %w", err)
@@ -147,12 +144,17 @@ func (u *SearchProjectionUsecase) Resume(ctx context.Context, b apptypes.SearchP
 	if status.ConfigHash != b.ConfigHash() {
 		return apptypes.SearchProjectionProgress{}, &apptypes.SearchProjectionNoProgressError{Reason: "budget does not match generation configuration"}
 	}
+	// Each store call pings with the caller context (StoreOpenContext) and
+	// bounds work with a fresh WallTime so a slow open cannot spend the
+	// 1s batch budget (#2304).
 	if status.Phase == "inventory" {
 		inventoryStore, ok := u.store.(SearchProjectionInventoryStore)
 		if !ok {
 			return apptypes.SearchProjectionProgress{}, &apptypes.SearchProjectionNoProgressError{Reason: "projection store does not support historical inventory"}
 		}
-		inventory, inventoryErr := inventoryStore.SelectInventory(wallCtx, b)
+		selectCtx, cancelSelect := context.WithTimeout(ctx, b.WallTime)
+		inventory, inventoryErr := inventoryStore.SelectInventory(application.WithStoreOpenContext(selectCtx, ctx), b)
+		cancelSelect()
 		if inventoryErr != nil {
 			return apptypes.SearchProjectionProgress{}, inventoryErr
 		}
@@ -170,12 +172,13 @@ func (u *SearchProjectionUsecase) Resume(ctx context.Context, b apptypes.SearchP
 			plan.NextCursor = item.EventID
 			plan.NextCursorStarted = true
 		}
-		if err = wallCtx.Err(); err != nil {
-			return apptypes.SearchProjectionProgress{}, err
-		}
-		return inventoryStore.ApplyInventoryBatch(wallCtx, plan, b.LockTime, now.UTC())
+		wallCtx, cancel := context.WithTimeout(ctx, b.WallTime)
+		defer cancel()
+		return inventoryStore.ApplyInventoryBatch(application.WithStoreOpenContext(wallCtx, ctx), plan, b.LockTime, now.UTC())
 	}
-	snapshot, err := u.store.SelectSnapshot(wallCtx, b, now.UTC())
+	selectCtx, cancelSelect := context.WithTimeout(ctx, b.WallTime)
+	snapshot, err := u.store.SelectSnapshot(application.WithStoreOpenContext(selectCtx, ctx), b, now.UTC())
+	cancelSelect()
 	if err != nil {
 		var oversized *apptypes.SearchProjectionOversizeError
 		if errors.As(err, &oversized) && snapshot.Generation.GenerationID != "" {
@@ -203,13 +206,13 @@ func (u *SearchProjectionUsecase) Resume(ctx context.Context, b apptypes.SearchP
 		}
 		return apptypes.SearchProjectionProgress{}, err
 	}
-	if err = wallCtx.Err(); err != nil {
-		return apptypes.SearchProjectionProgress{}, err
-	}
+	wallCtx, cancel := context.WithTimeout(ctx, b.WallTime)
+	defer cancel()
+	workCtx := application.WithStoreOpenContext(wallCtx, ctx)
 	if snapshot.Phase == "source" {
-		return u.applySourcePlan(wallCtx, plan, b, now.UTC())
+		return u.applySourcePlan(workCtx, plan, b, now.UTC())
 	}
-	return u.store.CleanupBatch(wallCtx, plan, b.LockTime, now.UTC())
+	return u.store.CleanupBatch(workCtx, plan, b.LockTime, now.UTC())
 }
 
 // applySourcePlan persists a source batch. A single-row hold overrun is the
