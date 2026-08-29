@@ -390,13 +390,14 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		if c.attestationAnchorInspector != nil {
 			report.Checks = append(report.Checks, c.inspectAttestationAnchor(ctx, resolvedDBPath, false))
 		}
-		// This is an intentional, successful bounded outcome. The only SQLite
-		// opens are the O(1) mode=ro pragma + projection-state read and the
+		// This is an intentional, successful bounded outcome. SQLite opens
+		// are the O(1) mode=ro pragma + projection-state read, the
 		// session-id keyed ended-session probe behind the hook-cancellation
-		// check (#2235). Do not
-		// initialize, list events, open spool payloads, inspect payload codec,
-		// walk dbstat, or inspect client state here: those operations can
-		// block behind a live writer and some inspect event bodies/payloads.
+		// check (#2235), and the 7-day consolidation-conversion aggregate
+		// (#2305). Do not initialize, list events, open spool payloads,
+		// inspect payload codec, walk dbstat, or inspect client state here:
+		// those operations can block behind a live writer and some inspect
+		// event bodies/payloads.
 		// Hook spool is still reported via directory entry counts and byte
 		// sizes only (pending / stale inflight / dead-letter). --fix on this
 		// check is allowed to open SQLite for spool replay only (requeue +
@@ -427,6 +428,11 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 			report.Checks = append(report.Checks, c.hostPackageIdentityChecks(ctx, resolvedClients, resolvedProjectDir, input.currentVersion)...)
 			c.appendFilesystemHostDoctorChecks(ctx, report, resolvedClients, resolvedProjectDir, resolvedDBPath)
 		}
+		// Bounded aggregate over consolidation_requests / session_refinements
+		// (7-day window, requested_at index). Other default-path checks
+		// appended after this early return must appear here as a real
+		// status or an explicit skip so they cannot be silently dropped.
+		c.appendBoundedDoctorDeferredChecks(ctx, report)
 		return report, nil
 	}
 	if c.payloadCodecInspector != nil {
