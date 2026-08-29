@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -31,7 +32,7 @@ type consolidationPressureStub struct {
 func (s *consolidationPressureStub) Check(
 	_ context.Context,
 	_ types.SessionID,
-	_ int64,
+	_ usecase.ConsolidationPolicy,
 ) (usecase.ConsolidationPressureResult, error) {
 	s.calls++
 	return s.result, s.err
@@ -45,7 +46,8 @@ func TestHookTranscript_ConsolidationPressure(t *testing.T) {
 		name              string
 		client            string
 		thresholdJSON     string // empty = omit key (default 64 KiB); "0" disables
-		seedBytes         int    // body bytes strictly after covers_to (or whole session)
+		seedBytes         int    // note-body bytes (must not trigger)
+		commandCount      int    // command_executed events since covers_to
 		coveredBytes      int    // body on the covers_to boundary event (excluded from pressure)
 		withRefinement    bool
 		pressureErr       error // when set, injects a stub that errors instead of real store
@@ -64,9 +66,16 @@ func TestHookTranscript_ConsolidationPressure(t *testing.T) {
 			wantExitCode: 0,
 		},
 		{
-			name:         "65 KiB unrefined exits 2 and names the session",
+			name:          "a large body with no commands exits 0",
+			client:        "claude",
+			seedBytes:     65 * 1024,
+			wantExitCode:  0,
+			wantStderrSub: nil,
+		},
+		{
+			name:         "work-based due exits 2 with signal work in the ledger",
 			client:       "claude",
-			seedBytes:    65 * 1024,
+			commandCount: 20,
 			wantExitCode: 2,
 			wantStderrSub: []string{
 				sessionID,
@@ -79,6 +88,35 @@ func TestHookTranscript_ConsolidationPressure(t *testing.T) {
 			},
 		},
 		{
+			name:         "below min_commands exits 0",
+			client:       "claude",
+			commandCount: 19,
+			wantExitCode: 0,
+		},
+		{
+			name:         "codex work-based due exits 2",
+			client:       "codex",
+			commandCount: 20,
+			wantExitCode: 2,
+			wantStderrSub: []string{
+				sessionID,
+				"unrefined material",
+				"traceary-session-refine",
+			},
+		},
+		{
+			name:         "codex below min_commands exits 0",
+			client:       "codex",
+			commandCount: 19,
+			wantExitCode: 0,
+		},
+		{
+			name:         "codex a large body with no commands exits 0",
+			client:       "codex",
+			seedBytes:    65 * 1024,
+			wantExitCode: 0,
+		},
+		{
 			name:           "stop_hook_active true suppresses the request even when over threshold",
 			client:         "claude",
 			seedBytes:      65 * 1024,
@@ -89,16 +127,16 @@ func TestHookTranscript_ConsolidationPressure(t *testing.T) {
 		{
 			name:           "previous refinement summary and covers_to appear in reason",
 			client:         "codex",
-			seedBytes:      65 * 1024,
+			commandCount:   20,
 			withRefinement: true,
 			wantExitCode:   2,
 			wantStderrSub:  []string{sessionID, "previous fold summary", "covers_to=evt-cover", "why the work was undertaken", "what changed"},
 		},
 		{
-			name:          "threshold 0 never fires",
+			name:          "min_commands 0 never fires",
 			client:        "claude",
-			thresholdJSON: "0",
-			seedBytes:     65 * 1024,
+			thresholdJSON: `{"min_commands":0}`,
+			commandCount:  20,
 			wantExitCode:  0,
 			wantNoFire:    true,
 		},
@@ -111,54 +149,45 @@ func TestHookTranscript_ConsolidationPressure(t *testing.T) {
 		{
 			name:         "gemini never fires",
 			client:       "gemini",
-			seedBytes:    65 * 1024,
+			commandCount: 20,
 			wantExitCode: 0,
 			wantNoFire:   true,
 		},
 		{
 			name:         "antigravity never fires",
 			client:       "antigravity",
-			seedBytes:    65 * 1024,
+			commandCount: 20,
 			wantExitCode: 0,
 			wantNoFire:   true,
 		},
 		{
 			name:           "events at or before covers_to are excluded from pressure",
 			client:         "kimi",
-			coveredBytes:   65 * 1024, // would fire if included
-			seedBytes:      0,         // nothing after covers_to
+			coveredBytes:   65 * 1024,
+			seedBytes:      0,
 			withRefinement: true,
 			wantExitCode:   0,
 		},
 		{
-			// Recording fails inside runHookBestEffort; payload must stay unset so
-			// pressure is never measured against a turn that was not stored.
 			name:         "recording failure does not request consolidation when pressure is over threshold",
 			client:       "codex",
-			seedBytes:    65 * 1024,
+			commandCount: 20,
 			recordErr:    errors.New("disk full"),
 			wantExitCode: 0,
 			wantNoFire:   true,
 		},
 		{
-			// Fail-soft skip (recorded=false, err=nil): resolvable session but
-			// no extractable assistant text. err==nil must not set payload or
-			// request consolidation even when unrefined material is already
-			// over the threshold.
 			name:              "no extractable content does not request consolidation when pressure is over threshold",
 			client:            "codex",
-			seedBytes:         65 * 1024,
+			commandCount:      20,
 			noExtractableText: true,
 			wantExitCode:      0,
 			wantNoFire:        true,
 		},
 		{
-			// Fail-soft skip (recorded=false, err=nil): extractable content but
-			// session resolution yields nothing. Same gate as above — pressure
-			// must not run against a turn that was never persisted.
 			name:              "unresolved session does not request consolidation when pressure is over threshold",
 			client:            "codex",
-			seedBytes:         65 * 1024,
+			commandCount:      20,
 			unresolvedSession: true,
 			wantExitCode:      0,
 			wantNoFire:        true,
@@ -232,6 +261,21 @@ func TestHookTranscript_ConsolidationPressure(t *testing.T) {
 				}
 			}
 
+			if tt.commandCount > 0 {
+				for i := 0; i < tt.commandCount; i++ {
+					cmd, err := model.NewEventWithClock(
+						types.EventID("evt-cmd-"+strconv.Itoa(i)), types.EventKindCommandExecuted, "cli", "codex",
+						types.SessionID(sessionID), "ws", "cmd",
+						fixedClock{at: base.Add(time.Duration(4+i) * time.Second)},
+					)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if err := eventDS.Save(ctx, cmd); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
 			if tt.seedBytes > 0 {
 				// Place the large body after the refinement boundary (or at
 				// t+1s when there is no refinement) so pressure after covers_to
@@ -261,11 +305,12 @@ func TestHookTranscript_ConsolidationPressure(t *testing.T) {
 				// before any pressure measurement (or that recording failure
 				// never reaches the pressure check).
 				stub = &consolidationPressureStub{
-					result: usecase.ConsolidationPressureResult{PressureBytes: int64(tt.seedBytes), Due: true},
+					result: usecase.ConsolidationPressureResult{Commands: int64(tt.commandCount), Due: true},
 				}
 				pressureUC = stub
 			} else {
-				pressureUC = usecase.NewConsolidationPressureUsecase(eventDS, refinementDS)
+				ledger := sqliteinfra.NewConsolidationRequestDatasource(db)
+				pressureUC = usecase.NewConsolidationPressureUsecase(eventDS, refinementDS, sessionDS, ledger)
 			}
 
 			// Transcript capture needs a payload the client extractor accepts.
@@ -359,11 +404,176 @@ func TestHookTranscript_ConsolidationPressure(t *testing.T) {
 	}
 }
 
+func TestHookTranscript_ThresholdBytesWarnDoesNotTrigger(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("TRACEARY_HOOK_STATE_DIR", t.TempDir())
+	t.Setenv("TRACEARY_WORKSPACE", "github.com/dogfood/test")
+	writeConsolidationConfig(t, home, `{"threshold_bytes":131072}`)
+
+	warn := &bytes.Buffer{}
+	cli.ResetConsolidationDeprecationWarnForTest()
+	cli.SetConsolidationWarnWriterForTest(warn)
+	t.Cleanup(func() {
+		cli.SetConsolidationWarnWriterForTest(nil)
+		cli.ResetConsolidationDeprecationWarnForTest()
+	})
+
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	db := sqliteinfra.NewDatabase(dbPath, os.DirFS(filepath.Join("..", "..", "schema", "sqlite", "migrations")))
+	eventDS := sqliteinfra.NewEventDatasource(db)
+	sessionDS := sqliteinfra.NewSessionDatasource(db)
+	refinementDS := sqliteinfra.NewSessionRefinementDatasource(db)
+	ledger := sqliteinfra.NewConsolidationRequestDatasource(db)
+	storeUC := usecase.NewStoreManagementUsecase(sqliteinfra.NewStoreManagementDatasource(db))
+	if err := storeUC.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	base := time.Date(2026, 8, 8, 12, 0, 0, 0, time.UTC)
+	session := model.NewSession("sess-warn", base, "cli", "claude", "ws")
+	start, err := model.NewEventWithClock(
+		"evt-start", types.EventKindSessionStarted, "cli", "claude",
+		"sess-warn", "ws", "start",
+		fixedClock{at: base},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sessionDS.SaveBoundary(ctx, session, start); err != nil {
+		t.Fatal(err)
+	}
+
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(storeUC),
+		cli.WithEvent(usecase.NewEventUsecase(eventDS, eventDS)),
+		cli.WithConsolidationPressure(usecase.NewConsolidationPressureUsecase(eventDS, refinementDS, sessionDS, ledger)),
+		cli.WithConsolidationRequest(usecase.NewConsolidationRequestUsecase(ledger, types.SystemClock{})),
+		cli.WithSessionEventOrder(eventDS),
+		cli.WithDatabasePathSetter(db.SetPath),
+	).Command()
+	payload := `{"session_id":"sess-warn","cwd":"/tmp","last_assistant_message":"ok","prompt_response":"ok"}`
+	rootCmd.SetIn(strings.NewReader(payload))
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"hook", "transcript", "claude", "--db-path", dbPath})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	wantWarn := "[WARN] consolidation.threshold_bytes is deprecated and ignored: the stop-hook consolidation trigger is now work-based (consolidation.min_commands, consolidation.stop_cadence). The key is removed in the next minor; remove it from your config.json.\n"
+	if warn.String() != wantWarn {
+		t.Fatalf("warn = %q, want %q", warn.String(), wantWarn)
+	}
+}
+
 // TestHookKimiStop_ConsolidationPressure pins the native Kimi Stop path
 // (`traceary hook kimi stop`) to the same consolidation gate as
 // `hook transcript`: exit 2 only when a turn was recorded on this firing
 // and pressure is over threshold. Idempotent redeliveries that write nothing
 // must stay exit 0 even when pressure remains due (#1674 / #1711).
+func TestHookTranscript_WorkBasedCadenceAndSubagent(t *testing.T) {
+	for _, client := range []string{"claude", "codex"} {
+		t.Run(client+"/second stop inside the cadence window exits 0", func(t *testing.T) {
+			fx := newConsolidationHookFixture(t, "sess-cadence-"+client)
+			code, _ := fx.runTranscriptClient(t, client, "one")
+			if code != 2 {
+				t.Fatalf("first exit = %d, want 2", code)
+			}
+			code, message := fx.runTranscriptClient(t, client, "two")
+			if code != 0 {
+				t.Fatalf("second exit = %d, want 0; %s", code, message)
+			}
+			if strings.Contains(message, "unrefined material") {
+				t.Fatalf("cadence window emitted a reason: %q", message)
+			}
+		})
+		t.Run(client+"/stop after the cadence window exits 2 again", func(t *testing.T) {
+			fx := newConsolidationHookFixture(t, "sess-after-"+client)
+			if code, _ := fx.runTranscriptClient(t, client, "one"); code != 2 {
+				t.Fatalf("first exit = %d, want 2", code)
+			}
+			seedTranscriptsAfterNow(t, fx.eventDS, fx.sessionID, "gap-"+client, 8)
+			code, message := fx.runTranscriptClient(t, client, "after")
+			if code != 2 {
+				t.Fatalf("after cadence exit = %d, want 2; %s", code, message)
+			}
+		})
+		t.Run(client+"/subagent session exits 0", func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			t.Setenv("TRACEARY_HOOK_STATE_DIR", t.TempDir())
+			t.Setenv("TRACEARY_WORKSPACE", "github.com/dogfood/test")
+			ctx := context.Background()
+			dbPath := filepath.Join(t.TempDir(), "traceary.db")
+			db := sqliteinfra.NewDatabase(dbPath, os.DirFS(filepath.Join("..", "..", "schema", "sqlite", "migrations")))
+			eventDS := sqliteinfra.NewEventDatasource(db)
+			sessionDS := sqliteinfra.NewSessionDatasource(db)
+			refinementDS := sqliteinfra.NewSessionRefinementDatasource(db)
+			ledger := sqliteinfra.NewConsolidationRequestDatasource(db)
+			storeUC := usecase.NewStoreManagementUsecase(sqliteinfra.NewStoreManagementDatasource(db))
+			if err := storeUC.Initialize(ctx); err != nil {
+				t.Fatalf("Initialize() error = %v", err)
+			}
+			base := time.Date(2026, 8, 8, 12, 0, 0, 0, time.UTC)
+			parent := model.NewSession(types.SessionID("sess-parent-"+client), base, "cli", types.Agent(client), "ws")
+			parentStart, err := model.NewEventWithClock(
+				"evt-parent", types.EventKindSessionStarted, "cli", types.Agent(client),
+				parent.SessionID(), "ws", "start",
+				fixedClock{at: base},
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := sessionDS.SaveBoundary(ctx, parent, parentStart); err != nil {
+				t.Fatal(err)
+			}
+			childID := types.SessionID("sess-child-" + client)
+			child := model.NewChildSession(parent, childID, base, types.Agent(client), "ws", "evt-parent", "explore", 1)
+			childStart, err := model.NewEventWithClock(
+				"evt-child", types.EventKindSessionStarted, "cli", types.Agent(client),
+				childID, "ws", "start",
+				fixedClock{at: base.Add(time.Second)},
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := sessionDS.SaveBoundary(ctx, child, childStart); err != nil {
+				t.Fatal(err)
+			}
+			for i := 0; i < 20; i++ {
+				cmd, err := model.NewEventWithClock(
+					types.EventID("evt-child-cmd-"+strconv.Itoa(i)), types.EventKindCommandExecuted, "cli", types.Agent(client),
+					childID, "ws", "cmd",
+					fixedClock{at: base.Add(time.Duration(i+2) * time.Second)},
+				)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := eventDS.Save(ctx, cmd); err != nil {
+					t.Fatal(err)
+				}
+			}
+			rootCmd := cli.NewRootCLI(
+				cli.WithStoreManagement(storeUC),
+				cli.WithEvent(usecase.NewEventUsecase(eventDS, eventDS)),
+				cli.WithConsolidationPressure(usecase.NewConsolidationPressureUsecase(eventDS, refinementDS, sessionDS, ledger)),
+				cli.WithConsolidationRequest(usecase.NewConsolidationRequestUsecase(ledger, types.SystemClock{})),
+				cli.WithSessionEventOrder(eventDS),
+				cli.WithDatabasePathSetter(db.SetPath),
+			).Command()
+			payload := `{"session_id":"` + childID.String() + `","cwd":"/tmp","last_assistant_message":"child","prompt_response":"child"}`
+			rootCmd.SetIn(strings.NewReader(payload))
+			rootCmd.SetOut(&bytes.Buffer{})
+			rootCmd.SetErr(&bytes.Buffer{})
+			rootCmd.SetArgs([]string{"hook", "transcript", client, "--db-path", dbPath})
+			err = rootCmd.Execute()
+			if err != nil {
+				t.Fatalf("subagent Execute() error = %v", err)
+			}
+		})
+	}
+}
+
 func TestHookKimiStop_ConsolidationPressure(t *testing.T) {
 	// Not parallel: mutates HOME / hook state env for Kimi wire log + spool.
 	const sessionID = "session_00000000-0000-4000-8000-000000000001"
@@ -407,27 +617,26 @@ func TestHookKimiStop_ConsolidationPressure(t *testing.T) {
 	if err := sessionDS.SaveBoundary(ctx, session, start); err != nil {
 		t.Fatal(err)
 	}
-	// Unrefined material already over the default 64 KiB threshold so the
-	// pressure check is Due as soon as a transcript row lands.
-	heavy, err := model.NewEventWithClock(
-		"evt-heavy", types.EventKindNote, "cli", "kimi",
-		types.SessionID(sessionID), "ws", strings.Repeat("x", 65*1024),
-		fixedClock{at: base.Add(time.Second)},
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := eventDS.Save(ctx, heavy); err != nil {
-		t.Fatal(err)
+	for i := 0; i < 20; i++ {
+		cmd, err := model.NewEventWithClock(
+			types.EventID("evt-kimi-cmd-"+strconv.Itoa(i)), types.EventKindCommandExecuted, "cli", "kimi",
+			types.SessionID(sessionID), "ws", "cmd",
+			fixedClock{at: base.Add(time.Duration(i+2) * time.Second)},
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := eventDS.Save(ctx, cmd); err != nil {
+			t.Fatal(err)
+		}
 	}
 
-	// Stub reports Due so the test does not depend on how large the just-
-	// recorded transcript body is relative to the seed; the gate under test
-	// is "was a row written on this firing?", not the pressure arithmetic.
+	// Stub reports Due so the test does not depend on work arithmetic; the
+	// gate under test is "was a row written on this firing?".
 	stub := &consolidationPressureStub{
 		result: usecase.ConsolidationPressureResult{
-			PressureBytes: 65 * 1024,
-			Due:           true,
+			Commands: 20,
+			Due:      true,
 		},
 	}
 	pressureUC := stub
@@ -547,8 +756,8 @@ func TestHookKimiStop_ConsolidationPressure_StopHookActiveSuppresses(t *testing.
 
 	stub := &consolidationPressureStub{
 		result: usecase.ConsolidationPressureResult{
-			PressureBytes: 65 * 1024,
-			Due:           true,
+			Commands: 20,
+			Due:      true,
 		},
 	}
 
@@ -605,53 +814,189 @@ func TestHookKimiStop_ConsolidationPressure_StopHookActiveSuppresses(t *testing.
 	}
 }
 
-func TestLoadConfig_ConsolidationThreshold(t *testing.T) {
+func TestHookKimiStop_WorkBasedTrigger(t *testing.T) {
+	tests := []struct {
+		name         string
+		commands     int
+		seedBytes    int
+		wantExitCode int
+	}{
+		{name: "work-based due exits 2 with signal work in the ledger", commands: 20, wantExitCode: 2},
+		{name: "below min_commands exits 0", commands: 19, wantExitCode: 0},
+		{name: "a large body with no commands exits 0", seedBytes: 65 * 1024, wantExitCode: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			const sessionID = "session_00000000-0000-4000-8000-000000000001"
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			t.Setenv("TRACEARY_HOOK_STATE_DIR", t.TempDir())
+			t.Setenv("TRACEARY_WORKSPACE", "github.com/dogfood/test")
+			cli.SetUserHomeDirFunc(func() (string, error) { return home, nil })
+			t.Cleanup(cli.ResetUserHomeDirFunc)
+			seedKimiSession(t, home, sessionID, []string{
+				`{"type":"metadata","protocol_version":"1.4","created_at":1784466738324}`,
+				`{"type":"context.append_loop_event","event":{"type":"content.part","turnId":"0","part":{"type":"text","text":"kimi work-based probe"}}}`,
+			})
+
+			ctx := context.Background()
+			dbPath := filepath.Join(t.TempDir(), "traceary.db")
+			db := sqliteinfra.NewDatabase(dbPath, os.DirFS(filepath.Join("..", "..", "schema", "sqlite", "migrations")))
+			eventDS := sqliteinfra.NewEventDatasource(db)
+			sessionDS := sqliteinfra.NewSessionDatasource(db)
+			refinementDS := sqliteinfra.NewSessionRefinementDatasource(db)
+			ledger := sqliteinfra.NewConsolidationRequestDatasource(db)
+			storeUC := usecase.NewStoreManagementUsecase(sqliteinfra.NewStoreManagementDatasource(db))
+			if err := storeUC.Initialize(ctx); err != nil {
+				t.Fatalf("Initialize() error = %v", err)
+			}
+			base := time.Date(2026, 8, 8, 12, 0, 0, 0, time.UTC)
+			session := model.NewSession(types.SessionID(sessionID), base, "cli", "kimi", "ws")
+			start, err := model.NewEventWithClock(
+				"evt-start", types.EventKindSessionStarted, "cli", "kimi",
+				types.SessionID(sessionID), "ws", "start",
+				fixedClock{at: base},
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := sessionDS.SaveBoundary(ctx, session, start); err != nil {
+				t.Fatal(err)
+			}
+			for i := 0; i < tt.commands; i++ {
+				cmd, err := model.NewEventWithClock(
+					types.EventID("evt-cmd-"+strconv.Itoa(i)), types.EventKindCommandExecuted, "cli", "kimi",
+					types.SessionID(sessionID), "ws", "cmd",
+					fixedClock{at: base.Add(time.Duration(i+2) * time.Second)},
+				)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := eventDS.Save(ctx, cmd); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tt.seedBytes > 0 {
+				note, err := model.NewEventWithClock(
+					"evt-heavy", types.EventKindNote, "cli", "kimi",
+					types.SessionID(sessionID), "ws", strings.Repeat("x", tt.seedBytes),
+					fixedClock{at: base.Add(time.Second)},
+				)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := eventDS.Save(ctx, note); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			rootCmd := cli.NewRootCLI(
+				cli.WithStoreManagement(storeUC),
+				cli.WithEvent(usecase.NewEventUsecase(eventDS, eventDS)),
+				cli.WithConsolidationPressure(usecase.NewConsolidationPressureUsecase(eventDS, refinementDS, sessionDS, ledger)),
+				cli.WithConsolidationRequest(usecase.NewConsolidationRequestUsecase(ledger, types.SystemClock{})),
+				cli.WithSessionEventOrder(eventDS),
+				cli.WithDatabasePathSetter(db.SetPath),
+			).Command()
+			rootCmd.SetIn(strings.NewReader(readKimiFixture(t, "stop.json")))
+			rootCmd.SetOut(&bytes.Buffer{})
+			rootCmd.SetErr(&bytes.Buffer{})
+			rootCmd.SetArgs([]string{"hook", "kimi", "stop", "--db-path", dbPath})
+			execErr := rootCmd.Execute()
+			gotCode := 0
+			message := ""
+			if execErr != nil {
+				var coder interface{ ExitCode() int }
+				if errors.As(execErr, &coder) {
+					gotCode = coder.ExitCode()
+					message = execErr.Error()
+				} else {
+					t.Fatalf("Execute() error = %v", execErr)
+				}
+			}
+			if gotCode != tt.wantExitCode {
+				t.Fatalf("exit = %d, want %d; %s", gotCode, tt.wantExitCode, message)
+			}
+			if tt.wantExitCode == 2 {
+				if !strings.Contains(message, "unrefined material") {
+					t.Fatalf("reason %q missing unrefined material", message)
+				}
+				row := mustConsolidationRow(t, dbPath, sessionID)
+				if row.signal != "work" || row.threshold != 20 || row.pressure < 20 {
+					t.Fatalf("ledger = %+v", row)
+				}
+			}
+		})
+	}
+}
+
+func TestLoadConfig_ConsolidationPolicy(t *testing.T) {
 	tests := []struct {
 		name            string
-		json            string // empty means do not write a config file
+		json            string
 		unreadable      bool
-		danglingSymlink bool // config.json is a symlink whose target is gone
-		want            int64
+		danglingSymlink bool
+		wantMin         int64
+		wantCadence     int64
+		wantBytes       int64
+		wantBytesSet    bool
 	}{
 		{
-			name: "absent config file resolves the 64 KiB default",
-			want: presentation.DefaultConsolidationThresholdBytes,
+			name:        "absent config file resolves work-based defaults",
+			wantMin:     presentation.DefaultConsolidationMinCommands,
+			wantCadence: presentation.DefaultConsolidationStopCadence,
+			wantBytes:   presentation.DefaultConsolidationThresholdBytes,
 		},
 		{
-			name: "absent key defaults to 64 KiB",
-			json: `{}`,
-			want: presentation.DefaultConsolidationThresholdBytes,
+			name:        "absent keys default min_commands 20 and stop_cadence 8",
+			json:        `{}`,
+			wantMin:     20,
+			wantCadence: 8,
+			wantBytes:   presentation.DefaultConsolidationThresholdBytes,
 		},
 		{
-			name: "explicit zero disables",
-			json: `{"consolidation":{"threshold_bytes":0}}`,
-			want: 0,
+			name:        "explicit min_commands 0 disables",
+			json:        `{"consolidation":{"min_commands":0}}`,
+			wantMin:     0,
+			wantCadence: 8,
+			wantBytes:   presentation.DefaultConsolidationThresholdBytes,
 		},
 		{
-			name: "custom threshold is honoured",
-			json: `{"consolidation":{"threshold_bytes":131072}}`,
-			want: 131072,
+			name:        "explicit stop_cadence 0 disables",
+			json:        `{"consolidation":{"stop_cadence":0}}`,
+			wantMin:     20,
+			wantCadence: 0,
+			wantBytes:   presentation.DefaultConsolidationThresholdBytes,
 		},
 		{
-			name: "malformed config file resolves threshold 0",
-			json: `{invalid`,
-			want: 0,
+			name:         "explicit threshold_bytes is parsed and marked set",
+			json:         `{"consolidation":{"threshold_bytes":131072}}`,
+			wantMin:      20,
+			wantCadence:  8,
+			wantBytes:    131072,
+			wantBytesSet: true,
 		},
 		{
-			// A broken-but-present file must not re-enable a trigger the
-			// operator may have set to 0; disable rather than default.
-			name:       "unreadable config file resolves threshold 0",
-			json:       `{"consolidation":{"threshold_bytes":131072}}`,
-			unreadable: true,
-			want:       0,
+			name:        "malformed config file disables the trigger",
+			json:        `{invalid`,
+			wantMin:     0,
+			wantCadence: 0,
+			wantBytes:   0,
 		},
 		{
-			// ReadFile follows the link and gets ENOENT, but the directory
-			// entry still exists. That is unusable operator intent, not
-			// "never configured" — same disable-not-default policy.
-			name:            "dangling config symlink resolves threshold 0",
+			name:        "unreadable config file disables the trigger",
+			json:        `{"consolidation":{"min_commands":40}}`,
+			unreadable:  true,
+			wantMin:     0,
+			wantCadence: 0,
+			wantBytes:   0,
+		},
+		{
+			name:            "dangling config symlink disables the trigger",
 			danglingSymlink: true,
-			want:            0,
+			wantMin:         0,
+			wantCadence:     0,
+			wantBytes:       0,
 		},
 	}
 	for _, tt := range tests {
@@ -666,7 +1011,6 @@ func TestLoadConfig_ConsolidationThreshold(t *testing.T) {
 			}
 			path := filepath.Join(configDir, "config.json")
 			if tt.danglingSymlink {
-				// Point at a sibling that is never created.
 				if err := os.Symlink(filepath.Join(configDir, "missing-target.json"), path); err != nil {
 					t.Fatal(err)
 				}
@@ -682,20 +1026,22 @@ func TestLoadConfig_ConsolidationThreshold(t *testing.T) {
 				}
 			}
 			cfg := presentation.LoadConfig()
-			if cfg.Consolidation.ThresholdBytes != tt.want {
-				t.Fatalf("ThresholdBytes = %d, want %d", cfg.Consolidation.ThresholdBytes, tt.want)
+			got := cfg.Consolidation
+			if got.MinCommands != tt.wantMin || got.StopCadence != tt.wantCadence || got.ThresholdBytes != tt.wantBytes || got.ThresholdBytesSet != tt.wantBytesSet {
+				t.Fatalf("Consolidation = %+v, want min=%d cadence=%d bytes=%d set=%v",
+					got, tt.wantMin, tt.wantCadence, tt.wantBytes, tt.wantBytesSet)
 			}
 		})
 	}
 }
 
-func writeConsolidationConfig(t *testing.T, home, threshold string) {
+func writeConsolidationConfig(t *testing.T, home, consolidationJSON string) {
 	t.Helper()
 	configDir := filepath.Join(home, ".config", "traceary")
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	body := `{"consolidation":{"threshold_bytes":` + threshold + `}}`
+	body := `{"consolidation":` + consolidationJSON + `}`
 	if err := os.WriteFile(filepath.Join(configDir, "config.json"), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}

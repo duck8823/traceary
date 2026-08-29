@@ -172,8 +172,10 @@ func run() error {
 	})
 	sessionOrphanRangeUsecase := usecase.NewSessionOrphanRangeUsecase(sessionOrphanRangeDatasource, sessionRefinementDatasource, eventDatasource, types.SystemClock{})
 	orphanConsolidationUsecase := usecase.NewOrphanConsolidationUsecase(sessionOrphanRangeDatasource, sessionRefinementUsecase, types.SystemClock{})
-	consolidationPressureUsecase := usecase.NewConsolidationPressureUsecase(eventDatasource, sessionRefinementDatasource)
 	consolidationRequestDatasource := sqlite.NewConsolidationRequestDatasource(db)
+	consolidationPressureUsecase := usecase.NewConsolidationPressureUsecase(
+		eventDatasource, sessionRefinementDatasource, sessionDatasource, consolidationRequestDatasource,
+	)
 	consolidationRequestUsecase := usecase.NewConsolidationRequestUsecase(consolidationRequestDatasource, types.SystemClock{})
 	codexMemorySource := filesystem.NewCodexMemorySource()
 	memoryUsecase := usecase.NewMemoryUsecase(memoryDatasource, memoryDatasource, extraRedactPatterns, usecase.MemoryUsecaseDependencies{

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -122,22 +123,24 @@ func newSpoolConsolidationStore(t *testing.T, sessionID, client string) spoolCon
 	if err := sessionDS.SaveBoundary(ctx, session, start); err != nil {
 		t.Fatal(err)
 	}
-	heavy, err := model.NewEventWithClock(
-		"evt-heavy", types.EventKindNote, "cli", types.Agent(client),
-		types.SessionID(sessionID), "ws", strings.Repeat("x", 65*1024),
-		spoolFixedClock{at: base.Add(time.Second)},
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := eventDS.Save(ctx, heavy); err != nil {
-		t.Fatal(err)
+	for i := 0; i < 20; i++ {
+		cmd, err := model.NewEventWithClock(
+			types.EventID("evt-cmd-"+strconv.Itoa(i)), types.EventKindCommandExecuted, "cli", types.Agent(client),
+			types.SessionID(sessionID), "ws", "cmd",
+			spoolFixedClock{at: base.Add(time.Duration(i+2) * time.Second)},
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := eventDS.Save(ctx, cmd); err != nil {
+			t.Fatal(err)
+		}
 	}
 	root := NewRootCLI(
 		WithStoreManagement(storeUC),
 		WithEvent(usecase.NewEventUsecase(eventDS, eventDS)),
 		WithSession(usecase.NewSessionUsecase(eventDS, sessionDS, sessionDS, eventDS, usecase.SessionUsecaseDependencies{})),
-		WithConsolidationPressure(usecase.NewConsolidationPressureUsecase(eventDS, refinementDS)),
+		WithConsolidationPressure(usecase.NewConsolidationPressureUsecase(eventDS, refinementDS, sessionDS, ledger)),
 		WithConsolidationRequest(usecase.NewConsolidationRequestUsecase(ledger, types.SystemClock{})),
 		WithSessionEventOrder(eventDS),
 		WithDatabasePathSetter(db.SetPath),

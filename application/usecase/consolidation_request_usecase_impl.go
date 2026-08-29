@@ -55,18 +55,6 @@ func (u *consolidationRequestUsecase) Record(
 	return ConsolidationRequestRecorded{Recorded: recorded, ReRequest: reRequest}, nil
 }
 
-func (u *consolidationRequestUsecase) HasOpenRequest(
-	ctx context.Context,
-	sessionID types.SessionID,
-) (bool, error) {
-	open, err := u.repo.FindLatestOpen(ctx, sessionID)
-	if err != nil {
-		return false, xerrors.Errorf("failed to look up open consolidation request: %w", err)
-	}
-	_, ok := open.Value()
-	return ok, nil
-}
-
 func (u *consolidationRequestUsecase) RecordRefineOutcome(
 	ctx context.Context,
 	stamp model.ConsolidationRefineStamp,

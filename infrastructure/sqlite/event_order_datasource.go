@@ -31,6 +31,12 @@ var selectSessionBodyBytesQuery string
 //go:embed sql/select_session_body_bytes_after.sql
 var selectSessionBodyBytesAfterQuery string
 
+//go:embed sql/count_session_kind.sql
+var countSessionKindQuery string
+
+//go:embed sql/count_session_kind_after.sql
+var countSessionKindAfterQuery string
+
 var (
 	_ model.SessionEventOrderRepository            = (*EventDatasource)(nil)
 	_ model.SessionConsolidationPressureRepository = (*EventDatasource)(nil)
@@ -185,6 +191,42 @@ func (d *EventDatasource) SumBodyBytesAfter(
 	}
 	if err != nil {
 		return 0, xerrors.Errorf("failed to sum session body bytes: %w", err)
+	}
+	return total, nil
+}
+
+// CountKindAfter returns COUNT(*) of events of kind strictly after `after`
+// under (created_at_norm, id) order. When after is None the whole session is counted.
+func (d *EventDatasource) CountKindAfter(
+	ctx context.Context,
+	sessionID types.SessionID,
+	kind types.EventKind,
+	after types.Optional[types.EventID],
+) (int64, error) {
+	db, err := d.db.open(ctx)
+	if err != nil {
+		return 0, xerrors.Errorf("failed to open DB for session kind count: %w", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+
+	var total int64
+	if boundary, ok := after.Value(); ok {
+		err = db.QueryRowContext(
+			ctx,
+			countSessionKindAfterQuery,
+			boundary.String(),
+			sessionID.String(),
+			kind.String(),
+		).Scan(&total)
+	} else {
+		err = db.QueryRowContext(ctx, countSessionKindQuery, sessionID.String(), kind.String()).Scan(&total)
+	}
+	if err != nil {
+		return 0, xerrors.Errorf("failed to count session events of kind: %w", err)
 	}
 	return total, nil
 }
