@@ -67,19 +67,21 @@ candidates AS (
             FROM events AS e5
            WHERE e5.session_id = es.session_id
              AND (es.covers_to_norm IS NULL OR e5.created_at_norm > es.covers_to_norm)
+             AND NULLIF(e5.created_at, '') IS NOT NULL
            ORDER BY e5.created_at_norm ASC, e5.id ASC
            LIMIT 1) AS earliest_event_time,
          (SELECT e5.created_at_norm
             FROM events AS e5
            WHERE e5.session_id = es.session_id
              AND (es.covers_to_norm IS NULL OR e5.created_at_norm > es.covers_to_norm)
+             AND NULLIF(e5.created_at, '') IS NOT NULL
            ORDER BY e5.created_at_norm ASC, e5.id ASC
            LIMIT 1) AS earliest_event_norm
     FROM eligible_sessions AS es
 )
 SELECT session_id, earliest_event_time
   FROM candidates
- WHERE earliest_event_time IS NOT NULL
+ WHERE NULLIF(earliest_event_time, '') IS NOT NULL
    AND (earliest_event_norm, session_id) > (?, ?)
  ORDER BY earliest_event_norm ASC, session_id ASC
  LIMIT ?
