@@ -170,6 +170,10 @@ input / output テキストを符号化してから vacuum します。
 - 未 refine の破棄対象は、`--force` で機械要約を書くまで残る
 - search-projection の再構築は `store compact --projection-rebuild` / `--projection-abort`。parked した failed の復旧は `doctor --fix`。archive / backup の file retention は `store compact --retention-plan` / `--retention-apply`。
 
+**Reclaim warning。** hook 以外のコマンドの後、Traceary は stderr に `TRACEARY: ストアに回収できる領域が約 <size> あります。traceary store compact を実行してください` を、ストアごとに 24 時間に 1 回まで表示します（記録は `<db>.reclaim-warn`）。表示条件は、free page list — `PRAGMA freelist_count × PRAGMA page_size`、`traceary doctor` が `reclaimable=` として報告するのと同じ O(1) signal — が `compact.reclaim_warn_bytes`（既定 1 GiB）以上、**かつ** ストア全体の 10 % 以上であることです。ファイルサイズだけでは表示しません。freelist が空の 14 GiB ストアは、書き換えてもファイルシステムに返る領域がないため何も表示しません。`doctor` は同じ signal と同じ 10 % 比率を、より低い 256 MiB の floor で使うため、trailer が黙っている回収可能領域を報告することがあります（逆はありません）。`compact.reclaim_warn_bytes` を `0` にすると trailer を止められます。ストアを安価に読めない場合（writer が保持している、500 ms を超えたなど）は何も表示しません。store growth signal が不明であることの報告は `traceary doctor` の役割です。
+
+free page は `store compact` が回収できるバイト数と同じではありません。compact は被覆済み transcript 本文の破棄や audit text の再符号化も行い、それらはこの O(1) signal からは見えません。その見積もりは `traceary store compact --dry-run` の担当です。
+
 ### Derived generation のディスク上限
 
 search-projection の derived 行は `generation_id` でキーされます。このファミリのディスク上限:

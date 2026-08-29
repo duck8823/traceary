@@ -173,6 +173,10 @@ vacuums into a new file.
   summaries first
 - Search-projection rebuild is `store compact --projection-rebuild` / `--projection-abort`. Parked failed recovery is `doctor --fix`. File retention of archive/backup artifacts is `store compact --retention-plan` / `--retention-apply`.
 
+**Reclaim warning.** After a non-hook command, Traceary may print `TRACEARY: store can reclaim about <size>; run traceary store compact` on stderr, at most once every 24 hours per store (tracked in `<db>.reclaim-warn`). It appears only when the store's free-page list — `PRAGMA freelist_count × PRAGMA page_size`, the same O(1) signal `traceary doctor` reports as `reclaimable=` — is at least `compact.reclaim_warn_bytes` (default 1 GiB) **and** at least 10 % of the store. File size alone never triggers it: a 14 GiB store with an empty freelist stays quiet, because a rewrite would return nothing to the filesystem. `doctor` uses the same signal and the same 10 % ratio with a lower floor of 256 MiB, so it can report reclaimable pages that the trailer stays quiet about; it never reports fewer. Set `compact.reclaim_warn_bytes` to `0` to silence the trailer. When the store cannot be read cheaply (a writer holds it, or the read exceeds 500 ms) nothing is printed — `traceary doctor` is where an unknown store-growth signal is reported.
+
+Free pages are not the same as the bytes `store compact` can recover: compact also discards covered transcript bodies and re-encodes audit text, which this O(1) signal cannot see. `traceary store compact --dry-run` is the surface for that estimate.
+
 ### Derived generation disk bound
 
 Search-projection derived rows are keyed by `generation_id`. Disk bound for that family:

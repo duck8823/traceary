@@ -8,6 +8,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 ## [Unreleased]
 
 ### Fixed
+- **reclaim trailer はファイルサイズではなく free page を見る（#2270）。** `TRACEARY: ストアに回収できる領域…` は `PRAGMA freelist_count × page_size`（`doctor` が `reclaimable=` として出すのと同じ O(1) signal）が `compact.reclaim_warn_bytes`（既定 1 GiB）以上かつストアの 10 % 以上のときだけ出て、その量を表示する。freelist が空の 14 GiB ストアが `doctor` の `reclaimable=0 B` PASS と矛盾しなくなった。回収可能なのが free page ではなく破棄可能な transcript 本文であるストアは trailer では促さない。その見積もりは `traceary store compact --dry-run` と `doctor` のまま。doctor の閾値・文言・dbstat 経路は変えていない。親 #2263 は open のまま。
 - **`session_workspace_observations` を attribution key あたり 1 行へ畳む（`doctor --fix` が offline migration 76 を適用）（#2269）。** 実行時書き込みは UPSERT で `observation_count` を進め、同一 delivery+fingerprint の連続 exact redelivery は増やさない（A→B→A は増やす）。catch-up は event ごとの anti-join ではなく降順 frontier。`CoveredEvents` / `MissingEvents` は per-event join ではなく frontier の bookkeeping。upgrade 後は `traceary doctor --fix` まで書き込みが止まる（035 / 045 と同じ）。GC は session 行も event 行も無い observation を削除する。親 #2263 は open のまま。
 - **`store compact` が compact 内部の `event_content_dedupe_archive` 行（`compact-copy-filter-*`）を committed candidate から外し `steps.dedupe_archive` を報告する。残 run は doctor の `dedupe-archive-runs` で一覧し、in-place fallback では rollback inode がないため内部 dedupe を行わない。operator quarantine の期限切れは RFC3339 文字列ではなく instant 比較（#2262）。** 親 #2263 は open のまま。
 - **`store compact` が残っている `command_audits` テキスト列を payload codec で符号化し `steps.audit_encode` を報告する。到達不能だった `PayloadBackfillDatasource` を削除（migration 054 のテーブルは未使用のまま残す）（#2264）。** 親 #2263 は open のまま。
