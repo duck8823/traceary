@@ -250,8 +250,19 @@ func (c *RootCLI) runStoreCompact(cmd *cobra.Command, input storeCompactInput) e
 		if errors.As(err, &unrefined) {
 			return xerrors.Errorf("%s", unrefined.Error())
 		}
+		if result.CompactStrategy == "" {
+			return err
+		}
+		// Rewrite already finished; still emit compact_strategy JSON (#2298).
+		if encodeErr := encodeCompactResultJSON(cmd, result); encodeErr != nil {
+			return encodeErr
+		}
 		return err
 	}
+	return encodeCompactResultJSON(cmd, result)
+}
+
+func encodeCompactResultJSON(cmd *cobra.Command, result application.CompactResult) error {
 	discarded := result.DiscardedBodyBytes
 	if discarded < 0 {
 		discarded = 0

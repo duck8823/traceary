@@ -21,6 +21,7 @@ type wallBudgetStore struct {
 	applied            bool
 	delayStatus        bool
 	delayControlStatus bool
+	statusDelay        time.Duration
 	selected           bool
 	controlReads       int
 	measuredReads      int
@@ -47,8 +48,17 @@ func (s *wallBudgetStore) SearchProjectionStatus(ctx context.Context) (apptypes.
 func (s *wallBudgetStore) SearchProjectionControlStatus(ctx context.Context) (apptypes.SearchProjectionControlStatus, error) {
 	s.controlReads++
 	if s.delayControlStatus {
-		<-ctx.Done()
-		return apptypes.SearchProjectionControlStatus{}, xerrors.Errorf("control status: %w", ctx.Err())
+		delay := s.statusDelay
+		if delay == 0 {
+			delay = 50 * time.Millisecond
+		}
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			return apptypes.SearchProjectionControlStatus{}, xerrors.Errorf("control status: %w", ctx.Err())
+		}
 	}
 	state := s.state
 	if state == "" {
@@ -177,16 +187,35 @@ func TestProjectionBatchPlanExcludedRowDoesNotChainSummary(t *testing.T) {
 	}
 }
 
-func TestResumeStatusConsumesSameWallBudgetAndPreventsSelectionOrMutation(t *testing.T) {
+func TestResumeInspectSucceedsWhenBatchWallTimeIsShorterThanPing(t *testing.T) {
 	t.Parallel()
-	b := apptypes.SearchProjectionBudget{Rows: 1, WallTime: time.Millisecond, LockTime: time.Second, StoredBytes: 1, DecodedBytes: 1, WriteBytes: 1, RecentAge: time.Hour, IndexFamilyBytes: 1}
-	store := &wallBudgetStore{budget: b, delayControlStatus: true}
+	b := apptypes.DefaultSearchProjectionBudget()
+	b.WallTime = time.Millisecond
+	store := &wallBudgetStore{budget: b, delayControlStatus: true, resumeReady: true}
 	_, err := usecase.NewSearchProjectionUsecase(store).Resume(context.Background(), b, time.Now())
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("error=%v", err)
+	if err != nil && strings.Contains(err.Error(), "inspect projection before resume") {
+		t.Fatalf("Resume() inspect used batch WallTime: %v", err)
+	}
+	if store.controlReads < 1 {
+		t.Fatal("SearchProjectionControlStatus was not called")
+	}
+	if !store.selected {
+		t.Fatal("SelectSnapshot was not reached, want inspect to complete under parent context")
+	}
+}
+
+func TestResumeInspectHonorsParentCancellation(t *testing.T) {
+	t.Parallel()
+	b := apptypes.SearchProjectionBudget{Rows: 1, WallTime: time.Second, LockTime: time.Second, StoredBytes: 1, DecodedBytes: 1, WriteBytes: 1, RecentAge: time.Hour, IndexFamilyBytes: 1}
+	store := &wallBudgetStore{budget: b, delayControlStatus: true, statusDelay: time.Hour}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := usecase.NewSearchProjectionUsecase(store).Resume(ctx, b, time.Now())
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error=%v, want parent cancellation", err)
 	}
 	if store.selected || store.applied {
-		t.Fatalf("post-deadline calls: selected=%v applied=%v", store.selected, store.applied)
+		t.Fatalf("post-cancel calls: selected=%v applied=%v", store.selected, store.applied)
 	}
 }
 

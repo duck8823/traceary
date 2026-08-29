@@ -7,6 +7,9 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ## [Unreleased]
 
+### Fixed
+- **`store compact` still prints `compact_strategy` JSON after a successful rewrite when post-rewrite search-projection complete times out (#2298).** `Compact()` returns the rewrite result together with the projection error. Resume inspect pings the parent context instead of the 1s batch `WallTime`, which is too short to open a multi-GiB read-only store. No new store subcommand.
+
 ### Docs
 - **Converting the session-keyword and fingerprint projection tables to `WITHOUT ROWID` (#2266) is closed as a measured no-go.** The #2265 completion gate never reached `state=complete` on an operator-store copy, so the conversion is not shipped (the filed go/no-go, not a scope cut). Recorded FAILs: `docs/release/v0.48.0-projection-completion-evidence.json` (cleanup leftover-page timeout; family 10,481,233,920 B = 6.83× the 1,464 MiB target) and the later copy run (iteration 61, `inspect projection before resume: failed to ping read-only SQLite DB: context deadline exceeded`; family 8,427,220,992 B = 5.49×). No schema change. No new store subcommand.
 
