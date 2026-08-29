@@ -185,9 +185,7 @@ func (c *RootCLI) newHookPromptCommand() *cobra.Command {
 		Hidden: true,
 		Args:   exactArgsLocalized(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return c.runHookDurably(cmd.Context(), "prompt", hookInvocationSpec{Command: "prompt", Client: args[0], DBPath: dbPath}, cmd.InOrStdin(), func(input io.Reader) error {
-				return c.runHookPrompt(cmd.Context(), input, args[0], dbPath)
-			})
+			return c.runHookPromptWithConsolidation(cmd.Context(), cmd.OutOrStdout(), args[0], cmd.InOrStdin(), dbPath)
 		},
 	}
 	cmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())

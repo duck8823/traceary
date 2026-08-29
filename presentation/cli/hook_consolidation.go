@@ -42,8 +42,9 @@ func SetConsolidationWarnWriterForTest(w io.Writer) {
 //   - Codex CLI:   exit 2 + stderr is the documented continuation form
 //   - Kimi Code:   exit 2 appends a continuation message for the model
 //
-// Gemini, Antigravity and Grok treat a non-zero stop exit as a plain failure
-// (Grok has no Stop surface that continues), so they are not on the allowlist.
+// Gemini, Antigravity and Grok treat a non-zero stop exit as a plain failure,
+// so they are not on this allowlist. Those hosts use prompt-context or
+// Stop-envelope channels instead (see hook_consolidation_prompt.go).
 const consolidationExitCode = 2
 
 // consolidationStopClients are hosts whose stop / AfterAgent hook surface
@@ -53,6 +54,15 @@ var consolidationStopClients = map[string]struct{}{
 	"claude": {},
 	"codex":  {},
 	"kimi":   {},
+}
+
+// consolidationRequest is the shared decision a delivery sink encodes.
+type consolidationRequest struct {
+	SessionID   types.SessionID
+	Client      string
+	Result      usecase.ConsolidationPressureResult
+	AtEventID   types.Optional[types.EventID]
+	MinCommands int64
 }
 
 // consolidationExitError is a cliExitCoder (see main.go) that surfaces the
@@ -103,10 +113,9 @@ func (c *RootCLI) runDurableHookThenMaybeConsolidate(
 	return c.requestConsolidationIfDue(ctx, client, payload, dbPath)
 }
 
-// requestConsolidationIfDue measures work-based pressure after the durable
-// transcript run and, when due, returns exit 2 with a short agent prompt on
-// stderr. Check failures fail closed (no ask). Ledger insert failures still
-// fail open (ask delivered).
+// requestConsolidationIfDue is the exit-2 Stop sink for hosts on
+// consolidationStopClients. The due/not-due decision lives in
+// consolidationRequestIfDue so prompt-context and Stop-envelope sinks share it.
 func (c *RootCLI) requestConsolidationIfDue(
 	ctx context.Context,
 	client string,
@@ -117,6 +126,27 @@ func (c *RootCLI) requestConsolidationIfDue(
 	if _, ok := consolidationStopClients[client]; !ok {
 		return nil
 	}
+	req, ok := c.consolidationRequestIfDue(ctx, client, payload, dbPath)
+	if !ok {
+		return nil
+	}
+	// Ledger insert failures still fail open (ask delivered).
+	_ = c.recordConsolidationRequest(ctx, req, types.ConsolidationDeliveryStopExit2)
+	return consolidationExitError{
+		message:  formatConsolidationReason(req.SessionID, req.Result, req.AtEventID),
+		exitCode: consolidationExitCode,
+	}
+}
+
+// consolidationRequestIfDue is the single due/not-due decision for every
+// delivery channel. Every failure returns (zero, false) and logs at Debug.
+func (c *RootCLI) consolidationRequestIfDue(
+	ctx context.Context,
+	client string,
+	payload []byte,
+	dbPath string,
+) (consolidationRequest, bool) {
+	client = strings.TrimSpace(client)
 
 	cfg := presentation.LoadConfig().Consolidation
 	if cfg.ThresholdBytesSet {
@@ -129,57 +159,54 @@ func (c *RootCLI) requestConsolidationIfDue(
 		StopCadence: cfg.StopCadence,
 	}
 	if policy.MinCommands <= 0 || policy.StopCadence <= 0 {
-		return nil
+		return consolidationRequest{}, false
 	}
 
 	if c.consolidationPressure == nil {
 		slog.Debug("consolidation pressure check skipped: usecase not configured")
-		return nil
+		return consolidationRequest{}, false
 	}
 
 	sessionID, err := resolveHookTranscriptSessionIDFunc(payload, client)
 	if err != nil {
 		slog.Debug("consolidation pressure check skipped: session resolve failed", "error", err)
-		return nil
+		return consolidationRequest{}, false
 	}
 	if strings.TrimSpace(sessionID.String()) == "" {
 		slog.Debug("consolidation pressure check skipped: empty session id")
-		return nil
+		return consolidationRequest{}, false
 	}
 
 	resolvedDBPath, err := resolveDBPath(dbPath)
 	if err != nil {
 		slog.Debug("consolidation pressure check skipped: db path resolve failed", "error", err)
-		return nil
+		return consolidationRequest{}, false
 	}
 	c.applyDatabasePath(resolvedDBPath)
 
 	if suppressed, why := c.consolidationRequestSuppressed(ctx, sessionID, payload); suppressed {
 		slog.Debug("consolidation request suppressed", "session_id", sessionID.String(), "why", why)
-		return nil
+		return consolidationRequest{}, false
 	}
 
 	result, err := c.consolidationPressure.Check(ctx, sessionID, policy)
 	if err != nil {
 		// Reads that inform the decision fail closed (no ask).
 		slog.Debug("consolidation pressure check failed closed", "session_id", sessionID.String(), "error", err)
-		return nil
+		return consolidationRequest{}, false
 	}
 	if !result.Due {
 		slog.Debug("consolidation not due", "session_id", sessionID.String(), "skipped", result.Skipped)
-		return nil
+		return consolidationRequest{}, false
 	}
 
-	atEventID := c.latestSessionEventID(ctx, sessionID)
-	// Measurement is best-effort and must never change the decision. Every
-	// failure below logs at debug and falls through to the exit-2 return: the
-	// request is still delivered, only the bookkeeping is lost.
-	c.recordConsolidationRequest(ctx, sessionID, client, result, policy.MinCommands, atEventID)
-
-	return consolidationExitError{
-		message:  formatConsolidationReason(sessionID, result, atEventID),
-		exitCode: consolidationExitCode,
-	}
+	return consolidationRequest{
+		SessionID:   sessionID,
+		Client:      client,
+		Result:      result,
+		AtEventID:   c.latestSessionEventID(ctx, sessionID),
+		MinCommands: policy.MinCommands,
+	}, true
 }
 
 // consolidationRequestSuppressed is the single payload-side "may this Stop ask?"
@@ -208,40 +235,40 @@ func (c *RootCLI) latestSessionEventID(ctx context.Context, sessionID types.Sess
 }
 
 // recordConsolidationRequest writes the metadata-only measurement fact for a
-// request that is about to be delivered. It returns nothing: no outcome here
-// may alter the caller's exit status (#2273).
+// request that is about to be delivered. It never returns an error: false means
+// the row was not written (nil usecase, no events, insert failed, or duplicate).
+// Exit-2 and prompt-context sinks ignore the result (fail open). Stop-envelope
+// sinks require true so a continue/block cannot re-enter without a cadence bound.
 func (c *RootCLI) recordConsolidationRequest(
 	ctx context.Context,
-	sessionID types.SessionID,
-	client string,
-	result usecase.ConsolidationPressureResult,
-	minCommands int64,
-	atEventID types.Optional[types.EventID],
-) {
+	req consolidationRequest,
+	delivery types.ConsolidationDelivery,
+) bool {
 	if c.consolidationRequest == nil {
-		return
+		return false
 	}
-	eventID, ok := atEventID.Value()
+	eventID, ok := req.AtEventID.Value()
 	if !ok {
 		slog.Debug("consolidation request not recorded: session has no events",
-			"session_id", sessionID.String())
-		return
+			"session_id", req.SessionID.String())
+		return false
 	}
 	recorded, err := c.consolidationRequest.Record(ctx, usecase.ConsolidationRequestInput{
-		SessionID:      sessionID,
-		Client:         client,
+		SessionID:      req.SessionID,
+		Client:         req.Client,
 		AtEventID:      eventID,
 		Signal:         usecase.ConsolidationSignalWork,
-		PressureValue:  result.Commands,
-		ThresholdValue: minCommands,
-		Delivery:       types.ConsolidationDeliveryStopExit2,
+		PressureValue:  req.Result.Commands,
+		ThresholdValue: req.MinCommands,
+		Delivery:       delivery,
 	})
 	if err != nil {
-		slog.Debug("consolidation request not recorded", "session_id", sessionID.String(), "error", err)
-		return
+		slog.Debug("consolidation request not recorded", "session_id", req.SessionID.String(), "error", err)
+		return false
 	}
 	slog.Debug("consolidation request recorded",
-		"session_id", sessionID.String(), "recorded", recorded.Recorded, "re_request", recorded.ReRequest)
+		"session_id", req.SessionID.String(), "recorded", recorded.Recorded, "re_request", recorded.ReRequest)
+	return recorded.Recorded
 }
 
 // formatConsolidationReason is the only channel that reaches the agent. Keep

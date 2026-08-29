@@ -268,6 +268,16 @@ func inspectHostCapabilityGaps(client, configPath string) []doctorCheck {
 				),
 			})
 		}
+	case "grok":
+		if cell, ok := host.Events["consolidation_request"]; ok && cell.Status != hostcoverage.StatusWired {
+			checks[0].Message = localizef(
+				"%s host: Traceary matrix promises wired lifecycle coverage for %s (source application/hostcoverage; hooks config: %s). Consolidation requests are not deliverable on Grok (stdout ignored on passive events)",
+				"%s ホスト: Traceary の matrix は %s の lifecycle coverage を wired として約束しています (正本 application/hostcoverage; hooks config: %s)。Grok では consolidation request を届けられません (passive event では stdout が無視されます)",
+				client,
+				wiredList,
+				configPath,
+			)
+		}
 	}
 	return checks
 }

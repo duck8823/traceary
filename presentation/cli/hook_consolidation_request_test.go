@@ -205,6 +205,110 @@ func TestHookTranscript_ConsolidationRequestLedger(t *testing.T) {
 	})
 }
 
+func TestConsolidationRequest_DeliveryPerChannel(t *testing.T) {
+	tests := []struct {
+		name     string
+		session  string
+		run      func(t *testing.T, sessionID string) string
+		wantPair string
+	}{
+		{
+			name:    "hook transcript codex",
+			session: "sess-deliv-transcript",
+			run: func(t *testing.T, sessionID string) string {
+				fx := newConsolidationHookFixture(t, sessionID)
+				if code, _ := fx.runTranscriptClient(t, "codex", "one"); code != 2 {
+					t.Fatalf("exit = %d, want 2", code)
+				}
+				return fx.dbPath
+			},
+			wantPair: "codex/stop_exit_2",
+		},
+		{
+			name:    "hook prompt codex",
+			session: "sess-deliv-prompt-codex",
+			run: func(t *testing.T, sessionID string) string {
+				fx := newEnvelopeFixture(t, sessionID, "codex", 20)
+				stdout, code := fx.runPrompt(t, "codex", `{"session_id":"`+sessionID+`","cwd":"/tmp","prompt":"next"}`)
+				if code != 0 || stdout == "" {
+					t.Fatalf("exit = %d stdout=%q", code, stdout)
+				}
+				return fx.dbPath
+			},
+			wantPair: "codex/additional_context",
+		},
+		{
+			name:    "hook prompt gemini",
+			session: "sess-deliv-prompt-gemini",
+			run: func(t *testing.T, sessionID string) string {
+				fx := newEnvelopeFixture(t, sessionID, "gemini", 20)
+				stdout, code := fx.runPrompt(t, "gemini", `{"session_id":"`+sessionID+`","cwd":"/tmp","prompt":"next"}`)
+				if code != 0 || stdout == "" {
+					t.Fatalf("exit = %d stdout=%q", code, stdout)
+				}
+				return fx.dbPath
+			},
+			wantPair: "gemini/additional_context",
+		},
+		{
+			name:    "hook antigravity stop",
+			session: "sess-deliv-agy",
+			run: func(t *testing.T, sessionID string) string {
+				fx := newEnvelopeFixture(t, sessionID, "antigravity", 20)
+				stdout, code := fx.runAntigravityStop(t, antigravityStopPayload(t, sessionID, true, false))
+				if code != 0 || !strings.Contains(stdout, `"decision":"continue"`) {
+					t.Fatalf("exit = %d stdout=%q", code, stdout)
+				}
+				return fx.dbPath
+			},
+			wantPair: "antigravity/additional_context",
+		},
+		{
+			name:    "hook grok stop",
+			session: "019f0000-0000-7000-8000-000000000277",
+			run: func(t *testing.T, sessionID string) string {
+				fx := newEnvelopeFixture(t, sessionID, "grok", 20)
+				stdout, code := fx.runGrokStop(t, grokStopPayload(t, sessionID, true, false))
+				if code != 0 || !strings.Contains(stdout, `"decision":"block"`) {
+					t.Fatalf("exit = %d stdout=%q", code, stdout)
+				}
+				return fx.dbPath
+			},
+			wantPair: "grok/additional_context",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dbPath := tt.run(t, tt.session)
+			row := mustConsolidationRow(t, dbPath, tt.session)
+			got := row.sessionID // client is not on consolidationRow
+			_ = got
+			pair := queryConsolidationClientDelivery(t, dbPath, tt.session)
+			if pair != tt.wantPair {
+				t.Fatalf("client/delivery = %q, want %q", pair, tt.wantPair)
+			}
+			if _, err := types.ConsolidationDeliveryFrom(row.delivery); err != nil {
+				t.Fatalf("ConsolidationDeliveryFrom(%q) = %v", row.delivery, err)
+			}
+		})
+	}
+}
+
+func queryConsolidationClientDelivery(t *testing.T, dbPath, sessionID string) string {
+	t.Helper()
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	var client, delivery string
+	if err := db.QueryRow(`SELECT client, delivery FROM consolidation_requests WHERE session_id = ?`, sessionID).Scan(&client, &delivery); err != nil {
+		t.Fatalf("client/delivery: %v", err)
+	}
+	return client + "/" + delivery
+}
+
 type consolidationHookFixture struct {
 	sessionID   string
 	dbPath      string

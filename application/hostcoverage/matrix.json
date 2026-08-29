@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "last_verified": "2026-08-21",
+  "last_verified": "2026-08-29",
   "notes": {
-    "en": "Last verified: 2026-08-21 (Kimi Code 0.38.0 isolated `-p` probe on a throwaway store: `session_started`/`prompt`/`transcript` recorded, but SessionEnd was never dispatched, so the Kimi `session_ended` cell moves to `available` — last live capture 0.27.0. Grok Build 1.0.5 isolated `-p` with user-level `~/.grok/hooks/traceary.json` (#2252) recorded `session_started`/`prompt`/`command_executed`/`transcript` on a throwaway store; the plugin remains listing-only (`hookType=file`). Compact was not in that probe (cell stays available). SessionEnd is still unwired on the Traceary user file. Gemini CLI v0.46.0 dogfood `-p` probe on a throwaway store: the host account was rejected with `IneligibleTierError` (Gemini Code Assist for individuals ended) and only `session_started`/`session_ended` were recorded, so the Gemini `prompt` cell keeps its wired status with an ineligible-tier caveat — wiring is intact, per-account eligibility is reported by the doctor `gemini-host-eligibility` check. Previous: 2026-07-24 Codex CLI 0.145.0 interactive and headless/ephemeral marker probes; Kimi Code 0.27.0 live hook probe; no Traceary wiring yet — see docs/hooks/host-contract.json. Grok Build 0.2.101 re-probe for unobserved hooks + 0.2.99 fixtures; Antigravity CLI 1.1.1 and the current official hook contract; Gemini CLI re-verified 2026-06-10 against 0.43.0).",
-    "ja": "最終確認日: 2026-08-21（Kimi Code 0.38.0 の隔離 `-p` probe（throwaway store）: `session_started`/`prompt`/`transcript` は記録されたが SessionEnd は一度も dispatch されなかったため、Kimi の `session_ended` cell は available へ降格。最終 live 観測は 0.27.0。Grok Build 1.0.5 の隔離 `-p`（user-level `~/.grok/hooks/traceary.json`、#2252）で throwaway store に `session_started`/`prompt`/`command_executed`/`transcript` を記録。plugin は listing のみ（`hookType=file`）。compact はこの probe に含まれず available のまま。Traceary user ファイルは SessionEnd 未配線。Gemini CLI v0.46.0 dogfood の `-p` probe（throwaway store）: host アカウントが `IneligibleTierError`（Gemini Code Assist for individuals 提供終了）で拒否され、`session_started`/`session_ended` のみ記録された。配線自体は健全なため Gemini の `prompt` cell は wired を維持し、ineligible-tier の caveat を付記する。アカウント単位の eligibility は doctor の `gemini-host-eligibility` check が報告する。過去分: 2026-07-24 Codex CLI 0.145.0 の interactive および headless/ephemeral marker probe。Kimi Code 0.27.0 の live hook probe。Traceary 側の配線は未実施 — docs/hooks/host-contract.json 参照。Grok Build 0.2.101 の未観測 hook 再 probe + 0.2.99 fixture、Antigravity CLI 1.1.1 と現行公式 hook contract。Gemini CLI は 2026-06-10 に 0.43.0 で再確認済み）。"
+    "en": "Last verified: 2026-08-29 (#2276 consolidation_request row). Claude/Codex/Kimi: Stop exit 2 (already shipped). Codex also injects UserPromptSubmit plain text. Gemini: BeforeAgent additionalContext (geminicli.com/docs/hooks/reference, fetched 2026-08-29; AfterAgent deny rejected because it discards the answer). Antigravity: Stop {decision:continue,reason} (antigravity.google/docs/hooks, fetched 2026-08-29; payload→stdout tests, live agy not a merge gate). Grok: Stop {decision:block,reason} shipped exit 0; host acceptance unverified (docs.x.ai still says PreToolUse is the only blocking event and stdout is ignored on passive events; changelog v0.2.107 2026-07-20 says Stop hooks can keep the agent running; local user-guide 10-hooks.md names decision:block). Last verified: 2026-08-21 (Kimi Code 0.38.0 isolated `-p` probe on a throwaway store: `session_started`/`prompt`/`transcript` recorded, but SessionEnd was never dispatched, so the Kimi `session_ended` cell moves to `available` — last live capture 0.27.0. Grok Build 1.0.5 isolated `-p` with user-level `~/.grok/hooks/traceary.json` (#2252) recorded `session_started`/`prompt`/`command_executed`/`transcript` on a throwaway store; the plugin remains listing-only (`hookType=file`). Compact was not in that probe (cell stays available). SessionEnd is still unwired on the Traceary user file. Gemini CLI v0.46.0 dogfood `-p` probe on a throwaway store: the host account was rejected with `IneligibleTierError` (Gemini Code Assist for individuals ended) and only `session_started`/`session_ended` were recorded, so the Gemini `prompt` cell keeps its wired status with an ineligible-tier caveat — wiring is intact, per-account eligibility is reported by the doctor `gemini-host-eligibility` check. Previous: 2026-07-24 Codex CLI 0.145.0 interactive and headless/ephemeral marker probes; Kimi Code 0.27.0 live hook probe; no Traceary wiring yet — see docs/hooks/host-contract.json. Grok Build 0.2.101 re-probe for unobserved hooks + 0.2.99 fixtures; Antigravity CLI 1.1.1 and the current official hook contract; Gemini CLI re-verified 2026-06-10 against 0.43.0).",
+    "ja": "最終確認日: 2026-08-29（#2276 consolidation_request 行）。Claude/Codex/Kimi: Stop exit 2（既存）。Codex は UserPromptSubmit の plain text も注入。Gemini: BeforeAgent additionalContext（geminicli.com/docs/hooks/reference、2026-08-29 取得。AfterAgent deny は回答を捨てるため不採用）。Antigravity: Stop {decision:continue,reason}（antigravity.google/docs/hooks、2026-08-29 取得。payload→stdout テスト。live agy は merge gate ではない）。Grok: Stop {decision:block,reason} を exit 0 で出荷。host 受容は未検証（docs.x.ai は PreToolUse のみ blocking / passive では stdout 無視。changelog v0.2.107 2026-07-20 は Stop で継続可。local user-guide は decision:block）。最終確認日: 2026-08-21（Kimi Code 0.38.0 の隔離 `-p` probe（throwaway store）: `session_started`/`prompt`/`transcript` は記録されたが SessionEnd は一度も dispatch されなかったため、Kimi の `session_ended` cell は available へ降格。最終 live 観測は 0.27.0。Grok Build 1.0.5 の隔離 `-p`（user-level `~/.grok/hooks/traceary.json`、#2252）で throwaway store に `session_started`/`prompt`/`command_executed`/`transcript` を記録。plugin は listing のみ（`hookType=file`）。compact はこの probe に含まれず available のまま。Traceary user ファイルは SessionEnd 未配線。Gemini CLI v0.46.0 dogfood の `-p` probe（throwaway store）: host アカウントが `IneligibleTierError`（Gemini Code Assist for individuals 提供終了）で拒否され、`session_started`/`session_ended` のみ記録された。配線自体は健全なため Gemini の `prompt` cell は wired を維持し、ineligible-tier の caveat を付記する。アカウント単位の eligibility は doctor の `gemini-host-eligibility` check が報告する。過去分: 2026-07-24 Codex CLI 0.145.0 の interactive および headless/ephemeral marker probe。Kimi Code 0.27.0 の live hook probe。Traceary 側の配線は未実施 — docs/hooks/host-contract.json 参照。Grok Build 0.2.101 の未観測 hook 再 probe + 0.2.99 fixture、Antigravity CLI 1.1.1 と現行公式 hook contract。Gemini CLI は 2026-06-10 に 0.43.0 で再確認済み）。"
   },
   "lifecycle_events": [
     {
@@ -46,6 +46,13 @@
       "verification": {
         "en": "`traceary list --kind session_ended --limit 5`",
         "ja": "`traceary list --kind session_ended --limit 5`"
+      }
+    },
+    {
+      "id": "consolidation_request",
+      "verification": {
+        "en": "`traceary doctor --json` → the `consolidation-conversion` check",
+        "ja": "`traceary doctor --json` → `consolidation-conversion` check"
       }
     }
   ],
@@ -101,6 +108,13 @@
             "en": "● `SessionEnd`",
             "ja": "● `SessionEnd`"
           }
+        },
+        "consolidation_request": {
+          "status": "wired",
+          "summary": {
+            "en": "● `Stop` exit 2",
+            "ja": "● `Stop` exit 2"
+          }
         }
       }
     },
@@ -154,6 +168,13 @@
           "summary": {
             "en": "✕ no host session-end signal — Codex `Stop` is a per-response turn boundary, not a session end (#1170); ends via `traceary session end` or stale GC",
             "ja": "✕ host のセッション終了信号なし — Codex `Stop` は応答ごとの turn 境界でありセッション終了ではない (#1170)。終了は `traceary session end` または stale GC 経由"
+          }
+        },
+        "consolidation_request": {
+          "status": "wired",
+          "summary": {
+            "en": "● `Stop` exit 2 + `UserPromptSubmit` context",
+            "ja": "● `Stop` exit 2 + `UserPromptSubmit` context"
           }
         }
       }
@@ -209,6 +230,13 @@
             "en": "● `SessionEnd`",
             "ja": "● `SessionEnd`"
           }
+        },
+        "consolidation_request": {
+          "status": "wired",
+          "summary": {
+            "en": "● `BeforeAgent` `additionalContext`",
+            "ja": "● `BeforeAgent` `additionalContext`"
+          }
         }
       }
     },
@@ -262,6 +290,13 @@
           "summary": {
             "en": "✕ no host session-end signal — Antigravity `Stop` is a per-execution boundary, not a session end (#1170); ends via `traceary session end` or stale GC",
             "ja": "✕ host のセッション終了信号なし — Antigravity `Stop` は execution 単位の境界でありセッション終了ではない (#1170)。終了は `traceary session end` または stale GC 経由"
+          }
+        },
+        "consolidation_request": {
+          "status": "wired",
+          "summary": {
+            "en": "● `Stop` `{decision:continue,reason}`",
+            "ja": "● `Stop` `{decision:continue,reason}`"
           }
         }
       }
@@ -317,6 +352,13 @@
             "en": "○ documented `SessionEnd`; the plugin still declares it, but an isolated 0.38.0 `-p` probe (2026-08-21) recorded `session_started`/`prompt`/`transcript` with no SessionEnd dispatch; last live capture on 0.27.0",
             "ja": "○ `SessionEnd` は文書化済みで plugin も宣言しているが、0.38.0 の隔離 `-p` probe（2026-08-21）では `session_started`/`prompt`/`transcript` は記録されても SessionEnd は dispatch されなかった。最終 live 観測は 0.27.0"
           }
+        },
+        "consolidation_request": {
+          "status": "wired",
+          "summary": {
+            "en": "● `Stop` exit 2",
+            "ja": "● `Stop` exit 2"
+          }
         }
       }
     },
@@ -370,6 +412,13 @@
           "summary": {
             "en": "○ documented `SessionEnd`; 1.0.5 dispatches it to user-level hooks (cmux), but the Traceary user file does not subscribe yet",
             "ja": "○ `SessionEnd` は文書化済み。1.0.5 は user-level hook（cmux）へ dispatch するが、Traceary の user ファイルはまだ購読していない"
+          }
+        },
+        "consolidation_request": {
+          "status": "available",
+          "summary": {
+            "en": "○ `Stop` `{decision:block,reason}` shipped; host acceptance unverified (x.ai changelog v0.2.107, 2026-07-20)",
+            "ja": "○ `Stop` `{decision:block,reason}` 出荷済み。host 受容は未検証（x.ai changelog v0.2.107, 2026-07-20）"
           }
         }
       }

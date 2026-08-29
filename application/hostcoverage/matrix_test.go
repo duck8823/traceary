@@ -100,6 +100,62 @@ func TestLoad_KimiCoreEventsAreWired(t *testing.T) {
 	}
 }
 
+func TestLoad_ConsolidationRequestRow(t *testing.T) {
+	t.Parallel()
+
+	m, err := hostcoverage.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if m.LastVerified == "2026-08-21" {
+		t.Fatal("LastVerified is still 2026-08-21")
+	}
+	var row *hostcoverage.LifecycleEvent
+	for i := range m.LifecycleEvents {
+		if m.LifecycleEvents[i].ID == "consolidation_request" {
+			row = &m.LifecycleEvents[i]
+			break
+		}
+	}
+	if row == nil {
+		t.Fatal("missing consolidation_request lifecycle row")
+	}
+	if !strings.Contains(row.Verification.EN, "consolidation-conversion") {
+		t.Fatalf("verification = %q, want consolidation-conversion", row.Verification.EN)
+	}
+
+	tests := []struct {
+		host         string
+		wantStatus   hostcoverage.Status
+		wantContains []string
+	}{
+		{host: "claude", wantStatus: hostcoverage.StatusWired, wantContains: []string{"exit 2"}},
+		{host: "codex", wantStatus: hostcoverage.StatusWired, wantContains: []string{"exit 2", "UserPromptSubmit"}},
+		{host: "kimi", wantStatus: hostcoverage.StatusWired, wantContains: []string{"exit 2"}},
+		{host: "gemini", wantStatus: hostcoverage.StatusWired, wantContains: []string{"BeforeAgent"}},
+		{host: "antigravity", wantStatus: hostcoverage.StatusWired, wantContains: []string{"decision:continue"}},
+		{host: "grok", wantStatus: hostcoverage.StatusAvailable, wantContains: []string{"decision:block", "2026-07-20"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.host, func(t *testing.T) {
+			t.Parallel()
+			host, ok := m.HostByDoctorClient(tt.host)
+			if !ok {
+				t.Fatalf("missing host %s", tt.host)
+			}
+			cell := host.Events["consolidation_request"]
+			if cell.Status != tt.wantStatus {
+				t.Fatalf("status = %q, want %q", cell.Status, tt.wantStatus)
+			}
+			for _, sub := range tt.wantContains {
+				if !strings.Contains(cell.Summary.EN, sub) {
+					t.Fatalf("en summary %q missing %q", cell.Summary.EN, sub)
+				}
+			}
+		})
+	}
+}
+
 func TestLoad_KimiSessionEndedIsNotWired(t *testing.T) {
 	t.Parallel()
 
