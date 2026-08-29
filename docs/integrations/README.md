@@ -18,6 +18,7 @@ These packages all share the same runtime contract:
 | --- | --- |
 | Session hooks | records session start/end as Traceary events (Codex `Stop` is a per-turn boundary, not a session end — #1170) |
 | Shell audit hooks | records shell-command executions through `traceary audit` |
+| Tool capture | read-only file/list/grep tools store access metadata, not output text; mutating tools and shell keep full capture. See [capture contract](./capture-contract.md) |
 | Doctor flow | uses `traceary doctor --client <host>` for troubleshooting; add `--fix` to apply safe hook remediations and `--dry-run` to preview writes |
 | Versioning | integration packages are published together with Traceary releases |
 

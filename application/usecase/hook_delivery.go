@@ -8,6 +8,7 @@ import (
 
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/domain/types"
 )
 
 func hasStableHookDelivery(ctx context.Context) bool {
@@ -40,6 +41,13 @@ func commandAuditDeliveryFields(audit *model.CommandAudit) []string {
 	if value, ok := audit.ExitCode().Value(); ok {
 		exitCode = strconv.Itoa(value)
 	}
+	metadataJSON := ""
+	if metadata, ok := audit.OutputMetadata().Value(); ok {
+		encoded, err := types.EncodeReadOnlyOutputMetadata(metadata)
+		if err == nil {
+			metadataJSON = encoded
+		}
+	}
 	return []string{
 		"audit",
 		audit.Command(),
@@ -51,5 +59,11 @@ func commandAuditDeliveryFields(audit *model.CommandAudit) []string {
 		strconv.Itoa(audit.OutputOriginalBytes()),
 		exitCode,
 		strconv.FormatBool(audit.Failed()),
+		metadataJSON,
 	}
+}
+
+// CommandAuditDeliveryFieldsForTest exposes fingerprint fields for tests.
+func CommandAuditDeliveryFieldsForTest(audit *model.CommandAudit) []string {
+	return commandAuditDeliveryFields(audit)
 }

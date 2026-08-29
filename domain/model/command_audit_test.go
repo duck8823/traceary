@@ -9,6 +9,49 @@ import (
 	"github.com/duck8823/traceary/domain/types"
 )
 
+func TestCommandAudit_OutputMetadataRoundTripsThroughSnapshot(t *testing.T) {
+	t.Parallel()
+
+	eventID, err := types.EventIDFrom("event-1")
+	if err != nil {
+		t.Fatalf("EventIDFrom() error = %v", err)
+	}
+	audit, err := model.NewCommandAudit(eventID, "Read", `{"file_path":"README.md"}`, "", false, false)
+	if err != nil {
+		t.Fatalf("NewCommandAudit() error = %v", err)
+	}
+	metadata := types.ReadOnlyOutputMetadataOf([]string{"README.md"}, "hello", 64)
+	audit.SetReadOnlyOutputMetadata(metadata)
+
+	restored, err := model.CommandAuditFromSnapshot(model.CommandAuditSnapshot{
+		EventID:         eventID,
+		Command:         audit.Command(),
+		CommandName:     audit.CommandIdentity().Command(),
+		Input:           audit.Input(),
+		Output:          audit.Output(),
+		InputTruncated:  audit.InputTruncated(),
+		OutputTruncated: audit.OutputTruncated(),
+		FailureReason:   types.CommandFailureReasonUnknown,
+		OutputMetadata:  audit.OutputMetadata(),
+	})
+	if err != nil {
+		t.Fatalf("CommandAuditFromSnapshot() error = %v", err)
+	}
+	got, ok := restored.OutputMetadata().Value()
+	if !ok {
+		t.Fatal("OutputMetadata() is None after snapshot restore")
+	}
+	if diff := cmp.Diff(metadata.SHA256(), got.SHA256()); diff != "" {
+		t.Fatalf("SHA256 mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(metadata.Paths(), got.Paths()); diff != "" {
+		t.Fatalf("Paths mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff("", restored.Output()); diff != "" {
+		t.Fatalf("Output mismatch (-want +got):\n%s", diff)
+	}
+}
+
 func TestNewCommandAudit(t *testing.T) {
 	t.Parallel()
 

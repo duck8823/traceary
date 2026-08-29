@@ -6,8 +6,24 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+
 	"github.com/duck8823/traceary/domain"
 )
+
+func TestArchive_DoesNotCarryOutputMetadata(t *testing.T) {
+	t.Parallel()
+
+	columns := domain.ArchiveAuditV1Columns()
+	if diff := cmp.Diff(27, len(columns)); diff != "" {
+		t.Fatalf("ArchiveAuditV1Columns length mismatch (-want +got):\n%s", diff)
+	}
+	for _, column := range columns {
+		if column == "output_metadata" {
+			t.Fatal("v1 archive columns must stay frozen without output_metadata")
+		}
+	}
+}
 
 func TestHistoryUnitCanonicalBytesPreserveStorageClassesAndBytes(t *testing.T) {
 	eventValues := make([]domain.SQLiteValue, 23)

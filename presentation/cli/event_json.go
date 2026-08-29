@@ -222,6 +222,15 @@ func newCommandAuditOutput(audit *model.CommandAudit) *commandAudit {
 	if wrapper, ok := audit.CommandIdentity().Wrapper().Value(); ok {
 		out.Wrapper = wrapper.String()
 	}
+	if metadata, ok := audit.OutputMetadata().Value(); ok {
+		out.OutputMetadata = &commandAuditOutputMetadata{
+			Capture:   "metadata_only",
+			Paths:     metadata.Paths(),
+			Bytes:     metadata.Bytes(),
+			SHA256:    metadata.SHA256(),
+			Truncated: metadata.Truncated(),
+		}
+	}
 	classification := sensitivepath.Classify(sensitivepath.Input{
 		Command:         audit.Command(),
 		Input:           audit.Input(),

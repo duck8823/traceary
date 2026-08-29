@@ -233,7 +233,9 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 		wrapper = value.String()
 	}
 	auditHasCodec := codecMetadata
-	auditQuery := insertCommandAuditQuery
+	columns := []string{"event_id", "command_text", "command_wrapper", "command_name",
+		"input_text", "output_text", "input_truncated", "output_truncated",
+		"input_original_bytes", "output_original_bytes", "exit_code", "failed", "failure_reason"}
 	auditArgs := []any{
 		audit.EventID().String(),
 		storedBodyArg(commandPayload),
@@ -249,17 +251,32 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 		audit.Failed(),
 		audit.FailureReason().String()}
 	if auditHasCodec {
-		auditQuery = `INSERT INTO command_audits(event_id, command_text, command_wrapper, command_name, input_text, output_text,
-input_truncated, output_truncated, input_original_bytes, output_original_bytes, exit_code, failed, failure_reason,
-command_codec, command_format_version, command_plaintext_bytes, command_encoded_bytes, command_sha256,
-input_codec, input_format_version, input_plaintext_bytes, input_encoded_bytes, input_sha256,
-output_codec, output_format_version, output_plaintext_bytes, output_encoded_bytes, output_sha256)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		columns = append(columns,
+			"command_codec", "command_format_version", "command_plaintext_bytes", "command_encoded_bytes", "command_sha256",
+			"input_codec", "input_format_version", "input_plaintext_bytes", "input_encoded_bytes", "input_sha256",
+			"output_codec", "output_format_version", "output_plaintext_bytes", "output_encoded_bytes", "output_sha256")
 		auditArgs = append(auditArgs,
 			commandPayload.Codec, commandPayload.FormatVersion, commandPayload.PlaintextBytes, commandPayload.StoredBytes, commandPayload.SHA256,
 			inputPayload.Codec, inputPayload.FormatVersion, inputPayload.PlaintextBytes, inputPayload.StoredBytes, inputPayload.SHA256,
 			outputPayload.Codec, outputPayload.FormatVersion, outputPayload.PlaintextBytes, outputPayload.StoredBytes, outputPayload.SHA256)
 	}
+	if metadata, ok := audit.OutputMetadata().Value(); ok {
+		hasMetadataColumn, err := transactionColumnExists(ctx, tx, "command_audits", "output_metadata")
+		if err != nil {
+			return xerrors.Errorf("inspect command audit output metadata column: %w", err)
+		}
+		if hasMetadataColumn {
+			encoded, err := encodeCommandAuditOutputMetadata(metadata)
+			if err != nil {
+				return err
+			}
+			columns = append(columns, "output_metadata")
+			auditArgs = append(auditArgs, encoded)
+		}
+	}
+	placeholders := strings.Repeat("?, ", len(columns))
+	placeholders = placeholders[:len(placeholders)-2]
+	auditQuery := "INSERT INTO command_audits(" + strings.Join(columns, ", ") + ") VALUES (" + placeholders + ")"
 	if _, err := tx.ExecContext(ctx, auditQuery, auditArgs...); err != nil {
 		return xerrors.Errorf("failed to insert command audit: %w", err)
 	}

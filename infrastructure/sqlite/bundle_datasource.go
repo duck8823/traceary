@@ -120,7 +120,7 @@ func (d *BundleDatasource) ListBundleCommandAudits(ctx context.Context) ([]*mode
 		}
 	}()
 	rows, err := db.QueryContext(ctx, `
-SELECT event_id, command_text, command_wrapper, command_name, input_text, output_text, input_truncated, output_truncated, input_original_bytes, output_original_bytes, exit_code, failed, failure_reason
+SELECT event_id, command_text, command_wrapper, command_name, input_text, output_text, input_truncated, output_truncated, input_original_bytes, output_original_bytes, exit_code, failed, failure_reason, output_metadata
 FROM command_audits
 ORDER BY event_id`)
 	if err != nil {
@@ -695,6 +695,15 @@ output_plaintext_bytes=excluded.output_plaintext_bytes, output_encoded_bytes=exc
 	}
 	_, err = t.tx.ExecContext(ctx, query, args...)
 	if err == nil {
+		if metadata, ok := audit.OutputMetadata().Value(); ok {
+			encoded, encErr := encodeCommandAuditOutputMetadata(metadata)
+			if encErr != nil {
+				return false, encErr
+			}
+			if _, updErr := t.tx.ExecContext(ctx, `UPDATE command_audits SET output_metadata = ? WHERE event_id = ?`, encoded, audit.EventID().String()); updErr != nil {
+				return false, xerrors.Errorf("failed to import command audit output metadata %s: %w", audit.EventID(), updErr)
+			}
+		}
 		return true, nil
 	}
 	if policy == usecase.BundleConflictSkip && isSQLiteUniqueOrPKConflict(err) {
@@ -1083,6 +1092,7 @@ func scanBundleCommandAudit(row interface {
 		exitCode        sql.NullInt64
 		failed          sql.NullBool
 		failureReason   string
+		outputMetadata  sql.NullString
 	)
 	if err := row.Scan(
 		&eventID,
@@ -1098,6 +1108,7 @@ func scanBundleCommandAudit(row interface {
 		&exitCode,
 		&failed,
 		&failureReason,
+		&outputMetadata,
 	); err != nil {
 		return nil, xerrors.Errorf("scan command audit: %w", err)
 	}
@@ -1105,13 +1116,18 @@ func scanBundleCommandAudit(row interface {
 	if commandWrapper != "" {
 		wrapper = types.Some(types.CommandName(commandWrapper))
 	}
+	decodedMetadata, metadataErr := decodeCommandAuditOutputMetadata(outputMetadata.String)
+	if metadataErr != nil {
+		return nil, xerrors.Errorf("restore command audit output metadata: %w", metadataErr)
+	}
 	audit, err := model.CommandAuditFromSnapshot(model.CommandAuditSnapshot{
 		EventID: types.EventID(eventID), Command: commandText, Wrapper: wrapper,
 		CommandName: types.CommandName(commandName), Input: inputText, Output: outputText,
 		InputTruncated: inputTruncated, OutputTruncated: outputTruncated,
 		InputOriginalBytes: inputOriginal, OutputOriginalBytes: outputOriginal,
 		ExitCode: optionalIntFromNullInt64(exitCode), Failed: failed.Bool,
-		FailureReason: types.CommandFailureReason(failureReason),
+		FailureReason:  types.CommandFailureReason(failureReason),
+		OutputMetadata: decodedMetadata,
 	})
 	if err != nil {
 		return nil, xerrors.Errorf("restore command audit: %w", err)

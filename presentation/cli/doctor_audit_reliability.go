@@ -193,6 +193,12 @@ func newCommandAuditDuplicateGroupKey(event *model.Event, audit *model.CommandAu
 	if value, ok := audit.ExitCode().Value(); ok {
 		exitCode = strconv.Itoa(value)
 	}
+	metadataJSON := ""
+	if metadata, ok := audit.OutputMetadata().Value(); ok {
+		if encoded, err := types.EncodeReadOnlyOutputMetadata(metadata); err == nil {
+			metadataJSON = encoded
+		}
+	}
 	return commandAuditDuplicateGroupKey{
 		Client:          event.Client().String(),
 		Agent:           event.Agent().String(),
@@ -205,6 +211,7 @@ func newCommandAuditDuplicateGroupKey(event *model.Event, audit *model.CommandAu
 		OutputTruncated: audit.OutputTruncated(),
 		ExitCode:        exitCode,
 		Failed:          audit.Failed(),
+		OutputMetadata:  metadataJSON,
 	}
 }
 

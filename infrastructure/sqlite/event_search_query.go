@@ -19,7 +19,7 @@ SELECT e.id, e.kind, e.client, e.agent, e.session_id, e.workspace,
        e.body, e.body_availability, e.source_hook, e.created_at,
        ca.command_wrapper, ca.command_name,
        ca.input_truncated, ca.output_truncated,
-       ca.input_original_bytes, ca.output_original_bytes, ca.exit_code, ca.failed, ca.failure_reason
+       ca.input_original_bytes, ca.output_original_bytes, ca.exit_code, ca.failed, ca.failure_reason, ca.output_metadata
   FROM events e
   LEFT JOIN command_audits ca ON ca.event_id = e.id
  WHERE e.id IN (SELECT CAST(value AS TEXT) FROM json_each(?))
@@ -262,7 +262,11 @@ func hydrateEventSearchCandidates(
 	if err != nil {
 		return nil, err
 	}
-	rows, err := queryer.QueryContext(ctx, hydrateEventSearchCandidatesQuery, encoded)
+	var hasOutputMetadata int
+	if err := queryer.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM pragma_table_info('command_audits') WHERE name='output_metadata')`).Scan(&hasOutputMetadata); err != nil {
+		return nil, xerrors.Errorf("inspect command audit output metadata column: %w", err)
+	}
+	rows, err := queryer.QueryContext(ctx, auditQueryWithOptionalOutputMetadata(hydrateEventSearchCandidatesQuery, hasOutputMetadata != 0), encoded)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to hydrate event search candidates: %w", err)
 	}

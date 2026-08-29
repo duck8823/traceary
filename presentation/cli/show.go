@@ -93,6 +93,29 @@ func writeEventDetails(output io.Writer, eventDetails apptypes.EventDetails) err
 		exitCodeDisplay = fmt.Sprintf("%d", exitCode)
 	}
 
+	if metadata, ok := commandAudit.OutputMetadata().Value(); ok {
+		if _, err := fmt.Fprintf(
+			output,
+			"\nCOMMAND: %s\nEXIT_CODE: %s\nINPUT_TRUNCATED: %t\nINPUT:\n%s\nOUTPUT_TRUNCATED: %t\nOUTPUT: %s\n",
+			commandAudit.Command(),
+			exitCodeDisplay,
+			commandAudit.InputTruncated(),
+			commandAudit.Input(),
+			commandAudit.OutputTruncated(),
+			Localize("(metadata only: read-only tool)", "(metadata only: 読み取り専用ツール)"),
+		); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print command audit details", "command audit 詳細の出力に失敗しました"), err)
+		}
+		if paths := metadata.Paths(); len(paths) > 0 {
+			if _, err := fmt.Fprintf(output, "  paths: %s\n", strings.Join(paths, ", ")); err != nil {
+				return xerrors.Errorf("%s: %w", Localize("failed to print command audit details", "command audit 詳細の出力に失敗しました"), err)
+			}
+		}
+		if _, err := fmt.Fprintf(output, "  bytes: %d\n  sha256: %s\n  truncated: %t\n", metadata.Bytes(), metadata.SHA256(), metadata.Truncated()); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print command audit details", "command audit 詳細の出力に失敗しました"), err)
+		}
+		return nil
+	}
 	if _, err := fmt.Fprintf(
 		output,
 		"\nCOMMAND: %s\nEXIT_CODE: %s\nINPUT_TRUNCATED: %t\nINPUT:\n%s\nOUTPUT_TRUNCATED: %t\nOUTPUT:\n%s\n",

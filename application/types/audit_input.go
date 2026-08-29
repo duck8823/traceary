@@ -26,4 +26,11 @@ type AuditInput struct {
 	// FailureReason carries protocol-derived structured evidence. Its zero
 	// value means unavailable; command payload text is never parsed as a reason.
 	FailureReason domtypes.CommandFailureReason
+	// Host is the hook client argument ("claude", "grok", …). It is empty for
+	// the manual `traceary audit` command, whose captures stay full.
+	Host domtypes.Client
+	// ToolName is the host-native tool name from the hook payload.
+	ToolName string
+	// ToolInput is the decoded tool_input object used to extract access targets.
+	ToolInput map[string]any
 }

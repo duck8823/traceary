@@ -740,6 +740,7 @@ type commandAuditDuplicateGroupKey struct {
 	OutputTruncated bool
 	ExitCode        string
 	Failed          bool
+	OutputMetadata  string
 }
 
 type commandAuditWorkspaceDriftSample struct {

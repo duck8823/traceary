@@ -156,6 +156,13 @@ func encodeCommandAuditsNDJSON(audits []*model.CommandAudit) (*bytes.Buffer, err
 		if exitCode, ok := audit.ExitCode().Value(); ok {
 			row.ExitCode = &exitCode
 		}
+		if metadata, ok := audit.OutputMetadata().Value(); ok {
+			encoded, err := types.EncodeReadOnlyOutputMetadata(metadata)
+			if err != nil {
+				return nil, xerrors.Errorf("encode command audit output metadata: %w", err)
+			}
+			row.OutputMetadata = encoded
+		}
 		if err := enc.Encode(row); err != nil {
 			return nil, xerrors.Errorf("encode command audit: %w", err)
 		}
