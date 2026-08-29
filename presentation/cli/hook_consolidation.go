@@ -12,15 +12,15 @@ import (
 	"github.com/duck8823/traceary/presentation"
 )
 
-// consolidationExitCode is the host-facing exit status that requests the
-// agent continue and fold the session. Host mechanisms:
+// consolidationExitCode is the host-facing exit status that asks the agent to
+// continue and fold the session. All three allowlisted hosts read the same
+// mechanism: exit 2 with the reason on stderr.
+//   - Claude Code: exit 2 blocks the stop and feeds stderr to the model
+//   - Codex CLI:   exit 2 + stderr is the documented continuation form
+//   - Kimi Code:   exit 2 appends a continuation message for the model
 //
-//   - Claude Code: exit 2 continues the conversation
-//   - Codex CLI: {"decision":"block","reason":...} (stderr reason + exit 2)
-//   - Kimi Code: exit 2 appends a continuation message for the model
-//
-// Gemini and Antigravity treat a non-zero stop exit as a plain failure, so
-// they are not on the allowlist below.
+// Gemini, Antigravity and Grok treat a non-zero stop exit as a plain failure
+// (Grok has no Stop surface that continues), so they are not on the allowlist.
 const consolidationExitCode = 2
 
 // consolidationStopClients are hosts whose stop / AfterAgent hook surface
@@ -122,6 +122,11 @@ func (c *RootCLI) requestConsolidationIfDue(
 	}
 	c.applyDatabasePath(resolvedDBPath)
 
+	if suppressed, why := c.consolidationRequestSuppressed(ctx, sessionID, payload); suppressed {
+		slog.Debug("consolidation request suppressed", "session_id", sessionID.String(), "why", why)
+		return nil
+	}
+
 	result, err := c.consolidationPressure.Check(ctx, sessionID, threshold)
 	if err != nil {
 		// Locked / unreachable DB, missing rows, anything: exit 0.
@@ -132,15 +137,53 @@ func (c *RootCLI) requestConsolidationIfDue(
 		return nil
 	}
 
+	atEventID := c.latestSessionEventID(ctx, sessionID)
 	// Measurement is best-effort and must never change the decision. Every
 	// failure below logs at debug and falls through to the exit-2 return: the
 	// request is still delivered, only the bookkeeping is lost.
-	c.recordConsolidationRequest(ctx, sessionID, client, result, threshold)
+	c.recordConsolidationRequest(ctx, sessionID, client, result, threshold, atEventID)
 
 	return consolidationExitError{
-		message:  formatConsolidationReason(sessionID, result),
+		message:  formatConsolidationReason(sessionID, result, atEventID),
 		exitCode: consolidationExitCode,
 	}
+}
+
+// consolidationRequestSuppressed is the single "may this Stop ask?" gate.
+// why is "stop_hook_active" or "request_open" and is logged at Debug only.
+// Any internal failure returns (false, "") so the ask is still delivered.
+func (c *RootCLI) consolidationRequestSuppressed(
+	ctx context.Context,
+	sessionID types.SessionID,
+	payload []byte,
+) (bool, string) {
+	if hookPayloadBool(payload, "stop_hook_active") {
+		return true, "stop_hook_active"
+	}
+	if c.consolidationRequest == nil {
+		return false, ""
+	}
+	open, err := c.consolidationRequest.HasOpenRequest(ctx, sessionID)
+	if err != nil {
+		slog.Debug("consolidation open-request lookup failed open", "session_id", sessionID.String(), "error", err)
+		return false, ""
+	}
+	if open {
+		return true, "request_open"
+	}
+	return false, ""
+}
+
+func (c *RootCLI) latestSessionEventID(ctx context.Context, sessionID types.SessionID) types.Optional[types.EventID] {
+	if c.sessionEventOrder == nil {
+		return types.None[types.EventID]()
+	}
+	latest, err := c.sessionEventOrder.LatestEventID(ctx, sessionID)
+	if err != nil {
+		slog.Debug("consolidation latest event lookup failed", "session_id", sessionID.String(), "error", err)
+		return types.None[types.EventID]()
+	}
+	return latest
 }
 
 const consolidationSignalBodyBytes = usecase.ConsolidationSignalBodyBytes
@@ -154,17 +197,12 @@ func (c *RootCLI) recordConsolidationRequest(
 	client string,
 	result usecase.ConsolidationPressureResult,
 	threshold int64,
+	atEventID types.Optional[types.EventID],
 ) {
-	if c.consolidationRequest == nil || c.sessionEventOrder == nil {
+	if c.consolidationRequest == nil {
 		return
 	}
-	latest, err := c.sessionEventOrder.LatestEventID(ctx, sessionID)
-	if err != nil {
-		slog.Debug("consolidation request not recorded: latest event lookup failed",
-			"session_id", sessionID.String(), "error", err)
-		return
-	}
-	atEventID, ok := latest.Value()
+	eventID, ok := atEventID.Value()
 	if !ok {
 		slog.Debug("consolidation request not recorded: session has no events",
 			"session_id", sessionID.String())
@@ -173,7 +211,7 @@ func (c *RootCLI) recordConsolidationRequest(
 	recorded, err := c.consolidationRequest.Record(ctx, usecase.ConsolidationRequestInput{
 		SessionID:      sessionID,
 		Client:         client,
-		AtEventID:      atEventID,
+		AtEventID:      eventID,
 		Signal:         consolidationSignalBodyBytes,
 		PressureValue:  result.PressureBytes,
 		ThresholdValue: threshold,
@@ -190,20 +228,25 @@ func (c *RootCLI) recordConsolidationRequest(
 // formatConsolidationReason is the only channel that reaches the agent. Keep
 // it short: English, no ANSI, no emoji. When a previous refinement exists,
 // include its summary and covers_to so the agent can merge rather than rewrite.
-func formatConsolidationReason(sessionID types.SessionID, result usecase.ConsolidationPressureResult) string {
+func formatConsolidationReason(sessionID types.SessionID, result usecase.ConsolidationPressureResult, atEventID types.Optional[types.EventID]) string {
+	coversTo := "<event-id>"
+	if id, ok := atEventID.Value(); ok {
+		coversTo = id.String()
+	}
 	var b strings.Builder
 	fmt.Fprintf(&b,
-		"[Traceary] Session %s has unrefined material at or above the consolidation threshold (%d bytes). "+
-			"Write a session refinement with `traceary session refine` covering this session's events so far. "+
-			"State why the work was undertaken and what changed; if useful, include how it went, including approaches tried and rejected.",
+		"[Traceary] Session %s has %d bytes of unrefined material at or above the consolidation threshold. Use the traceary-session-refine skill: say why the work was undertaken and what changed; how it went is optional.\n"+
+			"Run: traceary session refine %s --covers-to %s --summary \"<why + what changed>\" --produced-by agent",
 		sessionID.String(),
 		result.PressureBytes,
+		sessionID.String(),
+		coversTo,
 	)
 	if summary, ok := result.PreviousSummary.Value(); ok {
-		coversTo, _ := result.PreviousCoversTo.Value()
+		prev, _ := result.PreviousCoversTo.Value()
 		fmt.Fprintf(&b,
-			" Merge with the previous summary (covers_to=%s): %s",
-			coversTo.String(),
+			"\nMerge with the previous summary (covers_to=%s) rather than rewriting it: %s",
+			prev.String(),
 			summary,
 		)
 	}

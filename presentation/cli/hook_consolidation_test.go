@@ -3,6 +3,7 @@ package cli_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
@@ -50,6 +52,7 @@ func TestHookTranscript_ConsolidationPressure(t *testing.T) {
 		recordErr         error // when set, transcript Log fails; consolidation must not fire
 		noExtractableText bool  // omit assistant text so extractor fail-softs (recorded=false)
 		unresolvedSession bool  // force session resolve to empty (recorded=false, err=nil)
+		stopHookActive    bool  // payload carries stop_hook_active:true (continuation a hook caused)
 		wantExitCode      int
 		wantStderrSub     []string
 		wantNoFire        bool // pressure usecase must not be consulted (host gate / disabled / record fail / fail-soft skip)
@@ -71,8 +74,17 @@ func TestHookTranscript_ConsolidationPressure(t *testing.T) {
 				"why the work was undertaken",
 				"what changed",
 				"how it went",
-				"approaches tried and rejected",
+				"traceary-session-refine",
+				"--produced-by agent",
 			},
+		},
+		{
+			name:           "stop_hook_active true suppresses the request even when over threshold",
+			client:         "claude",
+			seedBytes:      65 * 1024,
+			stopHookActive: true,
+			wantExitCode:   0,
+			wantNoFire:     true,
 		},
 		{
 			name:           "previous refinement summary and covers_to appear in reason",
@@ -263,6 +275,9 @@ func TestHookTranscript_ConsolidationPressure(t *testing.T) {
 			// message field the durable path fail-softs. With a successful
 			// record path, consolidation still runs on the session_id.
 			payload := `{"session_id":"` + sessionID + `","cwd":"/tmp","last_assistant_message":"ok","prompt_response":"ok"}`
+			if tt.stopHookActive {
+				payload = `{"session_id":"` + sessionID + `","cwd":"/tmp","last_assistant_message":"ok","prompt_response":"ok","stop_hook_active":true}`
+			}
 			if tt.noExtractableText {
 				// Keep session_id so resolution would succeed; omit assistant
 				// text so the extractor returns no blocks (recorded=false).
@@ -450,7 +465,7 @@ func TestHookKimiStop_ConsolidationPressure(t *testing.T) {
 		if diff := cmp.Diff(2, gotCode); diff != "" {
 			t.Fatalf("exit code mismatch (-want +got):\n%s; message=%q", diff, message)
 		}
-		for _, sub := range []string{sessionID, "unrefined material"} {
+		for _, sub := range []string{sessionID, "unrefined material", "traceary-session-refine"} {
 			if !strings.Contains(message, sub) {
 				t.Fatalf("reason %q does not contain %q", message, sub)
 			}
@@ -475,6 +490,119 @@ func TestHookKimiStop_ConsolidationPressure(t *testing.T) {
 			t.Fatalf("pressure usecase calls = %d, want %d (idempotent skip must not re-check)", stub.calls, callsBefore)
 		}
 	})
+}
+
+func TestHookKimiStop_ConsolidationPressure_StopHookActiveSuppresses(t *testing.T) {
+	// Separate fixture: Kimi's turn marker is per-store, so this must be the
+	// first recording firing — not a second Stop on the sequential pair above.
+	const sessionID = "session_00000000-0000-4000-8000-000000000001"
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("TRACEARY_HOOK_STATE_DIR", t.TempDir())
+	t.Setenv("TRACEARY_WORKSPACE", "github.com/dogfood/test")
+	cli.SetUserHomeDirFunc(func() (string, error) { return home, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+
+	seedKimiSession(t, home, sessionID, []string{
+		`{"type":"metadata","protocol_version":"1.4","created_at":1784466738324}`,
+		`{"type":"context.append_loop_event","event":{"type":"content.part","turnId":"0","part":{"type":"text","text":"kimi stop consolidation probe"}}}`,
+	})
+
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	db := sqliteinfra.NewDatabase(dbPath, os.DirFS(filepath.Join("..", "..", "schema", "sqlite", "migrations")))
+	eventDS := sqliteinfra.NewEventDatasource(db)
+	sessionDS := sqliteinfra.NewSessionDatasource(db)
+	storeUC := usecase.NewStoreManagementUsecase(sqliteinfra.NewStoreManagementDatasource(db))
+	eventUC := usecase.NewEventUsecase(eventDS, eventDS)
+	if err := storeUC.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+
+	base := time.Date(2026, 8, 8, 12, 0, 0, 0, time.UTC)
+	session := model.NewSession(types.SessionID(sessionID), base, "cli", "kimi", "ws")
+	start, err := model.NewEventWithClock(
+		"evt-start", types.EventKindSessionStarted, "cli", "kimi",
+		types.SessionID(sessionID), "ws", "start",
+		fixedClock{at: base},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sessionDS.SaveBoundary(ctx, session, start); err != nil {
+		t.Fatal(err)
+	}
+	heavy, err := model.NewEventWithClock(
+		"evt-heavy", types.EventKindNote, "cli", "kimi",
+		types.SessionID(sessionID), "ws", strings.Repeat("x", 65*1024),
+		fixedClock{at: base.Add(time.Second)},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := eventDS.Save(ctx, heavy); err != nil {
+		t.Fatal(err)
+	}
+
+	stub := &consolidationPressureStub{
+		result: usecase.ConsolidationPressureResult{
+			PressureBytes: 65 * 1024,
+			Due:           true,
+		},
+	}
+
+	var fixture map[string]any
+	if err := json.Unmarshal([]byte(readKimiFixture(t, "stop.json")), &fixture); err != nil {
+		t.Fatalf("unmarshal Kimi stop fixture: %v", err)
+	}
+	fixture["stop_hook_active"] = true
+	payload, err := json.Marshal(fixture)
+	if err != nil {
+		t.Fatalf("marshal toggled Kimi stop fixture: %v", err)
+	}
+
+	stderr := &bytes.Buffer{}
+	rootCmd := cli.NewRootCLI(
+		cli.WithStoreManagement(storeUC),
+		cli.WithEvent(eventUC),
+		cli.WithConsolidationPressure(stub),
+		cli.WithDatabasePathSetter(db.SetPath),
+	).Command()
+	rootCmd.SetIn(bytes.NewReader(payload))
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetErr(stderr)
+	rootCmd.SetArgs([]string{"hook", "kimi", "stop", "--db-path", dbPath})
+
+	execErr := rootCmd.Execute()
+	gotCode := 0
+	message := ""
+	if execErr != nil {
+		var coder interface{ ExitCode() int }
+		if errors.As(execErr, &coder) {
+			gotCode = coder.ExitCode()
+			message = execErr.Error()
+		} else {
+			t.Fatalf("Execute() error = %v (type %T), want ExitCode or nil", execErr, execErr)
+		}
+	}
+	if gotCode != 0 {
+		t.Fatalf("exit code = %d, want 0; message=%q", gotCode, message)
+	}
+	if strings.Contains(message, "unrefined material") {
+		t.Fatalf("unexpected consolidation reason: %q", message)
+	}
+	if stub.calls != 0 {
+		t.Fatalf("pressure usecase calls = %d, want 0", stub.calls)
+	}
+
+	listed, err := eventUC.List(ctx, apptypes.NewEventListCriteriaBuilder(10).Kind(types.EventKindTranscript).Build())
+	if err != nil {
+		t.Fatalf("List(transcript) error = %v", err)
+	}
+	if len(listed) == 0 {
+		t.Fatal("expected a transcript row to persist; suppression must not skip recording")
+	}
 }
 
 func TestLoadConfig_ConsolidationThreshold(t *testing.T) {
