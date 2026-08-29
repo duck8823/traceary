@@ -337,6 +337,22 @@ func (d *Database) open(ctx context.Context) (_ *sql.DB, err error) {
 	return d.openAt(ctx, d.Path())
 }
 
+// openO1ReadOnly opens mode=ro with busy_timeout(0) and no coordinated
+// lease, matching the large-store doctor page-metadata probe. A live
+// writer fails the ping immediately instead of waiting on the shared lease.
+func (d *Database) openO1ReadOnly(ctx context.Context) (_ *sql.DB, err error) {
+	db, err := sql.Open("sqlite", sqliteO1ReadOnlyDSN(d.Path()))
+	if err != nil {
+		return nil, xerrors.Errorf("failed to open O(1) read-only SQLite DB: %w", err)
+	}
+	db.SetMaxOpenConns(1)
+	if err := db.PingContext(ctx); err != nil {
+		_ = db.Close()
+		return nil, xerrors.Errorf("failed to ping O(1) read-only SQLite DB: %w", err)
+	}
+	return db, nil
+}
+
 // openReadOnly opens the current database without journal-mode or schema
 // side effects. Preview commands use this path so a dry-run cannot create or
 // migrate a store, change database content, or change file permissions. SQLite

@@ -258,6 +258,34 @@ func TestConsolidationRequestDatasource_ConversionSinceGroupsAndWindows(t *testi
 	}
 }
 
+func TestConversionSinceDoesNotWaitOnExclusiveStoreLease(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fx := newConsolidationLedgerFixture(t)
+	now := time.Now().UTC()
+	if _, err := fx.ledger.Save(ctx, mustConsolidationRequest(t, "sess-a", "claude", now, "evt-a", 1, 100, false)); err != nil {
+		t.Fatal(err)
+	}
+	release, err := (sqlite.StoreLeaseCoordinator{}).AcquireExclusive(ctx, fx.dbPath)
+	if err != nil {
+		t.Fatalf("AcquireExclusive() error = %v", err)
+	}
+	t.Cleanup(release)
+
+	started := time.Now()
+	rows, err := fx.ledger.ConversionSince(ctx, now.Add(-time.Hour))
+	elapsed := time.Since(started)
+	if elapsed > time.Second {
+		t.Fatalf("ConversionSince took %s under exclusive lease, want fail-soft O(1) open", elapsed)
+	}
+	if err != nil {
+		t.Fatalf("ConversionSince() error = %v, want O(1) mode=ro read without the coordinated lease", err)
+	}
+	if len(rows) != 1 || rows[0].Requests != 1 {
+		t.Fatalf("rows = %+v, want the saved conversion row", rows)
+	}
+}
+
 func TestConsolidationRequestDatasource_RefinementAuthorshipSince(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
