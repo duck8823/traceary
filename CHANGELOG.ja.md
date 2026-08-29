@@ -7,6 +7,9 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 
 ## [Unreleased]
 
+### Added
+- **due な refinement 依頼を Gemini / Antigravity / Grok と Codex の prompt 第二経路でも届ける（#2276）。** 仕事量トリガー（`min_commands` 20 / `stop_cadence` 8）と #2273 ledger は変えない。Claude / Codex / Kimi の `Stop` は従来どおり exit 2。Codex `UserPromptSubmit` は plain text（exit 0）。Gemini `BeforeAgent` は `additionalContext` JSON を 1 オブジェクトだけ書く。Antigravity `Stop` は ledger 行が書けたときだけ `{decision:continue,reason}`。Grok `Stop` は `{decision:block,reason}` を書き **常に exit 0**（docs.x.ai は `Stop` を passive と記述。changelog v0.2.107 2026-07-20 と local user-guide は envelope を名指し。host 受容は未検証）。Stop envelope と prompt context は `additional_context` token を共有し、channel は `(client, delivery)`。スキーマなし、SKILL.md 編集なし、store サブコマンド追加なし。rollback は `consolidation.min_commands: 0` または `consolidation.stop_cadence: 0`。親 #2263 は open のまま。
+
 ### Changed
 - **Stop-hook の consolidation は仕事量ベース（`min_commands` 20 / `stop_cadence` 8）になり、body バイトでは発火しない（#2274）。** main セッションは `covers_to` 以降の `command_executed` が 20 件に達すると依頼される。最初の依頼に cadence 窓は不要。再依頼は直近 request の後に transcript が 8 件必要（refine outcome を問わない）。サブエージェントセッションは依頼しない。`stop_hook_active` は引き続き抑制する。`consolidation.threshold_bytes` はパースして無視し、明示時はプロセスあたり 1 回 `[WARN]`。次の minor で削除。cadence / count の lookup 失敗は fail-closed（依頼しない）。ledger insert は fail-open（依頼は届ける）。スキーマ変更なし。親 #2263 は open のまま。
 - **既定の `store compact` が未 refine の破棄対象へ機械要約を書いて本文を破棄する（#2268）。** `--force` は削除（unknown flag。渡しているスクリプトは失敗する）。opt-out は `--refuse-unrefined` のみ。一部だけ fold 済みのストアも、残りを同じ run で被覆する。JSON は既存カウンタを残し `covered_sessions`、`discarded_body_bytes`、`steps.mechanical_cover` を追加する（`bytes_reclaimed` は 0。cover は認可、解放は discard）。`unrefined_remaining` はゼロ前提ではなく cover 後の計測。`discarded_body_bytes` は破棄直前の認可済み本文サイズであり `bytes_before - bytes_after` ではない。スキーマ変更なし。親 #2263 は open のまま。

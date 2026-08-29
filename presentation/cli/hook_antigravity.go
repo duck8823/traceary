@@ -287,7 +287,8 @@ func (c *RootCLI) runHookAntigravityPostToolUse(ctx context.Context, output io.W
 // kept open (memory auto-extract still fires). Output keeps the agent stopped
 // with {"decision":""}.
 func (c *RootCLI) runHookAntigravityStop(ctx context.Context, output io.Writer, input io.Reader, dbPath string) error {
-	defer func() { _ = writeAntigravityJSON(output, map[string]any{"decision": ""}) }()
+	envelope := map[string]any{"decision": ""}
+	defer func() { _ = writeAntigravityJSON(output, envelope) }()
 
 	payload, err := readHookPayload(input)
 	if err != nil {
@@ -304,6 +305,7 @@ func (c *RootCLI) runHookAntigravityStop(ctx context.Context, output io.Writer, 
 		transcriptBlocks: turn.Blocks,
 		turnResolved:     turnState != antigravityTurnSchemaAbsent,
 		promptID:         turn.StepID,
+		stopHookActive:   hookPayloadBool(payload, "stop_hook_active"),
 	})
 
 	// Antigravity exposes no direct prompt field on PreInvocation. Recover the
@@ -313,9 +315,15 @@ func (c *RootCLI) runHookAntigravityStop(ctx context.Context, output io.Writer, 
 	if promptErr != nil {
 		slog.Debug("antigravity stop prompt failed", "session_id", sessionID, "error", promptErr)
 	}
-	_, transcriptErr := c.runHookTranscript(ctx, bytes.NewReader(normalized), antigravityHookClient, dbPath)
+	recorded, transcriptErr := c.runHookTranscript(ctx, bytes.NewReader(normalized), antigravityHookClient, dbPath)
 	if transcriptErr != nil {
 		slog.Debug("antigravity stop transcript failed", "session_id", sessionID, "error", transcriptErr)
+	}
+	if output != nil && recorded {
+		req, ok := c.consolidationRequestIfDue(ctx, antigravityHookClient, normalized, dbPath)
+		if ok && c.recordConsolidationRequest(ctx, req, types.ConsolidationDeliveryAdditionalContext) {
+			envelope = antigravityStopEnvelope(req, true)
+		}
 	}
 	if err := c.runHookSession(ctx, nil, bytes.NewReader(normalized), antigravityHookClient, "stop", dbPath); err != nil {
 		return err
@@ -348,6 +356,7 @@ type antigravityNormalizeOptions struct {
 	toolName         string
 	toolCommand      string
 	errMessage       string
+	stopHookActive   bool
 }
 
 // normalizeAntigravityPayload builds an internal snake_case payload from the
@@ -389,6 +398,9 @@ func normalizeAntigravityPayload(opts antigravityNormalizeOptions) []byte {
 	}
 	if strings.TrimSpace(opts.errMessage) != "" {
 		normalized["error"] = opts.errMessage
+	}
+	if opts.stopHookActive {
+		normalized["stop_hook_active"] = true
 	}
 	encoded, err := json.Marshal(normalized)
 	if err != nil {
@@ -552,6 +564,16 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func antigravityStopEnvelope(req consolidationRequest, ok bool) map[string]any {
+	if !ok {
+		return map[string]any{"decision": ""}
+	}
+	return map[string]any{
+		"decision": "continue",
+		"reason":   formatConsolidationReason(req.SessionID, req.Result, req.AtEventID),
+	}
 }
 
 func writeAntigravityJSON(output io.Writer, value map[string]any) error {

@@ -49,6 +49,111 @@ func TestReplayHookSpoolRecord_TranscriptNeverWritesConsolidationRequest(t *test
 	}
 }
 
+func TestReplayHookSpoolRecord_PromptNeverWritesConsolidationRequest(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("TRACEARY_WORKSPACE", "github.com/dogfood/test")
+
+	const sessionID = "sess-spool-prompt"
+	fx := newSpoolConsolidationStore(t, sessionID, "codex")
+	record := hookSpoolRecord{
+		SchemaVersion: hookSpoolSchemaVersion,
+		Command:       "prompt",
+		Client:        "codex",
+		DBPath:        fx.dbPath,
+		Payload:       `{"session_id":"` + sessionID + `","cwd":"/tmp","prompt":"spooled next"}`,
+		CreatedAt:     time.Now().UTC().Add(-time.Minute),
+	}
+	if _, err := persistHookSpoolRecord(record); err != nil {
+		t.Fatalf("persist: %v", err)
+	}
+	replayed, failed := fx.root.drainHookSpoolRecords(context.Background(), 5)
+	if replayed != 1 || failed != 0 {
+		t.Fatalf("drain = %d/%d, want 1/0", replayed, failed)
+	}
+	if countTable(t, fx.dbPath, "consolidation_requests") != 0 {
+		t.Fatal("spool prompt replay wrote a consolidation request")
+	}
+}
+
+func TestReplayHookSpoolRecord_AntigravityStopNeverWritesConsolidationRequest(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("TRACEARY_WORKSPACE", "github.com/dogfood/test")
+
+	const sessionID = "sess-spool-agy"
+	fx := newSpoolConsolidationStore(t, sessionID, "antigravity")
+	transcriptPath := filepath.Join(t.TempDir(), "transcript.jsonl")
+	if err := os.WriteFile(transcriptPath, []byte(strings.Join([]string{
+		`{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","content":"spooled prompt"}`,
+		`{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","content":"spooled answer"}`,
+	}, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	payload := `{"conversationId":"` + sessionID + `","workspacePaths":["/tmp"],"transcriptPath":` + strconv.Quote(transcriptPath) + `,"terminationReason":"completed"}`
+	record := hookSpoolRecord{
+		SchemaVersion: hookSpoolSchemaVersion,
+		Command:       "antigravity",
+		Client:        "antigravity",
+		Action:        "stop",
+		DBPath:        fx.dbPath,
+		Payload:       payload,
+		CreatedAt:     time.Now().UTC().Add(-time.Minute),
+	}
+	if _, err := persistHookSpoolRecord(record); err != nil {
+		t.Fatalf("persist: %v", err)
+	}
+	replayed, failed := fx.root.drainHookSpoolRecords(context.Background(), 5)
+	if replayed != 1 || failed != 0 {
+		t.Fatalf("drain = %d/%d, want 1/0", replayed, failed)
+	}
+	if countTable(t, fx.dbPath, "consolidation_requests") != 0 {
+		t.Fatal("spool antigravity stop replay wrote a consolidation request")
+	}
+}
+
+func TestReplayHookSpoolRecord_GrokStopNeverWritesConsolidationRequest(t *testing.T) {
+	stateDir := t.TempDir()
+	home := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, stateDir)
+	t.Setenv("HOME", home)
+	t.Setenv("TRACEARY_WORKSPACE", "github.com/dogfood/test")
+	SetUserHomeDirFunc(func() (string, error) { return home, nil })
+	t.Cleanup(ResetUserHomeDirFunc)
+
+	const sessionID = "019f0000-0000-7000-8000-000000000013"
+	fx := newSpoolConsolidationStore(t, sessionID, "grok")
+	transcriptPath := filepath.Join(t.TempDir(), "updates.jsonl")
+	if err := os.WriteFile(transcriptPath, []byte(strings.Join([]string{
+		`{"method":"session/update","params":{"update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"spooled"}},"_meta":{"promptId":"prompt-contract-probe-1"}}}`,
+		`{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"spooled grok"}},"_meta":{"promptId":"prompt-contract-probe-1"}}}`,
+	}, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	payload := `{"hookEventName":"stop","sessionId":"` + sessionID + `","cwd":"/tmp","transcriptPath":` + strconv.Quote(transcriptPath) + `,"promptId":"prompt-contract-probe-1","reason":"end_turn"}`
+	record := hookSpoolRecord{
+		SchemaVersion: hookSpoolSchemaVersion,
+		Command:       "grok",
+		Client:        "grok",
+		Action:        "stop",
+		DBPath:        fx.dbPath,
+		Payload:       payload,
+		CreatedAt:     time.Now().UTC().Add(-time.Minute),
+	}
+	if _, err := persistHookSpoolRecord(record); err != nil {
+		t.Fatalf("persist: %v", err)
+	}
+	replayed, failed := fx.root.drainHookSpoolRecords(context.Background(), 5)
+	if replayed != 1 || failed != 0 {
+		t.Fatalf("drain = %d/%d, want 1/0", replayed, failed)
+	}
+	if countTable(t, fx.dbPath, "consolidation_requests") != 0 {
+		t.Fatal("spool grok stop replay wrote a consolidation request")
+	}
+}
+
 func TestReplayHookSpoolRecord_KimiStopNeverWritesConsolidationRequest(t *testing.T) {
 	stateDir := t.TempDir()
 	home := t.TempDir()

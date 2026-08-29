@@ -16,6 +16,7 @@ import (
 
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
+	"github.com/duck8823/traceary/domain/types"
 )
 
 const grokHookClient = "grok"
@@ -137,7 +138,7 @@ func (c *RootCLI) runHookGrokPostToolUse(ctx context.Context, _ io.Writer, input
 	return c.runHookAudit(ctx, bytes.NewReader(normalized), grokHookClient, dbPath)
 }
 
-func (c *RootCLI) runHookGrokStop(ctx context.Context, _ io.Writer, input io.Reader, dbPath string) error {
+func (c *RootCLI) runHookGrokStop(ctx context.Context, output io.Writer, input io.Reader, dbPath string) error {
 	normalized, err := normalizeGrokHookPayload(input)
 	if err != nil {
 		return err
@@ -154,6 +155,17 @@ func (c *RootCLI) runHookGrokStop(ctx context.Context, _ io.Writer, input io.Rea
 		recorded, _, transcriptErr = c.runHookTranscriptWithBlocks(ctx, bytes.NewReader(normalized), grokHookClient, dbPath, blocks)
 		if transcriptErr != nil {
 			slog.Debug("grok stop transcript failed", "session_id", sessionID, "error", transcriptErr)
+		}
+		if output != nil && recorded {
+			req, ok := c.consolidationRequestIfDue(ctx, grokHookClient, normalized, dbPath)
+			if ok && c.recordConsolidationRequest(ctx, req, types.ConsolidationDeliveryAdditionalContext) {
+				if envelope, writeOK := grokStopEnvelope(req, true); writeOK {
+					if writeErr := writeGrokStopJSON(output, envelope); writeErr != nil {
+						slog.Debug("grok stop consolidation envelope failed",
+							"session_id", sessionID, "error", writeErr)
+					}
+				}
+			}
 		}
 		if !recorded && hookPayloadString(normalized, "transcript_path", "") != "" {
 			if scheduleErr := c.scheduleHookGrokTranscript(normalized, dbPath); scheduleErr != nil {
@@ -202,6 +214,30 @@ func (c *RootCLI) runHookGrokStop(ctx context.Context, _ io.Writer, input io.Rea
 	return errors.Join(transcriptErr, boundaryErr, usageErr)
 }
 
+func grokStopEnvelope(req consolidationRequest, ok bool) (map[string]any, bool) {
+	if !ok {
+		return nil, false
+	}
+	return map[string]any{
+		"decision": "block",
+		"reason":   formatConsolidationReason(req.SessionID, req.Result, req.AtEventID),
+	}, true
+}
+
+func writeGrokStopJSON(output io.Writer, value map[string]any) error {
+	if output == nil {
+		return nil
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return xerrors.Errorf("failed to marshal grok stop envelope: %w", err)
+	}
+	if _, err := output.Write(encoded); err != nil {
+		return xerrors.Errorf("failed to write grok stop envelope: %w", err)
+	}
+	return nil
+}
+
 func isTracearyOwnedGrokOneShot() bool {
 	return strings.TrimSpace(os.Getenv(grokUsageModeEnvKey)) == grokUsageModeOneShot &&
 		explicitOneShotRuntimeSessionID() != ""
@@ -237,6 +273,8 @@ func normalizeGrokHookPayload(input io.Reader) ([]byte, error) {
 	copyGrokHookField(normalized, "tool_use_id", source, "toolUseId")
 	copyGrokHookField(normalized, "tool_input", source, "toolInput")
 	copyGrokHookField(normalized, "tool_response", source, "toolResult")
+	copyGrokHookField(normalized, "stop_hook_active", source, "stop_hook_active")
+	copyGrokHookField(normalized, "stop_hook_active", source, "stopHookActive")
 	if failureKind := grokToolFailureKind(source["toolResult"]); failureKind != "" {
 		// The shared audit path needs only a structural failure signal. Keep the
 		// fixed class here and preserve/redact the full result through

@@ -41,3 +41,22 @@ are separate from this skill surface and orient on CLI / hooks / doctor.
 
 There are four skill names and six host packages → **24** `SKILL.md` files.
 There is no `traceary-help` skill.
+
+## How the refine request reaches the agent
+
+When work-based pressure is due, Traceary asks the agent to load
+`traceary-session-refine`. Every channel's text starts with
+`[Traceary] Session <id>` so the skill's step 1 stays true without a
+per-host `SKILL.md` edit.
+
+| Host | Channel | Delivery token |
+| --- | --- | --- |
+| Claude | `Stop` exit 2 + stderr | `stop_exit_2` |
+| Codex | `Stop` exit 2 + stderr (primary); next `UserPromptSubmit` plain-text stdout (second, non-interrupting) | `stop_exit_2` / `additional_context` |
+| Kimi | `Stop` exit 2 + stderr | `stop_exit_2` |
+| Gemini | `BeforeAgent` `hookSpecificOutput.additionalContext` | `additional_context` |
+| Antigravity | `Stop` `{decision:continue,reason}` | `additional_context` |
+| Grok | `Stop` `{decision:block,reason}` on stdout, **exit 0**. Shipped; host acceptance unverified (docs.x.ai still says stdout is ignored on passive events). On Grok the skill may only be reachable by user phrasing until a live probe confirms the envelope. | `additional_context` |
+
+Stop-envelope and prompt-context rows share the `additional_context` token;
+the channel is recovered from `(client, delivery)`.
