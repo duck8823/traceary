@@ -240,7 +240,7 @@ func (d *ConsolidationRequestDatasource) MarkRefineOutcome(ctx context.Context, 
 
 // ConversionSince returns per-client conversion over the window.
 func (d *ConsolidationRequestDatasource) ConversionSince(ctx context.Context, since time.Time) ([]queryservice.ConsolidationConversionRow, error) {
-	db, err := d.db.open(ctx)
+	db, err := d.db.openO1ReadOnly(ctx)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to open DB for consolidation conversion: %w", err)
 	}
@@ -276,7 +276,7 @@ func (d *ConsolidationRequestDatasource) ConversionSince(ctx context.Context, si
 
 // RefinementAuthorshipSince returns produced_by buckets for asked sessions.
 func (d *ConsolidationRequestDatasource) RefinementAuthorshipSince(ctx context.Context, since time.Time) ([]queryservice.RefinementAuthorshipRow, error) {
-	db, err := d.db.open(ctx)
+	db, err := d.db.openO1ReadOnly(ctx)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to open DB for consolidation authorship: %w", err)
 	}

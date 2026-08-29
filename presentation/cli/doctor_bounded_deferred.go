@@ -70,7 +70,9 @@ func (c *RootCLI) appendBoundedDoctorDeferredChecks(ctx context.Context, report 
 	if report == nil {
 		return
 	}
-	report.Checks = append(report.Checks, c.inspectConsolidationConversion(ctx))
+	inspectCtx, cancel := context.WithTimeout(ctx, largeStoreO1InspectTimeout)
+	defer cancel()
+	report.Checks = append(report.Checks, c.inspectConsolidationConversion(inspectCtx))
 	present := map[string]struct{}{}
 	for _, check := range report.Checks {
 		present[check.Name] = struct{}{}
