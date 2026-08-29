@@ -12,6 +12,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"golang.org/x/xerrors"
 
+	"github.com/duck8823/traceary/application"
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
 )
@@ -22,17 +23,36 @@ type wallBudgetStore struct {
 	delayStatus        bool
 	delayControlStatus bool
 	statusDelay        time.Duration
+	openDelay          time.Duration
+	delayApply         bool
 	selected           bool
 	controlReads       int
 	measuredReads      int
 	state              string
 	resumeReady        bool
+	completeCleanup    bool
 	starts             int
+}
+
+func (s *wallBudgetStore) delayOpen(ctx context.Context) error {
+	if s.openDelay <= 0 {
+		return nil
+	}
+	openCtx := application.StoreOpenContext(ctx)
+	timer := time.NewTimer(s.openDelay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-openCtx.Done():
+		return xerrors.Errorf("store open: %w", openCtx.Err())
+	}
 }
 
 func (s *wallBudgetStore) Start(context.Context, apptypes.SearchProjectionBudget, time.Time) (apptypes.SearchProjectionGeneration, error) {
 	s.starts++
-	return apptypes.SearchProjectionGeneration{}, nil
+	s.state = "rebuilding"
+	return apptypes.SearchProjectionGeneration{GenerationID: "generation"}, nil
 }
 
 //nolint:wrapcheck // Test fake preserves context cancellation identity.
@@ -70,19 +90,48 @@ func (s *wallBudgetStore) SearchProjectionControlStatus(ctx context.Context) (ap
 //nolint:wrapcheck // Test fake preserves context cancellation identity.
 func (s *wallBudgetStore) SelectSnapshot(ctx context.Context, _ apptypes.SearchProjectionBudget, _ time.Time) (apptypes.ProjectionSnapshot, error) {
 	s.selected = true
+	if err := s.delayOpen(ctx); err != nil {
+		return apptypes.ProjectionSnapshot{}, err
+	}
+	if s.completeCleanup {
+		return apptypes.ProjectionSnapshot{
+			Generation:  apptypes.SearchProjectionGeneration{GenerationID: "generation"},
+			Phase:       "cleanup",
+			CleanupAll:  true,
+			CleanupDone: true,
+			Now:         time.Now(),
+		}, nil
+	}
 	if s.resumeReady {
 		return apptypes.ProjectionSnapshot{Generation: apptypes.SearchProjectionGeneration{GenerationID: "generation"}, Phase: "source", Now: time.Now()}, nil
 	}
 	<-ctx.Done()
 	return apptypes.ProjectionSnapshot{}, ctx.Err()
 }
-func (s *wallBudgetStore) ApplyBatch(context.Context, apptypes.ProjectionBatchPlan, time.Duration, time.Time) (apptypes.SearchProjectionProgress, error) {
+func (s *wallBudgetStore) ApplyBatch(ctx context.Context, plan apptypes.ProjectionBatchPlan, _ time.Duration, _ time.Time) (apptypes.SearchProjectionProgress, error) {
+	if err := s.delayOpen(ctx); err != nil {
+		return apptypes.SearchProjectionProgress{}, err
+	}
+	if s.delayApply {
+		<-ctx.Done()
+		return apptypes.SearchProjectionProgress{}, xerrors.Errorf("apply batch: %w", ctx.Err())
+	}
 	s.applied = true
-	return apptypes.SearchProjectionProgress{}, nil
+	return apptypes.SearchProjectionProgress{Completed: plan.Completed, GenerationID: plan.GenerationID}, nil
 }
-func (s *wallBudgetStore) CleanupBatch(context.Context, apptypes.ProjectionBatchPlan, time.Duration, time.Time) (apptypes.SearchProjectionProgress, error) {
+func (s *wallBudgetStore) CleanupBatch(ctx context.Context, plan apptypes.ProjectionBatchPlan, _ time.Duration, _ time.Time) (apptypes.SearchProjectionProgress, error) {
+	if err := s.delayOpen(ctx); err != nil {
+		return apptypes.SearchProjectionProgress{}, err
+	}
+	if s.delayApply {
+		<-ctx.Done()
+		return apptypes.SearchProjectionProgress{}, xerrors.Errorf("cleanup batch: %w", ctx.Err())
+	}
 	s.applied = true
-	return apptypes.SearchProjectionProgress{}, nil
+	if plan.Completed {
+		s.state = "complete"
+	}
+	return apptypes.SearchProjectionProgress{Completed: plan.Completed, GenerationID: plan.GenerationID}, nil
 }
 func (*wallBudgetStore) MarkFailed(context.Context, string, int64, string, time.Time) error {
 	return nil
@@ -187,6 +236,46 @@ func TestProjectionBatchPlanExcludedRowDoesNotChainSummary(t *testing.T) {
 	}
 }
 
+func TestDefaultSearchProjectionBudgetWallTimeIsOneSecond(t *testing.T) {
+	t.Parallel()
+	if got := apptypes.DefaultSearchProjectionBudget().WallTime; got != time.Second {
+		t.Fatalf("DefaultSearchProjectionBudget().WallTime = %s, want 1s", got)
+	}
+}
+
+func TestResumeMakesProgressWhenStoreOpenExceedsBatchWallTime(t *testing.T) {
+	t.Parallel()
+	b := apptypes.DefaultSearchProjectionBudget()
+	b.WallTime = time.Millisecond
+	store := &wallBudgetStore{budget: b, completeCleanup: true, openDelay: 40 * time.Millisecond}
+	progress, err := usecase.NewSearchProjectionUsecase(store).Resume(context.Background(), b, time.Now())
+	if err != nil {
+		t.Fatalf("Resume() error = %v, want progress when store open exceeds WallTime", err)
+	}
+	if !store.selected {
+		t.Fatal("SelectSnapshot was not reached")
+	}
+	if !store.applied {
+		t.Fatal("CleanupBatch was not reached")
+	}
+	if !progress.Completed {
+		t.Fatalf("progress.Completed = false, want forward progress to complete")
+	}
+}
+
+func TestCompleteGenerationSucceedsWhenStoreOpenExceedsBatchWallTime(t *testing.T) {
+	t.Parallel()
+	b := apptypes.DefaultSearchProjectionBudget()
+	b.WallTime = time.Millisecond
+	store := &wallBudgetStore{budget: b, state: "abandoned", completeCleanup: true, openDelay: 40 * time.Millisecond}
+	if err := usecase.NewSearchProjectionUsecase(store).CompleteGeneration(context.Background(), b, time.Now()); err != nil {
+		t.Fatalf("CompleteGeneration() error = %v", err)
+	}
+	if store.state != "complete" {
+		t.Fatalf("state = %q, want complete", store.state)
+	}
+}
+
 func TestResumeInspectSucceedsWhenBatchWallTimeIsShorterThanPing(t *testing.T) {
 	t.Parallel()
 	b := apptypes.DefaultSearchProjectionBudget()
@@ -235,8 +324,8 @@ func TestProjectionOperatorResultsUseSnakeCaseJSON(t *testing.T) {
 
 func TestResumeWallBudgetCoversSelectionAndPreventsApplyAfterDeadline(t *testing.T) {
 	t.Parallel()
-	b := apptypes.SearchProjectionBudget{Rows: 1, WallTime: time.Millisecond, LockTime: time.Second, StoredBytes: 1, DecodedBytes: 1, WriteBytes: 1, RecentAge: time.Hour, IndexFamilyBytes: 1}
-	store := &wallBudgetStore{budget: b}
+	b := apptypes.SearchProjectionBudget{Rows: 1, WallTime: time.Millisecond, LockTime: time.Second, StoredBytes: 1 << 20, DecodedBytes: 1 << 20, WriteBytes: 1 << 20, RecentAge: time.Hour, IndexFamilyBytes: 1 << 20}
+	store := &wallBudgetStore{budget: b, completeCleanup: true, delayApply: true}
 	_, err := usecase.NewSearchProjectionUsecase(store).Resume(context.Background(), b, time.Now())
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("error=%v", err)
