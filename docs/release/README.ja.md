@@ -8,6 +8,8 @@ Traceary では、CLI 本体の公開導線を 3 つ用意し、あわせて rel
 
 - [リリースゲートと計測値](./gates.ja.md)
 - [v0.33.0 multi-GiB リリース証跡](./v0.33.0-multigib-evidence.ja.md)
+- [v0.48.0 release QA](./v0.48.0-qa.ja.md)
+- [v0.48.0 projection-completion 証跡](./v0.48.0-projection-completion-evidence.json)
 
 ## バイナリ upgrade のあと
 
