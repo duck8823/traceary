@@ -167,7 +167,7 @@ func (u *storeCompactionUsecase) Compact(ctx context.Context, in application.Com
 					Steps:                     collector.steps,
 				}, nil
 			}
-			return application.CompactResult{}, fmt.Errorf("%w\n\testimated reclaimable bytes: %d\n\tattach another volume and retry with --work-dir, or free dest-sized space on this volume", err, estimated)
+			return application.CompactResult{}, fmt.Errorf("in-place compact after insufficient replica space: %w\n\treplica: %v\n\testimated reclaimable bytes: %d\n\tattach another volume and retry with --work-dir, or free dest-sized space on this volume", inPlaceErr, err, estimated)
 		}
 		return application.CompactResult{}, err
 	}

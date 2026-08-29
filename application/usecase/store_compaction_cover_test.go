@@ -182,3 +182,56 @@ func TestCompactResultReportsCoveredSessionsFromStep(t *testing.T) {
 		})
 	}
 }
+
+type replicaSpaceFailFiles struct{ faultFiles }
+
+func (replicaSpaceFailFiles) Plan(_ context.Context, r domain.CompactionRun) (domain.CompactionRun, error) {
+	return r, errors.New("insufficient free space: free 400 more bytes to proceed (need 1100, have 700)")
+}
+
+type inPlaceFallbackBuilder struct {
+	faultBuilder
+	inPlaceErr error
+	called     bool
+}
+
+func (b *inPlaceFallbackBuilder) CompactInPlace(context.Context, string, application.CompactFilter) error {
+	b.called = true
+	return b.inPlaceErr
+}
+
+func TestCompactWrapsInPlaceErrorWhenReplicaSpaceIsInsufficient(t *testing.T) {
+	source := dummyCompactSource(t)
+	inPlaceErr := errors.New("mechanical cover left leftover older than cutoff")
+	builder := &inPlaceFallbackBuilder{inPlaceErr: inPlaceErr}
+	svc := NewStoreCompactionUsecase(source, &faultJournal{}, builder, replicaSpaceFailFiles{}, faultLease{})
+	_, err := svc.Compact(context.Background(), application.CompactInput{Source: source})
+	if err == nil {
+		t.Fatal("Compact() error = nil, want wrapped in-place failure")
+	}
+	if !builder.called {
+		t.Fatal("CompactInPlace was not called after replica space refusal")
+	}
+	if !errors.Is(err, inPlaceErr) {
+		t.Fatalf("Compact() error = %v, want errors.Is in-place sentinel", err)
+	}
+	if !strings.Contains(err.Error(), "insufficient free space") {
+		t.Fatalf("Compact() error = %v, want replica space context kept", err)
+	}
+}
+
+func TestCompactInPlaceStrategyWhenReplicaSpaceIsInsufficient(t *testing.T) {
+	source := dummyCompactSource(t)
+	builder := &inPlaceFallbackBuilder{}
+	svc := NewStoreCompactionUsecase(source, &faultJournal{}, builder, replicaSpaceFailFiles{}, faultLease{})
+	got, err := svc.Compact(context.Background(), application.CompactInput{Source: source})
+	if err != nil {
+		t.Fatalf("Compact() error = %v", err)
+	}
+	if !builder.called {
+		t.Fatal("CompactInPlace was not called after replica space refusal")
+	}
+	if got.CompactStrategy != application.CompactStrategyInPlace {
+		t.Fatalf("CompactStrategy = %q, want %q", got.CompactStrategy, application.CompactStrategyInPlace)
+	}
+}
