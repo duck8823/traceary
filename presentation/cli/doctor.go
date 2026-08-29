@@ -404,6 +404,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		report.Checks = append(report.Checks, c.inspectHookSpoolFilesystemMetadata())
 		if c.workspaceIdentity != nil {
 			report.Checks = append(report.Checks, skippedWorkspaceAliasesCheck())
+			report.Checks = append(report.Checks, skippedWorkspaceObservationsCheck())
 		}
 		report.Checks = append(report.Checks, skippedOfflineMigrationsCheck())
 		// hook-state-residue is owned by appendFilesystemHostDoctorChecks on
@@ -459,6 +460,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		report.Checks = append(report.Checks, c.inspectOfflineMigrations(ctx))
 		if c.workspaceIdentity != nil {
 			report.Checks = append(report.Checks, c.inspectWorkspaceAliases(ctx, report))
+			report.Checks = append(report.Checks, c.inspectWorkspaceObservations(ctx, report))
 		}
 		report.Checks = append(report.Checks, c.inspectFileRetentionCapacity(ctx, resolvedDBPath, input.archiveRoot, input.backupRoot)...)
 		report.Checks = append(report.Checks, c.inspectCommandAuditReliability(ctx, input.strict))

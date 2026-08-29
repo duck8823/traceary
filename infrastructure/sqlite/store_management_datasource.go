@@ -30,6 +30,12 @@ var deleteEmptySessionsQuery string
 //go:embed sql/count_empty_sessions.sql
 var countEmptySessionsQuery string
 
+//go:embed sql/delete_unreachable_workspace_observations.sql
+var deleteUnreachableWorkspaceObservationsQuery string
+
+//go:embed sql/count_unreachable_workspace_observations.sql
+var countUnreachableWorkspaceObservationsQuery string
+
 //go:embed sql/clear_deleted_memory_supersedes_refs.sql
 var clearDeletedMemorySupersedesRefsQuery string
 
@@ -439,6 +445,17 @@ func (d *StoreManagementDatasource) countGarbageInTx(
 			return 0, xerrors.Errorf("failed to count empty sessions: %w", err)
 		}
 		total += count
+		hasObservations, err := sqliteTableExistsOnQueryer(ctx, tx, "session_workspace_observations")
+		if err != nil {
+			return 0, err
+		}
+		if hasObservations {
+			orphanCount, err := queryCount(ctx, tx, countUnreachableWorkspaceObservationsQuery)
+			if err != nil {
+				return 0, xerrors.Errorf("failed to count unreachable workspace observations: %w", err)
+			}
+			total += orphanCount
+		}
 	}
 	if target == apptypes.GarbageCollectionTargetMemories || target == apptypes.GarbageCollectionTargetAll {
 		matched = true
@@ -490,6 +507,24 @@ func queryCount(
 	return count, nil
 }
 
+func sqliteTableExistsOnQueryer(
+	ctx context.Context,
+	queryer interface {
+		QueryRowContext(context.Context, string, ...any) *sql.Row
+	},
+	table string,
+) (bool, error) {
+	var count int
+	if err := queryer.QueryRowContext(
+		ctx,
+		`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?`,
+		table,
+	).Scan(&count); err != nil {
+		return false, xerrors.Errorf("failed to inspect SQLite schema for %s: %w", table, err)
+	}
+	return count > 0, nil
+}
+
 func (d *StoreManagementDatasource) collectGarbageInTx(
 	ctx context.Context,
 	tx interface {
@@ -530,6 +565,17 @@ func (d *StoreManagementDatasource) collectGarbageInTx(
 			return 0, xerrors.Errorf("failed to delete empty sessions: %w", err)
 		}
 		total += count
+		hasObservations, err := sqliteTableExistsOnQueryer(ctx, tx, "session_workspace_observations")
+		if err != nil {
+			return 0, err
+		}
+		if hasObservations {
+			count, err = execRowsAffected(ctx, tx, deleteUnreachableWorkspaceObservationsQuery)
+			if err != nil {
+				return 0, xerrors.Errorf("failed to delete unreachable workspace observations: %w", err)
+			}
+			total += count
+		}
 	}
 	if target == apptypes.GarbageCollectionTargetMemories || target == apptypes.GarbageCollectionTargetAll {
 		matched = true

@@ -172,7 +172,7 @@ func TestSearchProjectionMigration58AbandonedRebuildAutoStartsReplacement(t *tes
 		}
 	})
 	head := infra.NewDatabase(path, onDiskSQLiteMigrations(t))
-	if err := infra.NewStoreManagementDatasource(head).Initialize(ctx); err != nil {
+	if err := infra.NewStoreManagementDatasource(head).InitializeAuthorized(ctx); err != nil {
 		t.Fatal(err)
 	}
 	status := projectionStatus(t, head)

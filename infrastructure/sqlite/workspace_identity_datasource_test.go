@@ -50,6 +50,9 @@ func TestWorkspaceIdentityDatasource_ReportsCurrentReviewedRelationships(t *test
 	if err := db.Close(); err != nil {
 		t.Fatalf("close historical setup DB: %v", err)
 	}
+	if err := store.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize(catch-up) error = %v", err)
+	}
 
 	sut := sqlite.NewWorkspaceIdentityDatasource(database)
 	report, err := sut.WorkspaceIdentityReport(ctx, 10)
@@ -65,6 +68,9 @@ func TestWorkspaceIdentityDatasource_ReportsCurrentReviewedRelationships(t *test
 	source := report.Sources[0]
 	if source.Relationships.Exact != 1 || source.Relationships.Conflict != 1 || source.ConflictPairCount != 1 || source.DeliveryAttemptCount != 4 || source.RuntimeAttemptCount != 3 || source.BackfilledAttemptCount != 1 || source.ExactRedeliveryCount != 1 {
 		t.Fatalf("source = %#v", source)
+	}
+	if report.Coverage.ObservationRows != 2 || report.Coverage.ObservationKeys != 2 {
+		t.Fatalf("observation rows/keys = %d/%d, want 2/2", report.Coverage.ObservationRows, report.Coverage.ObservationKeys)
 	}
 	if report.ConflictPairCount != 1 {
 		t.Fatalf("conflict_pair_count = %d, want 1", report.ConflictPairCount)
@@ -152,5 +158,78 @@ func TestWorkspaceIdentityDatasource_CountsDistinctConflictPairs(t *testing.T) {
 	}
 	if limited.ConflictPairCount != 2 || len(limited.ConflictSamples) != 1 {
 		t.Fatalf("limited report pairs=%d samples=%d, want pairs=2 samples=1", limited.ConflictPairCount, len(limited.ConflictSamples))
+	}
+}
+
+func TestWorkspaceIdentityDatasource_SourceVolumesUseObservationCount(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	database := sqlite.NewDatabase(dbPath, onDiskSQLiteMigrations(t))
+	store := sqlite.NewStoreManagementDatasource(database)
+	if err := store.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	db := openHookDeliveryTestDB(t, dbPath)
+	if _, err := db.Exec(`
+		INSERT INTO session_workspace_observations (
+			session_id, workspace, observed_relationship, source_client, source_hook, observation_kind,
+			observation_count, first_observed_at, last_observed_at, observed_event_id, raw_workspace,
+			delivery_record_id, attribution_fingerprint, diagnostic_reason, observation_origin
+		) VALUES
+			('s1', '/repo', 'exact', 'codex', 'user_prompt_submit', 'primary',
+			 3, '2026-07-22T00:00:00Z', '2026-07-22T00:00:02Z', 'e3', NULL, NULL, 'fp-a', '', 'runtime'),
+			('s1', '/other', 'conflict', 'codex', 'user_prompt_submit', 'primary',
+			 2, '2026-07-22T00:00:03Z', '2026-07-22T00:00:04Z', 'e5', NULL, NULL, 'fp-b', '', 'runtime')
+	`); err != nil {
+		t.Fatalf("insert aggregates: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	report, err := sqlite.NewWorkspaceIdentityDatasource(database).WorkspaceIdentityReport(ctx, 10)
+	if err != nil {
+		t.Fatalf("WorkspaceIdentityReport() error = %v", err)
+	}
+	if report.Coverage.ObservationCount != 5 || report.Coverage.ObservationRows != 2 {
+		t.Fatalf("coverage = %#v, want volume=5 rows=2", report.Coverage)
+	}
+	if len(report.Sources) != 1 || report.Sources[0].ObservationCount != 5 || report.Sources[0].Relationships.Exact != 3 || report.Sources[0].Relationships.Conflict != 2 {
+		t.Fatalf("source = %#v, want volume 3+2", report.Sources)
+	}
+}
+
+func TestWorkspaceIdentityDatasource_ConflictSamplesUseLatestEventPerKey(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	database := sqlite.NewDatabase(dbPath, onDiskSQLiteMigrations(t))
+	store := sqlite.NewStoreManagementDatasource(database)
+	if err := store.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	db := openHookDeliveryTestDB(t, dbPath)
+	if _, err := db.Exec(`
+		INSERT INTO session_workspace_observations (
+			session_id, workspace, observed_relationship, source_client, source_hook, observation_kind,
+			observation_count, first_observed_at, last_observed_at, observed_event_id, raw_workspace,
+			delivery_record_id, attribution_fingerprint, diagnostic_reason, observation_origin
+		) VALUES
+			('session-1', '/other', 'conflict', 'codex', 'user_prompt_submit', 'primary',
+			 3, '2026-07-22T00:00:00Z', '2026-07-22T00:00:02Z', 'event-latest', NULL, NULL, 'fp', '', 'runtime')
+	`); err != nil {
+		t.Fatalf("insert conflict aggregate: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	report, err := sqlite.NewWorkspaceIdentityDatasource(database).WorkspaceIdentityReport(ctx, 10)
+	if err != nil {
+		t.Fatalf("WorkspaceIdentityReport() error = %v", err)
+	}
+	if len(report.ConflictSamples) != 1 || report.ConflictSamples[0].EventID != "event-latest" || report.ConflictSamples[0].Workspace != "/other" {
+		t.Fatalf("samples = %#v, want newest observed_event_id", report.ConflictSamples)
 	}
 }

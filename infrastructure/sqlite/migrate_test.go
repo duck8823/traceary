@@ -1069,17 +1069,17 @@ func TestDatasource_Initialize_BackfillsWorkspaceObservationsInBoundedBatches(t 
 	if err := store.InitializeAuthorized(ctx); err != nil {
 		t.Fatalf("Initialize(first catch-up) error = %v", err)
 	}
-	assertWorkspaceObservationMigrationCounts(t, dbPath, 1005, 1000)
+	assertCollapsedWorkspaceObservationCatchUp(t, dbPath, 1005, 1, 0)
 
 	if err := store.Initialize(ctx); err != nil {
 		t.Fatalf("Initialize(second catch-up) error = %v", err)
 	}
-	assertWorkspaceObservationMigrationCounts(t, dbPath, 1005, 1005)
+	assertCollapsedWorkspaceObservationCatchUp(t, dbPath, 1005, 1, 0)
 
 	if err := store.Initialize(ctx); err != nil {
 		t.Fatalf("Initialize(idempotent catch-up) error = %v", err)
 	}
-	assertWorkspaceObservationMigrationCounts(t, dbPath, 1005, 1005)
+	assertCollapsedWorkspaceObservationCatchUp(t, dbPath, 1005, 1, 1)
 }
 
 func TestDatasource_Initialize_CatchUpFailureDoesNotBlockRuntimeIngest(t *testing.T) {
@@ -1149,31 +1149,40 @@ func TestDatasource_Initialize_CatchUpFailureDoesNotBlockRuntimeIngest(t *testin
 		t.Fatalf("Initialize(retry catch-up) error = %v", err)
 	}
 	assertSQLiteCount(t, dbPath, "events", 2)
-	assertSQLiteCount(t, dbPath, "session_workspace_observations", 2)
-	assertSQLiteCountWhere(t, dbPath, "session_workspace_observations", "observation_origin = 'backfill'", 1)
+	assertSQLiteCount(t, dbPath, "session_workspace_observations", 1)
+	assertSQLiteCountWhere(t, dbPath, "session_workspace_observations", "observation_origin = 'runtime'", 1)
 }
 
-func assertWorkspaceObservationMigrationCounts(t *testing.T, dbPath string, wantEvents, wantObservations int) {
+func assertCollapsedWorkspaceObservationCatchUp(t *testing.T, dbPath string, wantEvents, wantRows, wantExhausted int) {
 	t.Helper()
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		t.Fatalf("sql.Open() error = %v", err)
 	}
 	defer func() { _ = db.Close() }()
-	var events, observations, backfill, exact int
+	var events, observations, volume int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM events`).Scan(&events); err != nil {
 		t.Fatalf("count events: %v", err)
 	}
 	if err := db.QueryRow(`SELECT COUNT(*) FROM session_workspace_observations`).Scan(&observations); err != nil {
 		t.Fatalf("count observations: %v", err)
 	}
-	if err := db.QueryRow(`SELECT COUNT(*) FROM session_workspace_observations WHERE observation_origin = 'backfill'`).Scan(&backfill); err != nil {
-		t.Fatalf("count backfill observations: %v", err)
+	if err := db.QueryRow(`SELECT COALESCE(SUM(observation_count), 0) FROM session_workspace_observations`).Scan(&volume); err != nil {
+		t.Fatalf("sum observation_count: %v", err)
 	}
-	if err := db.QueryRow(`SELECT COUNT(*) FROM session_workspace_observations WHERE observed_relationship = 'exact'`).Scan(&exact); err != nil {
-		t.Fatalf("count exact observations: %v", err)
+	if events != wantEvents || observations != wantRows {
+		t.Fatalf("counts = events:%d rows:%d, want %d/%d", events, observations, wantEvents, wantRows)
 	}
-	if events != wantEvents || observations != wantObservations || backfill != wantObservations || exact != wantObservations {
-		t.Fatalf("counts = events:%d observations:%d backfill:%d exact:%d, want %d/%d/%d/%d", events, observations, backfill, exact, wantEvents, wantObservations, wantObservations, wantObservations)
+	if volume < 1 {
+		t.Fatalf("observation volume = %d, want at least 1", volume)
+	}
+	if wantExhausted >= 0 {
+		var exhausted int
+		if err := db.QueryRow(`SELECT exhausted FROM workspace_observation_catchup_state WHERE singleton = 1`).Scan(&exhausted); err != nil {
+			t.Fatalf("read exhausted: %v", err)
+		}
+		if exhausted != wantExhausted {
+			t.Fatalf("exhausted = %d, want %d", exhausted, wantExhausted)
+		}
 	}
 }

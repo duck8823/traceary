@@ -263,7 +263,7 @@ migration `000023` は `hook_delivery_attempts` を追加します。各行が�
 
 `session_workspace_aliases` は運用者が明示的に確認した情報を保持します。別名は `sessions.workspace`、`events.workspace`、観測時点の関係を一切書き換えません。読み取り projection だけが、確認情報と一致する保存済み競合を `explicit_alias` に変更するため、別名の削除で完全に元へ戻せます。
 
-`traceary doctor --json` が同じ本文なし identity フィールドを `workspace_identity` で出します。ブロック自体は provenance catch-up を実行しません。observation 行の関係件数は volume のまま残し、`conflict_pair_count` は現行 conflict の distinct `(session_id, workspace)`、conflict sample は pair あたり最新 1 行で `workspace` を含みます。2 GiB 以上の既定 doctor はこのブロックを出しません（filesystem-metadata-only）。意味は [workspace-conflict の意味](../research/workspace-conflict-meaning.ja.md) を見てください。
+`traceary doctor --json` が同じ本文なし identity フィールドを `workspace_identity` で出します。ブロック自体は provenance catch-up を実行しません。migration 76 以降の observation volume は `SUM(observation_count)` です。テーブルは `(session_id, workspace, observed_relationship, source_client, source_hook, observation_kind)` あたり 1 行に畳みます。`conflict_pair_count` は現行 conflict の distinct `(session_id, workspace)`、conflict sample は pair あたり最新 1 行で `workspace` を含みます。`coverage.covered_events` / `missing_events` は catch-up frontier の bookkeeping であり、event ごとの join ではありません。`workspace-observations` check が `rows` / `keys` / `orphans` を出します。collapse 前の store は WARN と `traceary doctor --fix`（offline class: それが終わるまで `Initialize` は書き込みを拒否します）。2 GiB 以上の既定 doctor はこのブロックを出しません（filesystem-metadata-only）。意味は [workspace-conflict の意味](../research/workspace-conflict-meaning.ja.md) を見てください。
 
 ## ペイロード codec バックフィル
 

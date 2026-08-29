@@ -202,48 +202,41 @@ CREATE TABLE hook_delivery_attempts (
 );
 
 CREATE TABLE session_workspace_observations (
-    observation_id TEXT PRIMARY KEY,
     session_id TEXT NOT NULL,
     workspace TEXT NOT NULL,
-    raw_workspace TEXT,
-    observation_kind TEXT NOT NULL
-        CHECK (observation_kind IN ('primary', 'supplemental')),
-    observation_origin TEXT NOT NULL
-        CHECK (observation_origin IN ('runtime', 'backfill')),
     observed_relationship TEXT NOT NULL
         CHECK (observed_relationship IN ('exact', 'descendant', 'ancestor', 'explicit_alias', 'conflict', 'unknown')),
+    source_client TEXT NOT NULL DEFAULT '',
+    source_hook TEXT NOT NULL DEFAULT '',
+    observation_kind TEXT NOT NULL
+        CHECK (observation_kind IN ('primary', 'supplemental')),
+    observation_count INTEGER NOT NULL DEFAULT 1 CHECK (observation_count >= 1),
+    first_observed_at TEXT NOT NULL,
+    last_observed_at TEXT NOT NULL,
     observed_event_id TEXT,
+    raw_workspace TEXT,
     delivery_record_id TEXT,
     attribution_fingerprint TEXT NOT NULL,
     diagnostic_reason TEXT NOT NULL DEFAULT '',
-    observed_at TEXT NOT NULL,
-    source_client TEXT NOT NULL DEFAULT '',
-    source_hook TEXT NOT NULL DEFAULT ''
-);
+    observation_origin TEXT NOT NULL
+        CHECK (observation_origin IN ('runtime', 'backfill')),
+    PRIMARY KEY (session_id, workspace, observed_relationship, source_client, source_hook, observation_kind)
+) WITHOUT ROWID;
 
 CREATE INDEX idx_session_workspace_observations_relationship
-    ON session_workspace_observations(observed_relationship, observed_at DESC, session_id);
-
-CREATE UNIQUE INDEX idx_session_workspace_observations_delivery_attribution
-    ON session_workspace_observations(delivery_record_id, attribution_fingerprint)
-    WHERE delivery_record_id IS NOT NULL AND delivery_record_id <> '';
-
-CREATE UNIQUE INDEX idx_session_workspace_observations_primary_event
-    ON session_workspace_observations(observed_event_id)
-    WHERE observation_kind = 'primary'
-      AND observed_event_id IS NOT NULL AND observed_event_id <> '';
+    ON session_workspace_observations(observed_relationship, last_observed_at DESC, session_id);
 ```
 
 The tables store attribution metadata only.
 It must not copy command input, output, prompt text, transcript text, or other event body content.
-Reports calculate counts from observation rows; a count is not a deduplication decision. Distinct current-conflict `(session_id, workspace)` pairs are an additional diagnostic so row volume cannot hide the review unit.
+`session_workspace_observations` is an aggregate (migration 76): one row per attribution key, with `observation_count` as volume. Consecutive exact redelivery of the same `(delivery_record_id, attribution_fingerprint)` does not increment; a later return to that pair after a different pair (A→B→A) does. Reports calculate volume from `SUM(observation_count)`; a count is not a deduplication decision. Distinct current-conflict `(session_id, workspace)` pairs are an additional diagnostic so row volume cannot hide the review unit.
 
 An alias is scoped to one session and requires a reviewed operation with reviewer and timestamp.
 Adding an alias does not rewrite historical `observed_relationship` values.
 Reports may expose both the relationship observed at ingestion and the current relationship derived by joining reviewed aliases.
 
 `observed_event_id` in both provenance tables is an immutable value rather than a foreign key.
-Deleting or archiving an event therefore cannot mutate append-only delivery or workspace provenance; reports discover current event availability through a left join.
+Deleting or archiving an event therefore cannot mutate delivery rows or the newest `observed_event_id` already stored on an observation aggregate; reports discover current event availability through a left join. Observation aggregates are not append-only: a later observation of the same key updates count and newest attributes. Unreachable aggregates (no session row and no event row for that session) are deleted by session GC.
 
 An accepted reported delivery identity has the namespace `<client>:<hook-kind>:<native-session-id>:<native-delivery-id>` (or an equivalent typed representation).
 Host adapters must keep it stable for one logical delivery and must not reuse a native ID across hook kinds or session IDs.
@@ -255,13 +248,13 @@ The separate attribution fingerprint covers normalized workspace, raw workspace,
 
 The repository handles a reported identity in this order:
 
-1. If `(session_id, reported_delivery_id, delivery_fingerprint)` already exists, it is the same logical delivery. Do not add an event. Insert a supplemental observation only when `(delivery_record_id, attribution_fingerprint)` is new; otherwise return an exact idempotent success.
-2. If the reported identity has no accepted row, atomically insert an `accepted` delivery row, the event, and one `primary` observation.
-3. If an accepted row exists with another delivery fingerprint, atomically insert a `conflict` delivery row keyed by the new fingerprint, preserve the new legitimate event and primary observation, and record `diagnostic_reason=delivery_identity_conflict`.
+1. If `(session_id, reported_delivery_id, delivery_fingerprint)` already exists, it is the same logical delivery. Do not add an event. UPSERT a supplemental observation only when `(delivery_record_id, attribution_fingerprint)` is new; otherwise return an exact idempotent success.
+2. If the reported identity has no accepted row, atomically insert an `accepted` delivery row, the event, and UPSERT one `primary` observation.
+3. If an accepted row exists with another delivery fingerprint, atomically insert a `conflict` delivery row keyed by the new fingerprint, preserve the new legitimate event and UPSERT a primary observation, and record `diagnostic_reason=delivery_identity_conflict`.
 
 The delivery table's triple uniqueness makes a retry of an already recorded conflict resolve through step 1, so it cannot amplify events.
 The partial accepted-identity index identifies the first accepted fingerprint; the application comparison and full ledger, not that index alone, implement idempotency.
-The primary-event index permits one primary attribution per persisted event, while supplemental observations may retain improved retry attribution for that same event.
+The observation aggregate keeps the newest `observed_event_id` per key. Supplemental observations may retain improved retry attribution for the same session/workspace/relationship/source without adding a row per event.
 
 Concurrent delivery handling is also part of the repository contract.
 If an accepted-identity or triple-identity unique collision occurs after the initial lookup, the repository rolls back that attempted write, reloads the append-only ledger in a new transaction, and performs the decision once more:
