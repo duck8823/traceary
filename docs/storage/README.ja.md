@@ -59,6 +59,9 @@ Traceary は、ローカル状態を 1 つの SQLite DB ファイルに保存し
 - `exit_code`: 取得できた場合の終了コード
 - `failed`: 構造化された実行結果から導出する互換用の失敗フラグ
 - `failure_reason`: `none`、`exit_code`、`signal`、`timeout`、`hook_denied`、`host_error`、`unknown` のいずれか
+- `output_metadata`: metadata-only capture 用の nullable な canonical JSON（`capture` / `paths` / `bytes` / `sha256` / `truncated`）。履歴行は NULL のまま
+
+読み取り専用ツールの audit はアクセス事実だけを保存します。分類済みの成功した read/list/grep（Claude `Read`/`Grep`/`Glob`/`NotebookRead`/`WebFetch`、Grok `read_file`/`grep`/`list_dir`、Kimi `Read`/`Grep`/`Glob`/`ReadMediaFile`、Gemini `read_file`/`read_many_files`/`list_directory`/`glob`/`search_file_content`）の新規行は `output_text=''`、`output_truncated=0`、`output_original_bytes=0` で、サイズは `output_metadata.bytes` に入ります。sha256 は redaction 後の応答に対して取ります。失敗・denied の読み取りは（上限付きの）全文を残します。既存行は書き換えません。archive v1 セグメントは `output_metadata` を持ちません。詳細は [capture contract](../integrations/capture-contract.ja.md) を参照してください。
 
 新規書き込みの `failed` は `failure_reason.IsFailure()` から立てます。exit code のない構造化 hook 失敗は `unknown` ではなく `host_error` です。`failed=1` かつ `failure_reason=unknown` は分類器以前の履歴（2026-07-22 より前の schema default）で、restore は残し、新規書き込みは作れません。意味は [failed-flag の意味](../research/failed-flag-meaning.ja.md) を見てください。
 

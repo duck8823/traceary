@@ -162,6 +162,7 @@ type bundleCommandAuditRow struct {
 	ExitCode            *int   `json:"exit_code,omitempty"`
 	Failed              bool   `json:"failed,omitempty"`
 	FailureReason       string `json:"failure_reason"`
+	OutputMetadata      string `json:"output_metadata,omitempty"`
 }
 
 type bundleUsageObservationRow struct {
@@ -802,12 +803,17 @@ func (r bundleCommandAuditRow) toCommandAudit() (*model.CommandAudit, error) {
 	if strings.TrimSpace(r.Wrapper) != "" {
 		wrapper = types.Some(types.CommandName(r.Wrapper))
 	}
+	outputMetadata, err := types.DecodeReadOnlyOutputMetadata(r.OutputMetadata)
+	if err != nil {
+		return nil, xerrors.Errorf("output_metadata: %w", err)
+	}
 	audit, err := model.CommandAuditFromSnapshot(model.CommandAuditSnapshot{
 		EventID: eventID, Command: r.Command, Wrapper: wrapper,
 		CommandName: types.CommandName(r.CommandName), Input: r.Input, Output: r.Output,
 		InputTruncated: r.InputTruncated, OutputTruncated: r.OutputTruncated,
 		InputOriginalBytes: r.InputOriginalBytes, OutputOriginalBytes: r.OutputOriginalBytes,
 		ExitCode: exitCode, Failed: r.Failed, FailureReason: types.CommandFailureReason(r.FailureReason),
+		OutputMetadata: outputMetadata,
 	})
 	if err != nil {
 		return nil, xerrors.Errorf("command audit: %w", err)

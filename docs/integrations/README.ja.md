@@ -18,6 +18,7 @@ Traceary は、Claude Code / Codex / Gemini CLI（レガシー）/ Antigravity /
 | --- | --- |
 | session hook | session start/end を Traceary event として記録する（Codex の `Stop` は応答ごとの turn 境界でありセッション終了ではない — #1170）|
 | shell audit hook | `traceary audit` を通して shell command 実行を記録する |
+| tool capture | 読み取り専用の file/list/grep ツールは出力本文ではなくアクセス metadata を保存する。mutating ツールと shell は従来どおり全文を保存する。[capture contract](./capture-contract.ja.md) を参照 |
 | doctor flow | `traceary doctor --client <host>` を共通のトラブルシュート入口にする |
 | versioning | integration package は Traceary の release と同じ version で公開する |
 

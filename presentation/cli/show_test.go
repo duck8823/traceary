@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 	"time"
 
@@ -91,6 +92,77 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 			"stdout\n"
 		if diff := cmp.Diff(want, stdout.String()); diff != "" {
 			t.Fatalf("stdout mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("renders read-only metadata block", func(t *testing.T) {
+		t.Parallel()
+
+		audit := model.CommandAuditOf(
+			eventID,
+			"Read",
+			`{"file_path":"README.md"}`,
+			"",
+			false,
+			false,
+			types.None[int](),
+			false,
+		)
+		audit.SetReadOnlyOutputMetadata(types.ReadOnlyOutputMetadataOf([]string{"README.md"}, "hello", 64))
+		eventDetails, err := apptypes.EventDetailsOf(
+			model.EventOf(
+				eventID,
+				types.EventKindCommandExecuted,
+				"hook",
+				agent,
+				sessionID,
+				"duck8823/traceary",
+				"",
+				time.Date(2026, 4, 8, 12, 0, 0, 0, time.UTC),
+			),
+			types.Some(audit),
+		)
+		if err != nil {
+			t.Fatalf("EventDetailsOf() error = %v", err)
+		}
+		stdout := &bytes.Buffer{}
+		rootCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(&eventUsecaseStub{showDetails: eventDetails}),
+		).Command()
+		rootCmd.SetOut(stdout)
+		rootCmd.SetErr(&bytes.Buffer{})
+		rootCmd.SetArgs([]string{"show", "--db-path", "/tmp/test-traceary.db", "event-1"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		got := stdout.String()
+		if !strings.Contains(got, "OUTPUT: (metadata only: read-only tool)") {
+			t.Fatalf("missing metadata label: %s", got)
+		}
+		if !strings.Contains(got, "paths: README.md") {
+			t.Fatalf("missing paths: %s", got)
+		}
+		if strings.Contains(got, "hello") {
+			t.Fatalf("leaked output text: %s", got)
+		}
+
+		jsonOut := &bytes.Buffer{}
+		jsonCmd := cli.NewRootCLI(
+			cli.WithStoreManagement(&storeManagementUsecaseStub{}),
+			cli.WithEvent(&eventUsecaseStub{showDetails: eventDetails}),
+		).Command()
+		jsonCmd.SetOut(jsonOut)
+		jsonCmd.SetErr(&bytes.Buffer{})
+		jsonCmd.SetArgs([]string{"show", "--json", "--db-path", "/tmp/test-traceary.db", "event-1"})
+		if err := jsonCmd.Execute(); err != nil {
+			t.Fatalf("JSON Execute() error = %v", err)
+		}
+		if !strings.Contains(jsonOut.String(), `"output_metadata"`) {
+			t.Fatalf("JSON missing output_metadata: %s", jsonOut.String())
+		}
+		if !strings.Contains(jsonOut.String(), `"capture": "metadata_only"`) {
+			t.Fatalf("JSON missing capture: %s", jsonOut.String())
 		}
 	})
 

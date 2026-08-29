@@ -59,6 +59,9 @@ Key columns:
 - `exit_code`: captured exit code when available
 - `failed`: compatibility failure flag derived from structured outcome evidence
 - `failure_reason`: `none`, `exit_code`, `signal`, `timeout`, `hook_denied`, `host_error`, or `unknown`
+- `output_metadata`: nullable canonical JSON for a metadata-only capture (`capture`, `paths`, `bytes`, `sha256`, `truncated`). Historical rows stay NULL
+
+Read-only tool audits store access facts only. For a successful classified read/list/grep (Claude `Read`/`Grep`/`Glob`/`NotebookRead`/`WebFetch`, Grok `read_file`/`grep`/`list_dir`, Kimi `Read`/`Grep`/`Glob`/`ReadMediaFile`, Gemini `read_file`/`read_many_files`/`list_directory`/`glob`/`search_file_content`), new rows store `output_text=''`, `output_truncated=0`, `output_original_bytes=0`, and put the redacted-response size in `output_metadata.bytes`. The sha256 is over the redacted response. Failed or denied read-only calls keep full (bounded) output. Existing rows are never rewritten. Archive v1 segments do not carry `output_metadata`. See [capture contract](../integrations/capture-contract.md).
 
 New writes set `failed` from `failure_reason.IsFailure()`. A structural hook failure with no exit code is stored as `host_error`, not as `unknown`. Rows with `failed=1` and `failure_reason=unknown` are pre-classifier history (schema default before 2026-07-22); restore keeps them, and new writes cannot create them. See [failed-flag meaning](../research/failed-flag-meaning.md).
 

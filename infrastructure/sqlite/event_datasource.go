@@ -407,9 +407,13 @@ func (d *EventDatasource) GetDetails(
 		}
 	}()
 
+	hasOutputMetadata, err := databaseColumnExists(ctx, db, "command_audits", "output_metadata")
+	if err != nil {
+		return apptypes.EventDetails{}, err
+	}
 	row := db.QueryRowContext(
 		ctx,
-		getEventDetailsQuery,
+		auditQueryWithOptionalOutputMetadata(getEventDetailsQuery, hasOutputMetadata),
 		eventID.String(),
 	)
 
@@ -426,6 +430,7 @@ func (d *EventDatasource) GetDetails(
 		exitCodeValue        sql.NullInt64
 		failedValue          sql.NullBool
 		failureReasonValue   sql.NullString
+		outputMetadataValue  sql.NullString
 	)
 
 	event, err := scanEventWithAudit(
@@ -442,6 +447,7 @@ func (d *EventDatasource) GetDetails(
 		&exitCodeValue,
 		&failedValue,
 		&failureReasonValue,
+		&outputMetadataValue,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -478,12 +484,17 @@ func (d *EventDatasource) GetDetails(
 		if commandWrapperValue.String != "" {
 			wrapper = types.Some(types.CommandName(commandWrapperValue.String))
 		}
+		outputMetadata, metadataErr := decodeCommandAuditOutputMetadata(outputMetadataValue.String)
+		if metadataErr != nil {
+			return apptypes.EventDetails{}, xerrors.Errorf("failed to restore command audit output metadata: %w", metadataErr)
+		}
 		commandAudit, restoreErr := model.CommandAuditFromSnapshot(model.CommandAuditSnapshot{
 			EventID: eventID, Command: commandTextValue.String, Wrapper: wrapper,
 			CommandName: types.CommandName(commandNameValue.String), Input: inputTextValue.String, Output: outputTextValue.String,
 			InputTruncated: inputTruncatedValue.Bool, OutputTruncated: outputTruncatedValue.Bool,
 			InputOriginalBytes: int(inputOriginalBytes.Int64), OutputOriginalBytes: int(outputOriginalBytes.Int64),
 			ExitCode: exitCode, Failed: failedValue.Bool, FailureReason: types.CommandFailureReason(failureReasonValue.String),
+			OutputMetadata: outputMetadata,
 		})
 		if restoreErr != nil {
 			return apptypes.EventDetails{}, xerrors.Errorf("failed to restore command audit: %w", restoreErr)
@@ -810,6 +821,7 @@ func scanEventWithAudit(
 	exitCodeValue *sql.NullInt64,
 	failedValue *sql.NullBool,
 	failureReasonValue *sql.NullString,
+	outputMetadataValue *sql.NullString,
 ) (*model.Event, error) {
 	event, _, err := scanEventAndAuditColumns(
 		rowScanner,
@@ -825,6 +837,7 @@ func scanEventWithAudit(
 		exitCodeValue,
 		failedValue,
 		failureReasonValue,
+		outputMetadataValue,
 	)
 	return event, err
 }
@@ -855,6 +868,7 @@ func scanListedEvent(rowScanner interface {
 		exitCodeValue         sql.NullInt64
 		failedValue           sql.NullBool
 		failureReasonValue    sql.NullString
+		outputMetadataValue   sql.NullString
 	)
 	if err := rowScanner.Scan(
 		&eventIDValue,
@@ -876,6 +890,7 @@ func scanListedEvent(rowScanner interface {
 		&exitCodeValue,
 		&failedValue,
 		&failureReasonValue,
+		&outputMetadataValue,
 	); err != nil {
 		return nil, xerrors.Errorf("failed to scan listed event row: %w", err)
 	}
@@ -906,6 +921,10 @@ func scanListedEvent(rowScanner interface {
 	if commandWrapperValue.String != "" {
 		wrapper = types.Some(types.CommandName(commandWrapperValue.String))
 	}
+	outputMetadata, metadataErr := decodeCommandAuditOutputMetadata(outputMetadataValue.String)
+	if metadataErr != nil {
+		return nil, xerrors.Errorf("failed to restore listed command audit output metadata: %w", metadataErr)
+	}
 	audit, err := model.CommandAuditFromListingMetadata(model.CommandAuditSnapshot{
 		EventID:             event.EventID(),
 		Command:             "",
@@ -920,6 +939,7 @@ func scanListedEvent(rowScanner interface {
 		ExitCode:            exitCode,
 		Failed:              failedValue.Bool,
 		FailureReason:       types.CommandFailureReason(failureReasonValue.String),
+		OutputMetadata:      outputMetadata,
 	})
 	if err != nil {
 		return nil, xerrors.Errorf("failed to restore listed command audit metadata: %w", err)
@@ -944,6 +964,7 @@ func scanEventAndAuditColumns(
 	exitCodeValue *sql.NullInt64,
 	failedValue *sql.NullBool,
 	failureReasonValue *sql.NullString,
+	outputMetadataValue *sql.NullString,
 ) (*model.Event, *model.CommandAudit, error) {
 	var (
 		eventIDValue          string
@@ -981,6 +1002,7 @@ func scanEventAndAuditColumns(
 		exitCodeValue,
 		failedValue,
 		failureReasonValue,
+		outputMetadataValue,
 	); err != nil {
 		return nil, nil, xerrors.Errorf("failed to scan event details row: %w", err)
 	}
@@ -1039,6 +1061,14 @@ func scanEventAndAuditColumns(
 	if failureReasonValue != nil {
 		failureReason = types.CommandFailureReason(failureReasonValue.String)
 	}
+	outputMetadata := types.None[types.ReadOnlyOutputMetadata]()
+	if outputMetadataValue != nil {
+		decoded, metadataErr := decodeCommandAuditOutputMetadata(outputMetadataValue.String)
+		if metadataErr != nil {
+			return nil, nil, xerrors.Errorf("failed to restore command audit output metadata: %w", metadataErr)
+		}
+		outputMetadata = decoded
+	}
 	// Physical columns may be codec-encoded; use listing metadata restore so
 	// a non-identity frame never becomes Command() plaintext here. GetDetails
 	// rebuilds from hydrateAuditPayload afterwards.
@@ -1056,6 +1086,7 @@ func scanEventAndAuditColumns(
 		ExitCode:            exitCode,
 		Failed:              failed,
 		FailureReason:       failureReason,
+		OutputMetadata:      outputMetadata,
 	})
 	if err != nil {
 		return nil, nil, xerrors.Errorf("failed to restore command audit: %w", err)
@@ -1169,10 +1200,14 @@ func queryRecentEvents(
 	limit, offset int,
 ) (*sql.Rows, error) {
 	failuresFlag := boolToInt(failuresOnly)
+	hasOutputMetadata, err := databaseColumnExists(ctx, db, "command_audits", "output_metadata")
+	if err != nil {
+		return nil, err
+	}
 	if sourceHook == "" {
 		rows, err := db.QueryContext(
 			ctx,
-			selectRecentEventsQuery,
+			auditQueryWithOptionalOutputMetadata(selectRecentEventsQuery, hasOutputMetadata),
 			kind.String(), kind.String(),
 			client.String(), client.String(),
 			agent.String(), agent.String(),
@@ -1192,7 +1227,7 @@ func queryRecentEvents(
 	if sourceHookHasLegacyPrefix(sourceHook) {
 		rows, err := db.QueryContext(
 			ctx,
-			selectRecentEventsBySourceHookWithLegacyQuery,
+			auditQueryWithOptionalOutputMetadata(selectRecentEventsBySourceHookWithLegacyQuery, hasOutputMetadata),
 			sourceHookLegacyQueryArgs(sourceHook, kind, client, agent, sessionID, workspace, failuresFlag, fromValue, toValue, limit, offset)...,
 		)
 		if err != nil {
@@ -1202,7 +1237,7 @@ func queryRecentEvents(
 	}
 	rows, err := db.QueryContext(
 		ctx,
-		selectRecentEventsBySourceHookQuery,
+		auditQueryWithOptionalOutputMetadata(selectRecentEventsBySourceHookQuery, hasOutputMetadata),
 		sourceHookPrimaryQueryArgs(sourceHook, kind, client, agent, sessionID, workspace, failuresFlag, fromValue, toValue, limit, offset)...,
 	)
 	if err != nil {
@@ -1220,10 +1255,14 @@ func queryRecentEventsTx(
 	fromValue, toValue string,
 	batch, offset int,
 ) (*sql.Rows, error) {
+	hasOutputMetadata, err := transactionColumnExists(ctx, tx, "command_audits", "output_metadata")
+	if err != nil {
+		return nil, err
+	}
 	if sourceHook == "" {
 		rows, err := tx.QueryContext(
 			ctx,
-			selectRecentEventsQuery,
+			auditQueryWithOptionalOutputMetadata(selectRecentEventsQuery, hasOutputMetadata),
 			kind.String(), kind.String(),
 			client.String(), client.String(),
 			agent.String(), agent.String(),
@@ -1243,7 +1282,7 @@ func queryRecentEventsTx(
 	if sourceHookHasLegacyPrefix(sourceHook) {
 		rows, err := tx.QueryContext(
 			ctx,
-			selectRecentEventsBySourceHookWithLegacyQuery,
+			auditQueryWithOptionalOutputMetadata(selectRecentEventsBySourceHookWithLegacyQuery, hasOutputMetadata),
 			sourceHookLegacyQueryArgs(sourceHook, kind, client, agent, sessionID, workspace, failuresFlag, fromValue, toValue, batch, offset)...,
 		)
 		if err != nil {
@@ -1253,7 +1292,7 @@ func queryRecentEventsTx(
 	}
 	rows, err := tx.QueryContext(
 		ctx,
-		selectRecentEventsBySourceHookQuery,
+		auditQueryWithOptionalOutputMetadata(selectRecentEventsBySourceHookQuery, hasOutputMetadata),
 		sourceHookPrimaryQueryArgs(sourceHook, kind, client, agent, sessionID, workspace, failuresFlag, fromValue, toValue, batch, offset)...,
 	)
 	if err != nil {

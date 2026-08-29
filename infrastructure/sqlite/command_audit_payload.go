@@ -321,6 +321,7 @@ func restoreCommandAuditFromValues(
 		ExitCode:            audit.ExitCode(),
 		Failed:              audit.Failed(),
 		FailureReason:       audit.FailureReason(),
+		OutputMetadata:      audit.OutputMetadata(),
 	}
 	if command != "" {
 		restored, err := model.CommandAuditFromSnapshot(snapshot)

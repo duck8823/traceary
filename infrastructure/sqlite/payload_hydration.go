@@ -158,6 +158,7 @@ func hydrateCommandAudit(ctx context.Context, q queryRowContexter, audit *model.
 		InputTruncated: audit.InputTruncated(), OutputTruncated: audit.OutputTruncated(),
 		InputOriginalBytes: audit.InputOriginalBytes(), OutputOriginalBytes: audit.OutputOriginalBytes(),
 		ExitCode: audit.ExitCode(), Failed: audit.Failed(), FailureReason: audit.FailureReason(),
+		OutputMetadata: audit.OutputMetadata(),
 	})
 	if err != nil {
 		return nil, xerrors.Errorf("restore hydrated command audit: %w", err)

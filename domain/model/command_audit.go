@@ -30,6 +30,7 @@ type CommandAudit struct {
 	exitCode            types.Optional[int]
 	failed              bool
 	failureReason       types.CommandFailureReason
+	outputMetadata      types.Optional[types.ReadOnlyOutputMetadata]
 }
 
 // NewCommandAudit creates a new CommandAudit.
@@ -157,6 +158,22 @@ func (a *CommandAudit) InputRedacted() bool { return a.inputRedacted }
 
 // OutputRedacted reports whether output redaction was applied.
 func (a *CommandAudit) OutputRedacted() bool { return a.outputRedacted }
+
+// SetReadOnlyOutputMetadata records the access facts stored instead of output text.
+func (a *CommandAudit) SetReadOnlyOutputMetadata(metadata types.ReadOnlyOutputMetadata) {
+	if a == nil {
+		return
+	}
+	a.outputMetadata = types.Some(metadata)
+}
+
+// OutputMetadata returns the access facts for a metadata-only capture.
+func (a *CommandAudit) OutputMetadata() types.Optional[types.ReadOnlyOutputMetadata] {
+	if a == nil {
+		return types.None[types.ReadOnlyOutputMetadata]()
+	}
+	return a.outputMetadata
+}
 
 // ExitCode returns the exit code, or empty if not captured.
 func (a *CommandAudit) ExitCode() types.Optional[int] { return a.exitCode }

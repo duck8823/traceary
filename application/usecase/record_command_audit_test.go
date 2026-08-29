@@ -402,4 +402,254 @@ func TestEventUsecase_Audit(t *testing.T) {
 			t.Fatalf("Audit() error = nil, want error")
 		}
 	})
+
+	t.Run("read-only tool stores empty output with metadata", func(t *testing.T) {
+		t.Parallel()
+
+		stub := &commandAuditSaverStub{}
+		sut := usecase.NewEventUsecase(stub, nil)
+		output := "file contents that must not be stored"
+		_, commandAudit, err := sut.Audit(context.Background(),
+			apptypes.AuditInput{
+				Command:   "Read",
+				Input:     `{"file_path":"README.md"}`,
+				Output:    output,
+				Client:    types.Client("hook"),
+				Agent:     types.Agent("claude"),
+				SessionID: types.SessionID("session-1"),
+				Workspace: types.Workspace("duck8823/traceary"),
+				ExitCode:  types.None[int](),
+				Host:      types.Client("claude"),
+				ToolName:  "Read",
+				ToolInput: map[string]any{"file_path": "README.md"},
+			},
+			apptypes.NewAuditRedactionBuilder().Build(),
+		)
+		if err != nil {
+			t.Fatalf("Audit() error = %v", err)
+		}
+		if diff := cmp.Diff("", commandAudit.Output()); diff != "" {
+			t.Fatalf("Output() mismatch (-want +got):\n%s", diff)
+		}
+		if commandAudit.OutputTruncated() {
+			t.Fatalf("OutputTruncated() = true, want false")
+		}
+		if commandAudit.OutputOriginalBytes() != 0 {
+			t.Fatalf("OutputOriginalBytes() = %d, want 0", commandAudit.OutputOriginalBytes())
+		}
+		metadata, ok := commandAudit.OutputMetadata().Value()
+		if !ok {
+			t.Fatal("OutputMetadata() is None, want metadata-only capture")
+		}
+		want := types.ReadOnlyOutputMetadataOf([]string{"README.md"}, output, 64*1024)
+		if diff := cmp.Diff(want.SHA256(), metadata.SHA256()); diff != "" {
+			t.Fatalf("SHA256 mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(want.Paths(), metadata.Paths()); diff != "" {
+			t.Fatalf("Paths mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(len(output), metadata.Bytes()); diff != "" {
+			t.Fatalf("Bytes mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("read-only tool marks truncated above the cap without truncating text", func(t *testing.T) {
+		t.Parallel()
+
+		stub := &commandAuditSaverStub{}
+		sut := usecase.NewEventUsecase(stub, nil)
+		output := strings.Repeat("o", 40)
+		_, commandAudit, err := sut.Audit(context.Background(),
+			apptypes.AuditInput{
+				Command:   "Read",
+				Input:     `{"file_path":"README.md"}`,
+				Output:    output,
+				Client:    types.Client("hook"),
+				Agent:     types.Agent("claude"),
+				SessionID: types.SessionID("session-1"),
+				Workspace: types.Workspace(""),
+				Host:      types.Client("claude"),
+				ToolName:  "Read",
+				ToolInput: map[string]any{"file_path": "README.md"},
+			},
+			apptypes.NewAuditRedactionBuilder().MaxOutputBytes(20).Build(),
+		)
+		if err != nil {
+			t.Fatalf("Audit() error = %v", err)
+		}
+		if diff := cmp.Diff("", commandAudit.Output()); diff != "" {
+			t.Fatalf("Output() mismatch (-want +got):\n%s", diff)
+		}
+		if commandAudit.OutputTruncated() {
+			t.Fatalf("row OutputTruncated() = true, want false")
+		}
+		metadata, ok := commandAudit.OutputMetadata().Value()
+		if !ok {
+			t.Fatal("OutputMetadata() is None")
+		}
+		if !metadata.Truncated() {
+			t.Fatalf("metadata Truncated() = false, want true")
+		}
+		if diff := cmp.Diff(len(output), metadata.Bytes()); diff != "" {
+			t.Fatalf("Bytes mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("read-only tool hashes the redacted output", func(t *testing.T) {
+		t.Parallel()
+
+		stub := &commandAuditSaverStub{}
+		sut := usecase.NewEventUsecase(stub, nil)
+		secretOutput := "Authorization: Bearer token-value"
+		_, commandAudit, err := sut.Audit(context.Background(),
+			apptypes.AuditInput{
+				Command:   "Read",
+				Input:     `{"file_path":".env"}`,
+				Output:    secretOutput,
+				Client:    types.Client("hook"),
+				Agent:     types.Agent("claude"),
+				SessionID: types.SessionID("session-1"),
+				Workspace: types.Workspace(""),
+				Host:      types.Client("claude"),
+				ToolName:  "Read",
+				ToolInput: map[string]any{"file_path": ".env"},
+			},
+			apptypes.NewAuditRedactionBuilder().Build(),
+		)
+		if err != nil {
+			t.Fatalf("Audit() error = %v", err)
+		}
+		if strings.Contains(commandAudit.Output(), "token-value") {
+			t.Fatalf("Output() leaked secret: %q", commandAudit.Output())
+		}
+		metadata, ok := commandAudit.OutputMetadata().Value()
+		if !ok {
+			t.Fatal("OutputMetadata() is None")
+		}
+		rawDigest := types.ReadOnlyOutputMetadataOf(nil, secretOutput, 64*1024).SHA256()
+		if metadata.SHA256() == rawDigest {
+			t.Fatalf("SHA256 hashed the unredacted secret")
+		}
+		if strings.Contains(metadata.SHA256(), "token-value") {
+			t.Fatalf("metadata digest leaked secret text")
+		}
+	})
+
+	t.Run("mutating tool keeps full capture", func(t *testing.T) {
+		t.Parallel()
+
+		stub := &commandAuditSaverStub{}
+		sut := usecase.NewEventUsecase(stub, nil)
+		_, commandAudit, err := sut.Audit(context.Background(),
+			apptypes.AuditInput{
+				Command:   "Bash",
+				Input:     `{"command":"echo hi"}`,
+				Output:    "hi\n",
+				Client:    types.Client("hook"),
+				Agent:     types.Agent("claude"),
+				SessionID: types.SessionID("session-1"),
+				Workspace: types.Workspace(""),
+				Host:      types.Client("claude"),
+				ToolName:  "Bash",
+				ToolInput: map[string]any{"command": "echo hi"},
+			},
+			apptypes.NewAuditRedactionBuilder().Build(),
+		)
+		if err != nil {
+			t.Fatalf("Audit() error = %v", err)
+		}
+		if diff := cmp.Diff("hi\n", commandAudit.Output()); diff != "" {
+			t.Fatalf("Output() mismatch (-want +got):\n%s", diff)
+		}
+		if _, ok := commandAudit.OutputMetadata().Value(); ok {
+			t.Fatal("OutputMetadata() set for a mutating tool")
+		}
+	})
+
+	t.Run("failed read-only tool keeps full capture", func(t *testing.T) {
+		t.Parallel()
+
+		stub := &commandAuditSaverStub{}
+		sut := usecase.NewEventUsecase(stub, nil)
+		_, commandAudit, err := sut.Audit(context.Background(),
+			apptypes.AuditInput{
+				Command:       "Read",
+				Input:         `{"file_path":"secret.md"}`,
+				Output:        "Permission denied",
+				Client:        types.Client("hook"),
+				Agent:         types.Agent("claude"),
+				SessionID:     types.SessionID("session-1"),
+				Workspace:     types.Workspace(""),
+				Failed:        true,
+				FailureReason: types.CommandFailureReasonHookDenied,
+				Host:          types.Client("claude"),
+				ToolName:      "Read",
+				ToolInput:     map[string]any{"file_path": "secret.md"},
+			},
+			apptypes.NewAuditRedactionBuilder().Build(),
+		)
+		if err != nil {
+			t.Fatalf("Audit() error = %v", err)
+		}
+		if diff := cmp.Diff("Permission denied", commandAudit.Output()); diff != "" {
+			t.Fatalf("Output() mismatch (-want +got):\n%s", diff)
+		}
+		if _, ok := commandAudit.OutputMetadata().Value(); ok {
+			t.Fatal("OutputMetadata() set for a failed read-only tool")
+		}
+	})
+
+	t.Run("manual audit without host keeps full capture", func(t *testing.T) {
+		t.Parallel()
+
+		stub := &commandAuditSaverStub{}
+		sut := usecase.NewEventUsecase(stub, nil)
+		_, commandAudit, err := sut.Audit(context.Background(),
+			apptypes.AuditInput{
+				Command:   "Read",
+				Input:     "stdin",
+				Output:    "stdout",
+				Client:    types.Client("cli"),
+				Agent:     types.Agent("codex"),
+				SessionID: types.SessionID("session-1"),
+				Workspace: types.Workspace(""),
+			},
+			apptypes.NewAuditRedactionBuilder().Build(),
+		)
+		if err != nil {
+			t.Fatalf("Audit() error = %v", err)
+		}
+		if diff := cmp.Diff("stdout", commandAudit.Output()); diff != "" {
+			t.Fatalf("Output() mismatch (-want +got):\n%s", diff)
+		}
+		if _, ok := commandAudit.OutputMetadata().Value(); ok {
+			t.Fatal("OutputMetadata() set for a manual audit")
+		}
+	})
+}
+
+func TestCommandAuditDeliveryFields_DistinguishesOutputMetadata(t *testing.T) {
+	t.Parallel()
+
+	eventID, err := types.EventIDFrom("event-1")
+	if err != nil {
+		t.Fatalf("EventIDFrom() error = %v", err)
+	}
+	left, err := model.NewCommandAudit(eventID, "Read", `{"file_path":"a.md"}`, "", false, false)
+	if err != nil {
+		t.Fatalf("NewCommandAudit(left) error = %v", err)
+	}
+	right, err := model.NewCommandAudit(eventID, "Read", `{"file_path":"b.md"}`, "", false, false)
+	if err != nil {
+		t.Fatalf("NewCommandAudit(right) error = %v", err)
+	}
+	sameBytes := "12345"
+	left.SetReadOnlyOutputMetadata(types.ReadOnlyOutputMetadataOf([]string{"a.md"}, sameBytes, 64))
+	right.SetReadOnlyOutputMetadata(types.ReadOnlyOutputMetadataOf([]string{"b.md"}, sameBytes, 64))
+
+	leftFields := usecase.CommandAuditDeliveryFieldsForTest(left)
+	rightFields := usecase.CommandAuditDeliveryFieldsForTest(right)
+	if cmp.Equal(leftFields, rightFields) {
+		t.Fatalf("delivery fields collided for two reads of equal byte count: %v", leftFields)
+	}
 }

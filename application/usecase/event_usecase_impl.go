@@ -178,6 +178,16 @@ func (u *eventUsecase) Audit(ctx context.Context, in apptypes.AuditInput, auditC
 
 	inputPayload := truncateAuditPayload(normalizedInput, maxInputBytes)
 	outputPayload := truncateAuditPayload(normalizedOutput, maxOutputBytes)
+	readOnly := types.ToolAccessOf(in.Host, in.ToolName) == types.ToolAccessReadOnly && !isFailedAudit(in)
+	var outputMetadata types.ReadOnlyOutputMetadata
+	if readOnly {
+		outputMetadata = types.ReadOnlyOutputMetadataOf(
+			types.ReadOnlyToolTargetsOf(in.Host, in.ToolName, in.ToolInput),
+			normalizedOutput,
+			maxOutputBytes,
+		)
+		outputPayload = auditPayloadTruncation{}
+	}
 	commandAudit, err := model.NewCommandAudit(
 		eventID,
 		normalizedCommand,
@@ -191,6 +201,9 @@ func (u *eventUsecase) Audit(ctx context.Context, in apptypes.AuditInput, auditC
 	}
 	commandAudit.SetOriginalPayloadBytes(inputPayload.OriginalBytes, outputPayload.OriginalBytes)
 	commandAudit.SetRedaction(inputRedacted, outputRedacted)
+	if readOnly {
+		commandAudit.SetReadOnlyOutputMetadata(outputMetadata)
+	}
 	if err := commandAudit.ClassifyOutcome(in.ExitCode, in.FailureReason, in.Failed); err != nil {
 		return apptypes.EventWriteResult{}, nil, xerrors.Errorf("failed to classify command audit outcome: %w", err)
 	}
@@ -367,6 +380,16 @@ func hasSearchConstraint(criteria apptypes.EventSearchCriteria) bool {
 		!criteria.From().IsZero() ||
 		!criteria.To().IsZero() ||
 		criteria.FailuresOnly()
+}
+
+func isFailedAudit(in apptypes.AuditInput) bool {
+	if in.Failed || in.FailureReason.IsFailure() {
+		return true
+	}
+	if code, ok := in.ExitCode.Value(); ok && code != 0 {
+		return true
+	}
+	return false
 }
 
 func resolveOptionalSearchKind(value string) (types.EventKind, error) {

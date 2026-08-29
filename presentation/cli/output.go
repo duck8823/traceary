@@ -41,19 +41,28 @@ type event struct {
 
 // commandAudit is the JSON shape of a command audit in CLI output.
 type commandAudit struct {
-	Command             string                   `json:"command"`
-	Wrapper             string                   `json:"wrapper,omitempty"`
-	CommandName         string                   `json:"command_name"`
-	Input               string                   `json:"input"`
-	Output              string                   `json:"output"`
-	InputTruncated      bool                     `json:"input_truncated"`
-	OutputTruncated     bool                     `json:"output_truncated"`
-	InputOriginalBytes  int                      `json:"input_original_bytes,omitempty"`
-	OutputOriginalBytes int                      `json:"output_original_bytes,omitempty"`
-	ExitCode            *int                     `json:"exit_code,omitempty"`
-	Failed              bool                     `json:"failed,omitempty"`
-	FailureReason       string                   `json:"failure_reason"`
-	Sensitive           *sensitiveClassification `json:"sensitive,omitempty"`
+	Command             string                      `json:"command"`
+	Wrapper             string                      `json:"wrapper,omitempty"`
+	CommandName         string                      `json:"command_name"`
+	Input               string                      `json:"input"`
+	Output              string                      `json:"output"`
+	InputTruncated      bool                        `json:"input_truncated"`
+	OutputTruncated     bool                        `json:"output_truncated"`
+	InputOriginalBytes  int                         `json:"input_original_bytes,omitempty"`
+	OutputOriginalBytes int                         `json:"output_original_bytes,omitempty"`
+	ExitCode            *int                        `json:"exit_code,omitempty"`
+	Failed              bool                        `json:"failed,omitempty"`
+	FailureReason       string                      `json:"failure_reason"`
+	OutputMetadata      *commandAuditOutputMetadata `json:"output_metadata,omitempty"`
+	Sensitive           *sensitiveClassification    `json:"sensitive,omitempty"`
+}
+
+type commandAuditOutputMetadata struct {
+	Capture   string   `json:"capture"`
+	Paths     []string `json:"paths,omitempty"`
+	Bytes     int      `json:"bytes"`
+	SHA256    string   `json:"sha256"`
+	Truncated bool     `json:"truncated"`
 }
 
 // sensitiveClassification is the separable sensitive-path claim (not redaction).

@@ -82,6 +82,9 @@ type eventUsecaseStub struct {
 		failed        bool
 		failureReason types.CommandFailureReason
 		auditCfg      apptypes.AuditRedaction
+		host          types.Client
+		toolName      string
+		toolInput     map[string]any
 	}
 }
 
@@ -176,6 +179,9 @@ func (s *eventUsecaseStub) Audit(_ context.Context, in apptypes.AuditInput, audi
 	s.auditCall.failed = in.Failed
 	s.auditCall.failureReason = in.FailureReason
 	s.auditCall.auditCfg = auditCfg
+	s.auditCall.host = in.Host
+	s.auditCall.toolName = in.ToolName
+	s.auditCall.toolInput = in.ToolInput
 	return apptypes.EventWriteResultOf(s.auditEvent, true), s.auditAudit, s.auditErr
 }
 func (s *eventUsecaseStub) Search(_ context.Context, criteria apptypes.EventSearchCriteria) ([]*model.Event, error) {

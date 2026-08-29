@@ -577,6 +577,13 @@ func (c *RootCLI) runHookAudit(
 		StructuredRules(c.structuredRedactRules).
 		Build()
 	failureReason := hookPayloadFailureReason(payload)
+	toolName := hookPayloadString(payload, "tool_name", "")
+	toolInput := map[string]any{}
+	if value, ok := lookupHookPayloadValue(payload, "tool_input"); ok {
+		if object, ok := value.(map[string]any); ok {
+			toolInput = object
+		}
+	}
 	_, _, err = c.event.Audit(
 		ctx,
 		apptypes.AuditInput{
@@ -590,6 +597,9 @@ func (c *RootCLI) runHookAudit(
 			ExitCode:      hookPayloadExitCode(payload),
 			Failed:        failureReason.IsFailure(),
 			FailureReason: failureReason,
+			Host:          types.Client(client),
+			ToolName:      toolName,
+			ToolInput:     toolInput,
 		},
 		auditCfg,
 	)

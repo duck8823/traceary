@@ -135,6 +135,10 @@ var preparedMigrationManifest = map[int64]migrationManifestEntry{
 	// 0.37 GiB on the 2026-08-28 operator store) into one row per attribution
 	// key. Not constant-in-place: cost scales with stored observations (#2269).
 	76: {76, "000076_collapse_session_workspace_observations.sql", "3531475817ba02f2f437158419b68ebb6bff47e58d5a4f5bb13a950ccd1a2b00", MigrationDataDependentOffline},
+	// 77 adds one nullable TEXT column to command_audits. ADD COLUMN without a
+	// non-constant default is O(1) in SQLite: no table rewrite, no scan.
+	// Same class as 18 / 36 / 67.
+	77: {77, "000077_add_command_audit_output_metadata.sql", "ffadbfeb307987aa8305253eea16911b5f09c31812cf40d9fc5039b44dd2d414", MigrationConstantInPlace},
 }
 
 // PreparedMigration identifies one exact pending embedded migration.

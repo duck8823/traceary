@@ -24,6 +24,7 @@ type CommandAuditSnapshot struct {
 	ExitCode            types.Optional[int]
 	Failed              bool
 	FailureReason       types.CommandFailureReason
+	OutputMetadata      types.Optional[types.ReadOnlyOutputMetadata]
 }
 
 // CommandAuditFromSnapshot validates persisted normalized state. Empty
@@ -101,5 +102,6 @@ func commandAuditFromSnapshot(snapshot CommandAuditSnapshot, command string) (*C
 		exitCode:            snapshot.ExitCode,
 		failed:              failed,
 		failureReason:       validatedReason,
+		outputMetadata:      snapshot.OutputMetadata,
 	}, nil
 }
