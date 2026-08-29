@@ -44,7 +44,7 @@ release 済みバイナリを更新するたびに、次を実行してくださ
 
 | Host | 更新 | 有効化 | version 検証 | 許可する skip |
 |---|---|---|---|---|
-| Claude Code | headless: `claude plugin marketplace update traceary-plugins` のあと `claude plugin update traceary@traceary-plugins`（user scope）と `--scope local`。短い名前 `claude plugin update traceary` は "Plugin not found" になる。対話の `/plugin update traceary` は従来どおり有効。更新後は再起動。再開した session は完全に再起動するまで古い snapshot hook を使い続けることがある。 | 更新済み package を読み込むため、Claude Code を再起動するか新しい process を開始します。 | `traceary doctor --client claude --json` の `claude-plugin-version` が `pass`。 | Claude Code / Traceary package を意図的に導入していない場合だけ `--skip claude='理由'`。 |
+| Claude Code | headless: `claude plugin marketplace update traceary-plugins` のあと `claude plugin update traceary@traceary-plugins`（user scope）と `--scope local`。短い名前 `claude plugin update traceary` は "Plugin not found" になる。対話の `/plugin update traceary` は従来どおり有効。更新後は再起動。再開した session は完全に再起動するまで古い snapshot hook を使い続けることがある。doctor が複数の cache バージョンを出したら、古いスナップショットを保持している可能性のあるホスト session をすべて先に再起動し、そのあとで古い cache ディレクトリを削除する。逆順は禁止。 | 更新済み package を読み込むため、Claude Code を再起動するか新しい process を開始します。 | `traceary doctor --client claude --json` の `claude-plugin-version` が `pass`。 | Claude Code / Traceary package を意図的に導入していない場合だけ `--skip claude='理由'`。 |
 | Codex | `codex plugin marketplace list` で root を確認。Git clone: その clone で `traceary -v` と一致する tag を `git checkout`。local-path（checkout 自体が marketplace root。manifest は `.agents/plugins/marketplace.json`）: `git -C <marketplace-root> checkout` で同じ tag。そのあと `codex plugin add traceary@traceary-marketplace`。local-path marketplace では `codex plugin marketplace upgrade` は "No configured Git marketplaces" になるので使わない。対話の `/plugins` は従来どおり有効。 | add（または `/plugins` refresh）のあと新しい Codex session を開始します。 | `traceary doctor --client codex --json` の `codex-plugin-version` が `pass`。記録の証明には隔離 throwaway store での `session_started` / `prompt` capture が必要。plugin-version PASS は capture ではない。 | Codex / Traceary package を意図的に導入していない場合だけ `--skip codex='理由'`。 |
 | Gemini CLI（レガシー extension） | `./scripts/install-gemini-extension.sh`（uninstall + `install --consent`、tag pin）。その後 managed hook generation を更新（下記参照）。 | Gemini CLI を再起動します。 | `traceary doctor --client gemini --json` の `gemini-plugin-version` と `gemini-config` がどちらも `pass`。 | レガシー extension を意図的に導入していない場合だけ `--skip gemini='理由'`。 |
 | Antigravity | `traceary -v` と一致する checkout から `rsync -a --delete integrations/antigravity-plugin/` を `~/.gemini/config/plugins/traceary/`（と、あればレガシー `~/.gemini/antigravity-cli/plugins/traceary/`）へ、または `agy plugin install integrations/antigravity-plugin`。doctor がまだ stale twin を出す場合は下記の dual path 手順。 | Antigravity を終了して開き直すか、新しい CLI session を開始します。 | `traceary doctor --client antigravity --json` のすべての `antigravity-plugin-version` が `pass`。一方が pass で、もう一方が version のない不完全 twin なら、後者の `skip` は許可されます。 | Antigravity / Traceary package を意図的に導入していない場合だけ `--skip antigravity='理由'`。 |
@@ -52,6 +52,15 @@ release 済みバイナリを更新するたびに、次を実行してくださ
 | Kimi Code | `./scripts/install-kimi-plugin.sh`。installer は新しい generation を stage し、managed `traceary` symlink を atomic に切り替え、install record を保持します。 | `/plugins reload` を実行するか、**新しい Kimi session を開始**します。 | `traceary doctor --client kimi --json` の `kimi-plugin-version` と native `kimi-plugin` が健全。記録の証明には隔離 throwaway store での `session_started` / `prompt` capture が必要。plugin-version PASS は capture ではなく、`session_ended` は要求しない。 | Kimi Code / Traceary package を意図的に導入していない場合だけ `--skip kimi='理由'`。 |
 
 doctor が正確な非対話コマンドを `FixCommand` に出す場合は、そちらを優先してください。ホスト CLI のフラグを推測で追加してはいけません。
+
+## 古い plugin cache を削除する前に再起動する
+
+doctor はホスト plugin cache（Claude: `~/.claude/plugins/cache/...`）の下に複数のバージョンディレクトリが残っていることを報告することがあります。ホストは起動時にそのディレクトリを一度だけ解決し、絶対パスを保持します。resume された session（`--continue` / cmux）は古いスナップショットを使い続けることがあります。
+
+1. 古いスナップショットを保持している可能性のあるホスト session をすべて先に再起動する（resume しない）。
+2. そのあとで古い cache ディレクトリを削除する。
+
+実行中の session があるうちに古いディレクトリを消すと、スナップショットされた plugin パスが消え、記録が止まります。doctor は残った cache を `pass` と報告するため、Traceary 側には欠落が見えません。実行中の session の下から古いスナップショットを既に削除してしまった場合は、ホストを再起動して復旧してください。
 
 `--scope local` install に関する補足: Claude の `~/.claude/plugins/installed_plugins.json` にある local install の行は、指していた project ディレクトリが削除されても残ります。doctor はこれらの行を additive な `claude-plugin-local-leftovers` WARN（件数と欠落 path の上限付きサンプル）として報告します。user cache の `claude-plugin-cache` / `claude-plugin-version` は `pass` のままです。WARN には FixCommand が付き、`traceary doctor --fix --dry-run --client claude` が leftover path をすべて一覧し、`traceary doctor --fix` は同じ一覧を print するだけの no-op です。Traceary は Claude の inventory を書き換えません。project ディレクトリが消えた local-scope 行を uninstall できる host CLI はないため、`installed_plugins.json` を確認し、leftover の local 行は Claude 側で自分で削除してください。
 

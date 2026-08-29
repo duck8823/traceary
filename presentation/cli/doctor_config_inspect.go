@@ -49,8 +49,8 @@ func (c *RootCLI) inspectClaudePluginCacheStatus() *doctorCheck {
 	if status.HasMultipleCachedVersions() {
 		others := strings.Join(status.CachedVersions[1:], ", ")
 		multiSegment = localizef(
-			"claude plugin cache %s has multiple cached versions (current %s, older also present: %s). A resumed Claude Code session (via `--continue` / cmux) can still be running the older snapshot. Fully restart Claude Code (no resume) so the new hooks fire; optionally remove `%s/<old>` to remove the ambiguity",
-			"claude plugin cache %s に複数のバージョンが残っています (current %s、古いもの: %s)。`--continue` で resume されたセッションでは古いスナップショットの hook が動き続ける可能性があります。完全に再起動 (resume しない) すれば新しい hook が有効になります。古い subdir (`%s/<old>`) を削除すれば恒久的に解消します",
+			"claude plugin cache %s has multiple cached versions (current %s, older also present: %s). A resumed Claude Code session (via `--continue` / cmux) can still be running the older snapshot. Fully restart every host session that could hold the old snapshot first (no resume) so the new hooks fire; only after those sessions have been restarted, remove `%s/<old>` to clear the ambiguity. Removing the directory while a session is running breaks that session's hooks (the host keeps the snapshot path); if you already removed it, restart the host to recover",
+			"claude plugin cache %s に複数のバージョンが残っています (current %s、古いもの: %s)。`--continue` で resume されたセッションでは古いスナップショットの hook が動き続ける可能性があります。古いスナップショットを保持している可能性のあるホスト session をすべて先に再起動してください (resume しない)。そのあとで `%s/<old>` を削除して曖昧さを解消します。実行中の session の下からディレクトリを消すと hook が壊れます (host はスナップショットパスを保持したままです)。既に削除した場合はホストを再起動して復旧してください",
 			status.CachePath, status.CachedVersion, others, status.CachePath,
 		)
 	}
