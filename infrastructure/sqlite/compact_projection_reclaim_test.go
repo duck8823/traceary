@@ -63,7 +63,7 @@ func TestCompactReclaimsTerminalProjectionGenerationsOnWorkCopy(t *testing.T) {
 		infra.StoreReplacementFiles{CallerHoldsExclusiveLease: true},
 		infra.StoreLeaseCoordinator{},
 	)
-	result, err := svc.Compact(ctx, application.CompactInput{Source: dbPath, Force: true, Now: time.Now()})
+	result, err := svc.Compact(ctx, application.CompactInput{Source: dbPath, Now: time.Now()})
 	if err != nil {
 		t.Fatalf("Compact() error = %v", err)
 	}

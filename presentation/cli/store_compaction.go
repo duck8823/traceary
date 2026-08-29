@@ -4,6 +4,7 @@ package cli
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -17,7 +18,7 @@ import (
 func (c *RootCLI) newStoreCompactionCommand() *cobra.Command {
 	var (
 		path              string
-		force             bool
+		refuseUnrefined   bool
 		keepDays          int
 		workDir           string
 		archive           bool
@@ -56,36 +57,38 @@ func (c *RootCLI) newStoreCompactionCommand() *cobra.Command {
 			fileRetention.dbPath = path
 			fileRetention.outputPath = output
 			return c.runStoreCompact(cmd, storeCompactInput{
-				path:              path,
-				force:             force,
-				keepDays:          keepDays,
-				workDir:           workDir,
-				archive:           archive,
-				archiveVerify:     archiveVerify,
-				archiveRestore:    archiveRestore,
-				deleteAfterVerify: deleteAfterVerify,
-				target:            target,
-				passphraseEnv:     passphraseEnv,
-				dryRun:            dryRun,
-				output:            output,
-				retentionPlan:     retentionPlan,
-				retentionApply:    retentionApply,
-				projectionRebuild: projectionRebuild,
-				projectionAbort:   projectionAbort,
-				planPath:          planPath,
-				confirmPlanID:     confirmPlanID,
-				fileRetention:     fileRetention,
-				projectionBudget:  projectionBudget,
-				forceSet:          cmd.Flags().Changed("force"),
-				workDirSet:        cmd.Flags().Changed("work-dir"),
-				targetSet:         cmd.Flags().Changed("target"),
-				deleteAfterSet:    cmd.Flags().Changed("delete-after-verify"),
-				dryRunSet:         cmd.Flags().Changed("dry-run"),
+				path:               path,
+				refuseUnrefined:    refuseUnrefined,
+				keepDays:           keepDays,
+				workDir:            workDir,
+				archive:            archive,
+				archiveVerify:      archiveVerify,
+				archiveRestore:     archiveRestore,
+				deleteAfterVerify:  deleteAfterVerify,
+				target:             target,
+				passphraseEnv:      passphraseEnv,
+				dryRun:             dryRun,
+				output:             output,
+				retentionPlan:      retentionPlan,
+				retentionApply:     retentionApply,
+				projectionRebuild:  projectionRebuild,
+				projectionAbort:    projectionAbort,
+				planPath:           planPath,
+				confirmPlanID:      confirmPlanID,
+				fileRetention:      fileRetention,
+				projectionBudget:   projectionBudget,
+				refuseUnrefinedSet: cmd.Flags().Changed("refuse-unrefined"),
+				workDirSet:         cmd.Flags().Changed("work-dir"),
+				targetSet:          cmd.Flags().Changed("target"),
+				deleteAfterSet:     cmd.Flags().Changed("delete-after-verify"),
+				dryRunSet:          cmd.Flags().Changed("dry-run"),
 			})
 		},
 	}
 	cmd.Flags().StringVar(&path, "db-path", "", dbPathFlagUsage())
-	cmd.Flags().BoolVar(&force, "force", false, Localize("write mechanical summaries for unrefined discardable sessions and discard those bodies", "未 refine の破棄対象へ機械要約を書いて本文を捨てる"))
+	cmd.Flags().BoolVar(&refuseUnrefined, "refuse-unrefined", false, Localize(
+		"fail instead of writing mechanical summaries for unrefined discardable sessions (pre-v0.48 behaviour)",
+		"未 refine の破棄対象に機械要約を書かず、v0.48 以前どおり失敗する"))
 	cmd.Flags().IntVar(&keepDays, "keep-days", application.DefaultCompactKeepDays, Localize("retain bodies newer than this many days; also the --archive keep window", "この日数より新しい本文は保持する。--archive の保持窓でも使う"))
 	cmd.Flags().StringVar(&workDir, "work-dir", "", Localize("stage the source-sized work copy on another volume when this volume cannot hold a replica", "このボリュームにレプリカを置けないとき、source サイズの work copy を別ボリュームに置く"))
 	cmd.Flags().BoolVar(&archive, "archive", false, Localize("export GC-eligible rows to a versioned archive package (former store archive create)", "GC 適格行を版付き archive package に export する（旧 store archive create）"))
@@ -125,39 +128,39 @@ func (c *RootCLI) newStoreCompactionCommand() *cobra.Command {
 }
 
 type storeCompactInput struct {
-	path              string
-	force             bool
-	keepDays          int
-	workDir           string
-	archive           bool
-	archiveVerify     string
-	archiveRestore    string
-	deleteAfterVerify bool
-	target            string
-	passphraseEnv     string
-	dryRun            bool
-	output            string
-	retentionPlan     bool
-	retentionApply    bool
-	projectionRebuild bool
-	projectionAbort   bool
-	planPath          string
-	confirmPlanID     string
-	fileRetention     storeFileRetentionPlanInput
-	projectionBudget  storeProjectionBudgetInput
-	forceSet          bool
-	workDirSet        bool
-	targetSet         bool
-	deleteAfterSet    bool
-	dryRunSet         bool
+	path               string
+	refuseUnrefined    bool
+	keepDays           int
+	workDir            string
+	archive            bool
+	archiveVerify      string
+	archiveRestore     string
+	deleteAfterVerify  bool
+	target             string
+	passphraseEnv      string
+	dryRun             bool
+	output             string
+	retentionPlan      bool
+	retentionApply     bool
+	projectionRebuild  bool
+	projectionAbort    bool
+	planPath           string
+	confirmPlanID      string
+	fileRetention      storeFileRetentionPlanInput
+	projectionBudget   storeProjectionBudgetInput
+	refuseUnrefinedSet bool
+	workDirSet         bool
+	targetSet          bool
+	deleteAfterSet     bool
+	dryRunSet          bool
 }
 
 func (c *RootCLI) runStoreCompact(cmd *cobra.Command, input storeCompactInput) error {
 	absorb := input.archive || input.archiveVerify != "" || input.archiveRestore != "" || input.retentionPlan || input.retentionApply || input.projectionRebuild || input.projectionAbort
-	if absorb && (input.forceSet || input.workDirSet) {
+	if absorb && (input.refuseUnrefinedSet || input.workDirSet) {
 		return xerrors.New(Localize(
-			"--force/--work-dir cannot be combined with --archive/--archive-verify/--archive-restore/--retention-plan/--retention-apply/--projection-rebuild/--projection-abort",
-			"--force/--work-dir は --archive / --archive-verify / --archive-restore / --retention-plan / --retention-apply / --projection-rebuild / --projection-abort と同時に使えません",
+			"--refuse-unrefined/--work-dir cannot be combined with --archive/--archive-verify/--archive-restore/--retention-plan/--retention-apply/--projection-rebuild/--projection-abort",
+			"--refuse-unrefined/--work-dir は --archive / --archive-verify / --archive-restore / --retention-plan / --retention-apply / --projection-rebuild / --projection-abort と同時に使えません",
 		))
 	}
 	if !input.archive && (input.deleteAfterSet || input.targetSet) {
@@ -237,10 +240,10 @@ func (c *RootCLI) runStoreCompact(cmd *cobra.Command, input storeCompactInput) e
 	}
 	usecase.BindCompactionProgress(service, newCLICompactionProgress(cmd.ErrOrStderr()))
 	result, err := service.Compact(cmd.Context(), application.CompactInput{
-		Source:   resolved,
-		Force:    input.force,
-		KeepDays: input.keepDays,
-		WorkDir:  input.workDir,
+		Source:          resolved,
+		RefuseUnrefined: input.refuseUnrefined,
+		KeepDays:        input.keepDays,
+		WorkDir:         input.workDir,
 	})
 	if err != nil {
 		var unrefined application.UnrefinedMaterialError
@@ -249,6 +252,16 @@ func (c *RootCLI) runStoreCompact(cmd *cobra.Command, input storeCompactInput) e
 		}
 		return err
 	}
+	discarded := result.DiscardedBodyBytes
+	if discarded < 0 {
+		discarded = 0
+	}
+	_, _ = fmt.Fprintln(cmd.ErrOrStderr(), localizef(
+		"compact: mechanical cover covered %d session(s), %s of bodies discardable",
+		"compact: 機械要約で %d セッションを被覆、%s の本文が破棄対象",
+		result.CoveredSessions,
+		formatCompactBytes(uint64(discarded)),
+	))
 	payload := map[string]any{
 		"run_id":                      result.Run.ID,
 		"phase":                       result.Run.Phase,
@@ -257,6 +270,8 @@ func (c *RootCLI) runStoreCompact(cmd *cobra.Command, input storeCompactInput) e
 		"unrefined_remaining":         result.UnrefinedRemaining,
 		"unrefined_bytes":             result.UnrefinedBytes,
 		"mechanical_summaries":        result.MechanicalSummaries,
+		"covered_sessions":            result.CoveredSessions,
+		"discarded_body_bytes":        result.DiscardedBodyBytes,
 		"released_command_body_rows":  result.ReleasedCommandBodyRows,
 		"released_command_body_bytes": result.ReleasedCommandBodyBytes,
 		"estimated_reclaimable_bytes": result.EstimatedReclaimableBytes,

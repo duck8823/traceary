@@ -94,7 +94,7 @@ func TestCompactDoesNotCarryInternalDedupeArchiveIntoCandidate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := svc.Compact(ctx, application.CompactInput{Source: dbPath, Force: true, Now: time.Now().UTC()})
+	result, err := svc.Compact(ctx, application.CompactInput{Source: dbPath, Now: time.Now().UTC()})
 	if err != nil {
 		t.Fatalf("Compact() error = %v", err)
 	}
@@ -137,7 +137,7 @@ func TestCompactRollbackRestoresIsolatedDuplicates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := svc.Compact(ctx, application.CompactInput{Source: dbPath, Force: true, Now: time.Now().UTC()})
+	result, err := svc.Compact(ctx, application.CompactInput{Source: dbPath, Now: time.Now().UTC()})
 	if err != nil {
 		t.Fatalf("Compact() error = %v", err)
 	}
@@ -171,7 +171,7 @@ func TestCompactPreservesOperatorQuarantineWithinRetention(t *testing.T) {
 		t.Fatal(err)
 	}
 	svc := newPolicyCompaction(t, dbPath, dir)
-	result, err := svc.Compact(ctx, application.CompactInput{Source: dbPath, Force: true, Now: now})
+	result, err := svc.Compact(ctx, application.CompactInput{Source: dbPath, Now: now})
 	if err != nil {
 		t.Fatalf("Compact() error = %v", err)
 	}
@@ -205,7 +205,7 @@ func TestCompactPurgesPriorInternalRunsWhenRollbackRetained(t *testing.T) {
 		t.Fatal(err)
 	}
 	svc := newPolicyCompaction(t, dbPath, dir)
-	result, err := svc.Compact(ctx, application.CompactInput{Source: dbPath, Force: true, Now: now})
+	result, err := svc.Compact(ctx, application.CompactInput{Source: dbPath, Now: now})
 	if err != nil {
 		t.Fatalf("Compact() error = %v", err)
 	}

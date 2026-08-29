@@ -16,7 +16,7 @@ func TestRuntimeSQLiteOpenInventoryIsExplicit(t *testing.T) {
 	allowed := map[string]int{
 		"infrastructure/filesystem/file_retention_datasource_unix.go": 1, // copied backup FD verification.
 		"infrastructure/sqlite/archive_segment.go":                    2, // owned offline candidate plus O_NOFOLLOW-pinned immutable segment; never Hot.
-		"infrastructure/sqlite/compaction_sqlite.go":                  2, // EX-held source/candidate only.
+		"infrastructure/sqlite/compaction_sqlite.go":                  4, // EX-held source/candidate, WAL checkpoint after cover, in-place cover inspect.
 		"infrastructure/sqlite/compaction_copy_filter.go":             2, // EX-held work copy plus EX-held in-place incremental vacuum.
 		"infrastructure/sqlite/database.go":                           1, // in-memory driver probe only.
 		"infrastructure/sqlite/ended_session_inspector.go":            1, // mode=ro bounded ended-session probe; no coordinated lease, no dbstat.

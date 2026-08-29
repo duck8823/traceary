@@ -11,44 +11,44 @@ import (
 func TestBodyGateMustRefuse(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
-		name   string
-		gate   application.BodyGate
-		force  bool
-		refuse bool
+		name            string
+		gate            application.BodyGate
+		refuseUnrefined bool
+		refuse          bool
 	}{
 		{name: "nothing to discard", gate: application.BodyGate{}},
 		{name: "only covered material", gate: application.BodyGate{CoveredCount: 3, CoveredBytes: 10}},
 		{
-			name:   "unrefined only without force",
-			gate:   application.BodyGate{UnrefinedSessions: 12, UnrefinedBytes: 100},
-			refuse: true,
+			name: "unrefined only without refuse",
+			gate: application.BodyGate{UnrefinedSessions: 12, UnrefinedBytes: 100},
 		},
 		{
-			name:  "unrefined only with force",
-			gate:  application.BodyGate{UnrefinedSessions: 12, UnrefinedBytes: 100},
-			force: true,
+			name:            "unrefined only with refuse",
+			gate:            application.BodyGate{UnrefinedSessions: 12, UnrefinedBytes: 100},
+			refuseUnrefined: true,
+			refuse:          true,
 		},
 		{
 			name: "partial fold leaves unrefined",
 			gate: application.BodyGate{CoveredCount: 1, UnrefinedSessions: 11, UnrefinedBytes: 90},
 		},
 		{
-			name:  "partial fold with force",
-			gate:  application.BodyGate{CoveredCount: 1, UnrefinedSessions: 11},
-			force: true,
+			name:            "partial fold with refuse",
+			gate:            application.BodyGate{CoveredCount: 1, UnrefinedSessions: 11},
+			refuseUnrefined: true,
 		},
 	} {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			if got := tc.gate.MustRefuse(tc.force); got != tc.refuse {
+			if got := tc.gate.MustRefuse(tc.refuseUnrefined); got != tc.refuse {
 				t.Fatalf("MustRefuse() = %v, want %v", got, tc.refuse)
 			}
 		})
 	}
 }
 
-func TestUnrefinedMaterialErrorNamesSkillAndForceCost(t *testing.T) {
+func TestUnrefinedMaterialErrorNamesSkillAndRefuseCost(t *testing.T) {
 	t.Parallel()
 	err := application.UnrefinedMaterialError{Sessions: 1240, Bytes: 8 * 1024 * 1024 * 1024}
 	got := err.Error()
@@ -57,7 +57,7 @@ func TestUnrefinedMaterialErrorNamesSkillAndForceCost(t *testing.T) {
 		"8.0 GiB",
 		application.SessionRefineSkillName,
 		"traceary session refine",
-		"--force",
+		"--refuse-unrefined",
 		"why",
 	} {
 		if !strings.Contains(got, want) && want == "1,240 sessions have no refinement" {

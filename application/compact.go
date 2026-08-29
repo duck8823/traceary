@@ -10,10 +10,13 @@ import (
 
 // CompactInput is the single-command compaction request.
 type CompactInput struct {
-	Source   string
-	Force    bool
-	KeepDays int
-	Now      time.Time
+	Source string
+	// RefuseUnrefined restores the pre-v0.48 policy stop: compact fails when
+	// every discardable-age body is unrefined, instead of writing mechanical
+	// summaries.
+	RefuseUnrefined bool
+	KeepDays        int
+	Now             time.Time
 	// WorkDir, when set, holds the copy-filter work file on another volume
 	// so the source volume only needs dest-sized free space for VACUUM INTO.
 	WorkDir string
@@ -29,12 +32,18 @@ const (
 
 // CompactResult is the operator-visible outcome of one rewrite.
 type CompactResult struct {
-	Run                       domain.CompactionRun
-	BytesBefore               int64
-	BytesAfter                int64
-	UnrefinedRemaining        int
-	UnrefinedBytes            int64
-	MechanicalSummaries       bool
+	Run                 domain.CompactionRun
+	BytesBefore         int64
+	BytesAfter          int64
+	UnrefinedRemaining  int
+	UnrefinedBytes      int64
+	MechanicalSummaries bool
+	CoveredSessions     int
+	// DiscardedBodyBytes is the stored-blob size of the covered discardable-age
+	// transcript bodies the run is authorized to discard, measured immediately
+	// before the discard runs. It is not a post-hoc file-size delta and will
+	// not equal bytes_before - bytes_after (vacuum, page slack, other steps).
+	DiscardedBodyBytes        int64
 	ReleasedCommandBodyRows   int
 	ReleasedCommandBodyBytes  int64
 	EstimatedReclaimableBytes int64
@@ -59,7 +68,7 @@ const (
 	CompactStepProjectionReclaim = "projection_reclaim" // #2261
 	CompactStepAuditEncode       = "audit_encode"       // #2264
 	CompactStepDedupeArchive     = "dedupe_archive"     // #2262
-	CompactStepMechanicalCover   = "mechanical_cover"   // #2268 (not implemented here)
+	CompactStepMechanicalCover   = "mechanical_cover"   // #2268
 )
 
 // DedupeArchivePolicy says what compact may do with duplicate event bodies its
@@ -118,11 +127,11 @@ type CommandBodyReclaim struct {
 // A zero value is vacuum-only: no body discard, no AfterClone.
 type CompactFilter struct {
 	Cutoff time.Time
-	// AfterClone runs the --force mechanical cover on the work copy before the
+	// AfterClone runs the mechanical cover on the work copy before the
 	// discard/vacuum steps. It receives Cutoff so the cover can decide it has
 	// folded enough of the oldest backlog to let CollectGarbage proceed even
 	// when unrelated, newer-than-cutoff material is still unfolded (#1721).
-	AfterClone func(ctx context.Context, work string, cutoff time.Time) error
+	AfterClone func(ctx context.Context, work string, cutoff time.Time) (CoverReport, error)
 	// WorkDir stages the source-sized work copy on another volume (#2008).
 	WorkDir string
 	// OnStep receives one attributed copy-filter step after that step runs.
@@ -134,6 +143,14 @@ type CompactFilter struct {
 	// ArchiveCutoff is the operator-quarantine retention boundary. Zero means
 	// structural verification only and skips the retention trim.
 	ArchiveCutoff time.Time
+}
+
+// CoverReport is what the mechanical cover produced. It is not the cover's
+// algorithm — only the counts the copy-filter reports on mechanical_cover.
+type CoverReport struct {
+	RefinementsProduced int
+	RangesAttempted     int
+	RangesSkipped       int
 }
 
 // Report delivers one copy-filter step. It is a no-op when OnStep is nil.
@@ -155,11 +172,17 @@ type BodyGate struct {
 	UnrefinedBytes    int64
 }
 
-// MustRefuse is true when compact would rewrite nothing that a fold authorized
-// while unrefined discardable-age material still exists. Partial folds must
-// not take this path: CoveredCount > 0 proceeds and leaves the rest.
-func (g BodyGate) MustRefuse(force bool) bool {
-	return !force && g.CoveredCount == 0 && g.UnrefinedSessions > 0
+// MustRefuse is true when the operator opted out of mechanical cover and
+// compact would rewrite nothing that a fold authorized while unrefined
+// discardable-age material still exists. Partial folds must not take this
+// path: CoveredCount > 0 proceeds and leaves the rest.
+func (g BodyGate) MustRefuse(refuseUnrefined bool) bool {
+	return refuseUnrefined && g.CoveredCount == 0 && g.UnrefinedSessions > 0
+}
+
+// NeedsCover is true when unrefined discardable-age sessions exist.
+func (g BodyGate) NeedsCover() bool {
+	return g.UnrefinedSessions > 0
 }
 
 // DefaultCompactKeepDays matches the retired store gc window.
@@ -170,8 +193,8 @@ const DefaultCompactKeepDays = 90
 const SessionRefineSkillName = "traceary-session-refine"
 
 // UnrefinedMaterialError stops compact when every discardable-age body still
-// needs a fold (or --force). It is the only refusal that is a policy stop
-// rather than a protocol failure.
+// needs a fold and the operator passed --refuse-unrefined. It is the only
+// refusal that is a policy stop rather than a protocol failure.
 type UnrefinedMaterialError struct {
 	Sessions int
 	Bytes    int64
@@ -182,9 +205,9 @@ func (e UnrefinedMaterialError) Error() string {
 		"%d sessions have no refinement (%s of material).\n"+
 			"Fold them with the %s skill (or `traceary session refine`), oldest first.\n"+
 			"Compacting after folding the oldest sessions reclaims what those sessions authorize.\n"+
-			"--force writes mechanical summaries for them: when / what kinds / how often /\n"+
-			"which commands are kept. The agent's reasoning (why) is not recovered and is\n"+
-			"gone for those ranges.",
+			"You passed --refuse-unrefined. Without it, compact writes mechanical summaries\n"+
+			"for these sessions — when / what kinds / how often / which commands — and discards\n"+
+			"the bodies. The agent's reasoning (why) is not recovered and is gone for those ranges.",
 		e.Sessions,
 		formatCompactBytes(e.Bytes),
 		SessionRefineSkillName,
@@ -212,10 +235,10 @@ func formatCompactBytes(n int64) string {
 	}
 }
 
-// ForceCoverSafeToDelete refuses --force when mechanical cover left behind
-// material that might still be older than cutoff. hasMore is leftover
-// discovery; earliestUnprocessed is that leftover's earliest event time (nil
-// when hasMore is false, or when the pass could not determine it). skipped is
+// ForceCoverSafeToDelete refuses mechanical cover when leftover material
+// might still be older than cutoff. hasMore is leftover discovery;
+// earliestUnprocessed is that leftover's earliest event time (nil when
+// hasMore is false, or when the pass could not determine it). skipped is
 // Failures.Count(); earliestSkipped is the same for skipped candidates.
 //
 // This replaces the earlier "cover must be 100% complete" gate (#1795's
@@ -233,18 +256,18 @@ func ForceCoverSafeToDelete(
 ) error {
 	if hasMore {
 		if earliestUnprocessed == nil {
-			return fmt.Errorf("compact --force cover is incomplete: earliest unprocessed orphan range time is unknown")
+			return fmt.Errorf("compact mechanical cover is incomplete: earliest unprocessed orphan range time is unknown")
 		}
 		if earliestUnprocessed.Before(cutoff) {
-			return fmt.Errorf("compact --force cover is incomplete: unprocessed orphan ranges may be older than the retention cutoff")
+			return fmt.Errorf("compact mechanical cover is incomplete: unprocessed orphan ranges may be older than the retention cutoff")
 		}
 	}
 	if skipped > 0 {
 		if earliestSkipped == nil {
-			return fmt.Errorf("compact --force cover is incomplete: earliest skipped orphan range time is unknown")
+			return fmt.Errorf("compact mechanical cover is incomplete: earliest skipped orphan range time is unknown")
 		}
 		if earliestSkipped.Before(cutoff) {
-			return fmt.Errorf("compact --force cover is incomplete: %d orphan range(s) were skipped and may be older than the retention cutoff", skipped)
+			return fmt.Errorf("compact mechanical cover is incomplete: %d orphan range(s) were skipped and may be older than the retention cutoff", skipped)
 		}
 	}
 	return nil

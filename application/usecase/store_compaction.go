@@ -24,7 +24,7 @@ type storeCompactionUsecase struct {
 	progress           application.CompactionProgress
 	now                func() time.Time
 	expectedStore      string
-	cover              func(ctx context.Context, work string, cutoff time.Time) error
+	cover              func(ctx context.Context, work string, cutoff time.Time) (application.CoverReport, error)
 	completeProjection func(ctx context.Context, store string) error
 }
 
@@ -32,9 +32,9 @@ type compactFilterSetter interface {
 	SetCompactFilter(application.CompactFilter)
 }
 
-// BindCompactionWorkCover attaches the --force mechanical cover used on the
-// work copy. Composition root only; tests omit it.
-func BindCompactionWorkCover(u application.StoreCompactionUsecase, cover func(ctx context.Context, work string, cutoff time.Time) error) {
+// BindCompactionWorkCover attaches the mechanical cover used on the work copy.
+// Composition root only; tests omit it unless they need cover.
+func BindCompactionWorkCover(u application.StoreCompactionUsecase, cover func(ctx context.Context, work string, cutoff time.Time) (application.CoverReport, error)) {
 	if concrete, ok := u.(*storeCompactionUsecase); ok {
 		concrete.cover = cover
 	}
@@ -73,18 +73,12 @@ func (u *storeCompactionUsecase) Compact(ctx context.Context, in application.Com
 	archiveCutoff := u.now().UTC().Add(-application.DedupeArchiveRetention)
 	collector := &compactStepCollector{u: u}
 	u.reportWindow("inspect_gate")
-	if setter, ok := u.builder.(compactFilterSetter); ok {
-		filter := application.CompactFilter{
-			Cutoff:              cutoff,
-			WorkDir:             strings.TrimSpace(in.WorkDir),
-			OnStep:              collector.record,
-			DedupeArchivePolicy: application.DedupeArchiveDropInternal,
-			ArchiveCutoff:       archiveCutoff,
-		}
-		if in.Force && u.cover != nil {
-			filter.AfterClone = u.cover
-		}
-		setter.SetCompactFilter(filter)
+	filter := application.CompactFilter{
+		Cutoff:              cutoff,
+		WorkDir:             strings.TrimSpace(in.WorkDir),
+		OnStep:              collector.record,
+		DedupeArchivePolicy: application.DedupeArchiveDropInternal,
+		ArchiveCutoff:       archiveCutoff,
 	}
 	var gate application.BodyGate
 	if inspector, ok := u.builder.(application.CompactBodyGateInspector); ok {
@@ -93,12 +87,18 @@ func (u *storeCompactionUsecase) Compact(ctx context.Context, in application.Com
 		if inspectErr != nil {
 			return application.CompactResult{}, inspectErr
 		}
-		if gate.MustRefuse(in.Force) {
+		if gate.MustRefuse(in.RefuseUnrefined) {
 			return application.CompactResult{}, application.UnrefinedMaterialError{Sessions: gate.UnrefinedSessions, Bytes: gate.UnrefinedBytes}
 		}
-		if in.Force && gate.UnrefinedSessions > 0 && u.cover == nil {
-			return application.CompactResult{}, fmt.Errorf("compact --force requested but no work-copy cover is bound")
+		if !in.RefuseUnrefined && gate.NeedsCover() && u.cover == nil {
+			return application.CompactResult{}, fmt.Errorf("compact needs the mechanical cover for %d unrefined session(s) but none is bound", gate.UnrefinedSessions)
 		}
+		if !in.RefuseUnrefined && u.cover != nil {
+			filter.AfterClone = u.cover
+		}
+	}
+	if setter, ok := u.builder.(compactFilterSetter); ok {
+		setter.SetCompactFilter(filter)
 	}
 	before, beforeErr := os.Stat(source)
 	if beforeErr != nil {
@@ -142,25 +142,24 @@ func (u *storeCompactionUsecase) Compact(ctx context.Context, in application.Com
 	if err != nil {
 		if isInsufficientCompactionSpace(err) && strategy != application.CompactStrategyInPlace {
 			collector.steps = nil
-			inPlaceErr := u.compactInPlace(ctx, source, cutoff, archiveCutoff, collector.record)
+			inPlaceErr := u.compactInPlace(ctx, source, cutoff, archiveCutoff, collector.record, in.RefuseUnrefined)
 			if inPlaceErr == nil {
 				after, afterErr := os.Stat(source)
 				if afterErr != nil {
 					return application.CompactResult{}, fmt.Errorf("stat compacted store: %w", afterErr)
 				}
-				remaining, remainingBytes := gate.UnrefinedSessions, gate.UnrefinedBytes
-				if in.Force {
-					remaining, remainingBytes = 0, 0
-				}
 				if err := u.finishSearchProjection(ctx); err != nil {
 					return application.CompactResult{}, err
 				}
+				covered, remaining, remainingBytes, discarded, summaries := coverOutcome(collector.steps, gate)
 				return application.CompactResult{
 					BytesBefore:               before.Size(),
 					BytesAfter:                after.Size(),
 					UnrefinedRemaining:        remaining,
 					UnrefinedBytes:            remainingBytes,
-					MechanicalSummaries:       in.Force && gate.UnrefinedSessions > 0,
+					MechanicalSummaries:       summaries,
+					CoveredSessions:           covered,
+					DiscardedBodyBytes:        discarded,
 					ReleasedCommandBodyRows:   reclaim.Rows,
 					ReleasedCommandBodyBytes:  reclaim.Bytes,
 					EstimatedReclaimableBytes: estimated,
@@ -176,26 +175,47 @@ func (u *storeCompactionUsecase) Compact(ctx context.Context, in application.Com
 	if afterErr != nil {
 		return application.CompactResult{}, fmt.Errorf("stat compacted store: %w", afterErr)
 	}
-	remaining, remainingBytes := gate.UnrefinedSessions, gate.UnrefinedBytes
-	if in.Force {
-		remaining, remainingBytes = 0, 0
-	}
 	if err := u.finishSearchProjection(ctx); err != nil {
 		return application.CompactResult{}, err
 	}
+	covered, remaining, remainingBytes, discarded, summaries := coverOutcome(collector.steps, gate)
 	return application.CompactResult{
 		Run:                       run,
 		BytesBefore:               before.Size(),
 		BytesAfter:                after.Size(),
 		UnrefinedRemaining:        remaining,
 		UnrefinedBytes:            remainingBytes,
-		MechanicalSummaries:       in.Force && gate.UnrefinedSessions > 0,
+		MechanicalSummaries:       summaries,
+		CoveredSessions:           covered,
+		DiscardedBodyBytes:        discarded,
 		ReleasedCommandBodyRows:   reclaim.Rows,
 		ReleasedCommandBodyBytes:  reclaim.Bytes,
 		EstimatedReclaimableBytes: estimated,
 		CompactStrategy:           strategy,
 		Steps:                     collector.steps,
 	}, nil
+}
+
+func coverOutcome(steps application.CompactSteps, gate application.BodyGate) (covered, remaining int, remainingBytes, discarded int64, summaries bool) {
+	if step, ok := steps.Find(application.CompactStepMechanicalCover); ok {
+		covered = int(step.Rows)
+		remaining = int(stepDetail(step, "sessions_after"))
+		remainingBytes = step.BytesAfter
+		discarded = stepDetail(step, "discarded_body_bytes")
+	} else {
+		remaining = gate.UnrefinedSessions
+		remainingBytes = gate.UnrefinedBytes
+		discarded = gate.CoveredBytes
+	}
+	summaries = covered > 0
+	return
+}
+
+func stepDetail(step application.CompactStep, key string) int64 {
+	if step.Detail == nil {
+		return 0
+	}
+	return step.Detail[key]
 }
 
 func (u *storeCompactionUsecase) finishSearchProjection(ctx context.Context) error {
@@ -217,7 +237,7 @@ type inPlaceCompactor interface {
 	CompactInPlace(ctx context.Context, source string, filter application.CompactFilter) error
 }
 
-func (u *storeCompactionUsecase) compactInPlace(ctx context.Context, source string, cutoff, archiveCutoff time.Time, onStep func(application.CompactStep)) error {
+func (u *storeCompactionUsecase) compactInPlace(ctx context.Context, source string, cutoff, archiveCutoff time.Time, onStep func(application.CompactStep), refuseUnrefined bool) error {
 	compactor, ok := u.builder.(inPlaceCompactor)
 	if !ok {
 		return fmt.Errorf("in-place compact is not supported by this builder")
@@ -228,7 +248,7 @@ func (u *storeCompactionUsecase) compactInPlace(ctx context.Context, source stri
 		ArchiveCutoff: archiveCutoff,
 		// DedupeArchivePolicy left zero: no rollback inode.
 	}
-	if u.cover != nil {
+	if !refuseUnrefined && u.cover != nil {
 		filter.AfterClone = u.cover
 	}
 	return compactor.CompactInPlace(ctx, source, filter)
