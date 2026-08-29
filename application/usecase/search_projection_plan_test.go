@@ -48,8 +48,13 @@ func (s *wallBudgetStore) delayOpen(ctx context.Context) error {
 	}
 	workCtx, cancel := application.StoreWorkContext(ctx)
 	defer cancel()
-	if deadline, ok := workCtx.Deadline(); ok && !deadline.After(time.Now()) {
-		return xerrors.Errorf("work context already expired after store open")
+	if deadline, ok := workCtx.Deadline(); ok {
+		// WallTime in these tests is 1ms. A loaded `go test ./...` can
+		// consume that after ping before this assertion runs. Fail only
+		// when the deadline is older than the open delay (ping was billed).
+		if time.Until(deadline) <= -s.openDelay/2 {
+			return xerrors.Errorf("work context already expired after store open")
+		}
 	}
 	return nil
 }
