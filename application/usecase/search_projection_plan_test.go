@@ -43,10 +43,15 @@ func (s *wallBudgetStore) delayOpen(ctx context.Context) error {
 	defer timer.Stop()
 	select {
 	case <-timer.C:
-		return nil
 	case <-openCtx.Done():
 		return xerrors.Errorf("store open: %w", openCtx.Err())
 	}
+	workCtx, cancel := application.StoreWorkContext(ctx)
+	defer cancel()
+	if deadline, ok := workCtx.Deadline(); ok && !deadline.After(time.Now()) {
+		return xerrors.Errorf("work context already expired after store open")
+	}
+	return nil
 }
 
 func (s *wallBudgetStore) Start(context.Context, apptypes.SearchProjectionBudget, time.Time) (apptypes.SearchProjectionGeneration, error) {
@@ -105,16 +110,20 @@ func (s *wallBudgetStore) SelectSnapshot(ctx context.Context, _ apptypes.SearchP
 	if s.resumeReady {
 		return apptypes.ProjectionSnapshot{Generation: apptypes.SearchProjectionGeneration{GenerationID: "generation"}, Phase: "source", Now: time.Now()}, nil
 	}
-	<-ctx.Done()
-	return apptypes.ProjectionSnapshot{}, ctx.Err()
+	workCtx, cancel := application.StoreWorkContext(ctx)
+	defer cancel()
+	<-workCtx.Done()
+	return apptypes.ProjectionSnapshot{}, xerrors.Errorf("select snapshot: %w", workCtx.Err())
 }
 func (s *wallBudgetStore) ApplyBatch(ctx context.Context, plan apptypes.ProjectionBatchPlan, _ time.Duration, _ time.Time) (apptypes.SearchProjectionProgress, error) {
 	if err := s.delayOpen(ctx); err != nil {
 		return apptypes.SearchProjectionProgress{}, err
 	}
 	if s.delayApply {
-		<-ctx.Done()
-		return apptypes.SearchProjectionProgress{}, xerrors.Errorf("apply batch: %w", ctx.Err())
+		workCtx, cancel := application.StoreWorkContext(ctx)
+		defer cancel()
+		<-workCtx.Done()
+		return apptypes.SearchProjectionProgress{}, xerrors.Errorf("apply batch: %w", workCtx.Err())
 	}
 	s.applied = true
 	return apptypes.SearchProjectionProgress{Completed: plan.Completed, GenerationID: plan.GenerationID}, nil
@@ -124,8 +133,10 @@ func (s *wallBudgetStore) CleanupBatch(ctx context.Context, plan apptypes.Projec
 		return apptypes.SearchProjectionProgress{}, err
 	}
 	if s.delayApply {
-		<-ctx.Done()
-		return apptypes.SearchProjectionProgress{}, xerrors.Errorf("cleanup batch: %w", ctx.Err())
+		workCtx, cancel := application.StoreWorkContext(ctx)
+		defer cancel()
+		<-workCtx.Done()
+		return apptypes.SearchProjectionProgress{}, xerrors.Errorf("cleanup batch: %w", workCtx.Err())
 	}
 	s.applied = true
 	if plan.Completed {

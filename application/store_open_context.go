@@ -1,8 +1,12 @@
 package application
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 type storeOpenContextKey struct{}
+type storeWorkBudgetKey struct{}
 
 // WithStoreOpenContext attaches openCtx as the context used to open and ping
 // a store connection, while workCtx continues to bound batch work. Resume
@@ -28,4 +32,26 @@ func StoreOpenContext(ctx context.Context) context.Context {
 		return ctx
 	}
 	return openCtx
+}
+
+// WithStoreWorkBudget records the per-batch WallTime so a store method can
+// start that timer after ping, not before.
+func WithStoreWorkBudget(ctx context.Context, wall time.Duration) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, storeWorkBudgetKey{}, wall)
+}
+
+// StoreWorkContext starts a fresh WallTime bound from now, parented on the
+// store-open context so a slow ping cannot expire the work deadline.
+func StoreWorkContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if ctx == nil {
+		return context.Background(), func() {}
+	}
+	wall, ok := ctx.Value(storeWorkBudgetKey{}).(time.Duration)
+	if !ok || wall <= 0 {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(StoreOpenContext(ctx), wall)
 }

@@ -15,6 +15,7 @@ import (
 
 	"golang.org/x/xerrors"
 
+	"github.com/duck8823/traceary/application"
 	apptypes "github.com/duck8823/traceary/application/types"
 	domaintypes "github.com/duck8823/traceary/domain/types"
 )
@@ -479,6 +480,9 @@ func (d *Database) SelectInventory(ctx context.Context, b apptypes.SearchProject
 		return out, err
 	}
 	defer db.Close()
+	workCtx, cancelWork := application.StoreWorkContext(ctx)
+	defer cancelWork()
+	ctx = workCtx
 	var state, phase string
 	if err = db.QueryRowContext(ctx, `SELECT s.generation_id,s.config_hash,s.source_revision,i.cursor,i.cursor_started,s.state,i.state FROM search_projection_state s JOIN search_projection_inventory_state i ON i.singleton=s.singleton WHERE s.singleton=1`).Scan(&out.Generation.GenerationID, &out.Generation.ConfigHash, &out.Generation.SourceRevision, &out.Cursor, &out.CursorStarted, &state, &phase); err != nil {
 		return out, err
@@ -664,13 +668,15 @@ var reclaimSearchProjectionFTSFn = reclaimSearchProjectionFTS
 
 //nolint:wrapcheck,errcheck // SQL errors preserve the typed inventory contract; rollback is best effort.
 func (d *Database) applyInventoryBatchOnce(ctx context.Context, p apptypes.SearchProjectionInventoryPlan, lock time.Duration, now time.Time) (out apptypes.SearchProjectionProgress, err error) {
-	lockCtx, cancel := context.WithTimeout(ctx, lock)
-	defer cancel()
-	db, err := d.open(lockCtx)
+	db, err := d.open(ctx)
 	if err != nil {
 		return out, err
 	}
 	defer db.Close()
+	workCtx, cancelWork := application.StoreWorkContext(ctx)
+	defer cancelWork()
+	lockCtx, cancel := context.WithTimeout(workCtx, lock)
+	defer cancel()
 	tx, err := db.BeginTx(lockCtx, nil)
 	if err != nil {
 		return out, err
@@ -785,6 +791,9 @@ func (d *Database) SelectSnapshot(ctx context.Context, b apptypes.SearchProjecti
 		return out, e
 	}
 	defer db.Close()
+	workCtx, cancelWork := application.StoreWorkContext(ctx)
+	defer cancelWork()
+	ctx = workCtx
 	var state, cleanupScope string
 	if e = db.QueryRowContext(ctx, `SELECT generation_id,config_hash,source_revision,high_water,checkpoint,state,phase,cleanup_scope,COALESCE(recent_cutoff_norm,''),recent_source_ceiling_bytes,recent_source_bytes FROM search_projection_state WHERE singleton=1`).Scan(&out.Generation.GenerationID, &out.Generation.ConfigHash, &out.Generation.SourceRevision, &out.Generation.HighWater, &out.Generation.Checkpoint, &state, &out.Phase, &cleanupScope, &out.RecentCutoffNorm, &out.RecentSourceCeilingBytes, &out.RecentSourceBytes); e != nil {
 		return out, e
@@ -1048,6 +1057,9 @@ func (d *Database) applyProjectionPlan(ctx context.Context, p apptypes.Projectio
 		return out, e
 	}
 	defer db.Close()
+	workCtx, cancelWork := application.StoreWorkContext(ctx)
+	defer cancelWork()
+	ctx = workCtx
 	acquireCtx, acquireCancel := context.WithTimeout(ctx, acquire)
 	tx, e := beginImmediate(acquireCtx, db)
 	acquireCancel()
