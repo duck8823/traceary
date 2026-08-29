@@ -1,6 +1,6 @@
 {
   "name": "traceary",
-  "version": "0.48.1",
+  "version": "0.48.2",
   "description": "Local-first Traceary integration for Gemini CLI with automatic session/audit hooks.",
   "contextFileName": "GEMINI.md"
 }

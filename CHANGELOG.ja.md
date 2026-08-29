@@ -7,6 +7,13 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 
 ## [Unreleased]
 
+## [v0.48.2] - 2026-08-30
+
+### Fixed
+- **書き換え成功後の search-projection complete は、store-open を 1s のバッチ `WallTime` に計上しない（#2304）。** Resume inspect は呼び出し元 context のまま。各 Select/Apply は ping 後に `StoreWorkContext` で WallTime を開始するので、数 GiB の open が Query/Apply を期限切れにできない。既定 WallTime は 1s のまま。store サブコマンド追加なし。親 #2307 は open のまま。
+- **大きいストアの `doctor` が bounded path で `consolidation-conversion` を出す（#2305）。** 7 日の asked-versus-refined 検査は 2 GiB 早期 return で落ちず、`mode=metadata_only_large_store` で `pass`/`warn`（未設定時だけ明示 skip）になる。読み取りは O(1) の `mode=ro`（`busy_timeout(0)`、coordinated lease なし）。その早期 return 後の他 inspect は明示 skip。スキーマ変更なし。親 #2307 は open のまま。
+- **plugin-cache WARN は古い cache 版を消す前にホストを再起動するよう伝える（#2306）。** 両 locale と `docs/release/post-upgrade-plugins` の対が、再起動→削除の順を示す。稼働中セッションが削除済み snapshot へ書き続けない。親 #2307 は open のまま。
+
 ## [v0.48.1] - 2026-08-29
 
 ### Fixed

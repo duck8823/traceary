@@ -7,6 +7,13 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ## [Unreleased]
 
+## [v0.48.2] - 2026-08-30
+
+### Fixed
+- **Post-compact search-projection complete no longer charges store-open to the 1s batch WallTime (#2304).** Resume inspect stays on the caller context. Each Select/Apply starts WallTime after ping via `StoreWorkContext`, so a multi-GiB open cannot expire Query/Apply. Default WallTime stays 1s. No new store subcommand. Leaves parent #2307 open.
+- **Large-store `doctor` reports `consolidation-conversion` on the bounded path (#2305).** The 7-day asked-versus-refined check runs in `mode=metadata_only_large_store` (`pass`/`warn`, or explicit skip if unconfigured) instead of being dropped by the 2 GiB early return. The read is O(1) `mode=ro` (`busy_timeout(0)`, no coordinated lease). Other inspects after that early return become explicit skips. No schema change. Leaves parent #2307 open.
+- **Plugin-cache WARN tells operators to restart hosts before removing old cache versions (#2306).** Both locales, and both `docs/release/post-upgrade-plugins` files, sequence restart then remove so a live session cannot keep recording into a deleted snapshot. Leaves parent #2307 open.
+
 ## [v0.48.1] - 2026-08-29
 
 ### Fixed
