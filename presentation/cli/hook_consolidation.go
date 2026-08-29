@@ -5,12 +5,35 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"strings"
+	"sync"
 
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/presentation"
 )
+
+const thresholdBytesDeprecatedWarn = "[WARN] consolidation.threshold_bytes is deprecated and ignored: the stop-hook consolidation trigger is now work-based (consolidation.min_commands, consolidation.stop_cadence). The key is removed in the next minor; remove it from your config.json.\n"
+
+var (
+	thresholdBytesDeprecatedOnce sync.Once
+	thresholdBytesWarnWriter     io.Writer = os.Stderr
+)
+
+// ResetConsolidationDeprecationWarnForTest resets the once-per-process WARN.
+func ResetConsolidationDeprecationWarnForTest() {
+	thresholdBytesDeprecatedOnce = sync.Once{}
+}
+
+// SetConsolidationWarnWriterForTest redirects the deprecation WARN.
+func SetConsolidationWarnWriterForTest(w io.Writer) {
+	if w == nil {
+		thresholdBytesWarnWriter = os.Stderr
+		return
+	}
+	thresholdBytesWarnWriter = w
+}
 
 // consolidationExitCode is the host-facing exit status that asks the agent to
 // continue and fold the session. All three allowlisted hosts read the same
@@ -80,10 +103,10 @@ func (c *RootCLI) runDurableHookThenMaybeConsolidate(
 	return c.requestConsolidationIfDue(ctx, client, payload, dbPath)
 }
 
-// requestConsolidationIfDue measures unrefined body-byte pressure after the
-// durable transcript run and, when due, returns exit 2 with a short agent
-// prompt on stderr. Every internal failure fails open (exit 0): a
-// consolidation decision must never stop the user's work.
+// requestConsolidationIfDue measures work-based pressure after the durable
+// transcript run and, when due, returns exit 2 with a short agent prompt on
+// stderr. Check failures fail closed (no ask). Ledger insert failures still
+// fail open (ask delivered).
 func (c *RootCLI) requestConsolidationIfDue(
 	ctx context.Context,
 	client string,
@@ -95,8 +118,17 @@ func (c *RootCLI) requestConsolidationIfDue(
 		return nil
 	}
 
-	threshold := presentation.LoadConfig().Consolidation.ThresholdBytes
-	if threshold == 0 {
+	cfg := presentation.LoadConfig().Consolidation
+	if cfg.ThresholdBytesSet {
+		thresholdBytesDeprecatedOnce.Do(func() {
+			_, _ = io.WriteString(thresholdBytesWarnWriter, thresholdBytesDeprecatedWarn)
+		})
+	}
+	policy := usecase.ConsolidationPolicy{
+		MinCommands: cfg.MinCommands,
+		StopCadence: cfg.StopCadence,
+	}
+	if policy.MinCommands <= 0 || policy.StopCadence <= 0 {
 		return nil
 	}
 
@@ -127,13 +159,14 @@ func (c *RootCLI) requestConsolidationIfDue(
 		return nil
 	}
 
-	result, err := c.consolidationPressure.Check(ctx, sessionID, threshold)
+	result, err := c.consolidationPressure.Check(ctx, sessionID, policy)
 	if err != nil {
-		// Locked / unreachable DB, missing rows, anything: exit 0.
-		slog.Debug("consolidation pressure check failed open", "session_id", sessionID.String(), "error", err)
+		// Reads that inform the decision fail closed (no ask).
+		slog.Debug("consolidation pressure check failed closed", "session_id", sessionID.String(), "error", err)
 		return nil
 	}
 	if !result.Due {
+		slog.Debug("consolidation not due", "session_id", sessionID.String(), "skipped", result.Skipped)
 		return nil
 	}
 
@@ -141,7 +174,7 @@ func (c *RootCLI) requestConsolidationIfDue(
 	// Measurement is best-effort and must never change the decision. Every
 	// failure below logs at debug and falls through to the exit-2 return: the
 	// request is still delivered, only the bookkeeping is lost.
-	c.recordConsolidationRequest(ctx, sessionID, client, result, threshold, atEventID)
+	c.recordConsolidationRequest(ctx, sessionID, client, result, policy.MinCommands, atEventID)
 
 	return consolidationExitError{
 		message:  formatConsolidationReason(sessionID, result, atEventID),
@@ -149,27 +182,15 @@ func (c *RootCLI) requestConsolidationIfDue(
 	}
 }
 
-// consolidationRequestSuppressed is the single "may this Stop ask?" gate.
-// why is "stop_hook_active" or "request_open" and is logged at Debug only.
-// Any internal failure returns (false, "") so the ask is still delivered.
+// consolidationRequestSuppressed is the single payload-side "may this Stop ask?"
+// gate. why is "stop_hook_active" and is logged at Debug only.
 func (c *RootCLI) consolidationRequestSuppressed(
-	ctx context.Context,
-	sessionID types.SessionID,
+	_ context.Context,
+	_ types.SessionID,
 	payload []byte,
 ) (bool, string) {
 	if hookPayloadBool(payload, "stop_hook_active") {
 		return true, "stop_hook_active"
-	}
-	if c.consolidationRequest == nil {
-		return false, ""
-	}
-	open, err := c.consolidationRequest.HasOpenRequest(ctx, sessionID)
-	if err != nil {
-		slog.Debug("consolidation open-request lookup failed open", "session_id", sessionID.String(), "error", err)
-		return false, ""
-	}
-	if open {
-		return true, "request_open"
 	}
 	return false, ""
 }
@@ -186,8 +207,6 @@ func (c *RootCLI) latestSessionEventID(ctx context.Context, sessionID types.Sess
 	return latest
 }
 
-const consolidationSignalBodyBytes = usecase.ConsolidationSignalBodyBytes
-
 // recordConsolidationRequest writes the metadata-only measurement fact for a
 // request that is about to be delivered. It returns nothing: no outcome here
 // may alter the caller's exit status (#2273).
@@ -196,7 +215,7 @@ func (c *RootCLI) recordConsolidationRequest(
 	sessionID types.SessionID,
 	client string,
 	result usecase.ConsolidationPressureResult,
-	threshold int64,
+	minCommands int64,
 	atEventID types.Optional[types.EventID],
 ) {
 	if c.consolidationRequest == nil {
@@ -212,9 +231,9 @@ func (c *RootCLI) recordConsolidationRequest(
 		SessionID:      sessionID,
 		Client:         client,
 		AtEventID:      eventID,
-		Signal:         consolidationSignalBodyBytes,
-		PressureValue:  result.PressureBytes,
-		ThresholdValue: threshold,
+		Signal:         usecase.ConsolidationSignalWork,
+		PressureValue:  result.Commands,
+		ThresholdValue: minCommands,
 		Delivery:       types.ConsolidationDeliveryStopExit2,
 	})
 	if err != nil {
@@ -235,10 +254,10 @@ func formatConsolidationReason(sessionID types.SessionID, result usecase.Consoli
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b,
-		"[Traceary] Session %s has %d bytes of unrefined material at or above the consolidation threshold. Use the traceary-session-refine skill: say why the work was undertaken and what changed; how it went is optional.\n"+
+		"[Traceary] Session %s has %d audited commands of unrefined material since the last refinement. Use the traceary-session-refine skill: say why the work was undertaken and what changed; how it went is optional.\n"+
 			"Run: traceary session refine %s --covers-to %s --summary \"<why + what changed>\" --produced-by agent",
 		sessionID.String(),
-		result.PressureBytes,
+		result.Commands,
 		sessionID.String(),
 		coversTo,
 	)

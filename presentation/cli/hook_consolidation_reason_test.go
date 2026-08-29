@@ -20,31 +20,31 @@ func TestFormatConsolidationReason(t *testing.T) {
 		{
 			name: "covers-to is filled from the latest event id",
 			result: usecase.ConsolidationPressureResult{
-				PressureBytes: 66560,
+				Commands: 20,
 			},
 			atEventID: types.Some(types.EventID("evt-9")),
-			want: "[Traceary] Session sess-1 has 66560 bytes of unrefined material at or above the consolidation threshold. Use the traceary-session-refine skill: say why the work was undertaken and what changed; how it went is optional.\n" +
+			want: "[Traceary] Session sess-1 has 20 audited commands of unrefined material since the last refinement. Use the traceary-session-refine skill: say why the work was undertaken and what changed; how it went is optional.\n" +
 				"Run: traceary session refine sess-1 --covers-to evt-9 --summary \"<why + what changed>\" --produced-by agent",
 		},
 		{
 			name: "with previous summary",
 			result: usecase.ConsolidationPressureResult{
-				PressureBytes:    66560,
+				Commands:         20,
 				PreviousSummary:  types.Some("previous summary"),
 				PreviousCoversTo: types.Some(types.EventID("evt-1")),
 			},
 			atEventID: types.Some(types.EventID("evt-9")),
-			want: "[Traceary] Session sess-1 has 66560 bytes of unrefined material at or above the consolidation threshold. Use the traceary-session-refine skill: say why the work was undertaken and what changed; how it went is optional.\n" +
+			want: "[Traceary] Session sess-1 has 20 audited commands of unrefined material since the last refinement. Use the traceary-session-refine skill: say why the work was undertaken and what changed; how it went is optional.\n" +
 				"Run: traceary session refine sess-1 --covers-to evt-9 --summary \"<why + what changed>\" --produced-by agent\n" +
 				"Merge with the previous summary (covers_to=evt-1) rather than rewriting it: previous summary",
 		},
 		{
 			name: "missing latest event id degrades to the placeholder",
 			result: usecase.ConsolidationPressureResult{
-				PressureBytes: 66560,
+				Commands: 20,
 			},
 			atEventID: types.None[types.EventID](),
-			want: "[Traceary] Session sess-1 has 66560 bytes of unrefined material at or above the consolidation threshold. Use the traceary-session-refine skill: say why the work was undertaken and what changed; how it went is optional.\n" +
+			want: "[Traceary] Session sess-1 has 20 audited commands of unrefined material since the last refinement. Use the traceary-session-refine skill: say why the work was undertaken and what changed; how it went is optional.\n" +
 				"Run: traceary session refine sess-1 --covers-to <event-id> --summary \"<why + what changed>\" --produced-by agent",
 		},
 	}

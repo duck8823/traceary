@@ -32,6 +32,9 @@ var updateSessionModelIfEmptyQuery string
 //go:embed sql/select_session_by_id.sql
 var selectSessionByIDQuery string
 
+//go:embed sql/select_session_is_main.sql
+var selectSessionIsMainQuery string
+
 //go:embed sql/find_active_session.sql
 var findActiveSessionQuery string
 
@@ -62,6 +65,7 @@ func NewSessionDatasource(db *Database) *SessionDatasource {
 // Compile-time interface assertions.
 var (
 	_ model.SessionRepository          = (*SessionDatasource)(nil)
+	_ model.SessionKindRepository      = (*SessionDatasource)(nil)
 	_ queryservice.SessionQueryService = (*SessionDatasource)(nil)
 )
 
@@ -383,6 +387,32 @@ func (d *SessionDatasource) FindByID(ctx context.Context, sessionID types.Sessio
 		return types.None[*model.Session](), xerrors.Errorf("failed to restore session lifecycle: %w", err)
 	}
 	return types.Some(restored), nil
+}
+
+// IsMainSession reports whether the session is a top-level, non-subagent session.
+func (d *SessionDatasource) IsMainSession(
+	ctx context.Context,
+	sessionID types.SessionID,
+) (types.Optional[bool], error) {
+	db, err := d.db.open(ctx)
+	if err != nil {
+		return types.None[bool](), xerrors.Errorf("failed to open DB for session kind lookup: %w", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+
+	var isMain int
+	err = db.QueryRowContext(ctx, selectSessionIsMainQuery, sessionID.String()).Scan(&isMain)
+	if errors.Is(err, sql.ErrNoRows) {
+		return types.None[bool](), nil
+	}
+	if err != nil {
+		return types.None[bool](), xerrors.Errorf("failed to classify session: %w", err)
+	}
+	return types.Some(isMain == 1), nil
 }
 
 // FindEndedSessionIDs returns ended session IDs in bounded batches so callers

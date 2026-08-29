@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -21,11 +22,9 @@ import (
 )
 
 type consolidationRequestUsecaseStub struct {
-	err        error
-	calls      int
-	recorded   usecase.ConsolidationRequestRecorded
-	hasOpen    bool
-	hasOpenErr error
+	err      error
+	calls    int
+	recorded usecase.ConsolidationRequestRecorded
 }
 
 func (s *consolidationRequestUsecaseStub) Record(context.Context, usecase.ConsolidationRequestInput) (usecase.ConsolidationRequestRecorded, error) {
@@ -35,10 +34,6 @@ func (s *consolidationRequestUsecaseStub) Record(context.Context, usecase.Consol
 
 func (s *consolidationRequestUsecaseStub) RecordRefineOutcome(context.Context, model.ConsolidationRefineStamp) (bool, error) {
 	return false, nil
-}
-
-func (s *consolidationRequestUsecaseStub) HasOpenRequest(context.Context, types.SessionID) (bool, error) {
-	return s.hasOpen, s.hasOpenErr
 }
 
 type latestEventOrderStub struct {
@@ -79,10 +74,10 @@ func TestHookTranscript_ConsolidationRequestLedger(t *testing.T) {
 			t.Fatalf("exit = %d, want 2", code)
 		}
 		row := mustConsolidationRow(t, fx.dbPath, sessionID)
-		if row.delivery != "stop_exit_2" || row.reRequest != 0 || row.signal != "body_bytes" {
+		if row.delivery != "stop_exit_2" || row.reRequest != 0 || row.signal != "work" {
 			t.Fatalf("row = %+v", row)
 		}
-		if row.threshold != 64*1024 || row.pressure < 65*1024 {
+		if row.threshold != 20 || row.pressure < 20 {
 			t.Fatalf("pressure/threshold = %d/%d", row.pressure, row.threshold)
 		}
 		if row.atEventID != queryLatestEventID(t, fx.dbPath, sessionID) {
@@ -111,7 +106,7 @@ func TestHookTranscript_ConsolidationRequestLedger(t *testing.T) {
 		}
 	})
 
-	t.Run("a second due stop with an open request exits 0 and inserts no row", func(t *testing.T) {
+	t.Run("a second due stop inside the cadence window exits 0 and inserts no row", func(t *testing.T) {
 		fx := newConsolidationHookFixture(t, sessionID)
 		if code, _ := fx.runTranscript(t, "one"); code != 2 {
 			t.Fatalf("first exit = %d", code)
@@ -128,15 +123,29 @@ func TestHookTranscript_ConsolidationRequestLedger(t *testing.T) {
 		}
 	})
 
-	t.Run("a ledger read failure still exits 2", func(t *testing.T) {
+	t.Run("a due stop after the cadence window inserts a second row", func(t *testing.T) {
 		fx := newConsolidationHookFixture(t, sessionID)
-		fx.request = &consolidationRequestUsecaseStub{hasOpenErr: errors.New("locked")}
-		code, message := fx.runTranscript(t, "one")
-		if code != 2 {
-			t.Fatalf("exit = %d, want 2; %s", code, message)
+		if code, _ := fx.runTranscript(t, "one"); code != 2 {
+			t.Fatalf("first exit = %d", code)
 		}
-		if !strings.Contains(message, "unrefined material") {
-			t.Fatalf("reason %q does not contain unrefined material", message)
+		seedTranscriptsAfterNow(t, fx.eventDS, sessionID, "evt-gap", 8)
+		if code, _ := fx.runTranscript(t, "after-window"); code != 2 {
+			t.Fatalf("after cadence exit = %d, want 2", code)
+		}
+		if got := countConsolidationRequests(t, fx.dbPath); got != 2 {
+			t.Fatalf("rows = %d, want 2", got)
+		}
+	})
+
+	t.Run("a cadence lookup failure exits 0 without asking", func(t *testing.T) {
+		fx := newConsolidationHookFixture(t, sessionID)
+		fx.pressureUC = &consolidationPressureStub{err: errors.New("locked")}
+		code, message := fx.runTranscript(t, "one")
+		if code != 0 {
+			t.Fatalf("exit = %d, want 0; %s", code, message)
+		}
+		if strings.Contains(message, "unrefined material") {
+			t.Fatalf("unexpected reason: %q", message)
 		}
 	})
 
@@ -148,7 +157,7 @@ func TestHookTranscript_ConsolidationRequestLedger(t *testing.T) {
 		coversTo := queryLatestEventID(t, fx.dbPath, sessionID)
 		refineSession(t, fx, sessionID, coversTo)
 		fx.pressureUC = &consolidationPressureStub{
-			result: usecase.ConsolidationPressureResult{PressureBytes: 65 * 1024, Due: true},
+			result: usecase.ConsolidationPressureResult{Commands: 20, Due: true},
 		}
 		if code, _ := fx.runTranscript(t, "two"); code != 2 {
 			t.Fatalf("second exit = %d", code)
@@ -243,16 +252,18 @@ func newConsolidationHookFixture(t *testing.T, sessionID string) *consolidationH
 	if err := sessionDS.SaveBoundary(ctx, session, start); err != nil {
 		t.Fatal(err)
 	}
-	heavy, err := model.NewEventWithClock(
-		"evt-heavy", types.EventKindNote, "cli", "claude",
-		types.SessionID(sessionID), "ws", strings.Repeat("x", 65*1024),
-		fixedClock{at: base.Add(time.Second)},
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := eventDS.Save(ctx, heavy); err != nil {
-		t.Fatal(err)
+	for i := 0; i < 20; i++ {
+		cmd, err := model.NewEventWithClock(
+			types.EventID("evt-cmd-"+strconv.Itoa(i)), types.EventKindCommandExecuted, "cli", "claude",
+			types.SessionID(sessionID), "ws", "cmd",
+			fixedClock{at: base.Add(time.Duration(i+2) * time.Second)},
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := eventDS.Save(ctx, cmd); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	return &consolidationHookFixture{
@@ -263,7 +274,7 @@ func newConsolidationHookFixture(t *testing.T, sessionID string) *consolidationH
 		sessionDS:  sessionDS,
 		storeUC:    storeUC,
 		eventUC:    usecase.NewEventUsecase(eventDS, eventDS),
-		pressureUC: usecase.NewConsolidationPressureUsecase(eventDS, refinementDS),
+		pressureUC: usecase.NewConsolidationPressureUsecase(eventDS, refinementDS, sessionDS, ledger),
 		requestUC:  usecase.NewConsolidationRequestUsecase(ledger, types.SystemClock{}),
 		refineUC:   usecase.NewSessionRefinementUsecase(sessionDS, refinementDS, eventDS, types.SystemClock{}),
 		order:      eventDS,
@@ -271,6 +282,11 @@ func newConsolidationHookFixture(t *testing.T, sessionID string) *consolidationH
 }
 
 func (fx *consolidationHookFixture) runTranscript(t *testing.T, turn string) (int, string) {
+	t.Helper()
+	return fx.runTranscriptClient(t, "claude", turn)
+}
+
+func (fx *consolidationHookFixture) runTranscriptClient(t *testing.T, client, turn string) (int, string) {
 	t.Helper()
 	payload := `{"session_id":"` + fx.sessionID + `","cwd":"/tmp","last_assistant_message":"` + turn + `","prompt_response":"` + turn + `"}`
 	opts := []cli.RootCLIOption{
@@ -289,7 +305,7 @@ func (fx *consolidationHookFixture) runTranscript(t *testing.T, turn string) (in
 	rootCmd.SetIn(strings.NewReader(payload))
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetErr(&bytes.Buffer{})
-	rootCmd.SetArgs([]string{"hook", "transcript", "claude", "--db-path", fx.dbPath})
+	rootCmd.SetArgs([]string{"hook", "transcript", client, "--db-path", fx.dbPath})
 	err := rootCmd.Execute()
 	if err == nil {
 		return 0, ""
@@ -377,6 +393,25 @@ func listConsolidationRequests(t *testing.T, dbPath string) []consolidationRow {
 func countConsolidationRequests(t *testing.T, dbPath string) int {
 	t.Helper()
 	return len(listConsolidationRequests(t, dbPath))
+}
+
+func seedTranscriptsAfterNow(t *testing.T, eventDS *sqliteinfra.EventDatasource, sessionID, prefix string, n int) {
+	t.Helper()
+	ctx := context.Background()
+	base := time.Now().UTC().Add(time.Second)
+	for i := 0; i < n; i++ {
+		event, err := model.NewEventWithClock(
+			types.EventID(prefix+"-"+strconv.Itoa(i)), types.EventKindTranscript, "cli", "claude",
+			types.SessionID(sessionID), "ws", "gap",
+			fixedClock{at: base.Add(time.Duration(i) * time.Second)},
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := eventDS.Save(ctx, event); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 func queryLatestEventID(t *testing.T, dbPath, sessionID string) string {

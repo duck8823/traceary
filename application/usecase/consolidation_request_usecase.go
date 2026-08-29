@@ -10,6 +10,7 @@ import (
 // Consolidation request reason tokens. Never err.Error() and never summary text.
 const (
 	ConsolidationSignalBodyBytes       = "body_bytes"
+	ConsolidationSignalWork            = "work"
 	ConsolidationReasonCreated         = "created"
 	ConsolidationReasonSuperseded      = "superseded"
 	ConsolidationReasonUnchanged       = "unchanged"
@@ -38,8 +39,6 @@ type ConsolidationRequestRecorded struct {
 type ConsolidationRequestUsecase interface {
 	Record(ctx context.Context, in ConsolidationRequestInput) (ConsolidationRequestRecorded, error)
 	RecordRefineOutcome(ctx context.Context, stamp model.ConsolidationRefineStamp) (bool, error)
-	// HasOpenRequest is true when the session has a row with no refine outcome.
-	HasOpenRequest(ctx context.Context, sessionID types.SessionID) (bool, error)
 }
 
 // ConsolidationRefineFromSessionOutcome maps a CLI refine result to ledger tokens.

@@ -61,6 +61,8 @@ type retentionSection struct {
 // distinguishes absent from explicit false.
 type consolidationSection struct {
 	ThresholdBytes *int64 `json:"threshold_bytes"`
+	MinCommands    *int64 `json:"min_commands"`
+	StopCadence    *int64 `json:"stop_cadence"`
 }
 
 // wakeInjectionSection configures the session-start wake injection budget
@@ -162,7 +164,17 @@ const RetentionModeArchiveThenGC = "archive_then_gc"
 
 // DefaultConsolidationThresholdBytes is the stop-hook pressure threshold when
 // consolidation.threshold_bytes is absent from config.json (64 KiB).
+// Deprecated as a trigger in v0.48; parsed and ignored with a WARN.
 const DefaultConsolidationThresholdBytes int64 = 64 * 1024
+
+// DefaultConsolidationMinCommands is the work required since covers_to before
+// a main session may be asked, when consolidation.min_commands is absent.
+const DefaultConsolidationMinCommands int64 = 20
+
+// DefaultConsolidationStopCadence is the transcript count since the last
+// request before the same session may be asked again, when
+// consolidation.stop_cadence is absent. The first ask needs no window.
+const DefaultConsolidationStopCadence int64 = 8
 
 // DefaultWakeInjectionBudgetBytes is the wake-injection stdout budget when
 // wake_injection.budget_bytes is absent from config.json (8 KiB).
@@ -199,12 +211,18 @@ type RetentionConfig struct {
 
 // ConsolidationConfig is the runtime view of config.json consolidation.
 type ConsolidationConfig struct {
-	// ThresholdBytes is the unrefined body-byte sum that triggers a stop-hook
-	// consolidation request. Explicit 0 disables the trigger. When the config
-	// file or key is absent, LoadConfig sets DefaultConsolidationThresholdBytes.
-	// When the file is present but unusable (unreadable / malformed), LoadConfig
-	// sets 0 so the trigger stays off rather than re-applying the default.
+	// MinCommands is command_executed events after covers_to required before
+	// a main session may be asked. Explicit 0 disables the trigger.
+	MinCommands int64
+	// StopCadence is transcript events after the last request required before
+	// the same session may be asked again. The first ask needs no window.
+	// Explicit 0 disables the trigger.
+	StopCadence int64
+	// ThresholdBytes is deprecated as a trigger. Parsed and ignored.
 	ThresholdBytes int64
+	// ThresholdBytesSet is true when the JSON pointer for threshold_bytes was
+	// non-nil (the operator explicitly set the key).
+	ThresholdBytesSet bool
 }
 
 // WakeInjectionConfig is the runtime view of config.json wake_injection.
@@ -280,7 +298,7 @@ func LoadConfig() Config {
 			// Keep every other field at zero (built-in defaults). Only
 			// consolidation and wake injection disable: firing on an unknown
 			// configuration can re-enable a feature set to 0.
-			cfg.Consolidation = ConsolidationConfig{ThresholdBytes: 0}
+			cfg.Consolidation = ConsolidationConfig{ThresholdBytes: 0, MinCommands: 0, StopCadence: 0}
 			cfg.WakeInjection = WakeInjectionConfig{BudgetBytes: 0}
 			// Warning polarity is inverted: still use the published default.
 			cfg.Compact = CompactConfig{ReclaimWarnBytes: DefaultCompactReclaimWarnBytes}
@@ -332,12 +350,22 @@ func toRetentionConfig(raw retentionSection) RetentionConfig {
 }
 
 func toConsolidationConfig(raw consolidationSection) ConsolidationConfig {
-	if raw.ThresholdBytes == nil {
-		return ConsolidationConfig{ThresholdBytes: DefaultConsolidationThresholdBytes}
+	cfg := ConsolidationConfig{
+		MinCommands:    DefaultConsolidationMinCommands,
+		StopCadence:    DefaultConsolidationStopCadence,
+		ThresholdBytes: DefaultConsolidationThresholdBytes,
 	}
-	// Explicit zero disables; any other value is used as-is (including negative,
-	// which the use case treats as disabled the same way).
-	return ConsolidationConfig{ThresholdBytes: *raw.ThresholdBytes}
+	if raw.MinCommands != nil {
+		cfg.MinCommands = *raw.MinCommands
+	}
+	if raw.StopCadence != nil {
+		cfg.StopCadence = *raw.StopCadence
+	}
+	if raw.ThresholdBytes != nil {
+		cfg.ThresholdBytes = *raw.ThresholdBytes
+		cfg.ThresholdBytesSet = true
+	}
+	return cfg
 }
 
 func toWakeInjectionConfig(raw wakeInjectionSection) WakeInjectionConfig {

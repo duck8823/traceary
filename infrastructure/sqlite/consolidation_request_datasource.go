@@ -21,6 +21,9 @@ var insertConsolidationRequestQuery string
 //go:embed sql/select_latest_open_consolidation_request.sql
 var selectLatestOpenConsolidationRequestQuery string
 
+//go:embed sql/select_latest_consolidation_request.sql
+var selectLatestConsolidationRequestQuery string
+
 //go:embed sql/update_consolidation_request_refine_outcome.sql
 var updateConsolidationRequestRefineOutcomeQuery string
 
@@ -117,6 +120,64 @@ func (d *ConsolidationRequestDatasource) FindLatestOpen(
 	}
 	if err != nil {
 		return types.None[*model.ConsolidationRequest](), xerrors.Errorf("failed to load open consolidation request: %w", err)
+	}
+	parsedAt, err := time.Parse(time.RFC3339Nano, requestedAt)
+	if err != nil {
+		return types.None[*model.ConsolidationRequest](), xerrors.Errorf("invalid consolidation requested_at: %w", err)
+	}
+	sid, err := types.SessionIDFrom(storedSessionID)
+	if err != nil {
+		return types.None[*model.ConsolidationRequest](), xerrors.Errorf("invalid stored consolidation session id: %w", err)
+	}
+	eid, err := types.EventIDFrom(atEventID)
+	if err != nil {
+		return types.None[*model.ConsolidationRequest](), xerrors.Errorf("invalid stored consolidation at_event_id: %w", err)
+	}
+	del, err := types.ConsolidationDeliveryFrom(delivery)
+	if err != nil {
+		return types.None[*model.ConsolidationRequest](), xerrors.Errorf("invalid stored consolidation delivery: %w", err)
+	}
+	request, err := model.NewConsolidationRequest(sid, client, parsedAt, eid, signal, pressure, threshold, reRequest == 1, del)
+	if err != nil {
+		return types.None[*model.ConsolidationRequest](), xerrors.Errorf("invalid stored consolidation request: %w", err)
+	}
+	return types.Some(request), nil
+}
+
+// FindLatest returns the newest request for the session regardless of outcome.
+func (d *ConsolidationRequestDatasource) FindLatest(
+	ctx context.Context,
+	sessionID types.SessionID,
+) (types.Optional[*model.ConsolidationRequest], error) {
+	db, err := d.db.open(ctx)
+	if err != nil {
+		return types.None[*model.ConsolidationRequest](), xerrors.Errorf("failed to open DB for consolidation request lookup: %w", err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			slog.Debug("failed to close resource", "error", err)
+		}
+	}()
+
+	var (
+		storedSessionID string
+		client          string
+		requestedAt     string
+		atEventID       string
+		signal          string
+		pressure        int64
+		threshold       int64
+		reRequest       int
+		delivery        string
+	)
+	err = db.QueryRowContext(ctx, selectLatestConsolidationRequestQuery, sessionID.String()).Scan(
+		&storedSessionID, &client, &requestedAt, &atEventID, &signal, &pressure, &threshold, &reRequest, &delivery,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return types.None[*model.ConsolidationRequest](), nil
+	}
+	if err != nil {
+		return types.None[*model.ConsolidationRequest](), xerrors.Errorf("failed to load latest consolidation request: %w", err)
 	}
 	parsedAt, err := time.Parse(time.RFC3339Nano, requestedAt)
 	if err != nil {

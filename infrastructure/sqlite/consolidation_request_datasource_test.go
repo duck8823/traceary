@@ -153,6 +153,18 @@ func TestConsolidationRequestDatasource_FindLatestOpenSkipsStampedRows(t *testin
 	if err != nil || noop {
 		t.Fatalf("MarkRefineOutcome() with no open row = %v err=%v, want false", noop, err)
 	}
+
+	latest, err := fx.ledger.FindLatest(ctx, "sess-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := latest.Value()
+	if !ok {
+		t.Fatal("FindLatest() = None, want newest stamped row")
+	}
+	if got.AtEventID().String() != "evt-2" {
+		t.Fatalf("FindLatest() AtEventID = %s, want evt-2", got.AtEventID())
+	}
 }
 
 func TestConsolidationRequestDatasource_RequestedAtUsesFixedWidthCanonicalForm(t *testing.T) {

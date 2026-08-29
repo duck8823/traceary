@@ -47,6 +47,13 @@ func (s *consolidationRequestRepoStub) FindLatestOpen(
 	return types.Some(s.open), nil
 }
 
+func (s *consolidationRequestRepoStub) FindLatest(
+	ctx context.Context,
+	sessionID types.SessionID,
+) (types.Optional[*model.ConsolidationRequest], error) {
+	return s.FindLatestOpen(ctx, sessionID)
+}
+
 func (s *consolidationRequestRepoStub) MarkRefineOutcome(_ context.Context, stamp model.ConsolidationRefineStamp) (bool, error) {
 	s.stamp = stamp
 	if s.stampErr != nil {

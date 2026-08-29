@@ -21,4 +21,13 @@ type SessionConsolidationPressureRepository interface {
 		sessionID types.SessionID,
 		coversTo types.Optional[types.EventID],
 	) (int64, error)
+	// CountKindAfter returns COUNT(*) of events of kind strictly after `after`
+	// under (created_at_norm, id) order. When after is None the whole session
+	// is counted.
+	CountKindAfter(
+		ctx context.Context,
+		sessionID types.SessionID,
+		kind types.EventKind,
+		after types.Optional[types.EventID],
+	) (int64, error)
 }
