@@ -169,7 +169,10 @@ const DefaultConsolidationThresholdBytes int64 = 64 * 1024
 const DefaultWakeInjectionBudgetBytes int64 = 8192
 
 // DefaultCompactReclaimWarnBytes is the reclaim warning threshold when
-// compact.reclaim_warn_bytes is absent from config.json (1 GiB).
+// compact.reclaim_warn_bytes is absent from config.json (1 GiB of
+// page_size × freelist_count). File size alone does not trigger the warning.
+// A 10 % ratio of the store also applies (same shape as doctor's store-size
+// check; doctor's floor stays 256 MiB).
 //
 // Deliberately inverted from consolidation / wake injection: those features
 // disable (0) when the file is unreadable so a broken config cannot re-enable
@@ -217,8 +220,9 @@ type WakeInjectionConfig struct {
 
 // CompactConfig is the runtime view of config.json compact.
 type CompactConfig struct {
-	// ReclaimWarnBytes is the estimated reclaimable size that triggers a
-	// doctor / non-hook stderr warning. Explicit 0 disables the warning.
+	// ReclaimWarnBytes is the reclaimable-bytes floor (page_size ×
+	// freelist_count) that triggers the non-hook stderr trailer, together
+	// with a 10 % ratio of the store. Explicit 0 disables the warning.
 	// Absent key and unusable files resolve to DefaultCompactReclaimWarnBytes.
 	ReclaimWarnBytes int64
 }

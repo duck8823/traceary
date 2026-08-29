@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,23 +10,25 @@ import (
 
 	"github.com/spf13/cobra"
 
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/presentation"
 )
 
 const compactReclaimWarnInterval = 24 * time.Hour
 
-func attachCompactReclaimWarning(root *cobra.Command) {
+func (c *RootCLI) attachCompactReclaimWarning(root *cobra.Command) {
 	root.PersistentPostRun = func(cmd *cobra.Command, _ []string) {
-		emitCompactReclaimWarning(cmd)
+		c.emitCompactReclaimWarning(cmd)
 	}
 }
 
-func emitCompactReclaimWarning(cmd *cobra.Command) {
+func (c *RootCLI) emitCompactReclaimWarning(cmd *cobra.Command) {
 	if shouldSkipCompactReclaimWarning(cmd) {
 		return
 	}
 	cfg := presentation.LoadConfig()
-	if cfg.Compact.ReclaimWarnBytes <= 0 {
+	floor := cfg.Compact.ReclaimWarnBytes
+	if floor <= 0 {
 		return
 	}
 	path, err := resolveDBPath(lookupDBPathFlag(cmd))
@@ -36,30 +39,53 @@ func emitCompactReclaimWarning(cmd *cobra.Command) {
 	if err != nil {
 		return
 	}
-	if info.Size() < cfg.Compact.ReclaimWarnBytes {
+	// A file smaller than the floor cannot hold `floor` reclaimable bytes, so
+	// the cheap stat still short-circuits before any store open. It is no
+	// longer sufficient on its own: free pages, not file size, decide.
+	if info.Size() < floor {
 		return
 	}
 	now := compactReclaimNow()
 	if !shouldEmitCompactReclaimWarning(path, now) {
 		return
 	}
-	message := compactReclaimWarningMessage(path, info.Size())
+	meta, err := c.inspectReclaimWarningPageMetadata(cmd, path)
+	if err != nil {
+		// Unknown is not a reason to interrupt: doctor is where uncertainty is
+		// reported, this trailer is uninvited output on unrelated commands.
+		return
+	}
+	if !reclaimableWarrantsCompact(meta.ReclaimableBytes, maxInt64(info.Size(), meta.DatabaseBytes), floor) {
+		return
+	}
+	message := compactReclaimWarningMessage(path, info.Size(), meta.ReclaimableBytes)
 	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "%s\n", message)
 	_ = recordCompactReclaimWarning(path, now)
 }
 
-func compactReclaimWarningMessage(storePath string, storeSize int64) string {
+func (c *RootCLI) inspectReclaimWarningPageMetadata(cmd *cobra.Command, path string) (apptypes.StorePageMetadata, error) {
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return c.inspectLargeStorePageMetadata(ctx, path)
+}
+
+func compactReclaimWarningMessage(storePath string, storeSize, reclaimableBytes int64) string {
+	size := formatByteSize(reclaimableBytes)
 	if storeSize > 0 {
 		if free, err := volumeAvailableBytes(filepath.Dir(storePath)); err == nil && free < uint64(storeSize) {
-			return Localize(
-				"TRACEARY: store can reclaim space, but this volume does not have enough free bytes for a compact replica; attach another disk before running `traceary store compact`",
-				"TRACEARY: ストアに回収できる領域がありますが、このボリュームには compact レプリカ分の空きがありません。別ディスクを接続してから `traceary store compact` を実行してください",
+			return localizef(
+				"TRACEARY: store can reclaim about %s, but this volume does not have enough free bytes for a compact replica; attach another disk before running `traceary store compact`",
+				"TRACEARY: ストアに回収できる領域が約 %s ありますが、このボリュームには compact レプリカ分の空きがありません。別ディスクを接続してから `traceary store compact` を実行してください",
+				size,
 			)
 		}
 	}
-	return Localize(
-		"TRACEARY: store can reclaim space; run `traceary store compact`",
-		"TRACEARY: ストアに回収できる領域があります。`traceary store compact` を実行してください",
+	return localizef(
+		"TRACEARY: store can reclaim about %s; run `traceary store compact`",
+		"TRACEARY: ストアに回収できる領域が約 %s あります。`traceary store compact` を実行してください",
+		size,
 	)
 }
 

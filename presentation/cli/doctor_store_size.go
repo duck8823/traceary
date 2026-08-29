@@ -390,7 +390,7 @@ func evaluateStoreGrowthBudget(e storeGrowthEvidence) doctorCheck {
 	if e.ProjectionBytes >= projectionGrowthWarnBytes {
 		reasons = append(reasons, "projection")
 	}
-	if e.ReclaimableBytes >= 256<<20 && ratioAtLeast(e.ReclaimableBytes, e.DatabaseBytes, 10) {
+	if reclaimableWarrantsCompact(e.ReclaimableBytes, e.DatabaseBytes, doctorReclaimableWarnBytes) {
 		reasons = append(reasons, "reclaimable")
 	}
 	if !e.FilesystemFreeAvailable {
@@ -494,7 +494,7 @@ func evaluateLargeStoreGrowthBudget(filesystemBytes int64, e storeGrowthEvidence
 	if filesystemBytes > compareAgainst {
 		compareAgainst = filesystemBytes
 	}
-	if e.ReclaimableBytes >= 256<<20 && ratioAtLeast(e.ReclaimableBytes, compareAgainst, 10) {
+	if reclaimableWarrantsCompact(e.ReclaimableBytes, compareAgainst, doctorReclaimableWarnBytes) {
 		reasons = append(reasons, "reclaimable")
 	}
 	if !e.FilesystemFreeAvailable {

@@ -476,7 +476,7 @@ func (c *RootCLI) Command() *cobra.Command {
 	// RunE (help + stray-arg guard) and is left untouched.
 	applyStrictGroups(rootCmd)
 	applyInventoryDeprecations(rootCmd)
-	attachCompactReclaimWarning(rootCmd)
+	c.attachCompactReclaimWarning(rootCmd)
 
 	return rootCmd
 }
