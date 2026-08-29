@@ -235,3 +235,43 @@ func TestCompactInPlaceStrategyWhenReplicaSpaceIsInsufficient(t *testing.T) {
 		t.Fatalf("CompactStrategy = %q, want %q", got.CompactStrategy, application.CompactStrategyInPlace)
 	}
 }
+
+func TestCompactKeepsInPlaceResultWhenProjectionCompleteFails(t *testing.T) {
+	source := dummyCompactSource(t)
+	builder := &inPlaceFallbackBuilder{}
+	svc := NewStoreCompactionUsecase(source, &faultJournal{}, builder, replicaSpaceFailFiles{}, faultLease{})
+	projErr := errors.New("context deadline exceeded")
+	BindCompactionProjectionComplete(svc, func(context.Context, string) error {
+		return projErr
+	})
+	got, err := svc.Compact(context.Background(), application.CompactInput{Source: source})
+	if err == nil {
+		t.Fatal("Compact() error = nil, want projection complete failure")
+	}
+	if !errors.Is(err, projErr) {
+		t.Fatalf("Compact() error = %v, want errors.Is projection sentinel", err)
+	}
+	if got.CompactStrategy != application.CompactStrategyInPlace {
+		t.Fatalf("CompactStrategy = %q, want %q so CLI can still emit compact_strategy JSON", got.CompactStrategy, application.CompactStrategyInPlace)
+	}
+}
+
+func TestCompactKeepsReplicaResultWhenProjectionCompleteFails(t *testing.T) {
+	source := dummyCompactSource(t)
+	builder := &coverCaptureBuilder{}
+	svc := NewStoreCompactionUsecase(source, &faultJournal{run: compactionRunAt(domain.CompactionCommitted)}, builder, faultFiles{}, faultLease{})
+	projErr := errors.New("context deadline exceeded")
+	BindCompactionProjectionComplete(svc, func(context.Context, string) error {
+		return projErr
+	})
+	got, err := svc.Compact(context.Background(), application.CompactInput{Source: source})
+	if err == nil {
+		t.Fatal("Compact() error = nil, want projection complete failure")
+	}
+	if !errors.Is(err, projErr) {
+		t.Fatalf("Compact() error = %v, want errors.Is projection sentinel", err)
+	}
+	if got.CompactStrategy != application.CompactStrategyReplica {
+		t.Fatalf("CompactStrategy = %q, want %q so CLI can still emit compact_strategy JSON", got.CompactStrategy, application.CompactStrategyReplica)
+	}
+}

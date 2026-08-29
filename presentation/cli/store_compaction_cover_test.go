@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"sort"
 	"strings"
 	"testing"
@@ -18,11 +19,12 @@ import (
 type compactCoverStub struct {
 	in     application.CompactInput
 	result application.CompactResult
+	err    error
 }
 
 func (s *compactCoverStub) Compact(_ context.Context, in application.CompactInput) (application.CompactResult, error) {
 	s.in = in
-	return s.result, nil
+	return s.result, s.err
 }
 func (*compactCoverStub) Plan(context.Context, string) (domain.CompactionRun, error) {
 	return domain.CompactionRun{}, nil
@@ -153,6 +155,46 @@ func TestStoreCompactJSONReportsCoveredSessions(t *testing.T) {
 	}
 	if diff := cmp.Diff(wantKeys, keys); diff != "" {
 		t.Fatalf("JSON keys mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestStoreCompactJSONWhenProjectionCompleteFails(t *testing.T) {
+	t.Parallel()
+	stub := &compactCoverStub{
+		result: application.CompactResult{
+			Run:             domain.CompactionRun{ID: "run", Phase: domain.CompactionCommitted},
+			CompactStrategy: application.CompactStrategyInPlace,
+			Steps: application.CompactSteps{{
+				Name:           application.CompactStepAuditEncode,
+				Rows:           3,
+				BytesReclaimed: 12,
+			}},
+		},
+		err: errors.New("complete search projection after compact: context deadline exceeded"),
+	}
+	root := cli.NewRootCLI(cli.WithStoreCompactionFactory(func(string) application.StoreCompactionUsecase { return stub })).Command()
+	root.SetArgs([]string{"store", "compact", "--db-path", t.TempDir() + "/store.db"})
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("store compact error = nil, want projection complete failure")
+	}
+	if !strings.Contains(err.Error(), "context deadline exceeded") {
+		t.Fatalf("error = %v, want projection deadline", err)
+	}
+	var payload map[string]any
+	if decodeErr := json.Unmarshal(stdout.Bytes(), &payload); decodeErr != nil {
+		t.Fatalf("stdout %q is not JSON: %v", stdout.String(), decodeErr)
+	}
+	if payload["compact_strategy"] != application.CompactStrategyInPlace {
+		t.Fatalf("compact_strategy = %v, want %q", payload["compact_strategy"], application.CompactStrategyInPlace)
+	}
+	steps, _ := payload["steps"].(map[string]any)
+	audit, _ := steps["audit_encode"].(map[string]any)
+	if audit["rows"] != float64(3) {
+		t.Fatalf("steps.audit_encode.rows = %v, want 3", audit["rows"])
 	}
 }
 

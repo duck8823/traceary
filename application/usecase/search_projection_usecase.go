@@ -135,7 +135,9 @@ func (u *SearchProjectionUsecase) startAutomaticGeneration(ctx context.Context, 
 func (u *SearchProjectionUsecase) Resume(ctx context.Context, b apptypes.SearchProjectionBudget, now time.Time) (apptypes.SearchProjectionProgress, error) {
 	wallCtx, cancel := context.WithTimeout(ctx, b.WallTime)
 	defer cancel()
-	status, err := u.store.SearchProjectionControlStatus(wallCtx)
+	// Inspect uses the caller context: batch WallTime is 1s by default and
+	// is too short to ping a multi-GiB read-only store (#2265 / #2298).
+	status, err := u.store.SearchProjectionControlStatus(ctx)
 	if err != nil {
 		return apptypes.SearchProjectionProgress{}, xerrors.Errorf("inspect projection before resume: %w", err)
 	}

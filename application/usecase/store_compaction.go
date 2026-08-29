@@ -148,11 +148,8 @@ func (u *storeCompactionUsecase) Compact(ctx context.Context, in application.Com
 				if afterErr != nil {
 					return application.CompactResult{}, fmt.Errorf("stat compacted store: %w", afterErr)
 				}
-				if err := u.finishSearchProjection(ctx); err != nil {
-					return application.CompactResult{}, err
-				}
 				covered, remaining, remainingBytes, discarded, summaries := coverOutcome(collector.steps, gate)
-				return application.CompactResult{
+				result := application.CompactResult{
 					BytesBefore:               before.Size(),
 					BytesAfter:                after.Size(),
 					UnrefinedRemaining:        remaining,
@@ -165,7 +162,11 @@ func (u *storeCompactionUsecase) Compact(ctx context.Context, in application.Com
 					EstimatedReclaimableBytes: estimated,
 					CompactStrategy:           application.CompactStrategyInPlace,
 					Steps:                     collector.steps,
-				}, nil
+				}
+				if err := u.finishSearchProjection(ctx); err != nil {
+					return result, err
+				}
+				return result, nil
 			}
 			return application.CompactResult{}, fmt.Errorf("in-place compact after insufficient replica space: %w\n\treplica: %v\n\testimated reclaimable bytes: %d\n\tattach another volume and retry with --work-dir, or free dest-sized space on this volume", inPlaceErr, err, estimated)
 		}
@@ -175,11 +176,8 @@ func (u *storeCompactionUsecase) Compact(ctx context.Context, in application.Com
 	if afterErr != nil {
 		return application.CompactResult{}, fmt.Errorf("stat compacted store: %w", afterErr)
 	}
-	if err := u.finishSearchProjection(ctx); err != nil {
-		return application.CompactResult{}, err
-	}
 	covered, remaining, remainingBytes, discarded, summaries := coverOutcome(collector.steps, gate)
-	return application.CompactResult{
+	result := application.CompactResult{
 		Run:                       run,
 		BytesBefore:               before.Size(),
 		BytesAfter:                after.Size(),
@@ -193,7 +191,11 @@ func (u *storeCompactionUsecase) Compact(ctx context.Context, in application.Com
 		EstimatedReclaimableBytes: estimated,
 		CompactStrategy:           strategy,
 		Steps:                     collector.steps,
-	}, nil
+	}
+	if err := u.finishSearchProjection(ctx); err != nil {
+		return result, err
+	}
+	return result, nil
 }
 
 func coverOutcome(steps application.CompactSteps, gate application.BodyGate) (covered, remaining int, remainingBytes, discarded int64, summaries bool) {
