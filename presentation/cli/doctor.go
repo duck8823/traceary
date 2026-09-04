@@ -408,6 +408,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 			report.Checks = append(report.Checks, skippedWorkspaceObservationsCheck())
 		}
 		report.Checks = append(report.Checks, skippedOfflineMigrationsCheck())
+		report.Checks = append(report.Checks, skippedOneOffRepairsCheck())
 		// hook-state-residue is owned by appendFilesystemHostDoctorChecks on
 		// this path; appending it here would print and --fix it twice.
 		// Host package identity (installed plugin/manifest version, native
@@ -451,6 +452,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 			Message: localizef("failed to initialize the SQLite store: %v", "SQLite ストアの初期化に失敗しました: %v", err),
 		})
 		report.Checks = append(report.Checks, c.inspectOfflineMigrations(ctx))
+		report.Checks = append(report.Checks, c.inspectOneOffRepairs(ctx))
 	} else {
 		report.Checks = append(report.Checks, doctorCheck{
 			Name:    "db-write",
@@ -464,6 +466,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		report.Checks = append(report.Checks, c.inspectStaleActiveSessions(ctx))
 		report.Checks = append(report.Checks, c.inspectArchiveRetention(ctx, resolvedDBPath))
 		report.Checks = append(report.Checks, c.inspectOfflineMigrations(ctx))
+		report.Checks = append(report.Checks, c.inspectOneOffRepairs(ctx))
 		if c.workspaceIdentity != nil {
 			report.Checks = append(report.Checks, c.inspectWorkspaceAliases(ctx, report))
 			report.Checks = append(report.Checks, c.inspectWorkspaceObservations(ctx, report))

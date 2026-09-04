@@ -22,6 +22,9 @@ func (s *offlineMigrationStoreStub) Initialize(context.Context) error { return n
 func (s *offlineMigrationStoreStub) PreviewOfflineMigrations(context.Context) ([]int64, error) {
 	return s.pending, nil
 }
+func (s *offlineMigrationStoreStub) InspectOneOffRepairRetirement(context.Context) (apptypes.OneOffRepairRetirement, error) {
+	return apptypes.OneOffRepairRetirement{}, nil
+}
 func (s *offlineMigrationStoreStub) CreateBackup(context.Context, string, bool) error {
 	return nil
 }

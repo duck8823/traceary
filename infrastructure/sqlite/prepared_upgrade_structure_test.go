@@ -59,6 +59,7 @@ func TestHistoricalOfflineOwners(t *testing.T) {
 		{35, ConservationLawIndexPresentBasePreserved, "", "2328"},
 		{45, ConservationLawIndexPresentBasePreserved, "", "2328"},
 		{76, ConservationLawRewriteCollapse, SemanticVerifierCollapseSessionWorkspaceObservations, "2328"},
+		{78, ConservationLawBaseConserving, SemanticVerifierRepairEpochZeroHookUsage, "2316"},
 	}
 	for _, tc := range cases {
 		if conservationLawFor(tc.version) != tc.law {

@@ -42,6 +42,20 @@ func (u *storeManagementUsecase) PreviewOfflineMigrations(ctx context.Context) (
 	return nil, nil
 }
 
+func (u *storeManagementUsecase) InspectOneOffRepairRetirement(ctx context.Context) (apptypes.OneOffRepairRetirement, error) {
+	type inspector interface {
+		InspectOneOffRepairRetirement(context.Context) (apptypes.OneOffRepairRetirement, error)
+	}
+	if inspect, ok := u.storeManager.(inspector); ok {
+		states, err := inspect.InspectOneOffRepairRetirement(ctx)
+		if err != nil {
+			return apptypes.OneOffRepairRetirement{}, xerrors.Errorf("failed to inspect one-off repairs: %w", err)
+		}
+		return states, nil
+	}
+	return apptypes.OneOffRepairRetirement{}, nil
+}
+
 func (u *storeManagementUsecase) CreateBackup(ctx context.Context, outputPath string, overwrite bool) error {
 	if strings.TrimSpace(outputPath) == "" {
 		return xerrors.Errorf("output path must not be empty")

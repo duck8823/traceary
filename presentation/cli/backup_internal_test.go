@@ -75,6 +75,9 @@ func (s *restoreStoreBackupUsecaseForTest) Initialize(_ context.Context) error {
 func (s *restoreStoreBackupUsecaseForTest) PreviewOfflineMigrations(context.Context) ([]int64, error) {
 	return nil, nil
 }
+func (s *restoreStoreBackupUsecaseForTest) InspectOneOffRepairRetirement(context.Context) (apptypes.OneOffRepairRetirement, error) {
+	return apptypes.OneOffRepairRetirement{}, nil
+}
 func (s *restoreStoreBackupUsecaseForTest) CreateBackup(_ context.Context, _ string, _ bool) error {
 	return nil
 }

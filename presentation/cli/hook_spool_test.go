@@ -1218,6 +1218,9 @@ func (s *spoolStoreManagementStub) Initialize(context.Context) error { return ni
 func (s *spoolStoreManagementStub) PreviewOfflineMigrations(context.Context) ([]int64, error) {
 	return nil, nil
 }
+func (s *spoolStoreManagementStub) InspectOneOffRepairRetirement(context.Context) (apptypes.OneOffRepairRetirement, error) {
+	return apptypes.OneOffRepairRetirement{}, nil
+}
 func (s *spoolStoreManagementStub) CreateBackup(context.Context, string, bool) error {
 	return nil
 }

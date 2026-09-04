@@ -44,6 +44,10 @@ type SemanticVerifierID string
 // for historical offline migration 76.
 const SemanticVerifierCollapseSessionWorkspaceObservations SemanticVerifierID = "collapse_session_workspace_observations"
 
+// SemanticVerifierRepairEpochZeroHookUsage is the Layer-2 verifier for
+// offline migration 78.
+const SemanticVerifierRepairEpochZeroHookUsage SemanticVerifierID = "repair_epoch_zero_hook_usage_078"
+
 type migrationManifestEntry struct {
 	Version            int64
 	Name               string
@@ -163,6 +167,11 @@ var preparedMigrationManifest = map[int64]migrationManifestEntry{
 	// non-constant default is O(1) in SQLite: no table rewrite, no scan.
 	// Same class as 18 / 36 / 67.
 	77: {Version: 77, Name: "000077_add_command_audit_output_metadata.sql", SHA256: "ffadbfeb307987aa8305253eea16911b5f09c31812cf40d9fc5039b44dd2d414", Class: MigrationConstantInPlace, ConservationLawID: ConservationLawBaseConserving},
+	// 78 rewrites epoch-zero stop-hook-family / headless_stream usage_observations
+	// and must DROP/CREATE the descriptor-immutability trigger. Not
+	// constant-in-place: cost scales with dirty rows (#2316). 079 report-norm
+	// is withheld pending the owner decision on #2316 §2.2.
+	78: {78, "000078_repair_epoch_zero_hook_usage.sql", "0c82371649b43248ca2ea177f9b2e65953deba9a6d785183501e18ce91ae2118", MigrationDataDependentOffline, ConservationLawBaseConserving, SemanticVerifierRepairEpochZeroHookUsage, "2316"},
 }
 
 func conservationLawFor(version int64) ConservationLawID {

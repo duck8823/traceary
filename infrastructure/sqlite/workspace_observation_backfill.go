@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"time"
 
 	"golang.org/x/xerrors"
@@ -49,9 +50,16 @@ const workspaceObservationCatchUpFrontierQuery = `
 // so the planner can use idx_events_created_at_norm_id_desc as a backward walk.
 const workspaceObservationCatchUpBatchQuery = workspaceObservationCatchUpFrontierQuery
 
-func catchUpWorkspaceObservations(ctx context.Context, db *sql.DB, batchSize int) (workspaceObservationCatchUpResult, error) {
+func backfillWorkspaceObservationsBatch(ctx context.Context, db *sql.DB, batchSize int) (workspaceObservationCatchUpResult, error) {
 	if batchSize <= 0 {
-		return workspaceObservationCatchUpResult{}, xerrors.Errorf("workspace observation catch-up batch size must be positive")
+		return workspaceObservationCatchUpResult{}, xerrors.Errorf("workspace observation backfill batch size must be positive")
+	}
+	exhausted, err := workspaceObservationBackfillIsExhausted(ctx, db)
+	if err != nil {
+		return workspaceObservationCatchUpResult{}, err
+	}
+	if exhausted {
+		return workspaceObservationCatchUpResult{Skipped: true}, nil
 	}
 	exists, err := sqliteTableExists(ctx, db, "session_workspace_observations")
 	if err != nil {
@@ -64,18 +72,9 @@ func catchUpWorkspaceObservations(ctx context.Context, db *sql.DB, batchSize int
 	if err != nil {
 		return workspaceObservationCatchUpResult{}, err
 	}
-	if stateExists {
-		exhausted, exhaustedErr := workspaceObservationCatchUpIsExhausted(ctx, db)
-		if exhaustedErr != nil {
-			return workspaceObservationCatchUpResult{}, exhaustedErr
-		}
-		if exhausted {
-			return workspaceObservationCatchUpResult{Skipped: true}, nil
-		}
-	}
 
 	for attempt := 1; attempt <= workspaceObservationCatchUpMaxAttempts; attempt++ {
-		result, err := catchUpWorkspaceObservationsOnce(ctx, db, batchSize)
+		result, err := backfillWorkspaceObservationsOnce(ctx, db, batchSize)
 		result.Retries = attempt - 1
 		if err == nil && result.Selected == 0 && stateExists {
 			var events int
@@ -97,16 +96,34 @@ func catchUpWorkspaceObservations(ctx context.Context, db *sql.DB, batchSize int
 			if !timer.Stop() {
 				<-timer.C
 			}
-			return result, xerrors.Errorf("workspace observation catch-up retry cancelled: %w", ctx.Err())
+			return result, xerrors.Errorf("workspace observation backfill retry cancelled: %w", ctx.Err())
 		case <-timer.C:
 		}
 	}
 	return workspaceObservationCatchUpResult{}, nil
 }
 
-func workspaceObservationCatchUpIsExhausted(ctx context.Context, db *sql.DB) (bool, error) {
-	exhausted, _, _, err := readWorkspaceObservationCatchUpState(ctx, db)
-	return exhausted, err
+// workspaceObservationBackfillIsExhausted is the open-path gate: one PK
+// point-select on workspace_observation_catchup_state. Missing table or
+// missing row means the sweep is not exhausted.
+func workspaceObservationBackfillIsExhausted(ctx context.Context, db *sql.DB) (bool, error) {
+	var exhausted int
+	err := db.QueryRowContext(ctx, `SELECT exhausted FROM workspace_observation_catchup_state WHERE singleton = 1`).Scan(&exhausted)
+	if err == nil {
+		return exhausted == 1, nil
+	}
+	if errors.Is(err, sql.ErrNoRows) || sqliteNoSuchTable(err) {
+		return false, nil
+	}
+	return false, xerrors.Errorf("read workspace observation backfill exhausted flag: %w", err)
+}
+
+func sqliteNoSuchTable(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "no such table")
 }
 
 func readWorkspaceObservationCatchUpState(ctx context.Context, db *sql.DB) (bool, string, string, error) {
@@ -154,7 +171,7 @@ func markWorkspaceObservationCatchUpExhausted(ctx context.Context, db *sql.DB) e
 	return nil
 }
 
-func catchUpWorkspaceObservationsOnce(ctx context.Context, db *sql.DB, batchSize int) (workspaceObservationCatchUpResult, error) {
+func backfillWorkspaceObservationsOnce(ctx context.Context, db *sql.DB, batchSize int) (workspaceObservationCatchUpResult, error) {
 	frontierNorm, frontierID := "", ""
 	stateExists, err := sqliteTableExists(ctx, db, workspaceObservationCatchUpStateTable)
 	if err != nil {
@@ -182,12 +199,12 @@ func catchUpWorkspaceObservationsOnce(ctx context.Context, db *sql.DB, batchSize
 		return workspaceObservationCatchUpResult{}, xerrors.Errorf("failed to query workspace observation catch-up batch: %w", err)
 	}
 
-	type catchUpRow struct {
+	type backfillRow struct {
 		eventID, sessionID, workspace, createdAt, createdAtNorm, agent, sourceHook, canonical string
 	}
-	batch := make([]catchUpRow, 0, batchSize)
+	batch := make([]backfillRow, 0, batchSize)
 	for rows.Next() {
-		var row catchUpRow
+		var row backfillRow
 		if err := rows.Scan(&row.eventID, &row.sessionID, &row.workspace, &row.createdAt, &row.createdAtNorm, &row.agent, &row.sourceHook, &row.canonical); err != nil {
 			_ = rows.Close()
 			return workspaceObservationCatchUpResult{}, xerrors.Errorf("failed to scan workspace observation catch-up row: %w", err)

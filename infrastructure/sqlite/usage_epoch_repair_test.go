@@ -20,16 +20,14 @@ func TestRepairEpochZeroHookUsage_BackfillsFromSessionBoundary(t *testing.T) {
 
 	ctx := context.Background()
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
-	store := sqlite.NewDatabase(dbPath, onDiskSQLiteMigrations(t))
-	if err := sqlite.NewStoreManagementDatasource(store).Initialize(ctx); err != nil {
-		t.Fatalf("Initialize() error = %v", err)
+	if err := sqlite.NewStoreManagementDatasource(sqlite.NewDatabase(dbPath, onDiskSQLiteMigrationsBefore(t, 78))).Initialize(ctx); err != nil {
+		t.Fatalf("Initialize(pre-078) error = %v", err)
 	}
 
 	conn, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		t.Fatalf("sql.Open() error = %v", err)
 	}
-	t.Cleanup(func() { _ = conn.Close() })
 
 	sessionTime := time.Date(2026, 8, 15, 18, 30, 0, 0, time.UTC)
 	seedEpochUsageFixture(t, conn, epochUsageFixture{
@@ -74,14 +72,19 @@ func TestRepairEpochZeroHookUsage_BackfillsFromSessionBoundary(t *testing.T) {
 		host:          "grok",
 		sourceName:    "stop_hook",
 	})
+	if err := conn.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
 
-	result, err := sqlite.RepairEpochZeroHookUsageObservations(ctx, conn, 10)
+	if err := sqlite.NewStoreManagementDatasource(sqlite.NewDatabase(dbPath, onDiskSQLiteMigrations(t))).InitializeAuthorized(ctx); err != nil {
+		t.Fatalf("InitializeAuthorized(078) error = %v", err)
+	}
+
+	conn, err = sql.Open("sqlite", dbPath)
 	if err != nil {
-		t.Fatalf("RepairEpochZeroHookUsageObservations() error = %v", err)
+		t.Fatalf("sql.Open() error = %v", err)
 	}
-	if result.Repaired != 5 || result.Skipped != 1 || result.MorePending {
-		t.Fatalf("repair result = %+v, want repaired=5 skipped=1", result)
-	}
+	t.Cleanup(func() { _ = conn.Close() })
 
 	want := sessionTime.UTC().Format(time.RFC3339Nano)
 	for _, id := range []string{
@@ -96,14 +99,6 @@ func TestRepairEpochZeroHookUsage_BackfillsFromSessionBoundary(t *testing.T) {
 	epoch := time.Unix(0, 0).UTC().Format(time.RFC3339Nano)
 	assertUsageTimes(t, conn, "grok:stop_hook:orphan", epoch, epoch)
 
-	rerun, err := sqlite.RepairEpochZeroHookUsageObservations(ctx, conn, 10)
-	if err != nil {
-		t.Fatalf("rerun error = %v", err)
-	}
-	if rerun.Repaired != 0 || rerun.Skipped != 1 || rerun.Selected != 1 {
-		t.Fatalf("rerun = %+v, want only the unrepairable orphan", rerun)
-	}
-
 	_, err = conn.Exec(`UPDATE usage_observations SET observed_at = ? WHERE observation_id = ?`,
 		time.Date(2026, 8, 16, 0, 0, 0, 0, time.UTC).Format(time.RFC3339Nano), "grok:stop_hook:repaired")
 	if err == nil {
@@ -111,20 +106,18 @@ func TestRepairEpochZeroHookUsage_BackfillsFromSessionBoundary(t *testing.T) {
 	}
 }
 
-func TestRepairEpochZeroHookUsage_HonorsBatchBound(t *testing.T) {
+func TestRepairEpochZeroHookUsage_RepairsAllRowsInOneOfflineApply(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
-	store := sqlite.NewDatabase(dbPath, onDiskSQLiteMigrations(t))
-	if err := sqlite.NewStoreManagementDatasource(store).Initialize(ctx); err != nil {
-		t.Fatalf("Initialize() error = %v", err)
+	if err := sqlite.NewStoreManagementDatasource(sqlite.NewDatabase(dbPath, onDiskSQLiteMigrationsBefore(t, 78))).Initialize(ctx); err != nil {
+		t.Fatalf("Initialize(pre-078) error = %v", err)
 	}
 	conn, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		t.Fatalf("sql.Open() error = %v", err)
 	}
-	t.Cleanup(func() { _ = conn.Close() })
 
 	sessionTime := time.Date(2026, 8, 14, 9, 0, 0, 0, time.UTC)
 	for _, id := range []string{"grok:stop_hook:a", "grok:stop_hook:b", "grok:stop_hook:c"} {
@@ -137,31 +130,31 @@ func TestRepairEpochZeroHookUsage_HonorsBatchBound(t *testing.T) {
 			withEvent:     id == "grok:stop_hook:a",
 		})
 	}
+	if err := conn.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
 
-	first, err := sqlite.RepairEpochZeroHookUsageObservations(ctx, conn, 2)
+	if err := sqlite.NewStoreManagementDatasource(sqlite.NewDatabase(dbPath, onDiskSQLiteMigrations(t))).InitializeAuthorized(ctx); err != nil {
+		t.Fatalf("InitializeAuthorized(078) error = %v", err)
+	}
+	conn, err = sql.Open("sqlite", dbPath)
 	if err != nil {
-		t.Fatalf("first batch error = %v", err)
+		t.Fatal(err)
 	}
-	if first.Selected != 2 || first.Repaired != 2 || !first.MorePending {
-		t.Fatalf("first batch = %+v, want selected=2 repaired=2 more_pending", first)
-	}
-	second, err := sqlite.RepairEpochZeroHookUsageObservations(ctx, conn, 2)
-	if err != nil {
-		t.Fatalf("second batch error = %v", err)
-	}
-	if second.Repaired != 1 || second.MorePending {
-		t.Fatalf("second batch = %+v, want repaired=1", second)
+	t.Cleanup(func() { _ = conn.Close() })
+	want := sessionTime.UTC().Format(time.RFC3339Nano)
+	for _, id := range []string{"grok:stop_hook:a", "grok:stop_hook:b", "grok:stop_hook:c"} {
+		assertUsageTimes(t, conn, id, want, want)
 	}
 }
 
-func TestInitialize_RepairsEpochZeroHookUsage(t *testing.T) {
+func TestInitializeAuthorized_RepairsEpochZeroHookUsage(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
-	store := sqlite.NewDatabase(dbPath, onDiskSQLiteMigrations(t))
-	if err := sqlite.NewStoreManagementDatasource(store).Initialize(ctx); err != nil {
-		t.Fatalf("Initialize() error = %v", err)
+	if err := sqlite.NewStoreManagementDatasource(sqlite.NewDatabase(dbPath, onDiskSQLiteMigrationsBefore(t, 78))).Initialize(ctx); err != nil {
+		t.Fatalf("Initialize(pre-078) error = %v", err)
 	}
 
 	conn, err := sql.Open("sqlite", dbPath)
@@ -181,8 +174,8 @@ func TestInitialize_RepairsEpochZeroHookUsage(t *testing.T) {
 		t.Fatalf("Close() error = %v", err)
 	}
 
-	if err := sqlite.NewStoreManagementDatasource(store).Initialize(ctx); err != nil {
-		t.Fatalf("Initialize(repair) error = %v", err)
+	if err := sqlite.NewStoreManagementDatasource(sqlite.NewDatabase(dbPath, onDiskSQLiteMigrations(t))).InitializeAuthorized(ctx); err != nil {
+		t.Fatalf("InitializeAuthorized(078) error = %v", err)
 	}
 	conn, err = sql.Open("sqlite", dbPath)
 	if err != nil {

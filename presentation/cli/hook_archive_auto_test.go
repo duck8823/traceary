@@ -153,6 +153,9 @@ func (s *minimalStoreStub) Initialize(context.Context) error { return nil }
 func (s *minimalStoreStub) PreviewOfflineMigrations(context.Context) ([]int64, error) {
 	return nil, nil
 }
+func (s *minimalStoreStub) InspectOneOffRepairRetirement(context.Context) (apptypes.OneOffRepairRetirement, error) {
+	return apptypes.OneOffRepairRetirement{}, nil
+}
 func (s *minimalStoreStub) CreateBackup(context.Context, string, bool) error {
 	return nil
 }
