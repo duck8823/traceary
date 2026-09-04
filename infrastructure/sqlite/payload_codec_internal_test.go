@@ -73,12 +73,12 @@ func TestPayloadCodecRejectsUnknownCorruptAndOverLimitRows(t *testing.T) {
 func TestStoreCompatibilityGate(t *testing.T) {
 	ctx := context.Background()
 	for _, tc := range []struct {
-		name        string
-		min, format int
-		wantErr     bool
+		name    string
+		min     int
+		wantErr bool
 	}{
-		{"supported", 37, 1, false}, {"future reader", 38, 1, true}, {"future format", 37, 2, true},
-		{"invalid reader", -1, 1, true}, {"invalid format", 37, -1, true},
+		{"supported", 38, false}, {"future reader", 39, true},
+		{"invalid reader", -1, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			db, err := sql.Open("sqlite", ":memory:")
@@ -86,7 +86,7 @@ func TestStoreCompatibilityGate(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer func() { _ = db.Close() }()
-			if _, err := db.Exec(`CREATE TABLE store_format_state(singleton INTEGER PRIMARY KEY, minimum_reader_version INTEGER NOT NULL, maximum_payload_format INTEGER NOT NULL); INSERT INTO store_format_state VALUES(1, ?, ?)`, tc.min, tc.format); err != nil {
+			if _, err := db.Exec(`CREATE TABLE store_format_state(singleton INTEGER PRIMARY KEY, minimum_reader_version INTEGER NOT NULL); INSERT INTO store_format_state VALUES(1, ?)`, tc.min); err != nil {
 				t.Fatal(err)
 			}
 			err = checkStoreCompatibility(ctx, db)
@@ -168,7 +168,7 @@ func TestDatabaseOpenModesEnforceCompatibility(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := raw.Exec(`CREATE TABLE store_format_state(singleton INTEGER PRIMARY KEY, minimum_reader_version INTEGER NOT NULL, maximum_payload_format INTEGER NOT NULL); INSERT INTO store_format_state VALUES(1, 38, 1)`); err != nil {
+	if _, err := raw.Exec(`CREATE TABLE store_format_state(singleton INTEGER PRIMARY KEY, minimum_reader_version INTEGER NOT NULL); INSERT INTO store_format_state VALUES(1, 39)`); err != nil {
 		t.Fatal(err)
 	}
 	if err := raw.Close(); err != nil {
@@ -602,7 +602,7 @@ func TestStoreCompatibilityRejectsMissingStateRow(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = db.Close() }()
-	if _, err := db.Exec(`CREATE TABLE store_format_state(singleton INTEGER PRIMARY KEY, minimum_reader_version INTEGER NOT NULL, maximum_payload_format INTEGER NOT NULL)`); err != nil {
+	if _, err := db.Exec(`CREATE TABLE store_format_state(singleton INTEGER PRIMARY KEY, minimum_reader_version INTEGER NOT NULL)`); err != nil {
 		t.Fatal(err)
 	}
 	if err := VerifyStoreCompatibility(context.Background(), db); err == nil {

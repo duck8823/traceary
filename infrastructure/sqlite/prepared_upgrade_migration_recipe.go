@@ -56,7 +56,34 @@ func (r *PreparedUpgradeMigrationRecipe) Build(ctx context.Context, request appl
 	if err := r.bindDedupeArchiveRestore(ctx, request); err != nil {
 		return err
 	}
+	if err := r.bindDecodePayloads(ctx, request); err != nil {
+		return err
+	}
 	return r.PreparedMigrationCandidateRecipe.Build(ctx, request)
+}
+
+func (r *PreparedUpgradeMigrationRecipe) bindDecodePayloads(ctx context.Context, request application.PreparedCandidateRequest) error {
+	db, err := openDirectReadOnly(ctx, request.Run.SourcePath)
+	if err != nil {
+		return fmt.Errorf("open source to gate payload decode: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+	plan, err := BuildPreparedMigrationPlan(ctx, db, r.Migrations)
+	if err != nil {
+		return err
+	}
+	if pendingHasDecodePayloads(plan) {
+		prev := r.beforeApply
+		r.beforeApply = func(buildCtx context.Context, db *sql.DB) error {
+			if prev != nil {
+				if err := prev(buildCtx, db); err != nil {
+					return err
+				}
+			}
+			return decodePayloadsForMigrationOrRefuse(buildCtx, db)
+		}
+	}
+	return nil
 }
 
 func (r *PreparedUpgradeMigrationRecipe) bindDedupeArchiveRestore(ctx context.Context, request application.PreparedCandidateRequest) error {

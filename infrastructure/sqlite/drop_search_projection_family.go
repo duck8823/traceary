@@ -32,7 +32,7 @@ var droppedSearchFamilyTables = []string{
 	"search_projection_recent_fts",
 }
 
-func verifyDropSearchProjectionFamily(ctx context.Context, sourceDB, candidateDB *sql.DB, skipEvents bool) error {
+func verifyDropSearchProjectionFamily(ctx context.Context, sourceDB, candidateDB *sql.DB, skipEvents, skipCodecRewrite bool) error {
 	for _, name := range droppedSearchFamilyTables {
 		exists, err := tableExists(ctx, candidateDB, name)
 		if err != nil {
@@ -59,7 +59,7 @@ func verifyDropSearchProjectionFamily(ctx context.Context, sourceDB, candidateDB
 	if err := verifyNoForeignKeysToDroppedSearchFamily(ctx, candidateDB); err != nil {
 		return err
 	}
-	if err := verifyFiveTableConservation(ctx, sourceDB, candidateDB, skipEvents); err != nil {
+	if err := verifyFiveTableConservation(ctx, sourceDB, candidateDB, skipEvents, skipCodecRewrite); err != nil {
 		return err
 	}
 	return verifyNoTriggerOrViewReferencesDroppedSearchFamily(ctx, candidateDB)

@@ -150,8 +150,8 @@ func TestApprovedDropRemovesTableAndKeepsObservationRuns(t *testing.T) {
 	if err = db.QueryRow(`SELECT minimum_reader_version FROM store_format_state WHERE singleton=1`).Scan(&minReader); err != nil {
 		t.Fatal(err)
 	}
-	if minReader != 37 {
-		t.Fatalf("minimum_reader_version = %d, want 37", minReader)
+	if minReader != 38 {
+		t.Fatalf("minimum_reader_version = %d, want 38", minReader)
 	}
 
 	usageJSON := reportUsageJSON(t, path, onDiskSQLiteMigrations(t))
@@ -230,7 +230,7 @@ func TestStaleBoundDropApprovalStopsBeforeBuild(t *testing.T) {
 	}
 }
 
-func TestPayloadBackfillRemainsPresent(t *testing.T) {
+func TestPayloadBackfillRemovedByEncodedPayloadDrop(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "store.db")
 	if err := newStoreManagementDatasource(t, path, onDiskSQLiteMigrations(t)).Initialize(context.Background()); err != nil {
@@ -245,8 +245,8 @@ func TestPayloadBackfillRemainsPresent(t *testing.T) {
 	if err = db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE name='payload_backfill_runs'`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if count != 1 {
-		t.Fatal("payload_backfill_runs missing after 079")
+	if count != 0 {
+		t.Fatal("payload_backfill_runs survived 082")
 	}
 }
 

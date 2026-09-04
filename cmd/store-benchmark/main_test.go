@@ -185,8 +185,7 @@ func TestOpenCompatibleReadOnlyRejectsUnsupportedStoreState(t *testing.T) {
 		value  int
 		match  string
 	}{
-		{"future reader", "minimum_reader_version", 38, "requires reader version 38"},
-		{"future payload format", "maximum_payload_format", 2, "payload format 2 is unsupported"},
+		{"future reader", "minimum_reader_version", 39, "requires reader version 39"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "unsupported.db")

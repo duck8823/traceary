@@ -13,7 +13,7 @@ const SemanticVerifierDropDedupeArchive SemanticVerifierID = "drop_dedupe_archiv
 
 const droppedDedupeArchiveReaderVersion = 37
 
-func verifyDropDedupeArchive(ctx context.Context, sourceDB, candidateDB *sql.DB) error {
+func verifyDropDedupeArchive(ctx context.Context, sourceDB, candidateDB *sql.DB, decodePending bool) error {
 	exists, err := tableExists(ctx, candidateDB, restoreDedupeArchiveTable)
 	if err != nil {
 		return err
@@ -25,13 +25,13 @@ func verifyDropDedupeArchive(ctx context.Context, sourceDB, candidateDB *sql.DB)
 	if err := candidateDB.QueryRowContext(ctx, `SELECT minimum_reader_version FROM store_format_state WHERE singleton = 1`).Scan(&minimumReader); err != nil {
 		return fmt.Errorf("read candidate minimum_reader_version: %w", err)
 	}
-	if minimumReader != droppedDedupeArchiveReaderVersion {
-		return fmt.Errorf("candidate minimum_reader_version = %d, want %d", minimumReader, droppedDedupeArchiveReaderVersion)
+	if minimumReader < droppedDedupeArchiveReaderVersion {
+		return fmt.Errorf("candidate minimum_reader_version = %d, want at least %d", minimumReader, droppedDedupeArchiveReaderVersion)
 	}
-	return verifyRestoreDedupeArchiveConservation(ctx, sourceDB, candidateDB)
+	return verifyRestoreDedupeArchiveConservation(ctx, sourceDB, candidateDB, decodePending)
 }
 
-func verifyRestoreDedupeArchiveConservation(ctx context.Context, sourceDB, candidateDB *sql.DB) error {
+func verifyRestoreDedupeArchiveConservation(ctx context.Context, sourceDB, candidateDB *sql.DB, decodePending bool) error {
 	sourceCount, err := countTableRows(ctx, sourceDB, "events")
 	if err != nil {
 		return err
@@ -46,6 +46,15 @@ func verifyRestoreDedupeArchiveConservation(ctx context.Context, sourceDB, candi
 	}
 	if candidateCount != sourceCount+archiveCount {
 		return fmt.Errorf("candidate events count=%d, want source %d + archive %d", candidateCount, sourceCount, archiveCount)
+	}
+	if decodePending {
+		for _, id := range archiveIDs {
+			var exists int
+			if err := candidateDB.QueryRowContext(ctx, `SELECT 1 FROM events WHERE id = ?`, id).Scan(&exists); err != nil {
+				return fmt.Errorf("archived event %s missing from candidate", id)
+			}
+		}
+		return nil
 	}
 	columns, err := tableColumns(ctx, sourceDB, "events")
 	if err != nil {

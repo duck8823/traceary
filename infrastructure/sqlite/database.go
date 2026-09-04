@@ -33,8 +33,7 @@ const sqlTimestampValidFunc = "ts_valid"
 const sqlPayloadDecodeFunc = "traceary_payload_decode"
 
 const (
-	currentReaderVersion        = 37
-	maximumPayloadFormatVersion = 1
+	currentReaderVersion = 38
 )
 
 var (
@@ -405,18 +404,15 @@ func VerifyStoreCompatibility(ctx context.Context, db *sql.DB) error {
 	if exists == 0 {
 		return nil
 	}
-	var minimumReader, maximumPayload int
-	if err := db.QueryRowContext(ctx, `SELECT minimum_reader_version, maximum_payload_format FROM store_format_state WHERE singleton = 1`).Scan(&minimumReader, &maximumPayload); err != nil {
+	var minimumReader int
+	if err := db.QueryRowContext(ctx, `SELECT minimum_reader_version FROM store_format_state WHERE singleton = 1`).Scan(&minimumReader); err != nil {
 		return xerrors.Errorf("read store format state: %w", err)
 	}
-	if minimumReader < 0 || maximumPayload < 0 {
+	if minimumReader < 0 {
 		return xerrors.New("store format state contains invalid negative versions")
 	}
 	if minimumReader > currentReaderVersion {
 		return xerrors.Errorf("store requires reader version %d; this reader supports %d", minimumReader, currentReaderVersion)
-	}
-	if maximumPayload > maximumPayloadFormatVersion {
-		return xerrors.Errorf("store payload format %d is unsupported; maximum supported is %d", maximumPayload, maximumPayloadFormatVersion)
 	}
 	return nil
 }
