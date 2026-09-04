@@ -24,16 +24,15 @@ const storeSizeWarnBytes int64 = 1 << 30 // 1 GiB
 
 const (
 	payloadGrowthWarnBytes     = int64(512 << 20)
-	projectionGrowthWarnBytes  = int64(256 << 20)
 	doctorGrowthLatencyWarn    = 1500 * time.Millisecond
 	doctorGrowthInspectTimeout = 2 * time.Second
 	largeStoreO1InspectTimeout = 500 * time.Millisecond
 )
 
 type storeGrowthEvidence struct {
-	DatabaseBytes, EventPayloadBytes, ProjectionBytes, ReclaimableBytes, FilesystemFreeBytes int64
-	FilesystemFreeAvailable                                                                  bool
-	MeasuredLatency                                                                          time.Duration
+	DatabaseBytes, EventPayloadBytes, ReclaimableBytes, FilesystemFreeBytes int64
+	FilesystemFreeAvailable                                                 bool
+	MeasuredLatency                                                         time.Duration
 }
 
 type storeFileSnapshot struct {
@@ -381,9 +380,6 @@ func evaluateStoreGrowthBudget(e storeGrowthEvidence) doctorCheck {
 	if e.EventPayloadBytes >= payloadGrowthWarnBytes {
 		reasons = append(reasons, "event_payload")
 	}
-	if e.ProjectionBytes >= projectionGrowthWarnBytes {
-		reasons = append(reasons, "projection")
-	}
 	if reclaimableWarrantsCompact(e.ReclaimableBytes, e.DatabaseBytes, doctorReclaimableWarnBytes) {
 		reasons = append(reasons, "reclaimable")
 	}
@@ -396,9 +392,9 @@ func evaluateStoreGrowthBudget(e storeGrowthEvidence) doctorCheck {
 		reasons = append(reasons, "latency")
 	}
 	if len(reasons) == 0 {
-		return doctorCheck{Name: "store-size", Status: doctorStatusPass, Message: localizef("store growth signals are within budget: database=%s event_payload=%s projection=%s free=%s latency=%s", "store growth signal は予算内です: database=%s event_payload=%s projection=%s free=%s latency=%s", formatByteSize(e.DatabaseBytes), formatByteSize(e.EventPayloadBytes), formatByteSize(e.ProjectionBytes), formatDoctorFree(e), e.MeasuredLatency.Round(time.Millisecond))}
+		return doctorCheck{Name: "store-size", Status: doctorStatusPass, Message: localizef("store growth signals are within budget: database=%s event_payload=%s free=%s latency=%s", "store growth signal は予算内です: database=%s event_payload=%s free=%s latency=%s", formatByteSize(e.DatabaseBytes), formatByteSize(e.EventPayloadBytes), formatDoctorFree(e), e.MeasuredLatency.Round(time.Millisecond))}
 	}
-	return doctorCheck{Name: "store-size", Status: doctorStatusWarn, Message: localizef("store growth warning (%s): database=%s event_payload=%s projection=%s free=%s measured_latency=%s", "store growth warning (%s): database=%s event_payload=%s projection=%s free=%s measured_latency=%s", strings.Join(reasons, ","), formatByteSize(e.DatabaseBytes), formatByteSize(e.EventPayloadBytes), formatByteSize(e.ProjectionBytes), formatDoctorFree(e), e.MeasuredLatency.Round(time.Millisecond)), Hint: Localize("rewrite with `traceary store compact` (copy-filter, body discard, VACUUM INTO, atomic exchange). This is not a preview. Keep the rollback file until you accept the result (`traceary store compact rollback RUN_ID`). Do not run in-place VACUUM", "書き換えは `traceary store compact` です（copy-filter、本文破棄、VACUUM INTO、atomic exchange）。preview ではありません。受け入れるまで rollback ファイルを残してください（`traceary store compact rollback RUN_ID`）。in-place VACUUM は使わないでください"), FixCommand: "traceary store compact"}
+	return doctorCheck{Name: "store-size", Status: doctorStatusWarn, Message: localizef("store growth warning (%s): database=%s event_payload=%s free=%s measured_latency=%s", "store growth warning (%s): database=%s event_payload=%s free=%s measured_latency=%s", strings.Join(reasons, ","), formatByteSize(e.DatabaseBytes), formatByteSize(e.EventPayloadBytes), formatDoctorFree(e), e.MeasuredLatency.Round(time.Millisecond)), Hint: Localize("rewrite with `traceary store compact` (copy-filter, body discard, VACUUM INTO, atomic exchange). This is not a preview. Keep the rollback file until you accept the result (`traceary store compact rollback RUN_ID`). Do not run in-place VACUUM", "書き換えは `traceary store compact` です（copy-filter、本文破棄、VACUUM INTO、atomic exchange）。preview ではありません。受け入れるまで rollback ファイルを残してください（`traceary store compact rollback RUN_ID`）。in-place VACUUM は使わないでください"), FixCommand: "traceary store compact"}
 }
 
 func formatDoctorFree(e storeGrowthEvidence) string {

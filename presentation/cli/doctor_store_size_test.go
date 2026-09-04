@@ -151,13 +151,13 @@ func TestFormatByteSize(t *testing.T) {
 }
 
 func TestEvaluateStoreGrowthBudgetUsesIndependentSignals(t *testing.T) {
-	base := storeGrowthEvidence{DatabaseBytes: 256 << 20, EventPayloadBytes: 64 << 20, ProjectionBytes: 32 << 20, FilesystemFreeBytes: 4 << 30, FilesystemFreeAvailable: true, MeasuredLatency: 100 * time.Millisecond}
+	base := storeGrowthEvidence{DatabaseBytes: 256 << 20, EventPayloadBytes: 64 << 20, FilesystemFreeBytes: 4 << 30, FilesystemFreeAvailable: true, MeasuredLatency: 100 * time.Millisecond}
 	for _, tc := range []struct {
 		name   string
 		mutate func(*storeGrowthEvidence)
 	}{
 		{"event payload", func(e *storeGrowthEvidence) { e.EventPayloadBytes = 512 << 20 }},
-		{"projection", func(e *storeGrowthEvidence) { e.ProjectionBytes = 256 << 20 }},
+		{"reclaimable", func(e *storeGrowthEvidence) { e.ReclaimableBytes = 256 << 20 }},
 		{"headroom", func(e *storeGrowthEvidence) { e.FilesystemFreeBytes = e.DatabaseBytes }},
 		{"latency", func(e *storeGrowthEvidence) { e.MeasuredLatency = 2 * time.Second }},
 	} {
