@@ -50,7 +50,7 @@ func (u *preparedStoreUpgradeUsecase) Plan(ctx context.Context, command applicat
 	case domain.PreparedStoreUpgradeOperationOfflineMigrationUpgrade:
 		candidateSuffix = ".upgrade-"
 	}
-	run := domain.PreparedStoreUpgradeRun{ID: id, SourcePath: command.TargetPath, CandidatePath: command.TargetPath + candidateSuffix + id, RollbackPath: command.TargetPath + ".rollback-" + id, Phase: domain.PreparedStoreUpgradePlanned, Operation: command.Operation, ConsumerBinding: command.ConsumerBinding, Budget: command.Budget, CreatedAt: now, UpdatedAt: now}
+	run := domain.PreparedStoreUpgradeRun{ID: id, SourcePath: command.TargetPath, CandidatePath: command.TargetPath + candidateSuffix + id, RollbackPath: command.TargetPath + ".rollback-" + id, Phase: domain.PreparedStoreUpgradePlanned, Operation: command.Operation, ConsumerBinding: command.ConsumerBinding, Budget: command.Budget, BoundDropApproval: command.BoundDropApproval, CreatedAt: now, UpdatedAt: now}
 	planDigest, err := u.recipes[command.Operation].Plan(ctx, application.PreparedCandidateRequest{Run: run})
 	if err != nil {
 		return run, err
@@ -96,7 +96,12 @@ func (u *preparedStoreUpgradeUsecase) prepare(ctx context.Context, run domain.Pr
 				run, err = u.advance(ctx, run, domain.PreparedStoreUpgradeCandidatePrepared)
 			}
 		case domain.ActionBuildCandidate:
-			err = recipe.Build(ctx, application.PreparedCandidateRequest{Run: run})
+			if verifier, ok := recipe.(application.BoundDropVerifier); ok {
+				err = verifier.VerifyBoundDrop(ctx, application.PreparedCandidateRequest{Run: run})
+			}
+			if err == nil {
+				err = recipe.Build(ctx, application.PreparedCandidateRequest{Run: run})
+			}
 			if err == nil {
 				run, err = u.advance(ctx, run, domain.PreparedStoreUpgradeCopyComplete)
 			}

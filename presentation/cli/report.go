@@ -240,11 +240,10 @@ func writeReportText(output io.Writer, report apptypes.ReportSnapshot) error {
 	}
 	for _, row := range report.Usage.Aggregates {
 		fmt.Fprintf(&b,
-			"- provider=%s engine=%s model=%s role=%s repo=%s ticket=%s pr=%s batch=%s round=%s observations=%d accounted=%d excluded=%d unavailable=%d input_tokens=%s output_tokens=%s total_tokens=%s terminal=%s\n",
+			"- provider=%s engine=%s model=%s role=%s round=%s observations=%d accounted=%d excluded=%d unavailable=%d input_tokens=%s output_tokens=%s total_tokens=%s terminal=%s\n",
 			textValueOrUnavailable(row.Provider), row.Engine, textValueOrUnavailable(row.Model),
-			textAvailability(row.Role, row.RoleAvailability), textValueOrUnavailable(row.Repository),
-			textValueOrUnavailable(row.TicketRef), textOptionalInt64(row.PullRequest),
-			textValueOrUnavailable(row.BatchID), textOptionalAvailability(row.Round, row.RoundAvailability),
+			textAvailability(row.Role, row.RoleAvailability),
+			textOptionalAvailability(row.Round, row.RoundAvailability),
 			row.Observations, row.Accounted, row.Excluded, row.Unavailable,
 			textUsageMetric(row.InputTokens), textUsageMetric(row.OutputTokens),
 			textUsageMetric(row.TotalTokens), textCounts(row.TerminalCodes),
@@ -264,12 +263,9 @@ func writeReportText(output io.Writer, report apptypes.ReportSnapshot) error {
 	}
 	for _, row := range report.Usage.Runs {
 		fmt.Fprintf(&b,
-			"- engine=%s role=%s repo=%s ticket=%s pr=%s batch=%s round=%s runs=%d packet_bytes=%s tool_output_bytes=%s wall_time_ms=%s\n",
+			"- engine=%s role=%s round=%s runs=%d wall_time_ms=%s\n",
 			row.Engine, textAvailability(row.Role, row.RoleAvailability),
-			textValueOrUnavailable(row.Repository), textValueOrUnavailable(row.TicketRef),
-			textOptionalInt64(row.PullRequest), textValueOrUnavailable(row.BatchID),
 			textOptionalAvailability(row.Round, row.RoundAvailability), row.Runs,
-			textUsageRunMetric(row.PacketBytes), textUsageRunMetric(row.ToolOutputBytes),
 			textUsageRunMetric(row.WallTimeMS),
 		)
 	}
@@ -291,13 +287,6 @@ func textAvailability(value, availability string) string {
 		return value
 	}
 	return textValueOrUnavailable(availability)
-}
-
-func textOptionalInt64(value *int64) string {
-	if value == nil {
-		return "unavailable"
-	}
-	return fmt.Sprintf("%d", *value)
 }
 
 func textOptionalAvailability(value *int64, availability string) string {

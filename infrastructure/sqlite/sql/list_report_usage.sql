@@ -23,19 +23,10 @@ SELECT observation.observation_id,
        COALESCE(observation.cost_origin, ''),
        COALESCE(observation.price_table_version, ''),
        COALESCE(attribution.run_host, ''),
-       COALESCE(attribution.run_id, ''),
-       COALESCE(lineage.repository, ''),
-       COALESCE(lineage.ticket_ref, ''),
-       lineage.pull_request_number,
-       COALESCE(lineage.batch_id, ''),
-       lineage.packet_bytes,
-       lineage.tool_output_bytes
+       COALESCE(attribution.run_id, '')
   FROM usage_observations AS observation
   LEFT JOIN usage_observation_runs AS attribution
     ON attribution.observation_id = observation.observation_id
-  LEFT JOIN run_lineages AS lineage
-    ON lineage.host = attribution.run_host
-   AND lineage.run_id = attribution.run_id
   LEFT JOIN sessions AS session
     ON session.session_id = observation.session_id
  WHERE observation.status = 'finalized'

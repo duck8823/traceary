@@ -17,6 +17,9 @@ type StoreManagementUsecase interface {
 	// InspectOneOffRepairRetirement reports outstanding/never-ran/retired
 	// states for completed one-off repairs.
 	InspectOneOffRepairRetirement(ctx context.Context) (apptypes.OneOffRepairRetirement, error)
+	// InspectBoundDrop reports the preflight count and digest for a pending
+	// retired-table drop. Zero rows means no approval is required.
+	InspectBoundDrop(ctx context.Context) (apptypes.BoundDropInspection, error)
 
 	// CreateBackup creates a backup of the store.
 	CreateBackup(ctx context.Context, outputPath string, overwrite bool) error

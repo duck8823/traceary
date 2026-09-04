@@ -337,7 +337,7 @@ func scanReportUsageRecord(scanner interface{ Scan(...any) error }) (apptypes.Re
 		inputState, cachedState, cacheWriteState, outputState string
 		reasoningState, totalState, costState, costOrigin     string
 		input, cached, cacheWrite, output, reasoning, total   sql.NullInt64
-		costAmount, pullRequest, packetBytes, toolOutputBytes sql.NullInt64
+		costAmount                                            sql.NullInt64
 		costCurrency, priceTableVersion                       string
 	)
 	if err := scanner.Scan(
@@ -355,8 +355,7 @@ func scanReportUsageRecord(scanner interface{ Scan(...any) error }) (apptypes.Re
 		&reasoningState, &reasoning,
 		&totalState, &total,
 		&costState, &costAmount, &costCurrency, &costOrigin, &priceTableVersion,
-		&record.RunHost, &record.RunID, &record.Repository, &record.TicketRef,
-		&pullRequest, &record.BatchID, &packetBytes, &toolOutputBytes,
+		&record.RunHost, &record.RunID,
 	); err != nil {
 		return apptypes.ReportUsageRecord{}, xerrors.Errorf("failed to scan report usage row: %w", err)
 	}
@@ -408,9 +407,6 @@ func scanReportUsageRecord(scanner interface{ Scan(...any) error }) (apptypes.Re
 	record.TerminalCode = terminalCode
 	record.Counters = counters
 	record.Cost = cost
-	record.PullRequest = optionalInt64(pullRequest)
-	record.PacketBytes = optionalInt64(packetBytes)
-	record.ToolOutputBytes = optionalInt64(toolOutputBytes)
 	return record, nil
 }
 

@@ -87,6 +87,7 @@ type doctorCommandInput struct {
 	workspace         string
 	reviewedBy        string
 	note              string
+	approveDrop       string
 	fixSet            bool
 	dryRunSet         bool
 	sessionSet        bool

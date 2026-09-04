@@ -169,7 +169,7 @@ func TestWithReadScope_CompatibilityFailureStopsAtEntry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := raw.Exec(`CREATE TABLE store_format_state(singleton INTEGER PRIMARY KEY, minimum_reader_version INTEGER NOT NULL, maximum_payload_format INTEGER NOT NULL); INSERT INTO store_format_state VALUES(1, 35, 1)`); err != nil {
+	if _, err := raw.Exec(`CREATE TABLE store_format_state(singleton INTEGER PRIMARY KEY, minimum_reader_version INTEGER NOT NULL, maximum_payload_format INTEGER NOT NULL); INSERT INTO store_format_state VALUES(1, 36, 1)`); err != nil {
 		t.Fatal(err)
 	}
 	if err := raw.Close(); err != nil {

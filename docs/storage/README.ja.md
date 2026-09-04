@@ -155,9 +155,10 @@ Durable memory に紐づく artifact ref です。
 
 - migration は `schema/sqlite/migrations` からバイナリに埋め込みます
 - 通常コマンドの実行前に store initialization が走るため、upgrade 時も non-offline migration は自動適用されます
-- データ依存 offline migration（035, 045）は暗黙には適用しません。`traceary doctor --fix` を使います
+- データ依存 offline migration（035, 045, 076, 078, 079）は暗黙には適用しません。`traceary doctor --fix` を使います
 - backup restore では、まず SQLite file をコピーし、その後に store initialization を再実行して newer non-offline migration を適用します
-- migration `000028` は不変な `run_lineages` と `usage_observation_runs` table を追加します。v27 usage row は書き換えず、attribution 欠落は unknown のままです
+- migration `000028` は不変な `run_lineages` と `usage_observation_runs` table を追加しました。v27 usage row は書き換えず、attribution 欠落は unknown のままです
+- migration `000079` は `usage_observation_runs` を FK なしで rebuild したあと `run_lineages` を DROP し、`minimum_reader_version` を 35 に上げます。非空 store は candidate 上で `traceary doctor --fix` が適用します。残行の DROP には `--approve-drop N:<hex>` が必要です
 
 任意の手動 schema edit との後方互換は保証しません。持ち運べるコピーが必要な場合は、DB を直接編集する代わりに `traceary store backup create` を使ってください。
 

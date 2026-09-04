@@ -25,6 +25,9 @@ func (s *offlineMigrationStoreStub) PreviewOfflineMigrations(context.Context) ([
 func (s *offlineMigrationStoreStub) InspectOneOffRepairRetirement(context.Context) (apptypes.OneOffRepairRetirement, error) {
 	return apptypes.OneOffRepairRetirement{}, nil
 }
+func (s *offlineMigrationStoreStub) InspectBoundDrop(context.Context) (apptypes.BoundDropInspection, error) {
+	return apptypes.BoundDropInspection{}, nil
+}
 func (s *offlineMigrationStoreStub) CreateBackup(context.Context, string, bool) error {
 	return nil
 }

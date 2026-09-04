@@ -155,9 +155,10 @@ Current non-goals:
 
 - migrations are embedded in the binary from `schema/sqlite/migrations`
 - store initialization runs before normal command execution, so upgrades apply non-offline migrations automatically
-- data-dependent offline migrations (035, 045) are not applied implicitly; run `traceary doctor --fix`
+- data-dependent offline migrations (035, 045, 076, 078, 079) are not applied implicitly; run `traceary doctor --fix`
 - backup restore copies the SQLite file first and then reruns store initialization so newer non-offline migrations can be applied
-- migration `000028` adds immutable `run_lineages` and `usage_observation_runs` tables without rewriting v27 usage rows; missing attribution remains unknown
+- migration `000028` added immutable `run_lineages` and `usage_observation_runs` tables without rewriting v27 usage rows; missing attribution remains unknown
+- migration `000079` drops `run_lineages` after rebuilding `usage_observation_runs` without that foreign key, and raises `minimum_reader_version` to 35. Non-empty stores apply it on a candidate via `traceary doctor --fix`; dropping remaining rows requires `--approve-drop N:<hex>`
 
 Traceary does not promise backward compatibility for arbitrary manual schema edits.
 If you need a portable copy, use `traceary store backup create` instead of editing the DB directly.

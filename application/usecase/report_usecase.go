@@ -92,12 +92,6 @@ func validateReportWindow(window apptypes.ReportWindow) error {
 			if record.RunHost != "" {
 				return xerrors.Errorf("report usage row has incomplete run identity")
 			}
-			if _, present := record.PacketBytes.Value(); present {
-				return xerrors.Errorf("report usage row has packet bytes without a run")
-			}
-			if _, present := record.ToolOutputBytes.Value(); present {
-				return xerrors.Errorf("report usage row has tool bytes without a run")
-			}
 		} else if record.RunHost == "" {
 			return xerrors.Errorf("report usage row has incomplete run identity")
 		} else if record.Engine != record.RunHost {
@@ -203,9 +197,7 @@ func itoaReport(value int) string {
 }
 
 type reportUsageKey struct {
-	provider, engine, model, repository, ticket, batch string
-	pullRequest                                        int64
-	hasPullRequest                                     bool
+	provider, engine, model string
 }
 
 type reportUsageCostKey struct {
@@ -218,9 +210,7 @@ type reportUsageAccumulator struct {
 }
 
 type reportUsageRunKey struct {
-	engine, repository, ticket, batch string
-	pullRequest                       int64
-	hasPullRequest                    bool
+	engine string
 }
 
 type reportUsageRunAccumulator struct {
@@ -239,16 +229,11 @@ func summarizeReportUsage(records []apptypes.ReportUsageRecord) (apptypes.Report
 			accumulator = &reportUsageAccumulator{
 				row: apptypes.ReportUsageAggregateRow{
 					Provider: key.provider, Engine: key.engine, Model: key.model,
-					RoleAvailability: "unavailable",
-					Repository:       key.repository, TicketRef: key.ticket, BatchID: key.batch,
+					RoleAvailability:  "unavailable",
 					RoundAvailability: "unavailable",
 					TerminalCodes:     map[string]int{},
 				},
 				costs: map[reportUsageCostKey]*apptypes.ReportUsageCostRow{},
-			}
-			if key.hasPullRequest {
-				value := key.pullRequest
-				accumulator.row.PullRequest = &value
 			}
 			usageByKey[key] = accumulator
 		}
@@ -270,14 +255,10 @@ func summarizeReportUsage(records []apptypes.ReportUsageRecord) (apptypes.Report
 		runAccumulator := runsByKey[runKey]
 		if runAccumulator == nil {
 			runAccumulator = &reportUsageRunAccumulator{row: apptypes.ReportUsageRunAggregateRow{
-				Engine: runKey.engine, RoleAvailability: "unavailable",
-				Repository: key.repository, TicketRef: key.ticket, BatchID: key.batch,
+				Engine:            runKey.engine,
+				RoleAvailability:  "unavailable",
 				RoundAvailability: "unavailable",
 			}}
-			if runKey.hasPullRequest {
-				value := runKey.pullRequest
-				runAccumulator.row.PullRequest = &value
-			}
 			runsByKey[runKey] = runAccumulator
 		}
 		if err := accumulateReportUsageRun(runAccumulator, record); err != nil {
@@ -306,25 +287,13 @@ func summarizeReportUsage(records []apptypes.ReportUsageRecord) (apptypes.Report
 }
 
 func newReportUsageKey(record apptypes.ReportUsageRecord) reportUsageKey {
-	key := reportUsageKey{
+	return reportUsageKey{
 		provider: record.Provider, engine: record.Engine, model: record.Model,
-		repository: record.Repository, ticket: record.TicketRef, batch: record.BatchID,
 	}
-	if value, present := record.PullRequest.Value(); present {
-		key.pullRequest, key.hasPullRequest = value, true
-	}
-	return key
 }
 
 func newReportUsageRunKey(record apptypes.ReportUsageRecord) reportUsageRunKey {
-	key := reportUsageRunKey{
-		engine: record.Engine, repository: record.Repository,
-		ticket: record.TicketRef, batch: record.BatchID,
-	}
-	if value, present := record.PullRequest.Value(); present {
-		key.pullRequest, key.hasPullRequest = value, true
-	}
-	return key
+	return reportUsageRunKey{engine: record.Engine}
 }
 
 func accumulateReportUsageObservation(
@@ -400,31 +369,11 @@ func addReportUsageMetric(metric *apptypes.ReportUsageMetric, value domtypes.Usa
 
 func accumulateReportUsageRun(
 	accumulator *reportUsageRunAccumulator,
-	record apptypes.ReportUsageRecord,
+	_ apptypes.ReportUsageRecord,
 ) error {
 	row := &accumulator.row
 	row.Runs++
-	if err := addReportUsageRunMetric(&row.PacketBytes, record.PacketBytes); err != nil {
-		return xerrors.Errorf("packet bytes: %w", err)
-	}
-	if err := addReportUsageRunMetric(&row.ToolOutputBytes, record.ToolOutputBytes); err != nil {
-		return xerrors.Errorf("tool output bytes: %w", err)
-	}
 	row.WallTimeMS.UnavailableRuns++
-	return nil
-}
-
-func addReportUsageRunMetric(metric *apptypes.ReportUsageRunMetric, value domtypes.Optional[int64]) error {
-	if numeric, present := value.Value(); present {
-		metric.KnownRuns++
-		total, err := checkedReportSum(metric.Sum, numeric)
-		if err != nil {
-			return err
-		}
-		metric.Sum = total
-		return nil
-	}
-	metric.UnavailableRuns++
 	return nil
 }
 
@@ -454,23 +403,13 @@ func sortedReportUsageCosts(
 }
 
 func reportUsageAggregateOrder(row apptypes.ReportUsageAggregateRow) string {
-	pullRequest := ""
-	if row.PullRequest != nil {
-		pullRequest = strconv.FormatInt(*row.PullRequest, 10)
-	}
 	return strings.Join([]string{
-		row.Engine, row.Provider, row.Model, row.Repository, row.TicketRef, pullRequest, row.BatchID,
+		row.Engine, row.Provider, row.Model,
 	}, "\x00")
 }
 
 func reportUsageRunOrder(row apptypes.ReportUsageRunAggregateRow) string {
-	pullRequest := ""
-	if row.PullRequest != nil {
-		pullRequest = strconv.FormatInt(*row.PullRequest, 10)
-	}
-	return strings.Join([]string{
-		row.Engine, row.Repository, row.TicketRef, pullRequest, row.BatchID,
-	}, "\x00")
+	return row.Engine
 }
 
 func summarizeReportSessions(records []apptypes.ReportSessionRecord) []apptypes.ReportSessionRow {

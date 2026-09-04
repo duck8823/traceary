@@ -16,10 +16,9 @@ Traceary は local-first かつ single-SQLite です。`traceary bundle export` 
 - `command_audits.ndjson` — shell コマンド監査レコード。export された event に絞り込まれる。
 - `memories.ndjson` — scope、validity window、supersession pointer、evidence refs、artifact refs を含む durable memories。
 - `memory_edges.ndjson` — `id`、`from_memory_id`、`to_memory_id`、`relation_type`、validity window、`created_at` を含む memory graph edge。
-- `run_lineages.ndjson` — host 名前空間付きの不変な run identity、任意の親/work 相関、および本文を含まない packet/tool byte 情報。filter 付き export は usage が参照する run と完全な祖先連鎖だけを含み、filter なしでは単独 run も含める。
 - `usage_observations.ndjson` — 任意の run attribution を持つ provider-neutral な usage 証跡。packet 本文、prompt、response、tool 名、引数、結果は含めない。
 
-Traceary は `file_checksums` を使う v0.9.0 `manifest_version = 1` bundle も引き続き import できます。v2 は `tables` で table file を登録します。現在の writer は run fact が 0 件でも空の `run_lineages` を含む 7 table entry を常に出力します。新しい reader はこの table がない旧 v2 bundle を受け入れ、古い reader は未知の table を無視せず拒否します。
+Traceary は `file_checksums` を使う v0.9.0 `manifest_version = 1` bundle も引き続き import できます。v2 は `tables` で table file を登録します。現在の writer は 6 table entry（`sessions`、`usage_observations`、`events`、`command_audits`、`memories`、`memory_edges`）を出力します。`run_lineages` は retired entry です。それを含む旧 v2 bundle は checksum を検証し、空なら skip、非空なら import を原子的に拒否します。新しい reader はこの table がない v2 bundle を受け入れます。
 
 ## 暗号化
 
@@ -95,24 +94,22 @@ Imported memory は candidate trust default を使います。新規 insert さ�
 }
 ```
 
-Import は write transaction を開く前に登録 file の checksum を検証し、未登録 payload file を拒否します。現在の seven-table portability surface では、dependency order は次の通りです。
+Import は write transaction を開く前に登録 file の checksum を検証し、未登録 payload file を拒否します。現在の six-table portability surface では、dependency order は次の通りです。
 
 1. `sessions.ndjson`
-2. `run_lineages.ndjson`
-3. `usage_observations.ndjson`
-4. `events.ndjson`
-5. `command_audits.ndjson`
-6. `memories.ndjson`
-7. `memory_edges.ndjson`
+2. `usage_observations.ndjson`
+3. `events.ndjson`
+4. `command_audits.ndjson`
+5. `memories.ndjson`
+6. `memory_edges.ndjson`
 
-### Seven-table inclusion rules
+### Six-table inclusion rules
 
 | Table | 現在の writer | Import requirement |
 |---|---:|---|
 | `events` / `events.ndjson` | Included | 独立 row。`events.id` で冪等。 |
 | `sessions` / `sessions.ndjson` | Included | 最初に import し event より先に所属 session を用意する。`--missing-parent` は親 session が送信先に無い場合の方針を制御。 |
-| `run_lineages` / `run_lineages.ndjson` | Included | 祖先から順に import する。親 run と usage が参照する run は、送信先 DB ではなく bundle 自体に含まれている必要がある。 |
-| `usage_observations` / `usage_observations.ndjson` | Included | run lineage の後に import する。run 単位 row は本文を含まない run identity を維持し、session snapshot には run attribution を持たせない。 |
+| `usage_observations` / `usage_observations.ndjson` | Included | run 単位 row は本文を含まない run identity を維持し、session snapshot には run attribution を持たせない。旧 `run_lineages` は不要。 |
 | `command_audits` / `command_audits.ndjson` | Included | export 済み event に絞り込み。`event_id` で冪等。 |
 | `memories` / `memories.ndjson` | Included | `memory_edges` より先に import。新規 row は既存でない限り `candidate` status。 |
 | `memory_edges` / `memory_edges.ndjson` | Included | memories の後に import。両 endpoint が destination DB に存在する必要がある。既存 edge ID は既定 `--on-conflict=skip` で skip。 |
@@ -126,8 +123,8 @@ Import は write transaction を開く前に登録 file の checksum を検証�
 | 既存 command-audit `event_id` | skip して `command_audits_skipped` に count | `--on-conflict=error` | strict mode は rollback。 |
 | 既存 memory ID | skip して `memories_skipped` に count | `--on-conflict=error` | strict mode は rollback。 |
 | 既存 memory edge ID | skip して `memory_edges_skipped` に count | `--on-conflict=error` | strict mode は rollback。 |
-| 完全一致する既存 run lineage | skip して `run_lineages_skipped` に count | n/a | すべての conflict policy で冪等。 |
-| 衝突・親欠落・循環のある run lineage、または不完全な usage link | reject | n/a | 常に全 table を rollback。`skip`、`replace`、missing-parent option では lineage 整合性を弱めない。 |
+| 旧空の `run_lineages` entry | checksum/count 検証後に skip | n/a | 残りの table は import する。 |
+| 旧非空の `run_lineages` entry | reject | n/a | write transaction の前に原子的に拒否。事実の取り出しは 0.48.2 binary。 |
 | import する session の親が missing | import を reject (`--missing-parent=reject`) | `--missing-parent=skip` / `backfill` | reject は rollback。`skip` は row を破棄、`backfill` は placeholder の親を補完。 |
 | memories import 後も memory edge endpoint が missing | skip、`memory_edges_skipped` に count、structured warning を log | `--orphan-edges=reject` | strict mode は bundle import transaction 全体を rollback。 |
 | bundle schema が local store より新しい | reject | n/a | write transaction は開始しない。 |

@@ -218,8 +218,6 @@ func (c *RootCLI) runBundleImport(ctx context.Context, output io.Writer, input b
 			MemoriesSkipped:           result.MemoriesSkipped,
 			MemoryEdgesImported:       result.MemoryEdgesImported,
 			MemoryEdgesSkipped:        result.MemoryEdgesSkipped,
-			RunLineagesImported:       result.RunLineagesImported,
-			RunLineagesSkipped:        result.RunLineagesSkipped,
 			UsageObservationsImported: result.UsageObservationsImported,
 			UsageObservationsSkipped:  result.UsageObservationsSkipped,
 			BundleSchemaVersion:       result.BundleSchemaVersion,
@@ -230,14 +228,13 @@ func (c *RootCLI) runBundleImport(ctx context.Context, output io.Writer, input b
 	}
 	if _, err := fmt.Fprintf(
 		output,
-		"%s: sessions_imported=%d, sessions_skipped=%d, events_imported=%d, events_skipped=%d, command_audits_imported=%d, command_audits_skipped=%d, memories_imported=%d, memories_skipped=%d, memory_edges_imported=%d, memory_edges_skipped=%d, run_lineages_imported=%d, run_lineages_skipped=%d, usage_observations_imported=%d, usage_observations_skipped=%d, schema=%d\n",
+		"%s: sessions_imported=%d, sessions_skipped=%d, events_imported=%d, events_skipped=%d, command_audits_imported=%d, command_audits_skipped=%d, memories_imported=%d, memories_skipped=%d, memory_edges_imported=%d, memory_edges_skipped=%d, usage_observations_imported=%d, usage_observations_skipped=%d, schema=%d\n",
 		Localize("Imported bundle", "bundle を取り込みました"),
 		result.SessionsImported, result.SessionsSkipped,
 		result.EventsImported, result.EventsSkipped,
 		result.CommandAuditsImported, result.CommandAuditsSkipped,
 		result.MemoriesImported, result.MemoriesSkipped,
 		result.MemoryEdgesImported, result.MemoryEdgesSkipped,
-		result.RunLineagesImported, result.RunLineagesSkipped,
 		result.UsageObservationsImported, result.UsageObservationsSkipped,
 		result.BundleSchemaVersion,
 	); err != nil {

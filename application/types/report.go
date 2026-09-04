@@ -113,23 +113,17 @@ type ReportSessionRecord struct {
 // the report snapshot. Role, round, and wall time are intentionally absent
 // because the durable schema does not currently record them.
 type ReportUsageRecord struct {
-	ObservationID   string
-	ObservedAt      time.Time
-	Engine          string
-	Provider        string
-	Model           string
-	Accounting      domtypes.UsageAccounting
-	TerminalCode    domtypes.UsageTerminalCode
-	Counters        domtypes.UsageCounters
-	Cost            domtypes.UsageCost
-	RunHost         string
-	RunID           string
-	Repository      string
-	TicketRef       string
-	PullRequest     domtypes.Optional[int64]
-	BatchID         string
-	PacketBytes     domtypes.Optional[int64]
-	ToolOutputBytes domtypes.Optional[int64]
+	ObservationID string
+	ObservedAt    time.Time
+	Engine        string
+	Provider      string
+	Model         string
+	Accounting    domtypes.UsageAccounting
+	TerminalCode  domtypes.UsageTerminalCode
+	Counters      domtypes.UsageCounters
+	Cost          domtypes.UsageCost
+	RunHost       string
+	RunID         string
 }
 
 // ReportSourceExtent describes the returned portion of one aggregate source.
@@ -324,10 +318,6 @@ type ReportUsageAggregateRow struct {
 	Model             string               `json:"model,omitempty"`
 	Role              string               `json:"role,omitempty"`
 	RoleAvailability  string               `json:"role_availability"`
-	Repository        string               `json:"repository,omitempty"`
-	TicketRef         string               `json:"ticket,omitempty"`
-	PullRequest       *int64               `json:"pull_request,omitempty"`
-	BatchID           string               `json:"batch,omitempty"`
 	Round             *int64               `json:"round,omitempty"`
 	RoundAvailability string               `json:"round_availability"`
 	Observations      int                  `json:"observations"`
@@ -345,22 +335,17 @@ type ReportUsageAggregateRow struct {
 	TerminalCodes     map[string]int       `json:"terminal_classifications"`
 }
 
-// ReportUsageRunAggregateRow reports immutable run facts separately from
-// provider/model token groups so one run cannot multiply packet or tool bytes
-// when it carries multiple usage observations.
+// ReportUsageRunAggregateRow reports run identity separately from
+// provider/model token groups. Runs are deduplicated by run_host/run_id and
+// counted per engine with wall-time only; packet/tool byte facts are no
+// longer reported.
 type ReportUsageRunAggregateRow struct {
 	Engine            string               `json:"engine"`
 	Role              string               `json:"role,omitempty"`
 	RoleAvailability  string               `json:"role_availability"`
-	Repository        string               `json:"repository,omitempty"`
-	TicketRef         string               `json:"ticket,omitempty"`
-	PullRequest       *int64               `json:"pull_request,omitempty"`
-	BatchID           string               `json:"batch,omitempty"`
 	Round             *int64               `json:"round,omitempty"`
 	RoundAvailability string               `json:"round_availability"`
 	Runs              int                  `json:"runs"`
-	PacketBytes       ReportUsageRunMetric `json:"packet_bytes"`
-	ToolOutputBytes   ReportUsageRunMetric `json:"tool_output_bytes"`
 	WallTimeMS        ReportUsageRunMetric `json:"wall_time_ms"`
 }
 

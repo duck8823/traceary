@@ -77,8 +77,8 @@ func TestStoreCompatibilityGate(t *testing.T) {
 		min, format int
 		wantErr     bool
 	}{
-		{"supported", 34, 1, false}, {"future reader", 35, 1, true}, {"future format", 34, 2, true},
-		{"invalid reader", -1, 1, true}, {"invalid format", 34, -1, true},
+		{"supported", 35, 1, false}, {"future reader", 36, 1, true}, {"future format", 35, 2, true},
+		{"invalid reader", -1, 1, true}, {"invalid format", 35, -1, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			db, err := sql.Open("sqlite", ":memory:")
@@ -168,7 +168,7 @@ func TestDatabaseOpenModesEnforceCompatibility(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := raw.Exec(`CREATE TABLE store_format_state(singleton INTEGER PRIMARY KEY, minimum_reader_version INTEGER NOT NULL, maximum_payload_format INTEGER NOT NULL); INSERT INTO store_format_state VALUES(1, 35, 1)`); err != nil {
+	if _, err := raw.Exec(`CREATE TABLE store_format_state(singleton INTEGER PRIMARY KEY, minimum_reader_version INTEGER NOT NULL, maximum_payload_format INTEGER NOT NULL); INSERT INTO store_format_state VALUES(1, 36, 1)`); err != nil {
 		t.Fatal(err)
 	}
 	if err := raw.Close(); err != nil {

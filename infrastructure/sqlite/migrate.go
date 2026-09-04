@@ -59,6 +59,15 @@ func (d *Database) migrateWithOptions(ctx context.Context, db *sql.DB, allowOffl
 			continue
 		}
 		if !allowOffline && isDataDependentOfflineMigration(migration.version) {
+			if migration.version == 79 {
+				count, digest, inspectErr := inspectBoundDrop(ctx, db)
+				if inspectErr != nil {
+					return inspectErr
+				}
+				if count > 0 {
+					return boundDropApprovalRequired(count, digest)
+				}
+			}
 			hasCanonical, inspectErr := storeHasCanonicalSourceData(ctx, db)
 			if inspectErr != nil {
 				return inspectErr

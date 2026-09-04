@@ -136,6 +136,16 @@ func (d *StoreManagementDatasource) InspectOneOffRepairRetirement(ctx context.Co
 	return states, nil
 }
 
+// InspectBoundDrop reports the preflight count and digest of rows a pending
+// retired-table drop would remove.
+func (d *StoreManagementDatasource) InspectBoundDrop(ctx context.Context) (apptypes.BoundDropInspection, error) {
+	inspection, err := d.db.inspectBoundDropAt(ctx, d.db.Path())
+	if err != nil {
+		return apptypes.BoundDropInspection{}, xerrors.Errorf("failed to inspect bound drop: %w", err)
+	}
+	return inspection, nil
+}
+
 // CreateBackup creates a backup of the SQLite DB.
 func (d *StoreManagementDatasource) CreateBackup(ctx context.Context, outputPath string, overwrite bool) (err error) {
 	// Snapshot the current DB path up front so a concurrent SetPath
