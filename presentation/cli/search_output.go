@@ -27,6 +27,12 @@ type searchSessionJSONOutput struct {
 	Summary    string `json:"summary"`
 	EventCount int    `json:"event_count"`
 	StartedAt  string `json:"started_at"`
+	Tier       string `json:"tier,omitempty"`
+}
+
+type searchEventJSONOutput struct {
+	event
+	Tier string `json:"tier"`
 }
 
 // warnSearchSessionsSuppressedByKind reports that the SESSIONS group is empty
@@ -41,6 +47,16 @@ func warnSearchSessionsSuppressedByKind(warnWriter io.Writer) {
 	_, _ = fmt.Fprint(warnWriter, Localize(
 		"traceary: matching sessions were suppressed because --kind cannot be applied to session summaries. Run the same search without --kind to see them.\n",
 		"traceary: セッション要約には --kind を適用できないため、一致したセッションを表示していません。--kind を外して同じ検索を実行すると確認できます。\n",
+	))
+}
+
+func warnSearchSessionsSuppressedByFailures(warnWriter io.Writer) {
+	if warnWriter == nil {
+		return
+	}
+	_, _ = fmt.Fprint(warnWriter, Localize(
+		"traceary: matching sessions were suppressed because --failures cannot be applied to session refinements. Run the same search without --failures to see them.\n",
+		"traceary: セッション refinement には --failures を適用できないため、一致したセッションを表示していません。--failures を外して同じ検索を実行すると確認できます。\n",
 	))
 }
 
@@ -99,6 +115,7 @@ func warnSearchSessionsProjectionReadinessUnknown(warnWriter io.Writer) {
 // every call site of searchProjectionSessions.
 type searchSessionNotices struct {
 	kindSuppressed     bool
+	failuresSuppressed bool
 	projectionNotReady bool
 	readinessUnknown   bool
 }
@@ -106,6 +123,9 @@ type searchSessionNotices struct {
 func (n searchSessionNotices) write(warnWriter io.Writer) {
 	if n.kindSuppressed {
 		warnSearchSessionsSuppressedByKind(warnWriter)
+	}
+	if n.failuresSuppressed {
+		warnSearchSessionsSuppressedByFailures(warnWriter)
 	}
 	if n.projectionNotReady {
 		warnSearchSessionsProjectionNotReady(warnWriter)
@@ -126,9 +146,10 @@ func writeSearchByFormat(
 	jsonFieldsExplicit bool,
 	textOpts eventTextFormatOptions,
 	extrasFor compactExtrasResolver,
+	eventTier apptypes.SearchHitTier,
 ) error {
 	if asJSON {
-		return writeSearchJSON(output, events, sessions, jsonFieldsExplicit, textOpts.fields, extrasFor)
+		return writeSearchJSON(output, events, sessions, jsonFieldsExplicit, textOpts.fields, extrasFor, eventTier)
 	}
 	return writeSearchText(output, events, sessions, textOpts, extrasFor)
 }
@@ -140,6 +161,7 @@ func writeSearchJSON(
 	jsonFieldsExplicit bool,
 	fields []readFieldID,
 	extrasFor compactExtrasResolver,
+	eventTier apptypes.SearchHitTier,
 ) error {
 	eventPayload := make([]any, 0, len(events))
 	if jsonFieldsExplicit {
@@ -148,11 +170,11 @@ func writeSearchJSON(
 			if extrasFor != nil {
 				extras = extrasFor(event)
 			}
-			eventPayload = append(eventPayload, newEventFieldsOutput(event, fields, extras))
+			eventPayload = append(eventPayload, stampSearchEventTier(newEventFieldsOutput(event, fields, extras), eventTier))
 		}
 	} else {
 		for _, event := range events {
-			eventPayload = append(eventPayload, newEventOutput(event))
+			eventPayload = append(eventPayload, stampSearchEventTier(newEventOutput(event), eventTier))
 		}
 	}
 	return writeSearchJSONEnvelope(output, eventPayload, sessions)
@@ -165,10 +187,25 @@ func writeSearchMetadataJSON(
 	metadata []apptypes.EventMetadata,
 	sessions []apptypes.SearchSessionHit,
 	fields []readFieldID,
+	eventTier apptypes.SearchHitTier,
 ) error {
 	eventPayload := make([]any, 0, len(metadata))
 	for _, event := range metadata {
-		eventPayload = append(eventPayload, newEventMetadataFieldsOutput(event, fields))
+		eventPayload = append(eventPayload, stampSearchEventTier(newEventMetadataFieldsOutput(event, fields), eventTier))
+	}
+	return writeSearchJSONEnvelope(output, eventPayload, sessions)
+}
+
+func writeSearchEventHitsMetadataJSON(
+	output io.Writer,
+	hits []apptypes.SearchEventHit,
+	sessions []apptypes.SearchSessionHit,
+	fields []readFieldID,
+) error {
+	eventPayload := make([]any, 0, len(hits))
+	for _, hit := range hits {
+		payload := newEventFieldsOutput(hit.Event(), fields, compactRowExtras{})
+		eventPayload = append(eventPayload, stampSearchEventTier(payload, hit.Tier()))
 	}
 	return writeSearchJSONEnvelope(output, eventPayload, sessions)
 }
@@ -194,6 +231,22 @@ func newSearchSessionJSONOutput(hit apptypes.SearchSessionHit) searchSessionJSON
 		Summary:    hit.Summary(),
 		EventCount: hit.EventCount(),
 		StartedAt:  formatJSONTime(hit.StartedAt()),
+		Tier:       string(hit.Tier()),
+	}
+}
+
+func stampSearchEventTier(payload any, tier apptypes.SearchHitTier) any {
+	if tier == "" {
+		return payload
+	}
+	switch typed := payload.(type) {
+	case event:
+		return searchEventJSONOutput{event: typed, Tier: string(tier)}
+	case map[string]any:
+		typed["tier"] = string(tier)
+		return typed
+	default:
+		return payload
 	}
 }
 

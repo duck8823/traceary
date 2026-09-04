@@ -100,8 +100,8 @@ func (c *RootCLI) newSearchCommand() *cobra.Command {
 	searchCmd.Flags().StringVar(&to, "to", "", Localize("end date (`YYYY-MM-DD` or RFC3339; alias: `--until`)", "終了日 (`YYYY-MM-DD` または RFC3339; 別名: `--until`)"))
 	searchCmd.Flags().StringVar(&until, "until", "", Localize("end date (`YYYY-MM-DD` or RFC3339) (alias for `--to`)", "終了日 (`YYYY-MM-DD` または RFC3339) (`--to` の別名)"))
 	searchCmd.Flags().StringVar(&timezone, "timezone", "UTC", Localize("IANA timezone for date-only bounds (default: UTC)", "日付のみの境界に使う IANA タイムゾーン（既定: UTC）"))
-	searchCmd.Flags().IntVar(&limit, "limit", 20, Localize("maximum number of results", "表示件数"))
-	searchCmd.Flags().IntVar(&offset, "offset", 0, Localize("number of matching events to skip before returning results", "結果を返す前にスキップする件数"))
+	searchCmd.Flags().IntVar(&limit, "limit", 20, Localize("maximum number of merged results (events and sessions)", "マージ後の表示件数（イベントとセッション）"))
+	searchCmd.Flags().IntVar(&offset, "offset", 0, Localize("number of merged results to skip before returning hits", "結果を返す前にスキップするマージ後の件数"))
 	searchCmd.Flags().BoolVar(&failuresOnly, "failures", false, Localize("show only failed commands", "失敗したコマンドのみ表示"))
 	searchCmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
 	searchCmd.Flags().BoolVar(&wide, "wide", false, Localize("use the legacy tab-separated format", "従来のタブ区切り形式で出力する"))
@@ -117,7 +117,7 @@ func (c *RootCLI) runSearch(ctx context.Context, warnWriter io.Writer, output io
 	if c.storeManagement == nil {
 		return xerrors.New(Localize("initialize store usecase is not configured", "ストア初期化ユースケースが設定されていません"))
 	}
-	if c.event == nil {
+	if c.event == nil && (c.twoTierSearch == nil || strings.TrimSpace(input.query) == "") {
 		return xerrors.New(Localize("search events query service is not configured", "検索クエリサービスが設定されていません"))
 	}
 	if input.limit <= 0 {
@@ -187,6 +187,10 @@ func (c *RootCLI) runSearch(ctx context.Context, warnWriter io.Writer, output io
 	if err != nil {
 		return err
 	}
+	if c.twoTierSearch != nil && strings.TrimSpace(input.query) != "" {
+		return c.runTwoTierSearch(ctx, warnWriter, output, input, criteria, resolvedFields)
+	}
+
 	if input.asJSON && input.fieldsSet && !readFieldsContain(resolvedFields, readFieldMessage) {
 		if c.eventMetadata == nil {
 			return xerrors.New(Localize("event metadata query service is not configured", "イベントメタデータクエリサービスが設定されていません"))
@@ -199,7 +203,7 @@ func (c *RootCLI) runSearch(ctx context.Context, warnWriter io.Writer, output io
 		if sessionErr != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to search sessions", "セッション検索に失敗しました"), sessionErr)
 		}
-		if err := writeSearchMetadataJSON(output, metadata, sessions, resolvedFields); err != nil {
+		if err := writeSearchMetadataJSON(output, metadata, sessions, resolvedFields, ""); err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to print search results", "検索結果の出力に失敗しました"), err)
 		}
 		notices.write(warnWriter)
@@ -237,12 +241,79 @@ func (c *RootCLI) runSearch(ctx context.Context, warnWriter io.Writer, output io
 		targetWidth:  terminalWidthOf(output),
 	}
 	extrasFor := c.makeCompactExtrasResolver(ctx, resolvedFields, colorEnabled)
-	if err := writeSearchByFormat(output, events, sessions, input.asJSON, input.fieldsSet, textOpts, extrasFor); err != nil {
+	if err := writeSearchByFormat(output, events, sessions, input.asJSON, input.fieldsSet, textOpts, extrasFor, ""); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print search results", "検索結果の出力に失敗しました"), err)
 	}
 	notices.write(warnWriter)
 
 	return nil
+}
+
+func (c *RootCLI) runTwoTierSearch(
+	ctx context.Context,
+	warnWriter io.Writer,
+	output io.Writer,
+	input searchCommandInput,
+	criteria apptypes.EventSearchCriteria,
+	resolvedFields []readFieldID,
+) error {
+	page, err := c.twoTierSearch.SearchTwoTier(ctx, criteria)
+	if err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to search events", "検索に失敗しました"), err)
+	}
+	events := make([]*model.Event, 0, len(page.Events()))
+	for _, hit := range page.Events() {
+		events = append(events, hit.Event())
+	}
+	if err := c.hydrateCommandLinesForDisplay(ctx, events); err != nil {
+		return err
+	}
+	color, err := resolveColorMode(
+		input.color,
+		input.colorSet,
+		c.defaultReadColor,
+		input.wide || input.asJSON,
+		func() bool { return isTerminalWriter(output) },
+	)
+	if err != nil {
+		return err
+	}
+	colorEnabled := color == colorModeOn
+	textOpts := eventTextFormatOptions{
+		wide:         input.wide,
+		utc:          input.utc,
+		location:     input.location,
+		fields:       resolvedFields,
+		colorEnabled: colorEnabled,
+		targetWidth:  terminalWidthOf(output),
+	}
+	extrasFor := c.makeCompactExtrasResolver(ctx, resolvedFields, colorEnabled)
+	if input.asJSON && input.fieldsSet && !readFieldsContain(resolvedFields, readFieldMessage) {
+		if err := writeSearchEventHitsMetadataJSON(output, page.Events(), page.Sessions(), resolvedFields); err != nil {
+			return xerrors.Errorf("%s: %w", Localize("failed to print search results", "検索結果の出力に失敗しました"), err)
+		}
+		twoTierNotices(page).write(warnWriter)
+		return nil
+	}
+	if err := writeSearchByFormat(
+		output, events, page.Sessions(), input.asJSON, input.fieldsSet, textOpts, extrasFor,
+		apptypes.SearchHitTierFallback,
+	); err != nil {
+		return xerrors.Errorf("%s: %w", Localize("failed to print search results", "検索結果の出力に失敗しました"), err)
+	}
+	twoTierNotices(page).write(warnWriter)
+	return nil
+}
+
+func twoTierNotices(page apptypes.TwoTierSearchPage) searchSessionNotices {
+	notices := searchSessionNotices{}
+	switch page.RefinementDisposition() {
+	case apptypes.RefinementDispositionKindExcluded:
+		notices.kindSuppressed = page.RefinementMatchCount() > 0
+	case apptypes.RefinementDispositionFailuresExcluded:
+		notices.failuresSuppressed = page.RefinementMatchCount() > 0
+	}
+	return notices
 }
 
 func (c *RootCLI) searchProjectionSessions(

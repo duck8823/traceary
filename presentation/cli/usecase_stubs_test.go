@@ -99,6 +99,18 @@ type projectionSessionSearchStub struct {
 	excludes [][]types.SessionID
 }
 
+type twoTierSearchStub struct {
+	page apptypes.TwoTierSearchPage
+	err  error
+}
+
+func (s *twoTierSearchStub) SearchTwoTier(_ context.Context, _ apptypes.EventSearchCriteria) (apptypes.TwoTierSearchPage, error) {
+	if s.err != nil {
+		return apptypes.TwoTierSearchPage{}, s.err
+	}
+	return s.page, nil
+}
+
 func (s *projectionSessionSearchStub) SearchSessionPage(
 	_ context.Context,
 	criteria apptypes.EventSearchCriteria,

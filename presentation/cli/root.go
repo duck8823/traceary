@@ -17,6 +17,7 @@ type RootCLI struct {
 	event                      usecase.EventUsecase
 	eventMetadata              usecase.EventMetadataUsecase
 	projectionSessionSearch    queryservice.ProjectionSessionSearch
+	twoTierSearch              queryservice.TwoTierSearch
 	reportCommand              usecase.ReportCommandUsecase
 	report                     usecase.ReportUsecase
 	codexCaptureDiagnostic     usecase.CodexCaptureDiagnosticUsecase
@@ -99,6 +100,11 @@ func WithEventMetadata(eventMetadata usecase.EventMetadataUsecase) RootCLIOption
 // implementation that would silently lose that distinction.
 func WithProjectionSessionSearch(search queryservice.ProjectionSessionSearch) RootCLIOption {
 	return func(c *RootCLI) { c.projectionSessionSearch = search }
+}
+
+// WithTwoTierSearch injects the refinement-plus-fallback search read path.
+func WithTwoTierSearch(search queryservice.TwoTierSearch) RootCLIOption {
+	return func(c *RootCLI) { c.twoTierSearch = search }
 }
 
 // WithReportCommand injects structured command-audit aggregation for report.
