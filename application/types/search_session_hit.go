@@ -13,6 +13,7 @@ type SearchSessionHit struct {
 	summary    string
 	eventCount int
 	startedAt  time.Time
+	tier       SearchHitTier
 }
 
 // SearchSessionHitOf constructs a SearchSessionHit.
@@ -39,8 +40,18 @@ func (h SearchSessionHit) Summary() string { return h.summary }
 // EventCount returns how many events the projection summary covers.
 func (h SearchSessionHit) EventCount() int { return h.eventCount }
 
-// StartedAt returns the session start time used for ordering and display.
+// StartedAt returns the session start time used for display.
 func (h SearchSessionHit) StartedAt() time.Time { return h.startedAt }
+
+// Tier returns the two-tier lane that produced this session hit.
+// The projection session path leaves it empty.
+func (h SearchSessionHit) Tier() SearchHitTier { return h.tier }
+
+// WithTier returns a copy labeled with the given two-tier lane.
+func (h SearchSessionHit) WithTier(tier SearchHitTier) SearchSessionHit {
+	h.tier = tier
+	return h
+}
 
 // SearchSessionTierState is the session-tier disposition for one snapshot.
 // ready: the published generation was consulted. not_ready: it was refused.

@@ -95,3 +95,10 @@ type EventBoundedQueryService interface {
 type ProjectionSessionSearch interface {
 	SearchSessionPage(ctx context.Context, criteria apptypes.EventSearchCriteria, excludeSessionIDs []types.SessionID) (apptypes.SearchSessionPage, error)
 }
+
+// TwoTierSearch is the single read-side entry for refinement-primary phrase
+// search plus the unindexed fallback scan. Presentation keeps the existing
+// {events, sessions} envelope; this port does not introduce a hit hierarchy.
+type TwoTierSearch interface {
+	SearchTwoTier(ctx context.Context, criteria apptypes.EventSearchCriteria) (apptypes.TwoTierSearchPage, error)
+}
