@@ -222,6 +222,7 @@ func run() error {
 		cli.WithEvent(eventUsecase),
 		cli.WithEventMetadata(eventMetadataUsecase),
 		cli.WithProjectionSessionSearch(eventDatasource),
+		cli.WithTwoTierSearch(eventDatasource),
 		cli.WithReport(reportUsecase),
 		cli.WithCodexCaptureDiagnostic(codexCaptureDiagnosticUsecase),
 		cli.WithSession(sessionUsecase),
