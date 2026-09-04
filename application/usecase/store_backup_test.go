@@ -36,12 +36,6 @@ func (s *storeBackupCreatorStub) CollectGarbage(_ context.Context, _ time.Time, 
 func (s *storeBackupCreatorStub) CloseStaleSessions(_ context.Context, _ time.Duration, _ bool, _ []types.SessionID) (int, error) {
 	return 0, nil
 }
-func (s *storeBackupCreatorStub) DedupeContentEvents(_ context.Context, _ apptypes.ContentEventDedupeParams) (apptypes.ContentEventDedupeResult, error) {
-	return apptypes.ContentEventDedupeResult{}, nil
-}
-func (s *storeBackupCreatorStub) RestoreContentEventDedupeRun(_ context.Context, _ string) (apptypes.ContentEventDedupeRestoreResult, error) {
-	return apptypes.ContentEventDedupeRestoreResult{}, nil
-}
 
 type storeBackupRestorerStub struct {
 	receivedInputPath string
@@ -66,12 +60,6 @@ func (s *storeBackupRestorerStub) CollectGarbage(_ context.Context, _ time.Time,
 }
 func (s *storeBackupRestorerStub) CloseStaleSessions(_ context.Context, _ time.Duration, _ bool, _ []types.SessionID) (int, error) {
 	return 0, nil
-}
-func (s *storeBackupRestorerStub) DedupeContentEvents(_ context.Context, _ apptypes.ContentEventDedupeParams) (apptypes.ContentEventDedupeResult, error) {
-	return apptypes.ContentEventDedupeResult{}, nil
-}
-func (s *storeBackupRestorerStub) RestoreContentEventDedupeRun(_ context.Context, _ string) (apptypes.ContentEventDedupeRestoreResult, error) {
-	return apptypes.ContentEventDedupeRestoreResult{}, nil
 }
 
 func TestStoreManagementUsecase_CreateBackup(t *testing.T) {
@@ -202,20 +190,4 @@ func TestStoreManagementUsecase_RestoreBackup(t *testing.T) {
 			}
 		})
 	}
-}
-
-func (s *storeBackupCreatorStub) PurgeContentEventDedupeRun(_ context.Context, _ string) (apptypes.ContentEventDedupePurgeResult, error) {
-	return apptypes.ContentEventDedupePurgeResult{}, nil
-}
-
-func (s *storeBackupRestorerStub) PurgeContentEventDedupeRun(_ context.Context, _ string) (apptypes.ContentEventDedupePurgeResult, error) {
-	return apptypes.ContentEventDedupePurgeResult{}, nil
-}
-
-func (s *storeBackupCreatorStub) ListContentEventDedupeRuns(_ context.Context) ([]apptypes.ContentEventDedupeRun, error) {
-	return nil, nil
-}
-
-func (s *storeBackupRestorerStub) ListContentEventDedupeRuns(_ context.Context) ([]apptypes.ContentEventDedupeRun, error) {
-	return nil, nil
 }

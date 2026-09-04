@@ -563,9 +563,9 @@ func createSynthetic(ctx context.Context, path string, smallRows, largeRows int)
 	if err = tx.Commit(); err != nil {
 		return fixtureInfo{}, err
 	}
-	// Freelist pages used to come from DELETE FROM events. That path is
-	// reserved for the Kimi transcript supersede; a scratch table creates
-	// the same freelist without deleting events rows.
+	// Freelist pages used to come from dropping synthetic event rows. That
+	// path is reserved for the Kimi transcript supersede; a scratch table
+	// creates the same freelist without deleting events rows.
 	if _, err = db.ExecContext(ctx, `CREATE TABLE synthetic_disposable(id TEXT PRIMARY KEY, body TEXT)`); err != nil {
 		return fixtureInfo{}, err
 	}

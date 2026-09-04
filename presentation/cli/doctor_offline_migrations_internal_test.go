@@ -40,18 +40,6 @@ func (s *offlineMigrationStoreStub) CollectGarbage(context.Context, time.Time, a
 func (s *offlineMigrationStoreStub) CloseStaleSessions(context.Context, time.Duration, bool, []types.SessionID) (apptypes.CloseStaleSessionsResult, error) {
 	return apptypes.CloseStaleSessionsResult{}, nil
 }
-func (s *offlineMigrationStoreStub) DedupeContentEvents(context.Context, apptypes.ContentEventDedupeParams) (apptypes.ContentEventDedupeResult, error) {
-	return apptypes.ContentEventDedupeResult{}, nil
-}
-func (s *offlineMigrationStoreStub) RestoreContentEventDedupeRun(context.Context, string) (apptypes.ContentEventDedupeRestoreResult, error) {
-	return apptypes.ContentEventDedupeRestoreResult{}, nil
-}
-func (s *offlineMigrationStoreStub) PurgeContentEventDedupeRun(context.Context, string) (apptypes.ContentEventDedupePurgeResult, error) {
-	return apptypes.ContentEventDedupePurgeResult{}, nil
-}
-func (s *offlineMigrationStoreStub) ListContentEventDedupeRuns(context.Context) ([]apptypes.ContentEventDedupeRun, error) {
-	return nil, nil
-}
 func (s *offlineMigrationStoreStub) CreateStoreArchive(context.Context, apptypes.StoreArchiveCreateParams) (apptypes.StoreArchiveResult, error) {
 	return apptypes.StoreArchiveResult{}, nil
 }

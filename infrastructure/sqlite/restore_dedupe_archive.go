@@ -153,6 +153,14 @@ func loadDedupeArchiveRows(ctx context.Context, tx *sql.Tx, hasCodec bool) ([]re
 	return archived, nil
 }
 
+func archiveBodyArg(payload payloadRow) any {
+	codec := payload.Codec.String
+	if !payload.Codec.Valid {
+		codec = payloadCodecIdentity
+	}
+	return storedBodyArg(encodedPayload{Codec: codec, Bytes: payload.Stored})
+}
+
 func insertRestoredArchiveEvent(ctx context.Context, tx *sql.Tx, row restoreArchiveRow, hasCodec bool) error {
 	query := insertEventQuery
 	args := []any{row.id, row.kind, row.client, row.agent, row.sessionID, row.workspace, archiveBodyArg(row.payload), row.createdAt, row.sourceHook}

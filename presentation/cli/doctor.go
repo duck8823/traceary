@@ -30,17 +30,16 @@ const (
 )
 
 type doctorCheck struct {
-	Name              string                   `json:"name"`
-	Status            string                   `json:"status"`
-	Severity          string                   `json:"severity"`
-	Section           string                   `json:"section"`
-	Message           string                   `json:"message"`
-	Hint              string                   `json:"hint"`
-	FixCommand        string                   `json:"fix_command"`
-	AutoFixAvailable  bool                     `json:"auto_fix_available"`
-	FixFunc           doctorFixFunc            `json:"-"`
-	StructuredFixFunc doctorStructuredFixFunc  `json:"-"`
-	DedupeArchiveRuns []doctorDedupeArchiveRun `json:"dedupe_archive_runs,omitempty"`
+	Name              string                  `json:"name"`
+	Status            string                  `json:"status"`
+	Severity          string                  `json:"severity"`
+	Section           string                  `json:"section"`
+	Message           string                  `json:"message"`
+	Hint              string                  `json:"hint"`
+	FixCommand        string                  `json:"fix_command"`
+	AutoFixAvailable  bool                    `json:"auto_fix_available"`
+	FixFunc           doctorFixFunc           `json:"-"`
+	StructuredFixFunc doctorStructuredFixFunc `json:"-"`
 }
 
 type doctorFixResult struct {
@@ -455,7 +454,6 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 			Status:  doctorStatusPass,
 			Message: localizef("initialized SQLite store: %s", "SQLite ストアを初期化しました: %s", resolvedDBPath),
 		})
-		report.Checks = append(report.Checks, c.inspectDedupeArchiveRuns(ctx))
 		report.Checks = append(report.Checks, c.inspectStaleActiveSessions(ctx))
 		report.Checks = append(report.Checks, c.inspectArchiveRetention(ctx, resolvedDBPath))
 		report.Checks = append(report.Checks, c.inspectOfflineMigrations(ctx))

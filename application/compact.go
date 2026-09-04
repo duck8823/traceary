@@ -67,41 +67,8 @@ type CompactStep struct {
 const (
 	CompactStepProjectionReclaim = "projection_reclaim" // #2261
 	CompactStepAuditEncode       = "audit_encode"       // #2264
-	CompactStepDedupeArchive     = "dedupe_archive"     // #2262
 	CompactStepMechanicalCover   = "mechanical_cover"   // #2268
 )
-
-// DedupeArchivePolicy says what compact may do with duplicate event bodies its
-// own copy-filter would relocate into event_content_dedupe_archive.
-type DedupeArchivePolicy string
-
-const (
-	// DedupeArchiveSkipInternalDedupe is the zero value, and the in-place
-	// strategy's policy. No rollback inode exists, and after #1872 there is no
-	// supported restore for a quarantine run, so compact performs no duplicate
-	// isolation at all rather than creating storage nobody can spend.
-	DedupeArchiveSkipInternalDedupe DedupeArchivePolicy = ""
-	// DedupeArchiveDropInternal is the replica/external strategies' policy. The
-	// retained rollback inode is the recovery artifact, so the committed
-	// candidate carries neither this run's archive rows nor any earlier
-	// compact-copy-filter-* run's.
-	DedupeArchiveDropInternal DedupeArchivePolicy = "drop_internal"
-)
-
-// RunsInternalDedupe is true only when the strategy has a rollback inode
-// behind the isolation it would create.
-func (p DedupeArchivePolicy) RunsInternalDedupe() bool {
-	return p == DedupeArchiveDropInternal
-}
-
-// DedupeArchiveSkipReason is CompactStep.Skipped when internal dedupe does
-// not run because the strategy has no rollback inode.
-const DedupeArchiveSkipReason = "in_place: no rollback inode"
-
-// DedupeArchiveRetention bounds how long operator-created quarantine survives
-// a compact. Shared by the use case (which picks the instant), the adapter
-// (which trims and verifies) and the CLI (which reports planned release).
-const DedupeArchiveRetention = 90 * 24 * time.Hour
 
 // CompactSteps is the ordered list of steps a rewrite performed.
 type CompactSteps []CompactStep
@@ -136,13 +103,6 @@ type CompactFilter struct {
 	WorkDir string
 	// OnStep receives one attributed copy-filter step after that step runs.
 	OnStep func(CompactStep)
-	// DedupeArchivePolicy is DropInternal on replica/external compact and the
-	// zero value (skip) on in-place. The zero value is the fail-safe: compact
-	// never isolates duplicates unless the caller opts in.
-	DedupeArchivePolicy DedupeArchivePolicy
-	// ArchiveCutoff is the operator-quarantine retention boundary. Zero means
-	// structural verification only and skips the retention trim.
-	ArchiveCutoff time.Time
 }
 
 // CoverReport is what the mechanical cover produced. It is not the cover's

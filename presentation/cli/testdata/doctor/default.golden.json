@@ -95,16 +95,6 @@
       "auto_fix_available": false
     },
     {
-      "name": "dedupe-archive-runs",
-      "status": "pass",
-      "severity": "PASS",
-      "section": "Database",
-      "message": "no dedupe quarantine runs",
-      "hint": "",
-      "fix_command": "",
-      "auto_fix_available": false
-    },
-    {
       "name": "stale-active-sessions",
       "status": "pass",
       "severity": "PASS",
@@ -395,16 +385,6 @@
           "auto_fix_available": false
         },
         {
-          "name": "dedupe-archive-runs",
-          "status": "pass",
-          "severity": "PASS",
-          "section": "Database",
-          "message": "no dedupe quarantine runs",
-          "hint": "",
-          "fix_command": "",
-          "auto_fix_available": false
-        },
-        {
           "name": "stale-active-sessions",
           "status": "pass",
           "severity": "PASS",
@@ -627,7 +607,7 @@
     }
   ],
   "summary": {
-    "pass": 29,
+    "pass": 28,
     "warn": 1,
     "fail": 0
   },

@@ -111,12 +111,6 @@ func (tailStoreManagementStub) CollectGarbage(context.Context, time.Time, apptyp
 func (tailStoreManagementStub) CloseStaleSessions(context.Context, time.Duration, bool, []types.SessionID) (apptypes.CloseStaleSessionsResult, error) {
 	return apptypes.CloseStaleSessionsResult{}, nil
 }
-func (tailStoreManagementStub) DedupeContentEvents(context.Context, apptypes.ContentEventDedupeParams) (apptypes.ContentEventDedupeResult, error) {
-	return apptypes.ContentEventDedupeResult{}, nil
-}
-func (tailStoreManagementStub) RestoreContentEventDedupeRun(context.Context, string) (apptypes.ContentEventDedupeRestoreResult, error) {
-	return apptypes.ContentEventDedupeRestoreResult{}, nil
-}
 func (tailStoreManagementStub) CreateStoreArchive(context.Context, apptypes.StoreArchiveCreateParams) (apptypes.StoreArchiveResult, error) {
 	return apptypes.StoreArchiveResult{}, nil
 }
@@ -508,12 +502,4 @@ func mustTailEvent(t *testing.T, eventID string, client string, agent string, se
 		body,
 		createdAt,
 	)
-}
-
-func (tailStoreManagementStub) PurgeContentEventDedupeRun(context.Context, string) (apptypes.ContentEventDedupePurgeResult, error) {
-	return apptypes.ContentEventDedupePurgeResult{}, nil
-}
-
-func (tailStoreManagementStub) ListContentEventDedupeRuns(context.Context) ([]apptypes.ContentEventDedupeRun, error) {
-	return nil, nil
 }

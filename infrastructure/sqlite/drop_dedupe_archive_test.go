@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -302,7 +303,7 @@ func runUpgradeExpectError(ctx context.Context, t *testing.T, dir, target string
 	if err == nil {
 		t.Fatal("want restore refusal")
 	}
-	return err
+	return fmt.Errorf("run upgrade: %w", err)
 }
 
 func tablePresent(t *testing.T, path, name string) bool {

@@ -22,7 +22,6 @@ var allowListedContentDedupeFiles = map[string]bool{
 	filepath.Join("infrastructure", "sqlite", "prepared_migration_catalog.go"): true,
 	filepath.Join("infrastructure", "sqlite", "restore_dedupe_archive.go"):     true,
 	filepath.Join("infrastructure", "sqlite", "drop_dedupe_archive.go"):        true,
-	filepath.Join("infrastructure", "sqlite", "prepared_upgrade_verifier.go"):  true,
 	filepath.Join("infrastructure", "sqlite", "migrate.go"):                    true,
 	filepath.Join("application", "types", "dedupe_archive_restore.go"):         true,
 }

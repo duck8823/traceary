@@ -449,6 +449,55 @@ func TestPrePublishVerificationCoversFiveTablesPlusIntegrityPlusLaws(t *testing.
 			t.Fatal("page corruption must fail integrity_check")
 		}
 	})
+
+	t.Run("v81 restore conservation", func(t *testing.T) {
+		dir := t.TempDir()
+		v81Source := filepath.Join(dir, "source.db")
+		seedLegacyStore(t, v81Source, 81)
+		insertSourceEvent(t, v81Source, "e-keep")
+		insertArchiveIdentityRow(t, v81Source, "arch-1", "archived one", false)
+		insertArchiveIdentityRow(t, v81Source, "arch-2", "archived two", false)
+		info, err := os.Stat(v81Source)
+		if err != nil {
+			t.Fatal(err)
+		}
+		recipe := &sqlite.PreparedUpgradeMigrationRecipe{PreparedMigrationCandidateRecipe: sqlite.PreparedMigrationCandidateRecipe{
+			Migrations: all,
+			Verifier:   sqlite.PreparedMigrationVerifier{Migrations: all},
+		}}
+		journal := &sqlite.PreparedStoreUpgradeFileJournal{Dir: filepath.Join(dir, "journal")}
+		svc := usecase.NewPreparedStoreUpgradeUsecase(v81Source, journal, sqlite.NewPreparedStoreUpgradeFilesForTest(true, nil), sqlite.StoreLeaseCoordinator{}, map[domain.PreparedStoreUpgradeOperation]application.PreparedCandidateRecipe{
+			domain.PreparedStoreUpgradeOperationOfflineMigrationUpgrade: recipe,
+		})
+		v81Run, err := svc.Plan(ctx, application.PreparedStoreUpgradeCommand{
+			Operation:       domain.PreparedStoreUpgradeOperationOfflineMigrationUpgrade,
+			TargetPath:      v81Source,
+			ConsumerBinding: "v81-law",
+			Budget:          upgradeBudget(uint64(info.Size())),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		v81Run, err = svc.Prepare(ctx, v81Run.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := verifier.VerifyUpgradePair(ctx, v81Source, v81Run.CandidatePath, v81Run.PlanDigest); err != nil {
+			t.Fatalf("restored candidate: %v", err)
+		}
+		corrupt := copyCandidate(t, v81Run.CandidatePath)
+		db, err := sql.Open("sqlite", corrupt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`DELETE FROM events WHERE id = 'arch-1'`); err != nil {
+			t.Fatal(err)
+		}
+		_ = db.Close()
+		if _, err := verifier.VerifyUpgradePair(ctx, v81Source, corrupt, v81Run.PlanDigest); err == nil {
+			t.Fatal("silently dropped archived row must fail the restore conservation law")
+		}
+	})
 }
 
 func TestUpgradePublishesOnlyAfterVerificationViaAtomicExchange(t *testing.T) {

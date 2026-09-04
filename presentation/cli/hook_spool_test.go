@@ -1236,12 +1236,6 @@ func (s *spoolStoreManagementStub) CollectGarbage(context.Context, time.Time, ap
 func (s *spoolStoreManagementStub) CloseStaleSessions(context.Context, time.Duration, bool, []types.SessionID) (apptypes.CloseStaleSessionsResult, error) {
 	return apptypes.CloseStaleSessionsResult{}, nil
 }
-func (s *spoolStoreManagementStub) DedupeContentEvents(context.Context, apptypes.ContentEventDedupeParams) (apptypes.ContentEventDedupeResult, error) {
-	return apptypes.ContentEventDedupeResult{}, nil
-}
-func (s *spoolStoreManagementStub) RestoreContentEventDedupeRun(context.Context, string) (apptypes.ContentEventDedupeRestoreResult, error) {
-	return apptypes.ContentEventDedupeRestoreResult{}, nil
-}
 func (s *spoolStoreManagementStub) CreateStoreArchive(context.Context, apptypes.StoreArchiveCreateParams) (apptypes.StoreArchiveResult, error) {
 	return apptypes.StoreArchiveResult{}, nil
 }
@@ -1348,14 +1342,6 @@ func (s *spoolEventUsecaseStub) HydrateCommandAudits(context.Context, []*model.E
 }
 
 func (s *spoolEventUsecaseStub) Timeline(context.Context, apptypes.TimelineCriteria) ([]apptypes.TimelineBlock, error) {
-	return nil, nil
-}
-
-func (s *spoolStoreManagementStub) PurgeContentEventDedupeRun(context.Context, string) (apptypes.ContentEventDedupePurgeResult, error) {
-	return apptypes.ContentEventDedupePurgeResult{}, nil
-}
-
-func (s *spoolStoreManagementStub) ListContentEventDedupeRuns(context.Context) ([]apptypes.ContentEventDedupeRun, error) {
 	return nil, nil
 }
 

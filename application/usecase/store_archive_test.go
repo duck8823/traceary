@@ -33,12 +33,6 @@ func (s *archiveStoreStub) CollectGarbage(context.Context, time.Time, apptypes.G
 func (s *archiveStoreStub) CloseStaleSessions(context.Context, time.Duration, bool, []types.SessionID) (int, error) {
 	return 0, nil
 }
-func (s *archiveStoreStub) DedupeContentEvents(context.Context, apptypes.ContentEventDedupeParams) (apptypes.ContentEventDedupeResult, error) {
-	return apptypes.ContentEventDedupeResult{}, nil
-}
-func (s *archiveStoreStub) RestoreContentEventDedupeRun(context.Context, string) (apptypes.ContentEventDedupeRestoreResult, error) {
-	return apptypes.ContentEventDedupeRestoreResult{}, nil
-}
 func (s *archiveStoreStub) ListArchiveEligible(context.Context, time.Time, apptypes.GarbageCollectionTarget) ([]application.ArchiveTableData, error) {
 	return s.tables, nil
 }
@@ -187,12 +181,4 @@ func TestRestoreStoreArchive_idempotent(t *testing.T) {
 	if got.Inserted != 1 {
 		t.Fatalf("inserted=%d", got.Inserted)
 	}
-}
-
-func (s *archiveStoreStub) PurgeContentEventDedupeRun(context.Context, string) (apptypes.ContentEventDedupePurgeResult, error) {
-	return apptypes.ContentEventDedupePurgeResult{}, nil
-}
-
-func (s *archiveStoreStub) ListContentEventDedupeRuns(context.Context) ([]apptypes.ContentEventDedupeRun, error) {
-	return nil, nil
 }

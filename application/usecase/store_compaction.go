@@ -60,15 +60,12 @@ func (u *storeCompactionUsecase) Compact(ctx context.Context, in application.Com
 		return application.CompactResult{}, fmt.Errorf("compaction store binding mismatch")
 	}
 	cutoff := application.CompactCutoff(in.Now, in.KeepDays)
-	archiveCutoff := u.now().UTC().Add(-application.DedupeArchiveRetention)
 	collector := &compactStepCollector{u: u}
 	u.reportWindow("inspect_gate")
 	filter := application.CompactFilter{
-		Cutoff:              cutoff,
-		WorkDir:             strings.TrimSpace(in.WorkDir),
-		OnStep:              collector.record,
-		DedupeArchivePolicy: application.DedupeArchiveDropInternal,
-		ArchiveCutoff:       archiveCutoff,
+		Cutoff:  cutoff,
+		WorkDir: strings.TrimSpace(in.WorkDir),
+		OnStep:  collector.record,
 	}
 	var gate application.BodyGate
 	if inspector, ok := u.builder.(application.CompactBodyGateInspector); ok {
@@ -132,7 +129,7 @@ func (u *storeCompactionUsecase) Compact(ctx context.Context, in application.Com
 	if err != nil {
 		if isInsufficientCompactionSpace(err) && strategy != application.CompactStrategyInPlace {
 			collector.steps = nil
-			inPlaceErr := u.compactInPlace(ctx, source, cutoff, archiveCutoff, collector.record, in.RefuseUnrefined)
+			inPlaceErr := u.compactInPlace(ctx, source, cutoff, collector.record, in.RefuseUnrefined)
 			if inPlaceErr == nil {
 				after, afterErr := os.Stat(source)
 				if afterErr != nil {
@@ -212,16 +209,14 @@ type inPlaceCompactor interface {
 	CompactInPlace(ctx context.Context, source string, filter application.CompactFilter) error
 }
 
-func (u *storeCompactionUsecase) compactInPlace(ctx context.Context, source string, cutoff, archiveCutoff time.Time, onStep func(application.CompactStep), refuseUnrefined bool) error {
+func (u *storeCompactionUsecase) compactInPlace(ctx context.Context, source string, cutoff time.Time, onStep func(application.CompactStep), refuseUnrefined bool) error {
 	compactor, ok := u.builder.(inPlaceCompactor)
 	if !ok {
 		return fmt.Errorf("in-place compact is not supported by this builder")
 	}
 	filter := application.CompactFilter{
-		Cutoff:        cutoff,
-		OnStep:        onStep,
-		ArchiveCutoff: archiveCutoff,
-		// DedupeArchivePolicy left zero: no rollback inode.
+		Cutoff: cutoff,
+		OnStep: onStep,
 	}
 	if !refuseUnrefined && u.cover != nil {
 		filter.AfterClone = u.cover
