@@ -37,8 +37,11 @@ func (c *RootCLI) runHookPromptWithConsolidation(
 		if err != nil {
 			return err
 		}
+		if err := c.runHookPrompt(ctx, newExplicitHookPayloadReader(payload), client, dbPath); err != nil {
+			return err
+		}
 		captured = payload
-		return c.runHookPrompt(ctx, newExplicitHookPayloadReader(payload), client, dbPath)
+		return nil
 	}); err != nil {
 		return err
 	}
@@ -53,6 +56,9 @@ func (c *RootCLI) maybeInjectConsolidationAtPrompt(
 	payload []byte,
 	dbPath string,
 ) {
+	if payload == nil {
+		return
+	}
 	write, ok := consolidationPromptClients[strings.TrimSpace(client)]
 	if !ok {
 		return

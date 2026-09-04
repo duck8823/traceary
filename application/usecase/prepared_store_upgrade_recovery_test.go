@@ -75,7 +75,10 @@ func (f *recoveryFiles) SyncRecoveredOrientation(context.Context, domain.Prepare
 
 type recoveryLease struct{}
 
-func (recoveryLease) AcquireExclusive(context.Context, string) (func(), error) { return func() {}, nil }
+func (recoveryLease) AcquireExclusive(context.Context, string) (func(), error) {
+	return func() {}, nil
+}
+func (recoveryLease) HoldsExclusive(string) bool { return false }
 
 type recoveryRecipe struct{}
 

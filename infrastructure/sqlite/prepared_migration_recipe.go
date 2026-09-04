@@ -22,6 +22,9 @@ type PreparedMigrationCandidateRecipe struct {
 	Verifier   PreparedMigrationVerifier
 	mu         sync.Mutex
 	metrics    map[string]preparedMigrationMetrics
+	// afterApply runs after the pending suffix is applied and before
+	// wal_checkpoint(TRUNCATE). The upgrade recipe uses it for VACUUM.
+	afterApply func(ctx context.Context, db *sql.DB) error
 }
 
 type preparedMigrationMetrics struct {
@@ -57,6 +60,10 @@ func (r *PreparedMigrationCandidateRecipe) Build(ctx context.Context, request ap
 	buildCtx, cancel := context.WithTimeout(ctx, run.Budget.WallTimeLimit)
 	defer cancel()
 	started := time.Now()
+	if err := invokePreparedUpgradeFailure("copy"); err != nil {
+		return err
+	}
+	recordPreparedUpgradeStep("clone")
 	if err := exactFileClone(run.SourcePath, run.CandidatePath); err != nil {
 		return fmt.Errorf("clone prepared migration source: %w", err)
 	}
@@ -122,6 +129,12 @@ func (r *PreparedMigrationCandidateRecipe) Build(ctx context.Context, request ap
 		}
 	}()
 	for _, migration := range plan.Pending {
+		if err = invokePreparedUpgradeFailure("migration"); err != nil {
+			stopMonitor()
+			<-monitorErr
+			return err
+		}
+		recordPreparedUpgradeStep("apply")
 		if err = executeExactMigration(buildCtx, db, exactMigrationFromPrepared(migration)); err != nil {
 			stopMonitor()
 			<-monitorErr
@@ -133,6 +146,14 @@ func (r *PreparedMigrationCandidateRecipe) Build(ctx context.Context, request ap
 			return err
 		}
 	}
+	if r.afterApply != nil {
+		if err = r.afterApply(buildCtx, db); err != nil {
+			stopMonitor()
+			<-monitorErr
+			return err
+		}
+	}
+	recordPreparedUpgradeStep("checkpoint")
 	if _, err = db.ExecContext(buildCtx, `PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
 		stopMonitor()
 		<-monitorErr
@@ -217,6 +238,7 @@ func (r *PreparedMigrationCandidateRecipe) Sync(ctx context.Context, request app
 	if err := rejectSQLiteSidecars(request.Run.CandidatePath); err != nil {
 		return err
 	}
+	recordPreparedUpgradeStep("sync")
 	if err := syncFile(request.Run.CandidatePath); err != nil {
 		return err
 	}

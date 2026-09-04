@@ -9,9 +9,11 @@ import (
 
 	"golang.org/x/xerrors"
 
+	"github.com/duck8823/traceary/application"
 	"github.com/duck8823/traceary/application/queryservice"
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
+	"github.com/duck8823/traceary/domain"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
@@ -786,6 +788,32 @@ func (s *memoryUsecaseStub) ActivationStatus(_ context.Context, criteria apptype
 	return s.activationStatus, s.activationStatusErr
 }
 
+type recordingPreparedUpgrade struct {
+	starts  int
+	receipt application.PreparedStoreUpgradeReceipt
+	err     error
+}
+
+func (r *recordingPreparedUpgrade) Plan(context.Context, application.PreparedStoreUpgradeCommand) (domain.PreparedStoreUpgradeRun, error) {
+	return domain.PreparedStoreUpgradeRun{}, nil
+}
+func (r *recordingPreparedUpgrade) Prepare(context.Context, string) (domain.PreparedStoreUpgradeRun, error) {
+	return domain.PreparedStoreUpgradeRun{}, nil
+}
+func (r *recordingPreparedUpgrade) Publish(context.Context, string) (application.PreparedStoreUpgradeReceipt, error) {
+	return r.receipt, r.err
+}
+func (r *recordingPreparedUpgrade) Resume(context.Context, string) (application.PreparedStoreUpgradeReceipt, error) {
+	return r.receipt, r.err
+}
+func (r *recordingPreparedUpgrade) Rollback(context.Context, string) (domain.PreparedStoreUpgradeRun, error) {
+	return domain.PreparedStoreUpgradeRun{}, r.err
+}
+func (r *recordingPreparedUpgrade) RunUpgrade(context.Context, application.PreparedStoreUpgradeCommand) (application.PreparedStoreUpgradeReceipt, error) {
+	r.starts++
+	return r.receipt, r.err
+}
+
 // storeManagementUsecaseStub implements usecase.StoreManagementUsecase for testing.
 type storeManagementUsecaseStub struct {
 	staleMu           sync.Mutex
@@ -836,12 +864,6 @@ func (s *storeManagementUsecaseStub) Initialize(_ context.Context) error {
 	s.initCalled = true
 	s.operations = append(s.operations, "initialize")
 	return s.initErr
-}
-func (s *storeManagementUsecaseStub) InitializeAuthorized(ctx context.Context) error {
-	s.staleMu.Lock()
-	s.authorizedCalled = true
-	s.staleMu.Unlock()
-	return s.Initialize(ctx)
 }
 func (s *storeManagementUsecaseStub) PreviewOfflineMigrations(context.Context) ([]int64, error) {
 	s.staleMu.Lock()

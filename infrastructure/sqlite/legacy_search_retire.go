@@ -180,14 +180,17 @@ func databasePhysicalBytes(ctx context.Context, q interface {
 // A prepared migration publication is exempt. That publication is how a store
 // reaches the schema where the family can be retired at all, so refusing it
 // would make the family unremovable on exactly the stores that carry it.
-// `store compact` leaves Operation empty, so this is written as an exclusion
-// rather than a match, and any future operation is guarded by default.
+// The offline-migration upgrade publication is exempt for the same reason:
+// it is the publication by which a live store reaches the schema where the
+// 032 family can be retired. `store compact` leaves Operation empty, so this
+// is written as an exclusion rather than a match, and any future operation is
+// guarded by default.
 //
 // A file that cannot be read as a database is not this check's business:
 // VerifyPair and VerifyStoreCompatibility diagnose that far more precisely.
 // Only a store that demonstrably carries the family is rejected here.
 func (PreparedStoreUpgradeFiles) RejectRetiredSearchIndex(ctx context.Context, run domain.CompactionRun) error {
-	if run.Operation == domain.PreparedStoreUpgradeOperationPayloadRehearsalMigration {
+	if run.Operation == domain.PreparedStoreUpgradeOperationPayloadRehearsalMigration || run.Operation == domain.PreparedStoreUpgradeOperationOfflineMigrationUpgrade {
 		return nil
 	}
 	target := run.SourcePath

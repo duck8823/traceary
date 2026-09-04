@@ -88,8 +88,8 @@ func (s *tailEventUsecaseStub) Timeline(context.Context, apptypes.TimelineCriter
 
 type tailStoreManagementStub struct{}
 
-func (tailStoreManagementStub) Initialize(context.Context) error           { return nil }
-func (tailStoreManagementStub) InitializeAuthorized(context.Context) error { return nil }
+func (tailStoreManagementStub) Initialize(context.Context) error { return nil }
+
 func (tailStoreManagementStub) PreviewOfflineMigrations(context.Context) ([]int64, error) {
 	return nil, nil
 }

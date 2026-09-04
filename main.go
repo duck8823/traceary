@@ -25,6 +25,7 @@ import (
 	"github.com/duck8823/traceary/application"
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
+	"github.com/duck8823/traceary/domain"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/infrastructure/filesystem"
 	"github.com/duck8823/traceary/infrastructure/sqlite"
@@ -256,6 +257,16 @@ func run() error {
 		cli.WithAttestationAnchorInspector(sqlite.NewAttestationAnchorInspector(db)),
 		cli.WithBodyCodecChecker(sqlite.NewBodyCodecChecker(db)),
 		cli.WithSearchProjection(usecase.NewSearchProjectionUsecase(db)),
+		cli.WithPreparedStoreUpgradeFactory(func(path string) application.PreparedStoreUpgradeUsecase {
+			journal := &sqlite.PreparedStoreUpgradeFileJournal{Dir: filepath.Join(filepath.Dir(path), ".traceary-upgrade")}
+			recipe := &sqlite.PreparedUpgradeMigrationRecipe{PreparedMigrationCandidateRecipe: sqlite.PreparedMigrationCandidateRecipe{
+				Migrations: migrationsSubFS,
+				Verifier:   sqlite.PreparedMigrationVerifier{Migrations: migrationsSubFS},
+			}}
+			return usecase.NewPreparedStoreUpgradeUsecase(path, journal, sqlite.PreparedStoreUpgradeFiles{CallerHoldsExclusiveLease: true}, sqlite.StoreLeaseCoordinator{}, map[domain.PreparedStoreUpgradeOperation]application.PreparedCandidateRecipe{
+				domain.PreparedStoreUpgradeOperationOfflineMigrationUpgrade: recipe,
+			})
+		}),
 		cli.WithStoreCompactionFactory(func(path string) application.StoreCompactionUsecase {
 			journal := &sqlite.CompactionFileJournal{Dir: filepath.Join(filepath.Dir(path), ".traceary-compaction")}
 			builder := &sqlite.SQLiteCompactionBuilder{}

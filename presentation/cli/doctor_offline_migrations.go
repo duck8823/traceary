@@ -2,7 +2,11 @@ package cli
 
 import (
 	"context"
+	"os"
+	"time"
 
+	"github.com/duck8823/traceary/application"
+	"github.com/duck8823/traceary/domain"
 	"golang.org/x/xerrors"
 )
 
@@ -83,10 +87,34 @@ func (c *RootCLI) applyAuthorizedStoreInit(ctx context.Context, input doctorComm
 		log.Action = "dry-run: would apply data-dependent migrations " + versions
 		return log, true
 	}
-	if err := c.storeManagement.InitializeAuthorized(ctx); err != nil {
+	if c.preparedStoreUpgradeFactory == nil {
+		log.Error = Localize("offline upgrade driver is not configured", "offline upgrade driver が設定されていません")
+		return log, true
+	}
+	info, statErr := os.Stat(resolved)
+	size := uint64(1 << 20)
+	if statErr == nil && info.Size() > 0 {
+		size = uint64(info.Size())
+	}
+	svc := c.preparedStoreUpgradeFactory(resolved)
+	receipt, err := svc.RunUpgrade(ctx, application.PreparedStoreUpgradeCommand{
+		Operation:       domain.PreparedStoreUpgradeOperationOfflineMigrationUpgrade,
+		TargetPath:      resolved,
+		ConsumerBinding: "traceary-doctor-offline-upgrade",
+		Budget: domain.PreparedStoreUpgradeBudget{
+			WallTimeLimit:      time.Hour,
+			PublishLockLimit:   time.Hour,
+			OwnedDiskByteLimit: size*8 + 1<<30,
+			WALByteLimit:       size*2 + 1<<30,
+			TemporaryByteLimit: size*4 + 1<<30,
+			SafetyMarginBytes:  64 << 20,
+		},
+	})
+	if err != nil {
 		log.Error = err.Error()
 		return log, true
 	}
-	log.Action = "applied data-dependent migrations: " + versions
+	log.Action = "applied data-dependent migrations: " + versions +
+		"\nrollback copy retained as forensic backup (not an interchangeable rollback target): " + receipt.RollbackPath
 	return log, true
 }

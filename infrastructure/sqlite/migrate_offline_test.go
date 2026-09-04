@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -119,6 +121,85 @@ func TestImplicitOpenAfterInterruptedOfflineDoesNotRerunIt(t *testing.T) {
 	if got := maxSchemaVersion(t, path); got != 44 {
 		t.Fatalf("schema version=%d, want last committed 44", got)
 	}
+}
+
+func TestOfflineMigrationNeverRunsAtOpenEvenWithoutEvents(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "store.db")
+	legacy := newStoreManagementDatasource(t, path, onDiskSQLiteMigrationsBefore(t, 35))
+	if err := legacy.Initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	insertMemoryOnly(t, path, "mem-1")
+	current := newStoreManagementDatasource(t, path, onDiskSQLiteMigrations(t))
+	err := current.Initialize(ctx)
+	var required *apptypes.OfflineMigrationsRequiredError
+	if !errors.As(err, &required) {
+		t.Fatalf("error=%v, want OfflineMigrationsRequiredError", err)
+	}
+	if got := maxSchemaVersion(t, path); got != 34 {
+		t.Fatalf("schema version=%d, want 34 (store unmodified)", got)
+	}
+}
+
+func TestOfflineMigrationNeverRunsAtOpenOnEmptyStore(t *testing.T) {
+	t.Skip("WITHHELD-PENDING-OWNER-DECISION #2328: empty-store bootstrap (options A/B/C) is undecided")
+}
+
+func TestNormalInitializePerformsNoUpgradeWork(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "store.db")
+	legacy := newStoreManagementDatasource(t, path, onDiskSQLiteMigrationsBefore(t, 35))
+	if err := legacy.Initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	insertSourceEvent(t, path, "legacy-event")
+	before := fileDigestForTest(t, path)
+	current := newStoreManagementDatasource(t, path, onDiskSQLiteMigrations(t))
+	err := current.Initialize(ctx)
+	var required *apptypes.OfflineMigrationsRequiredError
+	if !errors.As(err, &required) {
+		t.Fatalf("error=%v, want OfflineMigrationsRequiredError", err)
+	}
+	after := fileDigestForTest(t, path)
+	if before != after {
+		t.Fatal("Initialize mutated the live store")
+	}
+	dir := filepath.Dir(path)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if strings.Contains(name, ".upgrade-") || strings.Contains(name, ".rollback-") || strings.Contains(name, ".traceary.compact-pending") || strings.HasSuffix(name, ".jsonl") {
+			t.Fatalf("unexpected upgrade artifact %s", name)
+		}
+	}
+}
+
+func insertMemoryOnly(t *testing.T, path, id string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	_, err = db.Exec(`INSERT INTO memories(id,type,scope_kind,scope_value,fact,status,confidence,source,created_at,updated_at) VALUES(?,'decision','global','','fact','accepted','high','user',?,?)`, id, time.Now().UTC().Format(time.RFC3339Nano), time.Now().UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func fileDigestForTest(t *testing.T, path string) string {
+	t.Helper()
+	sum, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(sum)
 }
 
 func insertSourceEvent(t *testing.T, path, id string) {

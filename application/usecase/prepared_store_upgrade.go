@@ -5,7 +5,9 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -42,8 +44,11 @@ func (u *preparedStoreUpgradeUsecase) Plan(ctx context.Context, command applicat
 	id := hex.EncodeToString(idBytes)
 	now := u.now().UTC()
 	candidateSuffix := ".compact-"
-	if command.Operation == domain.PreparedStoreUpgradeOperationPayloadRehearsalMigration {
+	switch command.Operation {
+	case domain.PreparedStoreUpgradeOperationPayloadRehearsalMigration:
 		candidateSuffix = ".prepare-"
+	case domain.PreparedStoreUpgradeOperationOfflineMigrationUpgrade:
+		candidateSuffix = ".upgrade-"
 	}
 	run := domain.PreparedStoreUpgradeRun{ID: id, SourcePath: command.TargetPath, CandidatePath: command.TargetPath + candidateSuffix + id, RollbackPath: command.TargetPath + ".rollback-" + id, Phase: domain.PreparedStoreUpgradePlanned, Operation: command.Operation, ConsumerBinding: command.ConsumerBinding, Budget: command.Budget, CreatedAt: now, UpdatedAt: now}
 	planDigest, err := u.recipes[command.Operation].Plan(ctx, application.PreparedCandidateRequest{Run: run})
@@ -185,7 +190,7 @@ func (u *preparedStoreUpgradeUsecase) publishLeased(ctx context.Context, run dom
 	if err != nil {
 		return application.PreparedStoreUpgradeReceipt{}, err
 	}
-	return application.PreparedStoreUpgradeReceipt{RunID: run.ID, Operation: run.Operation, ConsumerBinding: run.ConsumerBinding, TargetIdentity: observation.Source, RollbackIdentity: observation.Rollback, Evidence: run.Evidence, PublishMilliseconds: u.now().Sub(leaseStarted).Milliseconds()}, nil
+	return application.PreparedStoreUpgradeReceipt{RunID: run.ID, Operation: run.Operation, ConsumerBinding: run.ConsumerBinding, TargetIdentity: observation.Source, RollbackIdentity: observation.Rollback, RollbackPath: run.RollbackPath, Evidence: run.Evidence, PublishMilliseconds: u.now().Sub(leaseStarted).Milliseconds()}, nil
 }
 
 func (u *preparedStoreUpgradeUsecase) Resume(ctx context.Context, id string) (application.PreparedStoreUpgradeReceipt, error) {
@@ -260,16 +265,11 @@ func (u *preparedStoreUpgradeUsecase) recoverAndPublish(ctx context.Context, run
 			return application.PreparedStoreUpgradeReceipt{}, err
 		}
 	}
-	lockCtx := ctx
-	cancel := func() {}
-	if run.Budget.PublishLockLimit > 0 {
-		lockCtx, cancel = context.WithTimeout(ctx, run.Budget.PublishLockLimit)
-	}
-	defer cancel()
-	release, err := u.lease.AcquireExclusive(lockCtx, u.expectedStore)
+	release, lockCtx, cancel, err := u.acquireExclusiveSkippingIfHeld(ctx, run)
 	if err != nil {
 		return application.PreparedStoreUpgradeReceipt{}, err
 	}
+	defer cancel()
 	defer release()
 	leaseStarted := u.now()
 	obs, err := u.files.Observe(lockCtx, run)
@@ -303,21 +303,19 @@ func (u *preparedStoreUpgradeUsecase) Rollback(ctx context.Context, id string) (
 		return run, err
 	}
 	if run.Phase == domain.PreparedStoreUpgradeRollbackReady || run.Phase == domain.PreparedStoreUpgradeCommitted {
+		if run.Operation == domain.PreparedStoreUpgradeOperationOfflineMigrationUpgrade && run.Phase == domain.PreparedStoreUpgradeCommitted {
+			return run, fmt.Errorf("upgrade run refuses post-commit rollback: retained file is a forensic backup, not an interchangeable rollback target")
+		}
 		run, err = u.advance(ctx, run, domain.PreparedStoreUpgradeRollbackSwapIntent)
 		if err != nil {
 			return run, err
 		}
 	}
-	lockCtx := ctx
-	cancel := func() {}
-	if run.Budget.PublishLockLimit > 0 {
-		lockCtx, cancel = context.WithTimeout(ctx, run.Budget.PublishLockLimit)
-	}
-	defer cancel()
-	release, err := u.lease.AcquireExclusive(lockCtx, u.expectedStore)
+	release, lockCtx, cancel, err := u.acquireExclusiveSkippingIfHeld(ctx, run)
 	if err != nil {
 		return run, err
 	}
+	defer cancel()
 	defer release()
 	obs, err := u.files.Observe(lockCtx, run)
 	if err != nil {
@@ -407,6 +405,73 @@ func phaseForPreparedRecoveryAction(action domain.PreparedStoreUpgradeAction) (d
 	default:
 		return "", false
 	}
+}
+
+func (u *preparedStoreUpgradeUsecase) acquireExclusiveSkippingIfHeld(ctx context.Context, run domain.PreparedStoreUpgradeRun) (func(), context.Context, context.CancelFunc, error) {
+	lockCtx := ctx
+	cancel := func() {}
+	if run.Budget.PublishLockLimit > 0 {
+		lockCtx, cancel = context.WithTimeout(ctx, run.Budget.PublishLockLimit)
+	}
+	if u.lease != nil && u.lease.HoldsExclusive(u.expectedStore) {
+		return func() {}, lockCtx, cancel, nil
+	}
+	release, err := u.lease.AcquireExclusive(lockCtx, u.expectedStore)
+	if err != nil {
+		cancel()
+		return nil, ctx, func() {}, err
+	}
+	return release, lockCtx, cancel, nil
+}
+
+// RunUpgrade holds the exclusive lease (and compact-pending marker) across
+// plan, prepare, and publish so hook writers defer instead of racing the clone.
+func (u *preparedStoreUpgradeUsecase) RunUpgrade(ctx context.Context, command application.PreparedStoreUpgradeCommand) (application.PreparedStoreUpgradeReceipt, error) {
+	if filepath.Clean(command.TargetPath) != u.expectedStore || command.ConsumerBinding == "" || command.Operation != domain.PreparedStoreUpgradeOperationOfflineMigrationUpgrade || u.recipes[command.Operation] == nil {
+		return application.PreparedStoreUpgradeReceipt{}, fmt.Errorf("invalid prepared upgrade binding")
+	}
+	lockCtx := ctx
+	cancel := func() {}
+	if command.Budget.PublishLockLimit > 0 {
+		lockCtx, cancel = context.WithTimeout(ctx, command.Budget.PublishLockLimit)
+	}
+	defer cancel()
+	release, err := u.lease.AcquireExclusive(lockCtx, u.expectedStore)
+	if err != nil {
+		return application.PreparedStoreUpgradeReceipt{}, err
+	}
+	defer release()
+
+	run, findErr := u.journal.FindActive(lockCtx, command.Operation, command.TargetPath, command.ConsumerBinding)
+	if findErr != nil && !osErrNotExist(findErr) {
+		return application.PreparedStoreUpgradeReceipt{}, findErr
+	}
+	if findErr == nil && !run.Phase.IsTerminal() {
+		if isPreparationPhase(run.Phase) {
+			run, err = u.recoverPreparation(lockCtx, run)
+			if err != nil {
+				return application.PreparedStoreUpgradeReceipt{}, err
+			}
+			run, err = u.prepare(lockCtx, run)
+			if err != nil {
+				return application.PreparedStoreUpgradeReceipt{}, err
+			}
+		}
+		return u.recoverAndPublish(lockCtx, run)
+	}
+	run, err = u.Plan(lockCtx, command)
+	if err != nil {
+		return application.PreparedStoreUpgradeReceipt{}, err
+	}
+	run, err = u.prepare(lockCtx, run)
+	if err != nil {
+		return application.PreparedStoreUpgradeReceipt{}, err
+	}
+	return u.recoverAndPublish(lockCtx, run)
+}
+
+func osErrNotExist(err error) bool {
+	return err != nil && (errors.Is(err, os.ErrNotExist) || os.IsNotExist(err))
 }
 
 func (u *preparedStoreUpgradeUsecase) load(ctx context.Context, id string) (domain.PreparedStoreUpgradeRun, error) {

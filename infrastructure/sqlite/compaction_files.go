@@ -357,6 +357,9 @@ func validateInitialRun(run domain.CompactionRun) error {
 	if run.Operation == domain.PreparedStoreUpgradeOperationPayloadRehearsalMigration && (run.PlanDigest == "" || run.SourceDigest == "" || run.Budget.WallTimeLimit <= 0 || run.Budget.PublishLockLimit <= 0 || run.Budget.PublishLockLimit > time.Second || run.Budget.OwnedDiskByteLimit == 0 || run.Budget.WALByteLimit == 0 || run.Budget.TemporaryByteLimit == 0) {
 		return errors.New("initial prepared migration plan or budget is invalid")
 	}
+	if run.Operation == domain.PreparedStoreUpgradeOperationOfflineMigrationUpgrade && (run.PlanDigest == "" || run.SourceDigest == "" || run.Budget.WallTimeLimit <= 0 || run.Budget.PublishLockLimit <= 0 || run.Budget.OwnedDiskByteLimit == 0 || run.Budget.WALByteLimit == 0 || run.Budget.TemporaryByteLimit == 0) {
+		return errors.New("initial offline upgrade plan or budget is invalid")
+	}
 	return nil
 }
 
@@ -446,7 +449,7 @@ func (f PreparedStoreUpgradeFiles) Plan(ctx context.Context, run domain.Compacti
 	if err != nil {
 		return run, err
 	}
-	available, err := availableBytes(filepath.Dir(run.CandidatePath))
+	available, err := planAvailableBytes(filepath.Dir(run.CandidatePath))
 	if err != nil {
 		return run, err
 	}
@@ -457,6 +460,21 @@ func (f PreparedStoreUpgradeFiles) Plan(ctx context.Context, run domain.Compacti
 			return run, errors.New("prepared upgrade resource size overflow")
 		}
 		temporary = run.Budget.WALByteLimit + run.Budget.TemporaryByteLimit
+	} else if run.Operation == domain.PreparedStoreUpgradeOperationOfflineMigrationUpgrade {
+		destination = id.Size
+		if id.Size < 0 {
+			return run, errors.New("negative source size")
+		}
+		sourceBytes := uint64(id.Size)
+		if ^uint64(0)-sourceBytes < sourceBytes {
+			return run, errors.New("prepared upgrade resource size overflow")
+		}
+		temporary = sourceBytes + sourceBytes
+		spool := spoolReserveBytes(run.SourcePath)
+		if ^uint64(0)-temporary < spool {
+			return run, errors.New("prepared upgrade resource size overflow")
+		}
+		temporary += spool
 	} else if id.Size > 0 {
 		estimate, estimateErr := inspectReclaimableBytes(ctx, run.SourcePath, time.Now().UTC().AddDate(0, 0, -application.DefaultCompactKeepDays))
 		if estimateErr == nil && estimate > 0 && estimate < id.Size {
@@ -737,6 +755,9 @@ func ownedCandidatePath(run domain.PreparedStoreUpgradeRun) string {
 	if run.Operation == domain.PreparedStoreUpgradeOperationPayloadRehearsalMigration {
 		return run.SourcePath + ".prepare-" + run.ID
 	}
+	if run.Operation == domain.PreparedStoreUpgradeOperationOfflineMigrationUpgrade {
+		return run.SourcePath + ".upgrade-" + run.ID
+	}
 	return run.SourcePath + ".compact-" + run.ID
 }
 
@@ -799,6 +820,7 @@ func probeReplacementCapabilities(dir string) (err error) {
 
 // FenceCandidate captures the verified candidate identity before swap intent.
 func (PreparedStoreUpgradeFiles) FenceCandidate(ctx context.Context, run domain.CompactionRun) (domain.CompactionRun, error) {
+	recordPreparedUpgradeStep("fence")
 	if err := ctx.Err(); err != nil {
 		return run, err
 	}
@@ -825,6 +847,12 @@ func (PreparedStoreUpgradeFiles) FenceCandidate(ctx context.Context, run domain.
 }
 
 func (f PreparedStoreUpgradeFiles) Exchange(ctx context.Context, run domain.CompactionRun) error {
+	recordPreparedUpgradeStep("exchange")
+	if f.recoveryHook != nil {
+		if err := f.recoveryHook("before_exchange"); err != nil {
+			return err
+		}
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -900,6 +928,10 @@ func (f PreparedStoreUpgradeFiles) Exchange(ctx context.Context, run domain.Comp
 	return nil
 }
 
+// PublishRollback keeps the displaced source inode next to the published
+// candidate. The retained file is a forensic backup, not an interchangeable
+// rollback target — reverting to it after spool replay would discard writes
+// acknowledged after publication.
 func (f PreparedStoreUpgradeFiles) PublishRollback(ctx context.Context, run domain.CompactionRun) error {
 	if err := ctx.Err(); err != nil {
 		return err

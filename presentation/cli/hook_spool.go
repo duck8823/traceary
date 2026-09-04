@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -15,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	apptypes "github.com/duck8823/traceary/application/types"
 	"golang.org/x/xerrors"
 )
 
@@ -221,6 +223,12 @@ func (c *RootCLI) runHookDurably(
 			if promoteErr := promoteCurrentHookSpoolRecord(path); promoteErr != nil && !os.IsNotExist(promoteErr) {
 				slog.Debug("failed current hook spool promotion failed", "path", path, "error", promoteErr)
 			}
+			var pending *apptypes.StoreMaintenancePendingError
+			if errors.As(err, &pending) {
+				// Persist+promote already happened. Return host success without
+				// clearing the spool or entering the opportunistic drain.
+				return nil
+			}
 			return err
 		}
 		if err := clearCurrentHookSpoolRecord(path); err != nil {
@@ -233,6 +241,9 @@ func (c *RootCLI) runHookDurably(
 		// remaining budget is inside the reserve window so host watchdogs do
 		// not kill an already-successful hook.
 		if ctx.Err() == nil {
+			if hookSpoolDrainEntryProbe != nil {
+				hookSpoolDrainEntryProbe()
+			}
 			remaining := hookSpoolDrainRemaining(ctx, startedAt, time.Now())
 			pending, pendingErr := countHookSpoolPendingPaths(time.Now().UTC())
 			if pendingErr != nil {
@@ -249,6 +260,11 @@ func (c *RootCLI) runHookDurably(
 		return nil
 	})
 }
+
+// hookSpoolDrainEntryProbe fires when the opportunistic drain block is
+// entered. Tests use it to prove the deferred maintenance-pending path
+// never drains.
+var hookSpoolDrainEntryProbe func()
 
 type hookSpoolDrainResult struct {
 	Replayed   int

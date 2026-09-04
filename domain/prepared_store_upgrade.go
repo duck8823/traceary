@@ -67,11 +67,12 @@ type PreparedStoreUpgradeOperation string
 const (
 	PreparedStoreUpgradeOperationCompaction                PreparedStoreUpgradeOperation = "compaction"
 	PreparedStoreUpgradeOperationPayloadRehearsalMigration PreparedStoreUpgradeOperation = "payload_rehearsal_migration"
+	PreparedStoreUpgradeOperationOfflineMigrationUpgrade   PreparedStoreUpgradeOperation = "offline_migration_upgrade"
 )
 
 // Known reports whether the journal operation can be dispatched safely.
 func (o PreparedStoreUpgradeOperation) Known() bool {
-	return o == PreparedStoreUpgradeOperationCompaction || o == PreparedStoreUpgradeOperationPayloadRehearsalMigration
+	return o == PreparedStoreUpgradeOperationCompaction || o == PreparedStoreUpgradeOperationPayloadRehearsalMigration || o == PreparedStoreUpgradeOperationOfflineMigrationUpgrade
 }
 
 // PreparedStoreUpgradeBudget bounds preparation and the publication lease.
@@ -335,6 +336,9 @@ func (r PreparedStoreUpgradeRun) ShouldAbandonForStaleSource(current StoreFileId
 
 // Advance rejects skipped or backward protocol transitions.
 func (r PreparedStoreUpgradeRun) Advance(next PreparedStoreUpgradePhase, now time.Time) (PreparedStoreUpgradeRun, error) {
+	if r.Phase == PreparedStoreUpgradeCommitted && next == PreparedStoreUpgradeRollbackSwapIntent && r.Operation == PreparedStoreUpgradeOperationOfflineMigrationUpgrade {
+		return r, fmt.Errorf("upgrade run refuses post-commit rollback: retained file is a forensic backup, not an interchangeable rollback target")
+	}
 	for _, allowed := range preparedStoreUpgradeTransitions[r.Phase] {
 		if next == allowed {
 			r.Phase, r.UpdatedAt = next, now.UTC()

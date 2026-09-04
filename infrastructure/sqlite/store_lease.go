@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	apptypes "github.com/duck8823/traceary/application/types"
 )
 
 const storeLeaseSuffix = ".traceary.lock"
@@ -31,6 +33,20 @@ var exclusiveLeaseWaitInterval = 10 * time.Second
 var exclusiveLeaseWaitReporter func(waited time.Duration, lockPath string)
 
 var sharedLeaseWaitReporter func(waited time.Duration, lockPath string)
+
+// compactPendingActiveCheck is the stale-reaping marker consult used by Connect.
+// Tests replace it to pause between the one-time consult and the shared acquire.
+var compactPendingActiveCheck = CompactPendingActive
+
+// afterMaintenanceMarkerConsult runs after the one-time RW marker consult and
+// before the shared acquire (and before the post-pause re-consult).
+var afterMaintenanceMarkerConsult func()
+
+// afterSharedLeaseWouldBlock runs on each EWOULDBLOCK/EAGAIN of a shared
+// acquire poll so tests can set the marker mid-poll.
+var afterSharedLeaseWouldBlock func()
+
+const storeMaintenanceInProgressMessage = "store maintenance in progress (upgrade/compaction holding exclusive lease); retry shortly"
 
 // exclusiveHeldByProcess tracks lock paths whose exclusive fd is held
 // by this process. Connect consults it before polling LOCK_SH.
@@ -64,6 +80,13 @@ func bindSharedLeaseDeadline(ctx context.Context) (context.Context, context.Canc
 func processHoldsExclusiveLease(lockPath string) bool {
 	_, ok := exclusiveHeldByProcess.Load(lockPath)
 	return ok
+}
+
+func consultMaintenanceMarker(storePath string) error {
+	if !compactPendingActiveCheck(storePath) {
+		return nil
+	}
+	return &apptypes.StoreMaintenancePendingError{StorePath: storePath}
 }
 
 func selfDeadlockError(lockPath string) error {
@@ -136,6 +159,15 @@ func (StoreLeaseCoordinator) AcquireExclusive(ctx context.Context, path string) 
 	}, nil
 }
 
+// HoldsExclusive reports whether this process already holds LOCK_EX on path.
+func (StoreLeaseCoordinator) HoldsExclusive(storePath string) bool {
+	lockPath, err := canonicalLeasePath(storePath)
+	if err != nil {
+		return false
+	}
+	return processHoldsExclusiveLease(lockPath)
+}
+
 func probeStoreLeaseCapability(ctx context.Context, path string) error {
 	lockPath, err := canonicalLeasePath(path)
 	if err != nil {
@@ -152,8 +184,16 @@ func probeStoreLeaseCapability(ctx context.Context, path string) error {
 // physical driver.Conn lifetime. The stable adjacent lock file survives the
 // database inode exchange performed by compaction.
 func openCoordinatedDB(path, dsn string) *sql.DB {
+	return openCoordinatedDBMode(path, dsn, true)
+}
+
+func openCoordinatedReadOnlyDB(path, dsn string) *sql.DB {
+	return openCoordinatedDBMode(path, dsn, false)
+}
+
+func openCoordinatedDBMode(path, dsn string, readWrite bool) *sql.DB {
 	lockPath, lockPathErr := canonicalLeasePath(path)
-	return sql.OpenDB(&storeLeaseConnector{driver: coordinatedSQLiteDriver, dsn: dsn, storePath: path, lockPath: lockPath, lockPathErr: lockPathErr})
+	return sql.OpenDB(&storeLeaseConnector{driver: coordinatedSQLiteDriver, dsn: dsn, storePath: path, lockPath: lockPath, lockPathErr: lockPathErr, readWrite: readWrite})
 }
 
 // OpenCoordinatedSQLite opens a live store through the shared physical-
@@ -167,6 +207,7 @@ type storeLeaseConnector struct {
 	storePath   string
 	lockPath    string
 	lockPathErr error
+	readWrite   bool
 }
 
 func (c *storeLeaseConnector) Driver() driver.Driver { return c.driver }
@@ -185,10 +226,32 @@ func (c *storeLeaseConnector) Connect(ctx context.Context) (driver.Conn, error) 
 		// (#2163). The exclusive fd already excludes cooperating processes.
 		return c.openHeldExclusive(ctx)
 	}
+	if c.readWrite {
+		if err := consultMaintenanceMarker(c.storePath); err != nil {
+			return nil, err
+		}
+		if afterMaintenanceMarkerConsult != nil {
+			afterMaintenanceMarkerConsult()
+		}
+		if err := consultMaintenanceMarker(c.storePath); err != nil {
+			return nil, err
+		}
+	}
 	ctx, cancel := bindSharedLeaseDeadline(ctx)
 	defer cancel()
-	lease, err := acquireAdvisoryLease(ctx, c.lockPath, false)
+	var consult func() error
+	if c.readWrite {
+		consult = func() error { return consultMaintenanceMarker(c.storePath) }
+	}
+	lease, err := acquireAdvisoryLeaseConsulting(ctx, c.lockPath, false, consult)
 	if err != nil {
+		var pending *apptypes.StoreMaintenancePendingError
+		if errors.As(err, &pending) {
+			return nil, pending
+		}
+		if !c.readWrite && compactPendingActiveCheck(c.storePath) {
+			return nil, fmt.Errorf("wait for shared store lease on %s: %w; inspect holders with lsof %s; %s", c.lockPath, err, c.lockPath, storeMaintenanceInProgressMessage)
+		}
 		return nil, fmt.Errorf("wait for shared store lease on %s: %w; inspect holders with lsof %s", c.lockPath, err, c.lockPath)
 	}
 	conn, err := c.driver.Open(c.dsn)

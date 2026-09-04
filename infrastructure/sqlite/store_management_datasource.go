@@ -107,8 +107,8 @@ func (d *StoreManagementDatasource) Initialize(ctx context.Context) error {
 	return d.db.initialize(ctx)
 }
 
-// InitializeAuthorized applies data-dependent offline migrations. Only
-// `traceary doctor --fix` uses this path.
+// InitializeAuthorized applies data-dependent offline migrations inline.
+// Production `doctor --fix` uses RunUpgrade; this remains a test fixture.
 func (d *StoreManagementDatasource) InitializeAuthorized(ctx context.Context) error {
 	if err := d.db.initializeAuthorized(ctx); err != nil {
 		return xerrors.Errorf("failed to apply authorized store migrations: %w", err)

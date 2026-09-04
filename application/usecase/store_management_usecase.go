@@ -12,9 +12,6 @@ import (
 type StoreManagementUsecase interface {
 	// Initialize creates the store and applies implicit (non-offline) migrations.
 	Initialize(ctx context.Context) error
-	// InitializeAuthorized applies data-dependent offline migrations. Only
-	// `traceary doctor --fix` uses this path.
-	InitializeAuthorized(ctx context.Context) error
 	// PreviewOfflineMigrations lists pending data-dependent versions without applying them.
 	PreviewOfflineMigrations(ctx context.Context) ([]int64, error)
 
