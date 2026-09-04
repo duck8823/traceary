@@ -60,8 +60,6 @@ func TestInspectStoreGrowthBudgetSeparatesRetiredIndexFromProjection(t *testing.
 			{Name: "event_search_documents", Bytes: 3 << 30},
 			{Name: "event_search_fts_data", Bytes: 5 << 30},
 			{Name: "sqlite_autoindex_event_search_documents_1", Bytes: 1 << 30},
-			{Name: "search_projection_recent_fts", Bytes: 64 << 20},
-			{Name: "literal_search_fingerprints", Bytes: 32 << 20},
 			{Name: "events", Bytes: 2 << 30},
 		},
 	}}}
@@ -89,10 +87,9 @@ func TestInspectStoreGrowthBudgetSeparatesRetiredIndexFromProjection(t *testing.
 	if !strings.Contains(legacy.FixCommand, "store compact") {
 		t.Fatalf("legacy fix = %q", legacy.FixCommand)
 	}
-	// The live projection's 96 MiB must not absorb the retired family's 9 GiB,
-	// or the store-size check blames the wrong thing and suggests compaction.
-	if !strings.Contains(checks[0].Message, "projection=96.0 MiB") {
-		t.Fatalf("store-size message = %q, want the live projection only", checks[0].Message)
+	// Retired family bytes belong on legacy-search-index, not store-size.
+	if strings.Contains(checks[0].Message, "9.0 GiB") {
+		t.Fatalf("store-size message = %q, absorbed retired index bytes", checks[0].Message)
 	}
 }
 
@@ -283,16 +280,6 @@ func TestLargeStoreSizeCheckFailSoftWhenInspectorErrors(t *testing.T) {
 	check := largeStoreSizeCheck(snapshot, "/tmp/large.db", apptypes.StorePageMetadata{}, errLargeStorePageMetadataUnavailable)
 	if check.Status != doctorStatusWarn || !strings.Contains(check.Message, "unknown") {
 		t.Fatalf("check=%#v", check)
-	}
-	generation := largeStoreProjectionGenerationCheck(apptypes.StorePageMetadata{}, errLargeStorePageMetadataUnavailable)
-	if generation.Status != doctorStatusSkip {
-		t.Fatalf("generation=%#v", generation)
-	}
-}
-
-func TestDoctorSectionNameForCheckMapsProjectionGenerationToDatabase(t *testing.T) {
-	if got := doctorSectionNameForCheck("search-projection-generation"); got != "Database" {
-		t.Fatalf("section=%q", got)
 	}
 }
 

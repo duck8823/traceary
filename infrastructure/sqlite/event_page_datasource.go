@@ -55,8 +55,9 @@ func (d *EventDatasource) ListRecentPage(
 	return events, nil
 }
 
-// SearchPage applies the FTS or bounded legacy candidate planner before LIMIT,
-// then hydrates exactly those IDs in the same SQLite read snapshot.
+// SearchPage selects matching event IDs from canonical tables (structural
+// scan for empty queries, two-tier fallback membership otherwise), then
+// hydrates exactly those IDs in the same SQLite read snapshot.
 func (d *EventDatasource) SearchPage(
 	ctx context.Context,
 	criteria apptypes.EventSearchCriteria,
@@ -64,7 +65,7 @@ func (d *EventDatasource) SearchPage(
 	if err := validateSearchCriteriaForAuthority(criteria); err != nil {
 		return nil, err
 	}
-	return d.searchFullByPersistedAuthority(ctx, criteria)
+	return d.searchFullByCanonicalMembership(ctx, criteria)
 }
 
 // GetContextPage returns full events for a bounded context window.

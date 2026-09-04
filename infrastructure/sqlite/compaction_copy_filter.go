@@ -63,12 +63,6 @@ func applyCopyFilters(ctx context.Context, work string, filter application.Compa
 	if err := dropLegacySearchFamilyOn(ctx, db); err != nil {
 		return err
 	}
-	if err := dropUnreadRecentFTSOn(ctx, db); err != nil {
-		return err
-	}
-	if err := reclaimTerminalProjectionGenerationsStep(ctx, db, filter); err != nil {
-		return err
-	}
 
 	hasEvents, err := tableExists(ctx, db, "events")
 	if err != nil {
@@ -112,27 +106,12 @@ func applyCopyFilters(ctx context.Context, work string, filter application.Compa
 	return nil
 }
 
-func dropUnreadRecentFTSOn(ctx context.Context, db *sql.DB) error {
-	// DROP the unread recent FTS on the work copy only (#1842). Implicit
-	// open never does this: the table can be multi-GiB.
-	if _, err := db.ExecContext(ctx, `DROP TRIGGER IF EXISTS search_projection_recent_ai`); err != nil {
-		return fmt.Errorf("drop recent FTS insert trigger on work copy: %w", err)
-	}
-	if _, err := db.ExecContext(ctx, `DROP TRIGGER IF EXISTS search_projection_recent_ad`); err != nil {
-		return fmt.Errorf("drop recent FTS delete trigger on work copy: %w", err)
-	}
-	if _, err := db.ExecContext(ctx, `DROP TABLE IF EXISTS search_projection_recent_fts`); err != nil {
-		return fmt.Errorf("drop unread recent FTS on work copy: %w", err)
-	}
-	return nil
-}
-
 func dropLegacySearchFamilyOn(ctx context.Context, db *sql.DB) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin work-copy search drop: %w", err)
 	}
-	if err := dropLegacySearchProjection(ctx, tx); err != nil {
+	if err := dropLegacySearchFamily(ctx, tx); err != nil {
 		_ = tx.Rollback()
 		return err
 	}

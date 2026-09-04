@@ -63,7 +63,7 @@ func dedupeArchiveRunsDoctorCheck(runs []apptypes.ContentEventDedupeRun, err err
 		check.Message = localizef(
 			"%d compact-internal quarantine run(s) hold %d rows (~%s); replica/external store compact will drop them",
 			"%d 件の compact 内部 quarantine run が %d 行（~%s）を保持しています。replica/external の store compact が破棄します",
-			internalRuns, internalRows, formatCompactBytes(uint64(max64(internalBytes, 0))),
+			internalRuns, internalRows, formatCompactBytes(uint64(max(internalBytes, 0))),
 		)
 		check.Hint = "traceary store compact"
 		return check

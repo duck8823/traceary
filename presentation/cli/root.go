@@ -16,7 +16,6 @@ import (
 type RootCLI struct {
 	event                       usecase.EventUsecase
 	eventMetadata               usecase.EventMetadataUsecase
-	projectionSessionSearch     queryservice.ProjectionSessionSearch
 	twoTierSearch               queryservice.TwoTierSearch
 	reportCommand               usecase.ReportCommandUsecase
 	report                      usecase.ReportUsecase
@@ -51,7 +50,6 @@ type RootCLI struct {
 	payloadCodecInspector       application.PayloadCodecInspector
 	attestationAnchorInspector  application.AttestationAnchorInspector
 	bodyCodecChecker            application.BodyCodecChecker
-	searchProjection            *usecase.SearchProjectionUsecase
 	storeCompactionFactory      func(string) application.StoreCompactionUsecase
 	preparedStoreUpgradeFactory func(string) application.PreparedStoreUpgradeUsecase
 	fileRetention               usecase.FileRetentionUsecase
@@ -91,16 +89,6 @@ func WithEvent(event usecase.EventUsecase) RootCLIOption {
 // WithEventMetadata injects body-free event reads used by metadata projections.
 func WithEventMetadata(eventMetadata usecase.EventMetadataUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.eventMetadata = eventMetadata }
-}
-
-// WithProjectionSessionSearch injects the bounded-projection session-tier
-// search used by `traceary search` for sessions whose summary or keyword text matches.
-// It takes the composed port rather than the query half alone: an empty page
-// means both "no session matched" and "the projection was never consulted", and
-// only readiness separates them. Requiring it here makes the compiler reject an
-// implementation that would silently lose that distinction.
-func WithProjectionSessionSearch(search queryservice.ProjectionSessionSearch) RootCLIOption {
-	return func(c *RootCLI) { c.projectionSessionSearch = search }
 }
 
 // WithTwoTierSearch injects the refinement-plus-fallback search read path.
@@ -274,11 +262,6 @@ func WithAttestationAnchorInspector(inspector application.AttestationAnchorInspe
 // WithBodyCodecChecker injects the body_codec unknown-value scanner.
 func WithBodyCodecChecker(checker application.BodyCodecChecker) RootCLIOption {
 	return func(c *RootCLI) { c.bodyCodecChecker = checker }
-}
-
-// WithSearchProjection injects the explicit derived-projection lifecycle workflow.
-func WithSearchProjection(projection *usecase.SearchProjectionUsecase) RootCLIOption {
-	return func(c *RootCLI) { c.searchProjection = projection }
 }
 
 // WithStoreCompactionFactory injects a path-bound, dedicated composition.

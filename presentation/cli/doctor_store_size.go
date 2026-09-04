@@ -248,9 +248,6 @@ func (c *RootCLI) inspectStoreGrowthBudgetWithClock(ctx context.Context, dbPath 
 			legacyBytes += object.Bytes
 			continue
 		}
-		if strings.Contains(name, "search") || strings.Contains(name, "projection") {
-			evidence.ProjectionBytes += object.Bytes
-		}
 	}
 	if free, freeErr := inspectDoctorDiskFree(dbPath); freeErr == nil {
 		evidence.FilesystemFreeBytes = free
@@ -346,9 +343,6 @@ func formatCapacityObjectBreakdown(objects []apptypes.CapacityObject) string {
 // dbstat reports as sqlite_autoindex_event_search_documents_1 — hence Contains
 // rather than HasPrefix, since that name holds millions of event IDs on the
 // stores this check exists for.
-//
-// No bounded-projection object contains this substring; they are named
-// search_projection_* and literal_search_*.
 func isLegacySearchIndexObject(loweredName string) bool {
 	return strings.Contains(loweredName, "event_search_")
 }
@@ -535,39 +529,6 @@ func evaluateLargeStoreGrowthBudget(filesystemBytes int64, e storeGrowthEvidence
 	}
 }
 
-func largeStoreProjectionGenerationCheck(meta apptypes.StorePageMetadata, inspectErr error) doctorCheck {
-	const name = "search-projection-generation"
-	if inspectErr != nil {
-		return doctorCheck{
-			Name:    name,
-			Status:  doctorStatusSkip,
-			Message: Localize("search-projection generation was not read (O(1) page metadata unavailable)", "search-projection generation は読み取れませんでした（O(1) page metadata を取得できません）"),
-		}
-	}
-	if !meta.ProjectionPresent {
-		return doctorCheck{
-			Name:    name,
-			Status:  doctorStatusSkip,
-			Message: Localize("search-projection generation singleton is not present", "search-projection generation singleton はありません"),
-		}
-	}
-	status := doctorStatusPass
-	if meta.ProjectionState != "" && meta.ProjectionState != "complete" {
-		status = doctorStatusWarn
-	}
-	return doctorCheck{
-		Name:   name,
-		Status: status,
-		Message: localizef(
-			"search-projection generation=%s state=%s phase=%s",
-			"search-projection generation=%s state=%s phase=%s",
-			meta.ProjectionGenerationID,
-			meta.ProjectionState,
-			meta.ProjectionPhase,
-		),
-	}
-}
-
 func boundedLargeStoreDoctorCheck(snapshot storeFileSnapshot, dbPath string, o1ProbeOK bool) doctorCheck {
 	if snapshot.Err != nil || !snapshot.Exists || !snapshot.Regular {
 		return doctorCheck{
@@ -584,8 +545,8 @@ func boundedLargeStoreDoctorCheck(snapshot storeFileSnapshot, dbPath string, o1P
 	)
 	if o1ProbeOK {
 		message = localizef(
-			"bounded metadata-only doctor result for %s store: O(1) pragma and projection-state reads only; migrations, event bodies, command payloads, hook spool payloads, credentials, identifier samples, and dbstat were not read",
-			"%s のストアに対する bounded metadata-only doctor 結果です。O(1) の pragma と projection-state だけを読みます。migration、event body、command payload、hook spool payload、credential、identifier sample、dbstat は読み取りませんでした",
+			"bounded metadata-only doctor result for %s store: O(1) pragma reads only; migrations, event bodies, command payloads, hook spool payloads, credentials, identifier samples, and dbstat were not read",
+			"%s のストアに対する bounded metadata-only doctor 結果です。O(1) の pragma だけを読みます。migration、event body、command payload、hook spool payload、credential、identifier sample、dbstat は読み取りませんでした",
 			formatByteSize(snapshot.Size),
 		)
 	}

@@ -15,12 +15,11 @@ type CapacityBenchmarkQuery struct {
 }
 
 // CapacityBenchmarkQueries returns the same SQL sources used by production active/latest/handoff/search reads.
-// Search uses the ordered tiered candidate walk that production tiered search
-// issues against events/command_audits (without a generation-bound fingerprint
-// prefilter, which is optional and store-state dependent).
+// Search uses the two-tier fallback scan that production search issues against
+// events/command_audits/sessions.
 func CapacityBenchmarkQueries(ctx context.Context, db *sql.DB) ([]CapacityBenchmarkQuery, error) {
 	searchCriteria := apptypes.NewEventSearchCriteriaBuilder(20).Query("synthetic-needle").Build()
-	searchSQL, searchArgs := buildTieredSearchCandidateQuery(searchCriteria, "", false)
+	searchSQL, searchArgs := buildTwoTierFallbackScanQuery(searchCriteria)
 	latestSQL := latestSessionBoundarySQL(ctx, db)
 	return []CapacityBenchmarkQuery{
 		{Name: "active", SQL: findActiveSessionQuery, Args: []any{"session_started", "", "", "", "", "", "", "session_started", "session_ended"}},

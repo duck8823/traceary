@@ -17,15 +17,14 @@ import (
 )
 
 type storeCompactionUsecase struct {
-	journal            application.StoreCompactionJournal
-	builder            application.StoreCompactionBuilder
-	files              application.StoreCompactionFiles
-	lease              application.StoreCompactionLease
-	progress           application.CompactionProgress
-	now                func() time.Time
-	expectedStore      string
-	cover              func(ctx context.Context, work string, cutoff time.Time) (application.CoverReport, error)
-	completeProjection func(ctx context.Context, store string) error
+	journal       application.StoreCompactionJournal
+	builder       application.StoreCompactionBuilder
+	files         application.StoreCompactionFiles
+	lease         application.StoreCompactionLease
+	progress      application.CompactionProgress
+	now           func() time.Time
+	expectedStore string
+	cover         func(ctx context.Context, work string, cutoff time.Time) (application.CoverReport, error)
 }
 
 type compactFilterSetter interface {
@@ -44,15 +43,6 @@ func BindCompactionWorkCover(u application.StoreCompactionUsecase, cover func(ct
 func BindCompactionProgress(u application.StoreCompactionUsecase, progress application.CompactionProgress) {
 	if concrete, ok := u.(*storeCompactionUsecase); ok {
 		concrete.progress = progress
-	}
-}
-
-// BindCompactionProjectionComplete runs after a successful rewrite while the
-// exclusive lease is still held, so default compact cannot return with an
-// in-flight search generation (#2163).
-func BindCompactionProjectionComplete(u application.StoreCompactionUsecase, complete func(ctx context.Context, store string) error) {
-	if concrete, ok := u.(*storeCompactionUsecase); ok {
-		concrete.completeProjection = complete
 	}
 }
 
@@ -163,9 +153,6 @@ func (u *storeCompactionUsecase) Compact(ctx context.Context, in application.Com
 					CompactStrategy:           application.CompactStrategyInPlace,
 					Steps:                     collector.steps,
 				}
-				if err := u.finishSearchProjection(ctx); err != nil {
-					return result, err
-				}
 				return result, nil
 			}
 			return application.CompactResult{}, fmt.Errorf("in-place compact after insufficient replica space: %w\n\treplica: %v\n\testimated reclaimable bytes: %d\n\tattach another volume and retry with --work-dir, or free dest-sized space on this volume", inPlaceErr, err, estimated)
@@ -192,9 +179,6 @@ func (u *storeCompactionUsecase) Compact(ctx context.Context, in application.Com
 		CompactStrategy:           strategy,
 		Steps:                     collector.steps,
 	}
-	if err := u.finishSearchProjection(ctx); err != nil {
-		return result, err
-	}
 	return result, nil
 }
 
@@ -218,17 +202,6 @@ func stepDetail(step application.CompactStep, key string) int64 {
 		return 0
 	}
 	return step.Detail[key]
-}
-
-func (u *storeCompactionUsecase) finishSearchProjection(ctx context.Context) error {
-	if u.completeProjection == nil {
-		return nil
-	}
-	u.reportWindow("search_projection")
-	if err := u.completeProjection(ctx, u.expectedStore); err != nil {
-		return fmt.Errorf("complete search projection after compact: %w", err)
-	}
-	return nil
 }
 
 type reclaimableBytesInspector interface {

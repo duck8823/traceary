@@ -60,64 +60,13 @@ func warnSearchSessionsSuppressedByFailures(warnWriter io.Writer) {
 	))
 }
 
-// warnSearchSessionsProjectionNotReady reports that the SESSIONS group was
-// not consulted because the session-tier projection has no readable generation.
-//
-// Readiness is exactly `state == complete` with an active generation
-// (event_search_query.go:66-73), so the first clause states the state rather
-// than claiming no complete generation exists: rows from an earlier complete
-// generation can still be present while the state has moved on.
-//
-// The notice deliberately names no recovery command. The recovery depends on
-// the state and the phase, and every attempt to compress that into one line
-// produced a sentence that was false somewhere: "the rebuild advances on
-// ordinary opens" is wrong for a parked generation; "watch whether the
-// checkpoint moves" is not a progress signal, because inventory advances a
-// separate cursor and cleanup deletes rows while holding the checkpoint; and
-// "`start` replaces the generation" is refused outright while the state is
-// rebuilding (search_projection_usecase.go:59-61). A notice that names a command
-// the store will reject creates the stall it exists to prevent.
-//
-// So it states the one fact that holds in every state that can reach it, and
-// sends the reader to `status` for the state and to the rebuild document for
-// what that state needs. The document has room for the whole table; stderr does
-// not.
-func warnSearchSessionsProjectionNotReady(warnWriter io.Writer) {
-	if warnWriter == nil {
-		return
-	}
-	_, _ = fmt.Fprint(warnWriter, Localize(
-		"traceary: the session tier was not consulted because the search projection is not in the `complete` state, so sessions that match only their summary or keywords are not listed. Run `traceary doctor` for the current state, and see docs/search-projection-rebuild.md for what that state needs.\n",
-		"traceary: search projection が `complete` 状態でないため、session tier は参照されませんでした。要約やキーワードだけが一致する session は一覧に出ません。現在の state は `traceary doctor` で確認し、その state に必要な操作は docs/search-projection-rebuild.ja.md を参照してください。\n",
-	))
-}
-
-// warnSearchSessionsProjectionReadinessUnknown reports that an empty SESSIONS
-// group could not be attributed, because the readiness check itself failed.
-// Staying silent here would restore exactly the ambiguity the not-ready notice
-// exists to remove: the reader could not tell a refused tier from a consulted
-// one, and nothing would say so.
-func warnSearchSessionsProjectionReadinessUnknown(warnWriter io.Writer) {
-	if warnWriter == nil {
-		return
-	}
-	_, _ = fmt.Fprint(warnWriter, Localize(
-		"traceary: could not determine whether the search projection is ready, so the empty SESSIONS group may be ambiguous. Run `traceary doctor` to inspect it.\n",
-		"traceary: search projection の準備状態を確認できなかったため、空の SESSIONS グループの意味を判定できません。`traceary doctor` で状態を確認してください。\n",
-	))
-}
-
 // searchSessionNotices collects the stderr advisories a session-tier lookup can
 // raise. They answer different questions — "sessions matched but --kind hid
-// them", "the tier was refused", "the tier's state is unknown" — so none may
+// them", "sessions matched but --failures-only hid them" — so none may
 // swallow another, and each is a no-op when its own condition does not hold.
-// Gathering them here keeps that rule in one place rather than repeated at
-// every call site of searchProjectionSessions.
 type searchSessionNotices struct {
 	kindSuppressed     bool
 	failuresSuppressed bool
-	projectionNotReady bool
-	readinessUnknown   bool
 }
 
 func (n searchSessionNotices) write(warnWriter io.Writer) {
@@ -126,12 +75,6 @@ func (n searchSessionNotices) write(warnWriter io.Writer) {
 	}
 	if n.failuresSuppressed {
 		warnSearchSessionsSuppressedByFailures(warnWriter)
-	}
-	if n.projectionNotReady {
-		warnSearchSessionsProjectionNotReady(warnWriter)
-	}
-	if n.readinessUnknown {
-		warnSearchSessionsProjectionReadinessUnknown(warnWriter)
 	}
 }
 

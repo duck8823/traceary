@@ -123,13 +123,11 @@ Useful flags:
 
 Search events by text and structured filters.
 
-`search` finds literal matches by walking `events` newest-first and decoding bounded candidates. When a generation is complete, its literal fingerprints provide a pre-filter that can skip decoding candidates, and its session tier enables a separate **SESSIONS** group. A SESSIONS row is a session whose summary or keyword text matches the query — it is not an older-event bucket or a matching event line.
+`search` uses the two-tier read path: a non-empty query searches session refinements first and falls back to an unindexed scan of canonical `events` / `command_audits` / `sessions`. An empty query with other filters is a structural scan of those same tables. A SESSIONS row is a session whose summary or refinement text matches the query — it is not an older-event bucket or a matching event line.
 
 Session rows mean the trail contains a match. A session is selected by its start instant for `--from` / `--to` — the same rule session-summary queries use — and `--failures` is satisfied by any failed command in the session. Filters on session rows apply to the session, not to a single event: a session can appear when the query, the time range and `--failures` are each satisfied by different activity within it. The event tier is the one where every filter narrows to a single row.
 
-A completed generation is a snapshot, so events recorded after it are read directly from `events` and merged into the same result — search never goes stale between rebuilds. Before a generation completes, `search` still answers literal matches correctly by decoding candidates directly; it is slower, and the SESSIONS group is empty because the session tier is refused until then (#1844). The stderr notice points to `traceary doctor`: `docs/search-projection-rebuild.md` lists what each state needs; if readiness cannot be determined, the same doctor check explains the ambiguous empty group. When the walk exhausts its candidate budget it does not return a partial page — it reports `index_incomplete`. Completing the projection restores the fingerprint pre-filter and the session tier; which command gets a given state there is in `docs/search-projection-rebuild.md`, because `start` is refused while a generation is already rebuilding.
-
-The full-corpus migration-032 index that used to back this command is retired in v0.34. It is no longer read or maintained, and `traceary store compact` drops it during the rewrite — see [search retirement](../operations/search-retirement.md).
+The derived search-projection family was deleted in v0.49.0 (#2319). There is no generation rebuild and no session-tier readiness notice. The full-corpus migration-032 index that used to back this command is retired in v0.34. It is no longer read or maintained, and `traceary store compact` drops it during the rewrite — see [search retirement](../operations/search-retirement.md).
 
 Text results use the same compact single-line format as `list` (local time by default) when only literal event matches are present. When both groups are present, output is labelled as `EVENTS (literal matches)` and `SESSIONS (summary or keyword matches)`. Pass `--wide` for the legacy tab-separated table, or `--utc` to force UTC timestamps. `--wide --utc` reproduces the pre-v0.6.1 event-row shape. `--json` emits `{"events": [...], "sessions": [...]}`. Both keys are always present (empty arrays when a tier has no hits). Explicit `--fields` selects event fields inside `.events`; session objects keep their fixed shape (`session_id`, `summary`, `event_count`, `started_at`). Use `--fields ts,kind,message` to override the compact column order (precedence: flag > preset fields > `read.fields` in config.json > built-in default); `--fields` cannot be combined with `--wide`, and the supported field list is shown under `traceary list` above. Use `--preset <name>` for saved views; a preset with filters can make a search with no free-text query valid because its filters count as constraints.
 
@@ -844,7 +842,7 @@ Useful flags:
 
 Rewrite the store file. Running the command is the consent: Traceary copies the store, filters the copy, vacuums into a new file, and atomically exchanges it. The old inode stays as the rollback file.
 
-While copying, compact drops non-canonical duplicate hook bodies, discards covered bodies past `--keep-days` (default 90), encodes remaining bodies, and does not copy the retired search-index family. Search-projection lifecycle is `doctor --fix` / `store compact --projection-rebuild` / `--projection-abort`.
+While copying, compact drops non-canonical duplicate hook bodies, discards covered bodies past `--keep-days` (default 90), encodes remaining bodies, and does not copy the retired search-index family. The search-projection family itself is dropped by offline migration 80, not by compact.
 
 If every discardable-age session is still unrefined, compact refuses and names `traceary-session-refine`. Partial folds proceed and reclaim what those sessions authorize. `--force` writes mechanical summaries first; the agent's reasoning (why) is not recovered.
 
@@ -868,12 +866,6 @@ Export GC-eligible rows to a versioned archive package, verify a package, or res
 ### `traceary store compact --retention-plan` / `--retention-apply`
 
 Plan or apply file-retention actions for host-side archive and backup artifacts. `--retention-apply` requires `--plan` and `--confirm-plan-id`. These flags absorb the former `store retention files plan|apply` leaves. Apply is operator-consented and is not part of the default hook path.
-
-### `traceary store compact --projection-rebuild` / `--projection-abort`
-
-Start a new search-projection generation (or resume one that is already rebuilding) with the former start budget flags, or abandon an incomplete generation. Parked recovery is `traceary doctor --fix`. Lifecycle and budget inspection stay on `traceary doctor` (`search-projection-parked` / `search-projection-budget`). Catch-up on large stores is paged and may park when it cannot advance.
-
-`--projection-rebuild` stdout is JSON. Start and hash-mismatch replace emit a generation object (`result_kind=generation`). A matching-hash resume emits a run-result object (`result_kind=run`). Branch on `result_kind`; do not sniff fields. `--projection-abort` is a separate abandon object.
 
 ### `traceary bundle export|import`
 

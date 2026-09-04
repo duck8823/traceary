@@ -98,11 +98,11 @@ func TestRecentCommandPreviewsStoredBytesPreferPlaintextOnCompressedCorpus(t *te
 	}
 }
 
-// search_projection_rebuild sizes each source row with a physical stored figure
-// (intentional length() terms) and a logical decoded figure that prefers
-// *_plaintext_bytes. Against a compressed audit corpus the two must diverge and
-// the logical figure must match the pre-codec plaintext sizes.
-func TestSearchProjectionSourceSizingPrefersAuditPlaintextBytes(t *testing.T) {
+// Audit source sizing uses a physical stored figure (intentional length()
+// terms) and a logical decoded figure that prefers *_plaintext_bytes. Against a
+// compressed audit corpus the two must diverge and the logical figure must
+// match the pre-codec plaintext sizes.
+func TestAuditSourceSizingPrefersPlaintextBytes(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	db, _ := openPayloadEncodeFixture(t)

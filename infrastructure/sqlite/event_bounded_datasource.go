@@ -99,38 +99,6 @@ func (d *EventDatasource) ListRecentBounded(
 	return events, nil
 }
 
-// SearchBounded uses the existing FTS/legacy search planner only to select
-// event IDs, then projects bounded visible text from authoritative event rows.
-func (d *EventDatasource) SearchBounded(
-	ctx context.Context,
-	criteria apptypes.EventSearchCriteria,
-	bodyRuneLimit int,
-) ([]apptypes.BoundedEvent, error) {
-	if err := validateBoundedBodyLimit(bodyRuneLimit); err != nil {
-		return nil, err
-	}
-	if err := validateSearchCriteriaForAuthority(criteria); err != nil {
-		return nil, err
-	}
-	db, tx, err := d.beginEventProjectionRead(ctx, "bounded persisted search")
-	if err != nil {
-		return nil, err
-	}
-	defer closeEventProjectionRead(db, tx)
-	metadata, err := d.searchMetadataByPersistedAuthorityTx(ctx, tx, criteria)
-	if err != nil {
-		return nil, err
-	}
-	events, err := hydrateBoundedEvents(ctx, tx, metadata, bodyRuneLimit)
-	if err != nil {
-		return nil, err
-	}
-	if err = tx.Commit(); err != nil {
-		return nil, xerrors.Errorf("finish bounded persisted search: %w", err)
-	}
-	return events, nil
-}
-
 // GetContextBounded selects body-free context membership first and then
 // hydrates bounded visible text under one read snapshot.
 func (d *EventDatasource) GetContextBounded(

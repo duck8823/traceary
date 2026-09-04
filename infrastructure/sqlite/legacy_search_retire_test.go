@@ -92,10 +92,10 @@ func TestMigration052_LeavesTheLargeTablesForTheOperator(t *testing.T) {
 	}
 }
 
-// TestRetireLegacySearchProjection_DropsTheFamilyAndKeepsSearchAnswering is the
+// TestRetireLegacySearchFamily_DropsTheFamilyAndKeepsSearchAnswering is the
 // operator path end to end: the tables are gone rather than emptied, a rerun is
 // a no-op, and search keeps working throughout.
-func TestRetireLegacySearchProjection_DropsTheFamilyAndKeepsSearchAnswering(t *testing.T) {
+func TestRetireLegacySearchFamily_DropsTheFamilyAndKeepsSearchAnswering(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -109,15 +109,15 @@ func TestRetireLegacySearchProjection_DropsTheFamilyAndKeepsSearchAnswering(t *t
 	sut := infra.NewEventDatasource(database)
 	before := searchLegacyFixture(ctx, t, sut)
 
-	report, err := database.RetireLegacySearchProjection(ctx)
+	report, err := database.RetireLegacySearchFamily(ctx)
 	if err != nil {
-		t.Fatalf("RetireLegacySearchProjection() error = %v", err)
+		t.Fatalf("RetireLegacySearchFamily() error = %v", err)
 	}
 	if report.AlreadyRemoved {
-		t.Fatal("RetireLegacySearchProjection() reported already_removed on a store that carried the family")
+		t.Fatal("RetireLegacySearchFamily() reported already_removed on a store that carried the family")
 	}
 	if !report.FileSizeUnchangedUntilCompact {
-		t.Fatal("RetireLegacySearchProjection() must state that the file shrinks only at compact")
+		t.Fatal("RetireLegacySearchFamily() must state that the file shrinks only at compact")
 	}
 	if report.LogicalBytesBefore <= 0 {
 		t.Fatalf("logical_bytes_before = %d, want the indexed corpus", report.LogicalBytesBefore)
@@ -139,25 +139,25 @@ func TestRetireLegacySearchProjection_DropsTheFamilyAndKeepsSearchAnswering(t *t
 		t.Fatalf("search results changed across retirement (-before +after):\n%s", diff)
 	}
 
-	rerun, err := database.RetireLegacySearchProjection(ctx)
+	rerun, err := database.RetireLegacySearchFamily(ctx)
 	if err != nil {
-		t.Fatalf("second RetireLegacySearchProjection() error = %v", err)
+		t.Fatalf("second RetireLegacySearchFamily() error = %v", err)
 	}
 	if !rerun.AlreadyRemoved {
-		t.Fatal("second RetireLegacySearchProjection() must report already_removed")
+		t.Fatal("second RetireLegacySearchFamily() must report already_removed")
 	}
 	if rerun.PhysicalBytesBefore != rerun.PhysicalBytesAfter {
 		t.Fatalf("no-op rerun changed physical bytes: %d -> %d", rerun.PhysicalBytesBefore, rerun.PhysicalBytesAfter)
 	}
 }
 
-// TestRetireLegacySearchProjection_LeavesAPre052StoreWritable covers the order
+// TestRetireLegacySearchFamily_LeavesAPre052StoreWritable covers the order
 // hazard: the migration-032 source-side triggers live on `events`, so dropping
 // the family out from under them turns every subsequent insert into
 // "no such table: event_search_documents". The CLI migrates first, but the drop
 // itself must not depend on that, because the failure is silent until the next
 // write and leaves the store unusable.
-func TestRetireLegacySearchProjection_LeavesAPre052StoreWritable(t *testing.T) {
+func TestRetireLegacySearchFamily_LeavesAPre052StoreWritable(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -166,8 +166,8 @@ func TestRetireLegacySearchProjection_LeavesAPre052StoreWritable(t *testing.T) {
 
 	// Deliberately on the pre-52 migration set: migration 052 never runs here.
 	database := infra.NewDatabase(dbPath, onDiskSQLiteMigrationsBefore(t, 52))
-	if _, err := database.RetireLegacySearchProjection(ctx); err != nil {
-		t.Fatalf("RetireLegacySearchProjection() error = %v", err)
+	if _, err := database.RetireLegacySearchFamily(ctx); err != nil {
+		t.Fatalf("RetireLegacySearchFamily() error = %v", err)
 	}
 
 	sut := infra.NewEventDatasource(database)

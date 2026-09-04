@@ -333,7 +333,7 @@ func (d *EventDatasource) Search(
 		Query(query).Workspace(workspace).SessionID(sessionID).Client(client).
 		Agent(agent).Kind(kind).From(from).To(to).Offset(offset).
 		FailuresOnly(failuresOnly).Build()
-	return d.searchFullByPersistedAuthority(ctx, criteria)
+	return d.searchFullByCanonicalMembership(ctx, criteria)
 }
 
 // GetContext returns events matching the requested context in descending

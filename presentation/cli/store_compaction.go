@@ -31,14 +31,10 @@ func (c *RootCLI) newStoreCompactionCommand() *cobra.Command {
 		output            string
 		retentionPlan     bool
 		retentionApply    bool
-		projectionRebuild bool
-		projectionAbort   bool
 		planPath          string
 		confirmPlanID     string
 		fileRetention     storeFileRetentionPlanInput
-		projectionBudget  storeProjectionBudgetInput
 	)
-	projectionBudget = defaultStoreProjectionBudgetInput()
 	fileRetention.archiveMaxCount = -1
 	fileRetention.archiveMaxBytes = -1
 	fileRetention.backupMaxCount = -1
@@ -49,8 +45,8 @@ func (c *RootCLI) newStoreCompactionCommand() *cobra.Command {
 		Use:   "compact",
 		Short: Localize("Rewrite the store, or archive / retain on-disk artifacts with absorb flags", "ストアを書き換える。absorb flag で archive / ディスク上 artifact 保持も行う"),
 		Long: Localize(
-			"Rewrite the store, dropping reclaimable bodies and retired indexes. Pass --archive to export GC-eligible rows (former store archive create). Pass --archive-verify / --archive-restore for an existing package. Pass --retention-plan / --retention-apply for on-disk archive and backup file retention (former store retention files). Pass --projection-rebuild / --projection-abort for search-projection lifecycle (former store search-projection start/abort).",
-			"ストアを書き換え、回収できる本文と退役済み index を落とします。--archive で GC 適格行を export します（旧 store archive create）。既存 package は --archive-verify / --archive-restore。ディスク上の archive / backup 保持は --retention-plan / --retention-apply（旧 store retention files）。search-projection の世代操作は --projection-rebuild / --projection-abort（旧 store search-projection start/abort）。",
+			"Rewrite the store, dropping reclaimable bodies and retired indexes. Pass --archive to export GC-eligible rows (former store archive create). Pass --archive-verify / --archive-restore for an existing package. Pass --retention-plan / --retention-apply for on-disk archive and backup file retention (former store retention files).",
+			"ストアを書き換え、回収できる本文と退役済み index を落とします。--archive で GC 適格行を export します（旧 store archive create）。既存 package は --archive-verify / --archive-restore。ディスク上の archive / backup 保持は --retention-plan / --retention-apply（旧 store retention files）。",
 		),
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -71,12 +67,9 @@ func (c *RootCLI) newStoreCompactionCommand() *cobra.Command {
 				output:             output,
 				retentionPlan:      retentionPlan,
 				retentionApply:     retentionApply,
-				projectionRebuild:  projectionRebuild,
-				projectionAbort:    projectionAbort,
 				planPath:           planPath,
 				confirmPlanID:      confirmPlanID,
 				fileRetention:      fileRetention,
-				projectionBudget:   projectionBudget,
 				refuseUnrefinedSet: cmd.Flags().Changed("refuse-unrefined"),
 				workDirSet:         cmd.Flags().Changed("work-dir"),
 				targetSet:          cmd.Flags().Changed("target"),
@@ -112,17 +105,7 @@ func (c *RootCLI) newStoreCompactionCommand() *cobra.Command {
 	cmd.Flags().IntVar(&fileRetention.backupMaxCount, "backup-max-count", -1, Localize("with --retention-plan, maximum backup count", "--retention-plan 時の backup 最大件数"))
 	cmd.Flags().Int64Var(&fileRetention.backupMaxBytes, "backup-max-allocated-bytes", -1, Localize("with --retention-plan, maximum allocated backup bytes", "--retention-plan 時の backup 最大割り当て byte 数"))
 	cmd.Flags().DurationVar(&fileRetention.expiresAfter, "expires-after", time.Hour, Localize("with --retention-plan, plan validity duration", "--retention-plan 時の plan 有効期間"))
-	cmd.Flags().BoolVar(&projectionRebuild, "projection-rebuild", false, Localize("start a new search-projection generation (former store search-projection start); resume a rebuilding or drifted/cleanup generation when the live hash matches, otherwise replace it. Start/replace print generation JSON; matching resume prints run-result JSON. Branch on result_kind (generation|run); do not sniff fields", "新しい search-projection 世代を開始する（旧 store search-projection start）。rebuilding または drifted/cleanup で live hash が一致すれば resume、異なれば置き換える。start/置き換えは generation JSON、一致 resume は run-result JSON。分岐は result_kind（generation|run）。フィールド推測はしない"))
-	cmd.Flags().BoolVar(&projectionAbort, "projection-abort", false, Localize("abandon an incomplete search-projection generation (former store search-projection abort)", "未完了の search-projection 世代を破棄する（旧 store search-projection abort）"))
-	cmd.Flags().IntVar(&projectionBudget.rows, "rows", projectionBudget.rows, Localize("with --projection-rebuild, maximum source rows per batch", "--projection-rebuild 時のバッチあたり最大 source 行数"))
-	cmd.Flags().DurationVar(&projectionBudget.wall, "wall-time", projectionBudget.wall, Localize("with --projection-rebuild, maximum total batch duration", "--projection-rebuild 時のバッチ合計時間上限"))
-	cmd.Flags().DurationVar(&projectionBudget.lock, "lock-time", projectionBudget.lock, Localize("with --projection-rebuild, maximum write-lock duration", "--projection-rebuild 時の write-lock 時間上限"))
-	cmd.Flags().Int64Var(&projectionBudget.stored, "stored-bytes", projectionBudget.stored, Localize("with --projection-rebuild, maximum stored source bytes", "--projection-rebuild 時の格納 source バイト上限"))
-	cmd.Flags().Int64Var(&projectionBudget.decoded, "decoded-bytes", projectionBudget.decoded, Localize("with --projection-rebuild, maximum decoded source bytes", "--projection-rebuild 時の復号 source バイト上限"))
-	cmd.Flags().Int64Var(&projectionBudget.written, "write-bytes", projectionBudget.written, Localize("with --projection-rebuild, maximum logical write bytes", "--projection-rebuild 時の論理 write バイト上限"))
-	cmd.Flags().DurationVar(&projectionBudget.recentAge, "recent-age", projectionBudget.recentAge, Localize("with --projection-rebuild, recent projection age", "--projection-rebuild 時の recent projection 保持期間"))
-	cmd.Flags().Int64Var(&projectionBudget.indexFamilyBytes, "index-family-bytes", projectionBudget.indexFamilyBytes, Localize("steady-state physical byte target for one completed search-index family after cleanup; not a rebuild-peak cap (two generations plus FTS delete postings can exceed it)", "cleanup 後に完成した search-index family 1 本の定常時物理バイト目標。rebuild ピーク上限ではない（2 世代 + FTS delete postings は超え得る）"))
-	cmd.MarkFlagsMutuallyExclusive("archive", "archive-verify", "archive-restore", "retention-plan", "retention-apply", "projection-rebuild", "projection-abort")
+	cmd.MarkFlagsMutuallyExclusive("archive", "archive-verify", "archive-restore", "retention-plan", "retention-apply")
 	cmd.AddCommand(c.newStoreCompactionRollbackCommand())
 	return cmd
 }
@@ -142,12 +125,9 @@ type storeCompactInput struct {
 	output             string
 	retentionPlan      bool
 	retentionApply     bool
-	projectionRebuild  bool
-	projectionAbort    bool
 	planPath           string
 	confirmPlanID      string
 	fileRetention      storeFileRetentionPlanInput
-	projectionBudget   storeProjectionBudgetInput
 	refuseUnrefinedSet bool
 	workDirSet         bool
 	targetSet          bool
@@ -156,11 +136,11 @@ type storeCompactInput struct {
 }
 
 func (c *RootCLI) runStoreCompact(cmd *cobra.Command, input storeCompactInput) error {
-	absorb := input.archive || input.archiveVerify != "" || input.archiveRestore != "" || input.retentionPlan || input.retentionApply || input.projectionRebuild || input.projectionAbort
+	absorb := input.archive || input.archiveVerify != "" || input.archiveRestore != "" || input.retentionPlan || input.retentionApply
 	if absorb && (input.refuseUnrefinedSet || input.workDirSet) {
 		return xerrors.New(Localize(
-			"--refuse-unrefined/--work-dir cannot be combined with --archive/--archive-verify/--archive-restore/--retention-plan/--retention-apply/--projection-rebuild/--projection-abort",
-			"--refuse-unrefined/--work-dir は --archive / --archive-verify / --archive-restore / --retention-plan / --retention-apply / --projection-rebuild / --projection-abort と同時に使えません",
+			"--refuse-unrefined/--work-dir cannot be combined with --archive/--archive-verify/--archive-restore/--retention-plan/--retention-apply",
+			"--refuse-unrefined/--work-dir は --archive / --archive-verify / --archive-restore / --retention-plan / --retention-apply と同時に使えません",
 		))
 	}
 	if !input.archive && (input.deleteAfterSet || input.targetSet) {
@@ -218,20 +198,6 @@ func (c *RootCLI) runStoreCompact(cmd *cobra.Command, input storeCompactInput) e
 			planPath:        input.planPath,
 			confirmedPlanID: input.confirmPlanID,
 		})
-	}
-	if input.projectionRebuild || input.projectionAbort {
-		if cmd.Flags().Changed("db-path") {
-			return xerrors.New(Localize(
-				"--db-path cannot be combined with --projection-rebuild/--projection-abort; those flags use the process default store",
-				"--db-path は --projection-rebuild / --projection-abort と同時に使えません。これらの flag はプロセス既定ストアを対象にします",
-			))
-		}
-	}
-	if input.projectionRebuild {
-		return c.runStoreSearchProjectionRebuild(cmd.Context(), cmd.OutOrStdout(), input.projectionBudget.budget())
-	}
-	if input.projectionAbort {
-		return c.runStoreSearchProjectionAbort(cmd.Context(), cmd.OutOrStdout())
 	}
 
 	resolved, service, err := c.compactionFor(input.path)
@@ -356,16 +322,6 @@ func validateStoreCompactAbsorbFlags(cmd *cobra.Command, input storeCompactInput
 		return xerrors.New(Localize(
 			"file-retention ceiling flags require --retention-plan",
 			"file-retention の上限 flag には --retention-plan が必要です",
-		))
-	}
-	if changed(
-		"rows", "wall-time", "lock-time",
-		"stored-bytes", "decoded-bytes", "write-bytes",
-		"recent-age", "index-family-bytes",
-	) && !input.projectionRebuild {
-		return xerrors.New(Localize(
-			"search-projection budget flags require --projection-rebuild",
-			"search-projection の budget flag には --projection-rebuild が必要です",
 		))
 	}
 	return nil

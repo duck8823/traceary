@@ -75,6 +75,10 @@ func (v PreparedMigrationVerifier) VerifyUpgradePair(ctx context.Context, source
 			if err = verifyDropRetiredTable(ctx, sourceDB, candidateDB); err != nil {
 				return domain.PreparedCandidateEvidence{}, err
 			}
+		case SemanticVerifierDropSearchProjectionFamily:
+			if err = verifyDropSearchProjectionFamily(ctx, sourceDB, candidateDB); err != nil {
+				return domain.PreparedCandidateEvidence{}, err
+			}
 		}
 	}
 	return evidence, nil

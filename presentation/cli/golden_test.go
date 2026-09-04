@@ -166,8 +166,14 @@ func TestCoreReadJSONGoldens(t *testing.T) {
 		stdout := executeGoldenCommandWithOptions(t, []string{
 			"search", "--db-path", "/tmp/test-traceary.db", "--workspace", "duck8823/traceary", "--json", "golden",
 		},
-			cli.WithEvent(&eventUsecaseStub{searchEvents: events[:1]}),
-			cli.WithProjectionSessionSearch(&projectionSessionSearchStub{hits: []apptypes.SearchSessionHit{sessionHit}}),
+			cli.WithTwoTierSearch(&twoTierSearchStub{
+				page: apptypes.TwoTierSearchPageOf(
+					[]apptypes.SearchEventHit{apptypes.SearchEventHitOf(events[0], apptypes.SearchHitTierFallback)},
+					[]apptypes.SearchSessionHit{sessionHit},
+					apptypes.RefinementDispositionApplied,
+					0,
+				),
+			}),
 		)
 		assertJSONGolden(t, stdout, filepath.Join("testdata", "search", "event_and_session.golden.json"))
 	})

@@ -212,12 +212,6 @@ func (c *RootCLI) runDoctor(ctx context.Context, output io.Writer, input doctorC
 		if fixLog, recorded := c.applyAuthorizedStoreInit(ctx, input); recorded {
 			authorizedFixes = append(authorizedFixes, fixLog)
 		}
-		if fixLog, recorded := c.applySearchProjectionTerminalReclaim(ctx, input); recorded {
-			authorizedFixes = append(authorizedFixes, fixLog)
-		}
-		if fixLog, recorded := c.applySearchProjectionRecovery(ctx, input); recorded {
-			authorizedFixes = append(authorizedFixes, fixLog)
-		}
 	}
 
 	report, err := c.buildDoctorReport(ctx, input)
@@ -389,12 +383,11 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		report.Checks = append(report.Checks, inspectTracearyOnPath())
 		report.Checks = append(report.Checks, inspectStaleTracearyProcesses(input.currentVersion, time.Now()))
 		report.Checks = append(report.Checks, boundedLargeStoreDoctorCheck(snapshot, resolvedDBPath, pageErr == nil))
-		report.Checks = append(report.Checks, largeStoreProjectionGenerationCheck(pageMeta, pageErr))
 		if c.attestationAnchorInspector != nil {
 			report.Checks = append(report.Checks, c.inspectAttestationAnchor(ctx, resolvedDBPath, false))
 		}
 		// This is an intentional, successful bounded outcome. SQLite opens
-		// are the O(1) mode=ro pragma + projection-state read, the
+		// are the O(1) mode=ro pragma read, the
 		// session-id keyed ended-session probe behind the hook-cancellation
 		// check (#2235), and the 7-day consolidation-conversion aggregate
 		// (#2305). Do not initialize, list events, open spool payloads,
@@ -462,9 +455,6 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 			Status:  doctorStatusPass,
 			Message: localizef("initialized SQLite store: %s", "SQLite ストアを初期化しました: %s", resolvedDBPath),
 		})
-		report.Checks = append(report.Checks, c.inspectSearchProjectionBudget(ctx))
-		report.Checks = append(report.Checks, c.inspectSearchProjectionParked(ctx))
-		report.Checks = append(report.Checks, c.inspectSearchProjectionTerminalRows(ctx))
 		report.Checks = append(report.Checks, c.inspectDedupeArchiveRuns(ctx))
 		report.Checks = append(report.Checks, c.inspectStaleActiveSessions(ctx))
 		report.Checks = append(report.Checks, c.inspectArchiveRetention(ctx, resolvedDBPath))

@@ -4,14 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"strings"
 
 	"golang.org/x/xerrors"
 
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
-	"github.com/duck8823/traceary/domain/types"
 )
 
 const hydrateEventSearchCandidatesQuery = `
@@ -43,44 +41,6 @@ type eventSearchQueryer interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }
 
-// searchProjectionReadReady reports whether the bounded search projection is
-// complete with a published active generation. Session-tier search uses this
-// to decide whether projection session rows may be returned.
-func searchProjectionReadReady(ctx context.Context, queryer eventSearchQueryer) (bool, error) {
-	var state string
-	var activeGenerationID sql.NullString
-	err := queryer.QueryRowContext(ctx, `
-		SELECT state, active_generation_id
-		  FROM search_projection_state
-		 WHERE singleton = 1`,
-	).Scan(&state, &activeGenerationID)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return false, nil
-		}
-		// Missing table on pre-038 stores is treated as not ready.
-		if isMissingSQLiteObject(err) {
-			return false, nil
-		}
-		return false, xerrors.Errorf("failed to read search projection state: %w", err)
-	}
-	if state != "complete" {
-		return false, nil
-	}
-	if !activeGenerationID.Valid {
-		return false, nil
-	}
-	return strings.TrimSpace(activeGenerationID.String) != "", nil
-}
-
-func isMissingSQLiteObject(err error) bool {
-	if err == nil {
-		return false
-	}
-	message := strings.ToLower(err.Error())
-	return strings.Contains(message, "no such table") || strings.Contains(message, "no such column")
-}
-
 func queryStructuralEventIDs(
 	ctx context.Context,
 	queryer eventSearchQueryer,
@@ -96,52 +56,6 @@ func queryStructuralEventIDs(
 	appendEventSearchOrderAndPage(&builder, criteria)
 	args = appendEventSearchPageArgs(args, criteria)
 	return collectEventSearchIDs(ctx, queryer, builder.String(), args, "structural event search")
-}
-
-func decodedEventSearchMatch(
-	ctx context.Context,
-	queryer eventSearchQueryer,
-	eventID string,
-	queryValue string,
-) (bool, error) {
-	var availability string
-	if err := queryer.QueryRowContext(ctx, `SELECT body_availability FROM events WHERE id=?`, eventID).Scan(&availability); err != nil {
-		return false, xerrors.Errorf("read event search body availability: %w", err)
-	}
-	parts := make([]string, 0, 4)
-	if availability != "unavailable_retention" {
-		body, err := loadEventPlaintext(ctx, queryer, eventID)
-		if err != nil {
-			return false, xerrors.Errorf("decode event search body: %w", err)
-		}
-		visible, _ := visibleEventBody(string(body), types.BodyAvailability(availability))
-		parts = append(parts, visible)
-	}
-	for _, column := range []string{"command", "input", "output"} {
-		value, err := hydrateAuditPayload(ctx, queryer, eventID, column)
-		if err != nil {
-			return false, err
-		}
-		if value.Valid {
-			parts = append(parts, value.String)
-		}
-	}
-	needle := foldSearchASCII(queryValue)
-	for _, part := range parts {
-		if strings.Contains(foldSearchASCII(part), needle) {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
-func foldSearchASCII(value string) string {
-	return strings.Map(func(r rune) rune {
-		if r >= 'A' && r <= 'Z' {
-			return r + ('a' - 'A')
-		}
-		return r
-	}, value)
 }
 
 func appendEventSearchFilters(
@@ -227,19 +141,6 @@ func collectEventSearchIDs(
 		return nil, xerrors.Errorf("failed to iterate %s candidates: %w", operation, err)
 	}
 	return ids, nil
-}
-
-// eventSearchFTSPhrase quotes a query for FTS5 MATCH against projection FTS
-// tables (trigram, ASCII-folded). Kept as a package helper for rebuild tests
-// and any remaining projection MATCH probes.
-func eventSearchFTSPhrase(query string) string {
-	lowerASCII := strings.Map(func(r rune) rune {
-		if r >= 'A' && r <= 'Z' {
-			return r + ('a' - 'A')
-		}
-		return r
-	}, strings.TrimSpace(query))
-	return `"` + strings.ReplaceAll(lowerASCII, `"`, `""`) + `"`
 }
 
 func marshalEventSearchCandidateIDs(ids []string) (string, error) {

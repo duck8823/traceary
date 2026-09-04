@@ -142,7 +142,7 @@ func measureCalibrateCorpus(ctx context.Context, path string, kind corpusKind, r
 		Kind:                      string(kind),
 		Rows:                      rows,
 		SearchAmplificationStatus: "unmeasured",
-		SearchAmplificationReason: "no completed search-projection generation; deriveSearchProjectionCapacity needs >= 8 MiB of recent-tier sample",
+		SearchAmplificationReason: "recent index family is no longer stored",
 	}
 	if info, err := os.Stat(path); err == nil {
 		row.ResidentBytes = info.Size()

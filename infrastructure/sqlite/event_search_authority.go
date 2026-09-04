@@ -3,13 +3,10 @@ package sqlite
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"strings"
 
 	"golang.org/x/xerrors"
 
-	"github.com/duck8823/traceary/application/queryservice"
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
 )
@@ -34,36 +31,29 @@ func validateSearchCriteriaForAuthority(criteria apptypes.EventSearchCriteria) e
 	return nil
 }
 
-// searchMetadataByPersistedAuthority is the shared search boundary for full,
-// metadata, and bounded normal search surfaces. The tiered path is the only
-// reader; the migration-032 family is never consulted.
-func (d *EventDatasource) searchMetadataByPersistedAuthority(ctx context.Context, criteria apptypes.EventSearchCriteria) ([]apptypes.EventMetadata, error) {
-	db, tx, err := d.beginEventProjectionRead(ctx, "persisted search")
+func (d *EventDatasource) searchMetadataByCanonicalMembership(ctx context.Context, criteria apptypes.EventSearchCriteria) ([]apptypes.EventMetadata, error) {
+	db, tx, err := d.beginEventProjectionRead(ctx, "canonical search")
 	if err != nil {
 		return nil, err
 	}
 	defer closeEventProjectionRead(db, tx)
-	metadata, err := d.searchMetadataByPersistedAuthorityTx(ctx, tx, criteria)
+	metadata, err := searchMetadataByCanonicalMembershipTx(ctx, tx, criteria)
 	if err != nil {
 		return nil, err
 	}
 	if err = tx.Commit(); err != nil {
-		return nil, xerrors.Errorf("finish persisted search: %w", err)
+		return nil, xerrors.Errorf("finish canonical search: %w", err)
 	}
 	return metadata, nil
 }
 
-func (d *EventDatasource) searchMetadataByPersistedAuthorityTx(ctx context.Context, tx *sql.Tx, criteria apptypes.EventSearchCriteria) ([]apptypes.EventMetadata, error) {
-	return d.searchTieredMetadataTx(ctx, tx, criteria)
-}
-
-func (d *EventDatasource) searchFullByPersistedAuthority(ctx context.Context, criteria apptypes.EventSearchCriteria) ([]*model.Event, error) {
-	db, tx, err := d.beginEventProjectionRead(ctx, "full persisted search")
+func (d *EventDatasource) searchFullByCanonicalMembership(ctx context.Context, criteria apptypes.EventSearchCriteria) ([]*model.Event, error) {
+	db, tx, err := d.beginEventProjectionRead(ctx, "full canonical search")
 	if err != nil {
 		return nil, err
 	}
 	defer closeEventProjectionRead(db, tx)
-	metadata, err := d.searchTieredMetadataTx(ctx, tx, criteria)
+	metadata, err := searchMetadataByCanonicalMembershipTx(ctx, tx, criteria)
 	if err != nil {
 		return nil, err
 	}
@@ -72,292 +62,36 @@ func (d *EventDatasource) searchFullByPersistedAuthority(ctx context.Context, cr
 		return nil, err
 	}
 	if err = tx.Commit(); err != nil {
-		return nil, xerrors.Errorf("finish full persisted search: %w", err)
+		return nil, xerrors.Errorf("finish full canonical search: %w", err)
 	}
 	return events, nil
 }
 
-func (d *EventDatasource) searchTieredMetadataTx(ctx context.Context, tx *sql.Tx, criteria apptypes.EventSearchCriteria) ([]apptypes.EventMetadata, error) {
-	// Shared criteria sanity (offset, limit, from/to, page window) is not a
-	// projection-coherence check. Structural empty-query searches still refuse
-	// these; they must not refuse because the literal generation is unusable.
+func searchMetadataByCanonicalMembershipTx(ctx context.Context, tx eventSearchQueryer, criteria apptypes.EventSearchCriteria) ([]apptypes.EventMetadata, error) {
 	if err := validateSearchCriteriaForAuthority(criteria); err != nil {
 		return nil, err
 	}
-	// Empty queries are structural-only searches. They filter workspace,
-	// session, kind, and time on canonical tables and never read
-	// literal_search_fingerprints or search_projection_source_sequence, so
-	// they are answered before projection state is even consulted.
+	candidateIDs, err := queryCanonicalSearchEventIDs(ctx, tx, criteria)
+	if err != nil {
+		return nil, err
+	}
+	return hydrateEventSearchMetadataCandidates(ctx, tx, criteria, candidateIDs)
+}
+
+func queryCanonicalSearchEventIDs(ctx context.Context, queryer eventSearchQueryer, criteria apptypes.EventSearchCriteria) ([]string, error) {
 	if strings.TrimSpace(criteria.Query()) == "" {
-		candidateIDs, queryErr := queryStructuralEventIDs(ctx, tx, criteria)
-		if queryErr != nil {
-			return nil, queryErr
-		}
-		return hydrateEventSearchMetadataCandidates(ctx, tx, criteria, candidateIDs)
+		return queryStructuralEventIDs(ctx, queryer, criteria)
 	}
-	generation, err := usableLiteralFingerprintGeneration(ctx, tx)
+	phrase := apptypes.SearchPhraseOf(criteria.Query())
+	hits, _, err := scanTwoTierFallback(ctx, queryer, criteria, phrase, nil, false)
 	if err != nil {
 		return nil, err
 	}
-	return d.searchTieredTopKMetadataTx(ctx, tx, criteria, generation)
-}
-
-// usableLiteralFingerprintGeneration reports the generation whose fingerprints
-// may be trusted as a pre-filter, or "" when none may be.
-//
-// There is no projection state in which the tiered path cannot answer. The
-// walk below decides every candidate by decoding it; fingerprints only let it
-// skip decoding rows they prove cannot match. So an unusable projection costs
-// work, not correctness, and this returns "" rather than refusing.
-//
-// The conditions are the ones a coherent, finished generation satisfies.
-// Literal 'stale' is included because migration 039 flips it on every
-// events/command_audits write, including ordinary appends whose absent
-// fingerprints already fail open. Mutation of an already-projected row is
-// caught by the bounded side instead: the search_projection_complete_*
-// triggers set bounded state='drifted' and clear active_generation_id, so
-// such a generation stops being usable here and the walk decodes live content.
-//
-// A rebuild in source or eviction may still use the previous complete
-// generation. Start only repoints the literal singleton
-// (search_projection_rebuild.go:227); fingerprint writes are additive inserts
-// keyed by generation; old-generation rows are removed only in the new
-// generation's cleanup phase. active_generation_id still names the previous
-// complete generation until the new one finishes.
-//
-// Those rows are safe only while cleanup has not started (phase is the
-// official leftover-delete gate) and no canonical mutation has landed since
-// Start copied search_projection_source_revision onto
-// search_projection_state.source_revision. Rebuild-time 038/050/063 triggers
-// increment the global revision for decoder-column updates and inventoried
-// membership inserts; a mismatch drops back to the decode-bound walk.
-func usableLiteralFingerprintGeneration(ctx context.Context, tx *sql.Tx) (string, error) {
-	var literalState, literalGeneration, boundedState, activeGeneration, boundedPhase string
-	var stateRevision int64
-	if err := tx.QueryRowContext(ctx, `SELECT generation_id,state FROM literal_search_projection_state WHERE singleton=1`).Scan(&literalGeneration, &literalState); err != nil {
-		return "", xerrors.Errorf("read tiered authority projection state: %w", err)
+	start := min(criteria.Offset(), len(hits))
+	end := min(start+criteria.Limit(), len(hits))
+	ids := make([]string, 0, end-start)
+	for _, hit := range hits[start:end] {
+		ids = append(ids, hit.eventID)
 	}
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(active_generation_id,''),state,phase,source_revision FROM search_projection_state WHERE singleton=1`).Scan(&activeGeneration, &boundedState, &boundedPhase, &stateRevision); err != nil {
-		return "", xerrors.Errorf("read tiered authority projection state: %w", err)
-	}
-	literalReady := literalState == "complete" || literalState == "stale"
-	if literalReady && boundedState == "complete" && literalGeneration != "" && literalGeneration == activeGeneration {
-		return literalGeneration, nil
-	}
-	if boundedState != "rebuilding" || (boundedPhase != "source" && boundedPhase != "eviction") || activeGeneration == "" || activeGeneration == literalGeneration {
-		return "", nil
-	}
-	var lifecycle string
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE((SELECT state FROM search_projection_generation_lifecycle WHERE generation_id=?),'')`, activeGeneration).Scan(&lifecycle); err != nil {
-		return "", xerrors.Errorf("read tiered authority previous generation lifecycle: %w", err)
-	}
-	if lifecycle != "complete" {
-		return "", nil
-	}
-	var globalRevision int64
-	if err := tx.QueryRowContext(ctx, `SELECT revision FROM search_projection_source_revision WHERE singleton=1`).Scan(&globalRevision); err != nil {
-		return "", xerrors.Errorf("read tiered authority source revision: %w", err)
-	}
-	if globalRevision != stateRevision {
-		return "", nil
-	}
-	return activeGeneration, nil
-}
-
-// searchTieredTopKMetadataTx separates the source-work budget from the public
-// result limit. Candidates are visited in the public order across the full
-// source sequence (including rows appended after the generation completed), so
-// only offset+limit matches need to be retained; broad queries do not become
-// unavailable merely because more than the bounded window rows match.
-// Post-cutover rows are newest, so they are examined first and consume budget first.
-func (d *EventDatasource) searchTieredTopKMetadataTx(ctx context.Context, tx *sql.Tx, criteria apptypes.EventSearchCriteria, generation string) ([]apptypes.EventMetadata, error) {
-	if err := validateSearchCriteriaForAuthority(criteria); err != nil {
-		return nil, err
-	}
-	query := apptypes.CharacterizeLiteralQuery(criteria.Query())
-	omitFingerprintArm := false
-	if generation != "" && query.Filterable() {
-		impossible, probeErr := literalFingerprintANDImpossible(ctx, tx, generation, query.Fingerprints())
-		if probeErr != nil {
-			return nil, probeErr
-		}
-		omitFingerprintArm = impossible
-		if omitFingerprintArm {
-			tailExists, tailErr := literalPostCutoverTailExists(ctx, tx)
-			if tailErr != nil {
-				return nil, tailErr
-			}
-			if !tailExists {
-				// Inventoried rows cannot match, and there is no fail-open
-				// tail. Do not run the events-workspace nested loop SQLite
-				// chooses for `sequence > high_water` joined to events (#2178).
-				return nil, nil
-			}
-		}
-	}
-	candidateSQL, args := buildTieredSearchCandidateQuery(criteria, generation, omitFingerprintArm)
-	rows, err := tx.QueryContext(ctx, candidateSQL, args...)
-	if err != nil {
-		return nil, xerrors.Errorf("query ordered tiered candidates: %w", err)
-	}
-	defer func() { _ = rows.Close() }()
-	wanted := criteria.Offset() + criteria.Limit()
-	matched := make([]string, 0, wanted)
-	var examined int
-	var storedBytes, decodedBytes int64
-	for rows.Next() {
-		var id string
-		var stored, decoded int64
-		if err = rows.Scan(&id, &stored, &decoded); err != nil {
-			return nil, xerrors.Errorf("scan ordered tiered candidate: %w", err)
-		}
-		if examined == apptypes.DeepLiteralSearchBudget.SourceRows || storedBytes+stored > apptypes.DeepLiteralSearchBudget.StoredBytes || decodedBytes+decoded > apptypes.DeepLiteralSearchBudget.DecodedBytes {
-			return nil, &queryservice.EventSearchUnavailableError{Reason: queryservice.EventSearchUnavailableIndexIncomplete, CandidateLimit: apptypes.DeepLiteralSearchBudget.SourceRows}
-		}
-		examined++
-		storedBytes += stored
-		decodedBytes += decoded
-		ok, matchErr := decodedEventSearchMatch(ctx, tx, id, query.Canonical())
-		if matchErr != nil {
-			return nil, matchErr
-		}
-		if !ok {
-			continue
-		}
-		matched = append(matched, id)
-		if len(matched) == wanted {
-			break
-		}
-	}
-	if err = rows.Err(); err != nil {
-		return nil, xerrors.Errorf("iterate ordered tiered candidates: %w", err)
-	}
-	start := min(criteria.Offset(), len(matched))
-	return hydrateEventSearchMetadataCandidates(ctx, tx, criteria, matched[start:])
-}
-
-// literalFingerprintANDImpossible reports that the fingerprint AND cannot match
-// any inventoried row: at least one required 3-gram has no posting in this
-// generation. Fail-open stays the post-cutover tail.
-func literalFingerprintANDImpossible(ctx context.Context, tx *sql.Tx, generation string, fingerprints []string) (bool, error) {
-	if len(fingerprints) == 0 {
-		return true, nil
-	}
-	// One LIMIT 1 seek per required trigram, stop at the first miss. A
-	// COUNT/GROUP BY over the IN-list pays the common trigrams (mat/atc/tch)
-	// even when an earlier required trigram has zero postings (#2176).
-	for _, fingerprint := range fingerprints {
-		var present int
-		err := tx.QueryRowContext(ctx, `
-SELECT 1
-  FROM literal_search_fingerprints
- WHERE generation_id=? AND fingerprint_version=1 AND fingerprint=?
- LIMIT 1`, generation, []byte(fingerprint)).Scan(&present)
-		if errors.Is(err, sql.ErrNoRows) {
-			return true, nil
-		}
-		if err != nil {
-			return false, xerrors.Errorf("probe literal fingerprint posting: %w", err)
-		}
-	}
-	return false, nil
-}
-
-// literalPostCutoverTailExists reports whether any inventoried sequence is
-// newer than the frozen high_water. The seek is the INTEGER PRIMARY KEY range
-// `sequence > high_water`; an empty tail must not be discovered by walking
-// events.
-func literalPostCutoverTailExists(ctx context.Context, tx *sql.Tx) (bool, error) {
-	var present int
-	err := tx.QueryRowContext(ctx, `
-SELECT 1
-  FROM search_projection_source_sequence
- WHERE sequence > (SELECT high_water FROM search_projection_state WHERE singleton=1)
- LIMIT 1`).Scan(&present)
-	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
-	}
-	if err != nil {
-		return false, xerrors.Errorf("probe post-cutover search tail: %w", err)
-	}
-	return true, nil
-}
-
-// buildTieredSearchCandidateQuery composes the ordered candidate selection the
-// tiered search walk issues. The capacity benchmark measures the same SQL, so
-// it lives here rather than being transcribed there: a copy would drift the
-// moment either side changed, and a benchmark of SQL production no longer runs
-// measures nothing.
-func buildTieredSearchCandidateQuery(criteria apptypes.EventSearchCriteria, generation string, omitFingerprintArm bool) (string, []any) {
-	query := apptypes.CharacterizeLiteralQuery(criteria.Query())
-	var builder strings.Builder
-	const candidateSelect = `SELECT e.id,COALESCE(e.body_encoded_bytes,length(e.body),0)+COALESCE(a.command_encoded_bytes,length(a.command_text),0)+COALESCE(a.input_encoded_bytes,length(a.input_text),0)+COALESCE(a.output_encoded_bytes,length(a.output_text),0),COALESCE(e.body_plaintext_bytes,length(e.body),0)+COALESCE(a.command_plaintext_bytes,length(a.command_text),0)+COALESCE(a.input_plaintext_bytes,length(a.input_text),0)+COALESCE(a.output_plaintext_bytes,length(a.output_text),0)`
-	args := []any{}
-	// Filterable queries with a usable generation start from fingerprints
-	// plus the post-cutover tail (sequence > high_water). Inventoried rows
-	// without fingerprints are skipped: walking events or inventory to
-	// fail-open is O(history) even when those arms return empty. An empty
-	// generation or an unfilterable short query keeps the events walk.
-	// When a required trigram has no postings the AND cannot match; skip
-	// the IN/GROUP BY arm and keep only the tail (#2176).
-	if generation != "" && query.Filterable() {
-		builder.WriteString(candidateSelect)
-		if omitFingerprintArm {
-			// MATERIALIZED forces the PK range `sequence > high_water` to
-			// run first. Without it SQLite drives from the workspace
-			// created_at_norm index and probes the sequence unique index
-			// once per workspace event, which is O(history) when the tail
-			// is empty (#2178).
-			builder.WriteString(` FROM (
-  WITH tail AS MATERIALIZED (
-    SELECT q.event_id AS id
-      FROM search_projection_source_sequence q
-     WHERE q.sequence > (SELECT high_water FROM search_projection_state WHERE singleton=1)
-  )
-  SELECT id FROM tail
-) candidates
-JOIN events e ON e.id=candidates.id
-LEFT JOIN command_audits a ON a.event_id=e.id
-WHERE 1=1`)
-		} else {
-			fingerprints := query.Fingerprints()
-			builder.WriteString(` FROM (
-  SELECT fp.event_id AS id
-    FROM literal_search_fingerprints fp INDEXED BY idx_literal_search_fingerprints_by_fp
-   WHERE fp.generation_id=? AND fp.fingerprint_version=1 AND fp.fingerprint IN (`)
-			args = append(args, generation)
-			for i, fingerprint := range fingerprints {
-				if i > 0 {
-					builder.WriteByte(',')
-				}
-				builder.WriteByte('?')
-				args = append(args, []byte(fingerprint))
-			}
-			builder.WriteString(`)
-   GROUP BY fp.event_id
-  HAVING COUNT(DISTINCT fp.fingerprint)=?
-  UNION
-  SELECT q.event_id
-    FROM search_projection_source_sequence q
-   WHERE q.sequence > (SELECT high_water FROM search_projection_state WHERE singleton=1)
-) candidates
-JOIN events e ON e.id=candidates.id
-LEFT JOIN command_audits a ON a.event_id=e.id
-WHERE 1=1`)
-			args = append(args, len(fingerprints))
-		}
-	} else {
-		// The candidate set is events, not search_projection_source_sequence.
-		// That table is the projection's own checkpoint ledger: it is populated
-		// by the migration-038 insert trigger and, for rows that predate it,
-		// only by the rebuild's inventory phase. An upgraded store that has
-		// never completed a generation therefore has no sequence row for any
-		// of its history, and joining through it would drop that history.
-		builder.WriteString(candidateSelect)
-		builder.WriteString(` FROM events e LEFT JOIN command_audits a ON a.event_id=e.id WHERE 1=1`)
-	}
-	args = appendEventSearchFilters(&builder, args, criteria)
-	builder.WriteString(" ORDER BY e.created_at_norm DESC,e.id DESC LIMIT ?")
-	args = append(args, apptypes.DeepLiteralSearchBudget.SourceRows+1)
-	return builder.String(), args
+	return ids, nil
 }

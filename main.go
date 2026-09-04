@@ -222,7 +222,6 @@ func run() error {
 	rootCmd := cli.NewRootCLI(
 		cli.WithEvent(eventUsecase),
 		cli.WithEventMetadata(eventMetadataUsecase),
-		cli.WithProjectionSessionSearch(eventDatasource),
 		cli.WithTwoTierSearch(eventDatasource),
 		cli.WithReport(reportUsecase),
 		cli.WithCodexCaptureDiagnostic(codexCaptureDiagnosticUsecase),
@@ -256,7 +255,6 @@ func run() error {
 		cli.WithPayloadCodecInspector(sqlite.NewPayloadCodecInspector(db)),
 		cli.WithAttestationAnchorInspector(sqlite.NewAttestationAnchorInspector(db)),
 		cli.WithBodyCodecChecker(sqlite.NewBodyCodecChecker(db)),
-		cli.WithSearchProjection(usecase.NewSearchProjectionUsecase(db)),
 		cli.WithPreparedStoreUpgradeFactory(func(path string) application.PreparedStoreUpgradeUsecase {
 			journal := &sqlite.PreparedStoreUpgradeFileJournal{Dir: filepath.Join(filepath.Dir(path), ".traceary-upgrade")}
 			recipe := &sqlite.PreparedUpgradeMigrationRecipe{PreparedMigrationCandidateRecipe: sqlite.PreparedMigrationCandidateRecipe{
@@ -278,16 +276,6 @@ func run() error {
 			})
 			svc := usecase.NewStoreCompactionUsecase(path, journal, builder, sqlite.StoreReplacementFiles{CallerHoldsExclusiveLease: true}, sqlite.StoreLeaseCoordinator{})
 			usecase.BindCompactionWorkCover(svc, compactWorkCover(migrationsSubFS))
-			usecase.BindCompactionProjectionComplete(svc, func(ctx context.Context, store string) error {
-				previous := db.Path()
-				db.SetPath(store)
-				defer db.SetPath(previous)
-				projection := usecase.NewSearchProjectionUsecase(db)
-				if _, err := projection.ReclaimTerminalGenerations(ctx, apptypes.DefaultSearchProjectionBudget(), apptypes.SearchProjectionRunOptions{MaxBatches: 1 << 20, TotalWallTime: 10 * time.Minute}, time.Now()); err != nil {
-					return xerrors.Errorf("reclaim terminal search-projection generations: %w", err)
-				}
-				return projection.CompleteGeneration(ctx, apptypes.DefaultSearchProjectionBudget(), time.Now())
-			})
 			return svc
 		}),
 		cli.WithFileRetention(fileRetentionUsecase),

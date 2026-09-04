@@ -21,14 +21,14 @@ func TestCompactPlanThenStatusLeavesEmptyWALPair(t *testing.T) {
 
 	withoutPlan := prepareCompactPlanWALStore(t)
 	measureCompactPlanWALStep(t, withoutPlan, "after search-retire")
-	runSearchProjectionStatus(t, withoutPlan)
+	runReadOnlyPageMetadata(t, withoutPlan)
 	without := measureCompactPlanWALStep(t, withoutPlan, "status after search-retire")
 
 	withPlan := prepareCompactPlanWALStore(t)
 	measureCompactPlanWALStep(t, withPlan, "after search-retire")
 	runCompactPlan(t, withPlan)
 	afterPlan := measureCompactPlanWALStep(t, withPlan, "after compact plan")
-	runSearchProjectionStatus(t, withPlan)
+	runReadOnlyPageMetadata(t, withPlan)
 	with := measureCompactPlanWALStep(t, withPlan, "status after compact plan")
 
 	t.Logf("without_plan wal=%d shm=%d", without.wal, without.shm)
@@ -74,16 +74,15 @@ func prepareCompactPlanWALStore(t *testing.T) string {
 	if err := events.Save(ctx, event); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.RetireLegacySearchProjection(ctx); err != nil {
+	if _, err := store.RetireLegacySearchFamily(ctx); err != nil {
 		t.Fatal(err)
 	}
 	return path
 }
 
-func runSearchProjectionStatus(t *testing.T, path string) {
+func runReadOnlyPageMetadata(t *testing.T, path string) {
 	t.Helper()
-	store := NewDatabase(path, os.DirFS(filepath.Join("..", "..", "schema", "sqlite", "migrations")))
-	if _, err := store.SearchProjectionStatus(context.Background()); err != nil {
+	if _, err := NewPageMetadataInspector().InspectPageMetadata(context.Background(), path); err != nil {
 		t.Fatal(err)
 	}
 }

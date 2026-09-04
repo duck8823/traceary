@@ -43,33 +43,17 @@ func TestEventBoundedUsecase_ListLoadsBlocksOnlyForCanonicalUntruncatedRows(t *t
 	}
 }
 
-func TestEventBoundedUsecase_SearchAndContextNeverLoadCanonicalBodies(t *testing.T) {
+func TestEventBoundedUsecase_ContextNeverLoadCanonicalBodies(t *testing.T) {
 	t.Parallel()
 
 	canonical := boundedUsecaseEventFixture(t, "canonical", "visible", 7, true)
 	query := &eventBoundedQueryStub{
-		search:  []apptypes.BoundedEvent{canonical},
 		context: []apptypes.BoundedEvent{canonical},
 		canonicalBodies: map[types.EventID]string{
 			types.EventID("canonical"): `{"blocks":[{"type":"text","text":"visible"}]}`,
 		},
 	}
 	sut := usecase.NewEventBoundedUsecase(query)
-
-	searchCriteria := apptypes.NewEventSearchCriteriaBuilder(1).
-		Query("visible").
-		Kind(types.EventKind("audit")).
-		Build()
-	search, err := sut.Search(context.Background(), searchCriteria, 7)
-	if err != nil {
-		t.Fatalf("Search() error = %v", err)
-	}
-	if len(search) != 1 {
-		t.Fatalf("Search() len = %d, want 1", len(search))
-	}
-	if query.searchCriteria.Kind() != types.EventKindCommandExecuted {
-		t.Fatalf("SearchBounded() kind = %q, want command_executed", query.searchCriteria.Kind())
-	}
 
 	contextEvents, err := sut.Context(
 		context.Background(),
@@ -147,13 +131,11 @@ func TestEventBoundedUsecase_RejectsHydrationThatChangesCandidateOrder(t *testin
 
 type eventBoundedQueryStub struct {
 	list               []apptypes.BoundedEvent
-	search             []apptypes.BoundedEvent
 	context            []apptypes.BoundedEvent
 	hydrated           []apptypes.BoundedEvent
 	canonicalBodies    map[types.EventID]string
 	loadedCanonicalIDs []types.EventID
 	hydratedMetadata   []apptypes.EventMetadata
-	searchCriteria     apptypes.EventSearchCriteria
 	listCalls          int
 	hydrateCalls       int
 }
@@ -165,15 +147,6 @@ func (s *eventBoundedQueryStub) ListRecentBounded(
 ) ([]apptypes.BoundedEvent, error) {
 	s.listCalls++
 	return s.list, nil
-}
-
-func (s *eventBoundedQueryStub) SearchBounded(
-	_ context.Context,
-	criteria apptypes.EventSearchCriteria,
-	_ int,
-) ([]apptypes.BoundedEvent, error) {
-	s.searchCriteria = criteria
-	return s.search, nil
 }
 
 func (s *eventBoundedQueryStub) GetContextBounded(

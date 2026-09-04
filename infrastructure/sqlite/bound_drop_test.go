@@ -150,8 +150,8 @@ func TestApprovedDropRemovesTableAndKeepsObservationRuns(t *testing.T) {
 	if err = db.QueryRow(`SELECT minimum_reader_version FROM store_format_state WHERE singleton=1`).Scan(&minReader); err != nil {
 		t.Fatal(err)
 	}
-	if minReader != 35 {
-		t.Fatalf("minimum_reader_version = %d, want 35", minReader)
+	if minReader != 36 {
+		t.Fatalf("minimum_reader_version = %d, want 36", minReader)
 	}
 
 	usageJSON := reportUsageJSON(t, path, onDiskSQLiteMigrations(t))

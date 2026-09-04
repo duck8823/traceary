@@ -178,6 +178,10 @@ var preparedMigrationManifest = map[int64]migrationManifestEntry{
 	// 79 drops run_lineages after rebuilding usage_observation_runs without
 	// that FK. Cost is a table rebuild plus DROP; never applied at live open.
 	79: {79, "000079_drop_run_lineages.sql", "0f1a5caa404ec83b3788b406699aae06e3f938046a7eb83e5e582df906088c58", MigrationDataDependentOffline, ConservationLawBaseConserving, SemanticVerifierDropRetiredTable, "2317"},
+	// 80 drops the search projection family (13 tables + unread recent FTS)
+	// and its live events/command_audits triggers. Multi-GiB DROP + freelist
+	// churn must never run at open.
+	80: {80, "000080_drop_search_projection_family.sql", "93a4afe4048c4f3aff658bdce167989b617d808e0e65e692b608b826b7901278", MigrationDataDependentOffline, ConservationLawBaseConserving, SemanticVerifierDropSearchProjectionFamily, "2319"},
 }
 
 func conservationLawFor(version int64) ConservationLawID {

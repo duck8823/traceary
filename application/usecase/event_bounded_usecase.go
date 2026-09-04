@@ -16,8 +16,6 @@ type EventBoundedUsecase interface {
 	// List preserves list_events body_blocks compatibility through an explicit
 	// fallback only for canonical, available, response-untruncated rows.
 	List(ctx context.Context, criteria apptypes.EventListCriteria, bodyRuneLimit int) ([]apptypes.BoundedEvent, error)
-	// Search returns bounded visible text without canonical body-block fallback.
-	Search(ctx context.Context, criteria apptypes.EventSearchCriteria, bodyRuneLimit int) ([]apptypes.BoundedEvent, error)
 	// Context returns bounded visible text without canonical body-block fallback.
 	Context(ctx context.Context, criteria apptypes.EventContextCriteria, bodyRuneLimit int) ([]apptypes.BoundedEvent, error)
 	// HydrateList projects the exact metadata candidates selected by list_events
@@ -158,54 +156,6 @@ func (u *eventBoundedUsecase) attachCanonicalBodyBlocks(
 			return nil, xerrors.Errorf("failed to attach canonical body blocks for %s: %w", event.Metadata().EventID(), err)
 		}
 		events[index] = withBlocks
-	}
-	return events, nil
-}
-
-func (u *eventBoundedUsecase) Search(
-	ctx context.Context,
-	criteria apptypes.EventSearchCriteria,
-	bodyRuneLimit int,
-) ([]apptypes.BoundedEvent, error) {
-	if err := validateBoundedRead(u.query, bodyRuneLimit); err != nil {
-		return nil, err
-	}
-	if !hasSearchConstraint(criteria) {
-		return nil, xerrors.Errorf("at least one search filter is required")
-	}
-	if criteria.Limit() <= 0 {
-		return nil, xerrors.Errorf("limit must be greater than or equal to 1")
-	}
-	if criteria.Offset() < 0 {
-		return nil, xerrors.Errorf("offset must be greater than or equal to 0")
-	}
-	if !criteria.PageAnchor().IsZero() && criteria.Offset() != 0 {
-		return nil, xerrors.Errorf("event page anchor cannot be combined with offset")
-	}
-	if !criteria.From().IsZero() && !criteria.To().IsZero() && criteria.From().After(criteria.To()) {
-		return nil, xerrors.Errorf("from must be earlier than to")
-	}
-	resolvedKind, err := resolveOptionalSearchKind(criteria.Kind().String())
-	if err != nil {
-		return nil, err
-	}
-	resolvedCriteria := apptypes.NewEventSearchCriteriaBuilder(criteria.Limit()).
-		Query(criteria.Query()).
-		Workspace(criteria.Workspace()).
-		SessionID(criteria.SessionID()).
-		Client(criteria.Client()).
-		Agent(criteria.Agent()).
-		Kind(resolvedKind).
-		From(criteria.From()).
-		To(criteria.To()).
-		Offset(criteria.Offset()).
-		FailuresOnly(criteria.FailuresOnly()).
-		PageAnchor(criteria.PageAnchor()).
-		Build()
-
-	events, err := u.query.SearchBounded(ctx, resolvedCriteria, bodyRuneLimit)
-	if err != nil {
-		return nil, xerrors.Errorf("failed to search bounded events: %w", err)
 	}
 	return events, nil
 }

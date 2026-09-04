@@ -210,7 +210,7 @@ func (d *EventDatasource) SearchMetadata(
 	if err := validateSearchCriteriaForAuthority(criteria); err != nil {
 		return nil, err
 	}
-	return d.searchMetadataByPersistedAuthority(ctx, criteria)
+	return d.searchMetadataByCanonicalMembership(ctx, criteria)
 }
 
 // GetContextMetadata returns body-free context rows for a bounded event window.
