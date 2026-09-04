@@ -73,6 +73,26 @@ func TestPreparedManifestClassifies080AsOfflineBaseConservingWithNamedVerifier(t
 	}
 }
 
+func TestPreparedManifestClassifies081AsOfflineRestoreDedupeArchive(t *testing.T) {
+	t.Parallel()
+	entry, ok := preparedMigrationManifest[81]
+	if !ok {
+		t.Fatal("missing 081 manifest entry")
+	}
+	if entry.Class != MigrationDataDependentOffline {
+		t.Fatalf("class = %q, want data_dependent_offline", entry.Class)
+	}
+	if entry.ConservationLawID != ConservationLawRestoreDedupeArchive {
+		t.Fatalf("law = %q, want restore_dedupe_archive", entry.ConservationLawID)
+	}
+	if entry.SemanticVerifierID != SemanticVerifierDropDedupeArchive {
+		t.Fatalf("verifier = %q, want %q", entry.SemanticVerifierID, SemanticVerifierDropDedupeArchive)
+	}
+	if entry.OwnerIssue != "2324" {
+		t.Fatalf("owner = %q, want 2324", entry.OwnerIssue)
+	}
+}
+
 func TestBuildPreparedMigrationPlanClassifiesExactSuffix(t *testing.T) {
 	ctx := context.Background()
 	path := t.TempDir() + "/store.db"
@@ -88,7 +108,7 @@ func TestBuildPreparedMigrationPlanClassifiesExactSuffix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.Current != 34 || plan.Latest != 80 || len(plan.Pending) != 45 || !plan.Offline || len(plan.Digest) != 64 {
+	if plan.Current != 34 || plan.Latest != 81 || len(plan.Pending) != 46 || !plan.Offline || len(plan.Digest) != 64 {
 		t.Fatalf("plan = %+v", plan)
 	}
 	want := map[int64]MigrationExecutionClass{
@@ -137,6 +157,7 @@ func TestBuildPreparedMigrationPlanClassifiesExactSuffix(t *testing.T) {
 		78: MigrationDataDependentOffline,
 		79: MigrationDataDependentOffline,
 		80: MigrationDataDependentOffline,
+		81: MigrationDataDependentOffline,
 	}
 	for _, migration := range plan.Pending {
 		if migration.Class != want[migration.Version] {

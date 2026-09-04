@@ -32,7 +32,7 @@ var droppedSearchFamilyTables = []string{
 	"search_projection_recent_fts",
 }
 
-func verifyDropSearchProjectionFamily(ctx context.Context, sourceDB, candidateDB *sql.DB) error {
+func verifyDropSearchProjectionFamily(ctx context.Context, sourceDB, candidateDB *sql.DB, skipEvents bool) error {
 	for _, name := range droppedSearchFamilyTables {
 		exists, err := tableExists(ctx, candidateDB, name)
 		if err != nil {
@@ -53,13 +53,13 @@ func verifyDropSearchProjectionFamily(ctx context.Context, sourceDB, candidateDB
 	if err := candidateDB.QueryRowContext(ctx, `SELECT minimum_reader_version FROM store_format_state WHERE singleton = 1`).Scan(&minimumReader); err != nil {
 		return fmt.Errorf("read candidate minimum_reader_version: %w", err)
 	}
-	if minimumReader != droppedSearchFamilyReaderVersion {
-		return fmt.Errorf("candidate minimum_reader_version = %d, want %d", minimumReader, droppedSearchFamilyReaderVersion)
+	if minimumReader < droppedSearchFamilyReaderVersion {
+		return fmt.Errorf("candidate minimum_reader_version = %d, want at least %d", minimumReader, droppedSearchFamilyReaderVersion)
 	}
 	if err := verifyNoForeignKeysToDroppedSearchFamily(ctx, candidateDB); err != nil {
 		return err
 	}
-	if err := verifyFiveTableConservation(ctx, sourceDB, candidateDB); err != nil {
+	if err := verifyFiveTableConservation(ctx, sourceDB, candidateDB, skipEvents); err != nil {
 		return err
 	}
 	return verifyNoTriggerOrViewReferencesDroppedSearchFamily(ctx, candidateDB)

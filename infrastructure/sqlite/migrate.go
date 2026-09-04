@@ -146,6 +146,7 @@ func storeHasCanonicalSourceData(ctx context.Context, db *sql.DB) (bool, error) 
 		{"command_audits", `SELECT event_id FROM command_audits LIMIT 1`},
 		{"memories", `SELECT id FROM memories LIMIT 1`},
 		{"session_refinements", `SELECT session_id FROM session_refinements LIMIT 1`},
+		{"event_content_dedupe_archive", `SELECT id FROM event_content_dedupe_archive LIMIT 1`},
 	} {
 		var name string
 		err := db.QueryRowContext(ctx, `SELECT name FROM sqlite_master WHERE type='table' AND name=?`, probe.table).Scan(&name)

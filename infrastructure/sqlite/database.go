@@ -33,7 +33,7 @@ const sqlTimestampValidFunc = "ts_valid"
 const sqlPayloadDecodeFunc = "traceary_payload_decode"
 
 const (
-	currentReaderVersion        = 36
+	currentReaderVersion        = 37
 	maximumPayloadFormatVersion = 1
 )
 

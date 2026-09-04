@@ -80,7 +80,9 @@ func (v PreparedMigrationVerifier) VerifyPair(ctx context.Context, source, candi
 	if err != nil {
 		return domain.PreparedCandidateEvidence{}, err
 	}
-	if sourceCanonical != candidateCanonical {
+	// A pending restore_dedupe_archive law adds event rows by design. The
+	// Layer-1 law asserts the restore invariant; this digest would reject it.
+	if sourceCanonical != candidateCanonical && !pendingHasRestoreDedupeArchive(sourcePlan) {
 		return domain.PreparedCandidateEvidence{}, errors.New("candidate canonical event/audit evidence mismatch")
 	}
 	schema, err := schemaDigest(ctx, candidateDB)
