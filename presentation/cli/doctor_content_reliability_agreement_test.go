@@ -14,7 +14,6 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	apptypes "github.com/duck8823/traceary/application/types"
 	usecase "github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/types"
 	sqliteinfra "github.com/duck8823/traceary/infrastructure/sqlite"
@@ -23,16 +22,11 @@ import (
 
 var contentReliabilityCountsPattern = regexp.MustCompile(`duplicate_groups=(\d+) duplicate_records=(\d+)`)
 
-// TestRootCLI_DoctorContentReliability_AgreesWithDedupeDryRun pins #1701:
-// after the availability-filter identity change, doctor content-event-
-// reliability and StoreManagementUsecase.DedupeContentEvents dry-run must
-// agree on a store that mixes one genuine available duplicate pair with
-// retention-emptied rows that used to hash as a phantom group.
-//
-// This is availability-filter agreement only. It does not claim doctor List
-// hydrate failures or ledger/attested/audit-held rows agree with the
-// SQL-side eligibility filter; those are outside #1701.
-func TestRootCLI_DoctorContentReliability_AgreesWithDedupeDryRun(t *testing.T) {
+// TestRootCLI_DoctorContentReliability_ExcludesRetentionEmptiedRows pins
+// #1701's availability filter on the diagnostic itself: a genuine available
+// duplicate pair is reported, and retention-emptied rows that used to hash
+// as a phantom group are not. The retired content-dedupe dry-run is gone.
+func TestRootCLI_DoctorContentReliability_ExcludesRetentionEmptiedRows(t *testing.T) {
 	homeDir := t.TempDir()
 	t.Setenv("HOME", homeDir)
 	t.Setenv("TRACEARY_LANG", "en")
@@ -132,30 +126,10 @@ func TestRootCLI_DoctorContentReliability_AgreesWithDedupeDryRun(t *testing.T) {
 		t.Fatalf("parse duplicate_records: %v", err)
 	}
 
-	// Run the shipped repair dry-run against the same store.
-	result, err := storeUC.DedupeContentEvents(ctx, apptypes.ContentEventDedupeParams{})
-	if err != nil {
-		t.Fatalf("DedupeContentEvents(dry-run) error = %v", err)
+	if diagnosticGroups != 1 {
+		t.Fatalf("diagnostic reported %d duplicate group(s), want 1 genuine pair (no phantom retention groups)", diagnosticGroups)
 	}
-
-	if diagnosticGroups != len(result.Groups) {
-		t.Fatalf("diagnostic reported %d duplicate group(s), dry-run reported %d; want agreement (no phantom groups)", diagnosticGroups, len(result.Groups))
-	}
-	// duplicate_records counts every member of every duplicate group
-	// (canonical row included); MovedCount() counts only the rows the repair
-	// would archive (canonical excluded). The two are related by
-	// records = MovedCount() + groupCount, and this only holds when both
-	// sides agree on the same group membership — it breaks the moment either
-	// side counts a phantom group the other does not see.
-	wantRecords := result.MovedCount() + len(result.Groups)
-	if diagnosticRecords != wantRecords {
-		t.Fatalf("diagnostic duplicate_records = %d, want %d (dry-run MovedCount=%d + groups=%d)", diagnosticRecords, wantRecords, result.MovedCount(), len(result.Groups))
-	}
-	for _, group := range result.Groups {
-		for _, id := range group.DuplicateEventIDs {
-			if strings.HasPrefix(id, "evt-retention") {
-				t.Fatalf("dry-run selected retention-emptied row %s as a duplicate", id)
-			}
-		}
+	if diagnosticRecords != 2 {
+		t.Fatalf("diagnostic duplicate_records = %d, want 2 (canonical + duplicate of the genuine pair)", diagnosticRecords)
 	}
 }

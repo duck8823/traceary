@@ -75,8 +75,8 @@ func TestStoreOpen_NonEventStoreDoesNotApplyOfflineDrop(t *testing.T) {
 	if !errors.As(err, &required) {
 		t.Fatalf("Initialize() error = %v, want OfflineMigrationsRequiredError", err)
 	}
-	if len(required.Versions) == 0 || required.Versions[len(required.Versions)-1] != 80 {
-		t.Fatalf("pending versions = %v, want suffix 80", required.Versions)
+	if len(required.Versions) == 0 || required.Versions[len(required.Versions)-1] != 81 {
+		t.Fatalf("pending versions = %v, want suffix 81", required.Versions)
 	}
 	raw, err = sql.Open("sqlite", path)
 	if err != nil {

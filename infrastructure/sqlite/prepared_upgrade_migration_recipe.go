@@ -52,7 +52,27 @@ func (r *PreparedUpgradeMigrationRecipe) Build(ctx context.Context, request appl
 		}
 		return nil
 	}
+	r.beforeApply = nil
+	if err := r.bindDedupeArchiveRestore(ctx, request); err != nil {
+		return err
+	}
 	return r.PreparedMigrationCandidateRecipe.Build(ctx, request)
+}
+
+func (r *PreparedUpgradeMigrationRecipe) bindDedupeArchiveRestore(ctx context.Context, request application.PreparedCandidateRequest) error {
+	db, err := openDirectReadOnly(ctx, request.Run.SourcePath)
+	if err != nil {
+		return fmt.Errorf("open source to gate archive restore: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+	plan, err := BuildPreparedMigrationPlan(ctx, db, r.Migrations)
+	if err != nil {
+		return err
+	}
+	if pendingHasRestoreDedupeArchive(plan) {
+		r.beforeApply = restoreDedupeArchiveOrRefuse
+	}
+	return nil
 }
 
 // Verify reopens the candidate read-only and runs the two-layer verifier.

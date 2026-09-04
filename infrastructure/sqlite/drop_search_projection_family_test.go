@@ -80,7 +80,7 @@ func TestDropSearchProjectionFamily_OfflineCandidate(t *testing.T) {
 	assertSearchFamilyPresent(t, target, false)
 	assertDroppedTriggersAbsent(t, target)
 	assertEventMetadataProjectionPresent(t, target)
-	assertMinimumReaderVersion(t, target, 36)
+	assertMinimumReaderVersion(t, target, 37)
 	assertSchemaMigrationSuffix(t, target, 80, "000080_drop_search_projection_family.sql")
 	assertPostUpgradeWritesSucceed(t, target)
 }

@@ -369,22 +369,3 @@ func loadAttestedCommandPlaintext(ctx context.Context, q queryRowContexter, even
 	}
 	return createdAt, commandPlain, inputPlain, nil
 }
-
-func eventIsAttested(ctx context.Context, tx *sql.Tx, eventID string) (bool, error) {
-	enabled, err := tableExistsInTransaction(ctx, tx, "attestation_links")
-	if err != nil {
-		return false, err
-	}
-	if !enabled {
-		return false, nil
-	}
-	var exists int
-	if err := tx.QueryRowContext(
-		ctx,
-		`SELECT EXISTS(SELECT 1 FROM attestation_links WHERE event_id = ?)`,
-		eventID,
-	).Scan(&exists); err != nil {
-		return false, xerrors.Errorf("inspect attestation link for %s: %w", eventID, err)
-	}
-	return exists != 0, nil
-}

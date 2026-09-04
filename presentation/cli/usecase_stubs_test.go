@@ -795,18 +795,6 @@ type storeManagementUsecaseStub struct {
 	gcErr             error
 	gcCalled          bool
 	callLog           *[]string
-	dedupeResult      apptypes.ContentEventDedupeResult
-	dedupeErr         error
-	dedupeParams      []apptypes.ContentEventDedupeParams
-	restoreResult     apptypes.ContentEventDedupeRestoreResult
-	restoreRunErr     error
-	restoreRunIDs     []string
-	purgeResult       apptypes.ContentEventDedupePurgeResult
-	purgeErr          error
-	purgeRunIDs       []string
-	dedupeRuns        []apptypes.ContentEventDedupeRun
-	dedupeRunsErr     error
-	dedupeRunsCalls   int
 	staleResult       apptypes.CloseStaleSessionsResult
 	staleErr          error
 	staleCalls        []struct {
@@ -860,14 +848,6 @@ func (s *storeManagementUsecaseStub) CollectGarbage(_ context.Context, _ time.Ti
 	}
 	return s.gcResult, s.gcErr
 }
-func (s *storeManagementUsecaseStub) DedupeContentEvents(_ context.Context, params apptypes.ContentEventDedupeParams) (apptypes.ContentEventDedupeResult, error) {
-	s.dedupeParams = append(s.dedupeParams, params)
-	return s.dedupeResult, s.dedupeErr
-}
-func (s *storeManagementUsecaseStub) RestoreContentEventDedupeRun(_ context.Context, runID string) (apptypes.ContentEventDedupeRestoreResult, error) {
-	s.restoreRunIDs = append(s.restoreRunIDs, runID)
-	return s.restoreResult, s.restoreRunErr
-}
 func (s *storeManagementUsecaseStub) CreateStoreArchive(_ context.Context, params apptypes.StoreArchiveCreateParams) (apptypes.StoreArchiveResult, error) {
 	s.archiveCreateParams = params
 	if s.archiveCreateResult.Path == "" && params.OutputPath != "" {
@@ -896,14 +876,4 @@ func (s *storeManagementUsecaseStub) CloseStaleSessions(_ context.Context, stale
 		time.Sleep(s.staleDelay)
 	}
 	return s.staleResult, s.staleErr
-}
-
-func (s *storeManagementUsecaseStub) PurgeContentEventDedupeRun(_ context.Context, runID string) (apptypes.ContentEventDedupePurgeResult, error) {
-	s.purgeRunIDs = append(s.purgeRunIDs, runID)
-	return s.purgeResult, s.purgeErr
-}
-
-func (s *storeManagementUsecaseStub) ListContentEventDedupeRuns(_ context.Context) ([]apptypes.ContentEventDedupeRun, error) {
-	s.dedupeRunsCalls++
-	return s.dedupeRuns, s.dedupeRunsErr
 }

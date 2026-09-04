@@ -14,7 +14,6 @@ var doctorInspectCallCheckNames = map[string][]string{
 	"inspectTracearyOnPath":                {"path"},
 	"inspectStaleTracearyProcesses":        {"stale-processes"},
 	"inspectDoctorConfig":                  {"config"},
-	"inspectDedupeArchiveRuns":             {"dedupe-archive-runs"},
 	"inspectStaleActiveSessions":           {"stale-active-sessions"},
 	"inspectArchiveRetention":              {"archive-retention"},
 	"inspectOfflineMigrations":             {"offline-migrations"},

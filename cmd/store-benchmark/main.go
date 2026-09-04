@@ -543,21 +543,17 @@ func createSynthetic(ctx context.Context, path string, smallRows, largeRows int)
 		return fixtureInfo{}, err
 	}
 	const disposableRows = 1000
-	for index := 0; index < smallRows+disposableRows+largeRows; index++ {
+	for index := 0; index < smallRows+largeRows; index++ {
 		body := "synthetic-small"
 		if index == 0 {
 			body = "synthetic-needle"
 		}
-		idPrefix := "synthetic-keep"
-		if index >= smallRows && index < smallRows+disposableRows {
-			idPrefix = "synthetic-disposable"
-		}
-		if index >= smallRows+disposableRows {
+		if index >= smallRows {
 			body = strings.Repeat("L", 1<<20)
 		}
 		createdAt := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC).Add(time.Duration(index) * time.Millisecond).Format(time.RFC3339Nano)
 		codec, version, plaintextBytes, encodedBytes, digest := identityPayloadMetadata(body)
-		if _, err = stmt.ExecContext(ctx, fmt.Sprintf("%s-%09d", idPrefix, index), "synthetic-active", body, createdAt, codec, version, plaintextBytes, encodedBytes, digest); err != nil {
+		if _, err = stmt.ExecContext(ctx, fmt.Sprintf("synthetic-keep-%09d", index), "synthetic-active", body, createdAt, codec, version, plaintextBytes, encodedBytes, digest); err != nil {
 			return fixtureInfo{}, err
 		}
 	}
@@ -567,7 +563,18 @@ func createSynthetic(ctx context.Context, path string, smallRows, largeRows int)
 	if err = tx.Commit(); err != nil {
 		return fixtureInfo{}, err
 	}
-	if _, err = db.ExecContext(ctx, `DELETE FROM events WHERE id LIKE 'synthetic-disposable-%'`); err != nil {
+	// Freelist pages used to come from dropping synthetic event rows. That
+	// path is reserved for the Kimi transcript supersede; a scratch table
+	// creates the same freelist without deleting events rows.
+	if _, err = db.ExecContext(ctx, `CREATE TABLE synthetic_disposable(id TEXT PRIMARY KEY, body TEXT)`); err != nil {
+		return fixtureInfo{}, err
+	}
+	for index := 0; index < disposableRows; index++ {
+		if _, err = db.ExecContext(ctx, `INSERT INTO synthetic_disposable(id, body) VALUES(?, 'synthetic-small')`, fmt.Sprintf("synthetic-disposable-%09d", index)); err != nil {
+			return fixtureInfo{}, err
+		}
+	}
+	if _, err = db.ExecContext(ctx, `DELETE FROM synthetic_disposable; DROP TABLE synthetic_disposable`); err != nil {
 		return fixtureInfo{}, err
 	}
 	var free int64

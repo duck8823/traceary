@@ -70,6 +70,9 @@ func TestCompactCoversUnrefinedSessionsByDefault(t *testing.T) {
 	if got.DiscardedBodyBytes <= 0 {
 		t.Fatalf("DiscardedBodyBytes = %d, want > 0", got.DiscardedBodyBytes)
 	}
+	if _, ok := got.Steps.Find("dedupe_archive"); ok {
+		t.Fatal(`store compact still reports a "dedupe_archive" step`)
+	}
 	step, ok := got.Steps.Find(application.CompactStepMechanicalCover)
 	if !ok {
 		t.Fatal("mechanical_cover step missing")

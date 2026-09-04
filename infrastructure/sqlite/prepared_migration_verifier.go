@@ -80,8 +80,21 @@ func (v PreparedMigrationVerifier) VerifyPair(ctx context.Context, source, candi
 	if err != nil {
 		return domain.PreparedCandidateEvidence{}, err
 	}
+	// A pending restore with N>0 archive rows adds events by design. Empty
+	// archive (N=0) must still match the canonical digest, including identity
+	// columns such as kind. The Layer-1 law covers the N>0 restore invariant.
 	if sourceCanonical != candidateCanonical {
-		return domain.PreparedCandidateEvidence{}, errors.New("candidate canonical event/audit evidence mismatch")
+		restoring := pendingHasRestoreDedupeArchive(sourcePlan)
+		var archiveCount int64
+		if restoring {
+			archiveCount, _, err = sourceArchiveInventory(ctx, sourceDB)
+			if err != nil {
+				return domain.PreparedCandidateEvidence{}, err
+			}
+		}
+		if !restoring || archiveCount == 0 {
+			return domain.PreparedCandidateEvidence{}, errors.New("candidate canonical event/audit evidence mismatch")
+		}
 	}
 	schema, err := schemaDigest(ctx, candidateDB)
 	if err != nil {

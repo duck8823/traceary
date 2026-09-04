@@ -308,26 +308,13 @@ func verifyFilteredCandidate(ctx context.Context, sourceDB, candidateDB *sql.DB,
 			}
 		}
 	}
-	permittedDrops, err := permittedDedupeDrops(ctx, sourceDB)
-	if err != nil {
-		return err
-	}
 	for id := range sourceEvents {
 		if _, kept := candidateEvents[id]; kept {
 			continue
 		}
-		survivor, ok := permittedDrops[id]
-		if !ok {
-			return fmt.Errorf("candidate dropped unique event %s", id)
-		}
-		if _, stillThere := candidateEvents[survivor]; !stillThere {
-			return fmt.Errorf("candidate dropped event %s and its canonical survivor %s", id, survivor)
-		}
+		return fmt.Errorf("candidate dropped unique event %s", id)
 	}
 	if err := verifyCommandAudits(ctx, sourceDB, candidateDB, candidateEvents); err != nil {
-		return err
-	}
-	if err := verifyDedupeArchive(ctx, sourceDB, candidateDB, filter.ArchiveCutoff); err != nil {
 		return err
 	}
 	return nil
@@ -457,21 +444,6 @@ func permittedCommandBodyClears(ctx context.Context, sourceDB *sql.DB) (map[stri
 	return out, nil
 }
 
-func permittedDedupeDrops(ctx context.Context, sourceDB *sql.DB) (map[string]string, error) {
-	survey, err := (&StoreManagementDatasource{}).identifyDedupeGroups(ctx, sourceDB, "", 0)
-	if err != nil {
-		return nil, fmt.Errorf("identify source dedupe groups: %w", err)
-	}
-	plan := planContentEventDedupe(survey, false)
-	out := make(map[string]string, len(plan.groups))
-	for _, group := range plan.groups {
-		for _, dup := range group.duplicates {
-			out[dup.id] = group.keptID
-		}
-	}
-	return out, nil
-}
-
 type storeScrub struct {
 	Schema string
 	Tables string
@@ -535,7 +507,7 @@ func schemaDigest(ctx context.Context, db *sql.DB) (string, error) {
 }
 
 func compactLogicalSkipTables() map[string]bool {
-	skip := map[string]bool{"event_content_dedupe_archive": true}
+	skip := map[string]bool{}
 	for _, name := range legacySearchFamilyTables {
 		skip[name] = true
 	}

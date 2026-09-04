@@ -72,6 +72,18 @@ func TestUnrefinedMaterialErrorNamesSkillAndRefuseCost(t *testing.T) {
 	}
 }
 
+func TestCompactStepsHaveNoDedupeArchive(t *testing.T) {
+	t.Parallel()
+	steps := application.CompactSteps{
+		{Name: application.CompactStepProjectionReclaim},
+		{Name: application.CompactStepAuditEncode},
+		{Name: application.CompactStepMechanicalCover},
+	}
+	if _, ok := steps.Find("dedupe_archive"); ok {
+		t.Fatal(`CompactSteps.Find("dedupe_archive") must be absent`)
+	}
+}
+
 func TestForceCoverSafeToDelete(t *testing.T) {
 	t.Parallel()
 	cutoff := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)

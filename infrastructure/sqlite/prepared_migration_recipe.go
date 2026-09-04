@@ -22,6 +22,10 @@ type PreparedMigrationCandidateRecipe struct {
 	Verifier   PreparedMigrationVerifier
 	mu         sync.Mutex
 	metrics    map[string]preparedMigrationMetrics
+	// beforeApply runs after clone + WAL setup, before the pending-suffix
+	// apply loop. Nil unless the plan's pending set includes a migration
+	// that needs candidate-time data work (v81 restore is the first).
+	beforeApply func(ctx context.Context, db *sql.DB) error
 	// afterApply runs after the pending suffix is applied and before
 	// wal_checkpoint(TRUNCATE). The upgrade recipe uses it for VACUUM.
 	afterApply func(ctx context.Context, db *sql.DB) error
@@ -128,6 +132,13 @@ func (r *PreparedMigrationCandidateRecipe) Build(ctx context.Context, request ap
 			}
 		}
 	}()
+	if r.beforeApply != nil {
+		if err = r.beforeApply(buildCtx, db); err != nil {
+			stopMonitor()
+			<-monitorErr
+			return err
+		}
+	}
 	for _, migration := range plan.Pending {
 		if err = invokePreparedUpgradeFailure("migration"); err != nil {
 			stopMonitor()

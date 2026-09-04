@@ -171,12 +171,6 @@ func (s *minimalStoreStub) CollectGarbage(context.Context, time.Time, apptypes.G
 func (s *minimalStoreStub) CloseStaleSessions(context.Context, time.Duration, bool, []types.SessionID) (apptypes.CloseStaleSessionsResult, error) {
 	return apptypes.CloseStaleSessionsResult{}, nil
 }
-func (s *minimalStoreStub) DedupeContentEvents(context.Context, apptypes.ContentEventDedupeParams) (apptypes.ContentEventDedupeResult, error) {
-	return apptypes.ContentEventDedupeResult{}, nil
-}
-func (s *minimalStoreStub) RestoreContentEventDedupeRun(context.Context, string) (apptypes.ContentEventDedupeRestoreResult, error) {
-	return apptypes.ContentEventDedupeRestoreResult{}, nil
-}
 func (s *minimalStoreStub) CreateStoreArchive(_ context.Context, params apptypes.StoreArchiveCreateParams) (apptypes.StoreArchiveResult, error) {
 	s.archiveCalls++
 	s.lastParams = params
@@ -187,12 +181,4 @@ func (s *minimalStoreStub) VerifyStoreArchive(context.Context, string, []byte) e
 }
 func (s *minimalStoreStub) RestoreStoreArchive(context.Context, string, []byte, bool) (apptypes.StoreArchiveRestoreResult, error) {
 	return apptypes.StoreArchiveRestoreResult{}, nil
-}
-
-func (s *minimalStoreStub) PurgeContentEventDedupeRun(context.Context, string) (apptypes.ContentEventDedupePurgeResult, error) {
-	return apptypes.ContentEventDedupePurgeResult{}, nil
-}
-
-func (s *minimalStoreStub) ListContentEventDedupeRuns(context.Context) ([]apptypes.ContentEventDedupeRun, error) {
-	return nil, nil
 }

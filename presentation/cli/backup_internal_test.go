@@ -94,12 +94,6 @@ func (s *restoreStoreBackupUsecaseForTest) CollectGarbage(_ context.Context, _ t
 func (s *restoreStoreBackupUsecaseForTest) CloseStaleSessions(_ context.Context, _ time.Duration, _ bool, _ []types.SessionID) (apptypes.CloseStaleSessionsResult, error) {
 	return apptypes.CloseStaleSessionsResult{}, nil
 }
-func (s *restoreStoreBackupUsecaseForTest) DedupeContentEvents(_ context.Context, _ apptypes.ContentEventDedupeParams) (apptypes.ContentEventDedupeResult, error) {
-	return apptypes.ContentEventDedupeResult{}, nil
-}
-func (s *restoreStoreBackupUsecaseForTest) RestoreContentEventDedupeRun(_ context.Context, _ string) (apptypes.ContentEventDedupeRestoreResult, error) {
-	return apptypes.ContentEventDedupeRestoreResult{}, nil
-}
 func (s *restoreStoreBackupUsecaseForTest) CreateStoreArchive(_ context.Context, _ apptypes.StoreArchiveCreateParams) (apptypes.StoreArchiveResult, error) {
 	return apptypes.StoreArchiveResult{}, nil
 }
@@ -181,12 +175,4 @@ func TestRunBackupRestore_AssumeYesSkipsInteractiveConfirmation(t *testing.T) {
 	if strings.Contains(stdout.String(), "Continue with restore?") {
 		t.Fatalf("stdout = %q, want no confirmation prompt", stdout.String())
 	}
-}
-
-func (s *restoreStoreBackupUsecaseForTest) PurgeContentEventDedupeRun(_ context.Context, _ string) (apptypes.ContentEventDedupePurgeResult, error) {
-	return apptypes.ContentEventDedupePurgeResult{}, nil
-}
-
-func (s *restoreStoreBackupUsecaseForTest) ListContentEventDedupeRuns(_ context.Context) ([]apptypes.ContentEventDedupeRun, error) {
-	return nil, nil
 }

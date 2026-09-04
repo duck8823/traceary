@@ -51,11 +51,12 @@ func (v PreparedMigrationVerifier) VerifyUpgradePair(ctx context.Context, source
 		return domain.PreparedCandidateEvidence{}, errors.New("open candidate for upgrade verification")
 	}
 	defer func() { _ = candidateDB.Close() }()
-	if err = verifyFiveTableConservation(ctx, sourceDB, candidateDB); err != nil {
-		return domain.PreparedCandidateEvidence{}, err
-	}
 	plan, err := BuildPreparedMigrationPlan(ctx, sourceDB, v.Migrations)
 	if err != nil {
+		return domain.PreparedCandidateEvidence{}, err
+	}
+	skipEvents := pendingHasRestoreDedupeArchive(plan)
+	if err = verifyFiveTableConservation(ctx, sourceDB, candidateDB, skipEvents); err != nil {
 		return domain.PreparedCandidateEvidence{}, err
 	}
 	for _, migration := range plan.Pending {
@@ -76,7 +77,11 @@ func (v PreparedMigrationVerifier) VerifyUpgradePair(ctx context.Context, source
 				return domain.PreparedCandidateEvidence{}, err
 			}
 		case SemanticVerifierDropSearchProjectionFamily:
-			if err = verifyDropSearchProjectionFamily(ctx, sourceDB, candidateDB); err != nil {
+			if err = verifyDropSearchProjectionFamily(ctx, sourceDB, candidateDB, skipEvents); err != nil {
+				return domain.PreparedCandidateEvidence{}, err
+			}
+		case SemanticVerifierDropDedupeArchive:
+			if err = verifyDropDedupeArchive(ctx, sourceDB, candidateDB); err != nil {
 				return domain.PreparedCandidateEvidence{}, err
 			}
 		}
@@ -84,8 +89,11 @@ func (v PreparedMigrationVerifier) VerifyUpgradePair(ctx context.Context, source
 	return evidence, nil
 }
 
-func verifyFiveTableConservation(ctx context.Context, sourceDB, candidateDB *sql.DB) error {
+func verifyFiveTableConservation(ctx context.Context, sourceDB, candidateDB *sql.DB, skipEvents bool) error {
 	for _, table := range upgradeConservationTables {
+		if skipEvents && table == "events" {
+			continue
+		}
 		sourceHas, err := tableExists(ctx, sourceDB, table)
 		if err != nil {
 			return err
@@ -155,6 +163,8 @@ func evaluateConservationLaw(ctx context.Context, sourceDB, candidateDB *sql.DB,
 		return nil
 	case ConservationLawRewriteCollapse:
 		return nil
+	case ConservationLawRestoreDedupeArchive:
+		return verifyRestoreDedupeArchiveConservation(ctx, sourceDB, candidateDB)
 	case "":
 		return fmt.Errorf("migration %d has no conservation law", version)
 	default:

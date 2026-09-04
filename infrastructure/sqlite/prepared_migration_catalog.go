@@ -35,6 +35,10 @@ const (
 	ConservationLawIndexPresentBasePreserved ConservationLawID = "index_present_base_preserved"
 	// ConservationLawRewriteCollapse allows a key-collapse rewrite (version 76).
 	ConservationLawRewriteCollapse ConservationLawID = "rewrite_collapse"
+	// ConservationLawRestoreDedupeArchive restores event_content_dedupe_archive
+	// rows into events (version 81). Candidate events count equals source
+	// count plus archive rows; source event bytes are preserved.
+	ConservationLawRestoreDedupeArchive ConservationLawID = "restore_dedupe_archive"
 )
 
 // SemanticVerifierID names a Layer-2 canonical-data transform verifier.
@@ -182,6 +186,10 @@ var preparedMigrationManifest = map[int64]migrationManifestEntry{
 	// and its live events/command_audits triggers. Multi-GiB DROP + freelist
 	// churn must never run at open.
 	80: {80, "000080_drop_search_projection_family.sql", "93a4afe4048c4f3aff658bdce167989b617d808e0e65e692b608b826b7901278", MigrationDataDependentOffline, ConservationLawBaseConserving, SemanticVerifierDropSearchProjectionFamily, "2319"},
+	// 81 restores remaining event_content_dedupe_archive rows into events
+	// (or refuses) then drops the table. Restore runs in Go before this SQL.
+	// Never applied at live open.
+	81: {81, "000081_drop_event_content_dedupe_archive.sql", "2882557910cfc4a91bbd5b8fceb2612a5932afbd8dafbc336a8414c9e661fee9", MigrationDataDependentOffline, ConservationLawRestoreDedupeArchive, SemanticVerifierDropDedupeArchive, "2324"},
 }
 
 func conservationLawFor(version int64) ConservationLawID {
