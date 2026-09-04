@@ -174,7 +174,7 @@ vacuums into a new file.
 - default retention: `90` days (`--keep-days 90`)
 - physical reclamation is the rewrite itself; it is not an in-place `VACUUM`
 - unrefined discardable-age sessions receive a mechanical summary (`degraded=1`) and their bodies are discarded; pass `--refuse-unrefined` to stop instead
-- Search-projection rebuild is `store compact --projection-rebuild` / `--projection-abort`. Parked failed recovery is `doctor --fix`. File retention of archive/backup artifacts is `store compact --retention-plan` / `--retention-apply`.
+- File retention of archive/backup artifacts is `store compact --retention-plan` / `--retention-apply`. The search-projection family is dropped by offline migration 80 (`traceary doctor --fix` on a non-empty store), not by compact. `--projection-rebuild` / `--projection-abort` are unknown flags.
 
 **Reclaim warning.** After a non-hook command, Traceary may print `TRACEARY: store can reclaim about <size>; run traceary store compact` on stderr, at most once every 24 hours per store (tracked in `<db>.reclaim-warn`). It appears only when the store's free-page list — `PRAGMA freelist_count × PRAGMA page_size`, the same O(1) signal `traceary doctor` reports as `reclaimable=` — is at least `compact.reclaim_warn_bytes` (default 1 GiB) **and** at least 10 % of the store. File size alone never triggers it: a 14 GiB store with an empty freelist stays quiet, because a rewrite would return nothing to the filesystem. `doctor` uses the same signal and the same 10 % ratio with a lower floor of 256 MiB, so it can report reclaimable pages that the trailer stays quiet about; it never reports fewer. Set `compact.reclaim_warn_bytes` to `0` to silence the trailer. When the store cannot be read cheaply (a writer holds it, or the read exceeds 500 ms) nothing is printed — `traceary doctor` is where an unknown store-growth signal is reported.
 
@@ -182,13 +182,7 @@ Free pages are not the same as the bytes `store compact` can recover: compact al
 
 ### Derived generation disk bound
 
-Search-projection derived rows are keyed by `generation_id`. Disk bound for that family:
-
-- **Steady state**: one complete family — session summaries, command aggregates, session keywords, literal fingerprints, and the recent-document tier within `--index-family-bytes`. Session keywords and literal fingerprints are corpus-proportional and not evictable; only the recent tier is bounded by the family budget.
-- **Rebuild peak**: previous complete family plus the family under construction. Both stay resident until the new generation's cleanup phase finishes.
-- **Terminal families**: zero after `traceary doctor --fix` or the default `traceary store compact`; transiently at most the families that became `failed` / `abandoned` since the last recovery. Before #2261 they grew with every failed rebuild.
-
-Operator surfaces: `traceary doctor` check `search-projection-terminal-rows`, `traceary store compact` JSON `steps.projection_reclaim` and `steps.audit_encode`. `--index-family-bytes` targets the *family*, not leftover terminal rows.
+The search-projection family was deleted in v0.49.0 (#2319). There is no generation lifecycle, no `--index-family-bytes` budget, and no doctor `search-projection-terminal-rows` check. Compact JSON still reports `steps.audit_encode`. The physical DROP is offline migration 80.
 
 As its first step, compact consolidates **orphan ranges**: event spans past `session_refinements.covers_to` that an agent can no longer fold (session ended, treated as stale after 24h of inactivity, or front-loaded at a post-compact marker). For each still-unfolded range that contains more than session start/end it writes a mechanical `degraded=1` refinement (`produced_by=gc:orphan-consolidation`) covering when, which event kinds, how often, and which commands ran — not agent reasoning. A lifecycle-only tail (typically the `session_ended` event that lands after a correct fold) only advances `covers_to`; it does not attach a mechanical footnote, and `degraded` stays "contains synthesised text" rather than becoming a wake-eligibility bit. Wake injection reads `has_agent_reasoning`, so a correctly folded session stays injectable after reduction. That mechanical refinement **is** sufficient coverage for discard: what a discard removes is the text, and what it promises to keep — bytes, timestamps, counts — is exactly what the refinement records. Output reports `steps.mechanical_cover` and `covered_sessions`. There is no separate command or `--target` for this step.
 

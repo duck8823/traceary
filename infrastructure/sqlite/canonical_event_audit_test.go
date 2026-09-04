@@ -139,7 +139,19 @@ func TestCanonicalPayloadNormalizesIdentityAndZstdAndFailsClosed(t *testing.T) {
 	if _, err = canonicalPayload(encoded.Bytes, []any{encoded.Codec, nil, encoded.PlaintextBytes, encoded.StoredBytes, encoded.SHA256}); err == nil {
 		t.Fatal("partial codec metadata was accepted")
 	}
-	if _, err = canonicalPayload([]byte{0xff}, nil); err == nil {
-		t.Fatal("invalid UTF-8 payload was accepted")
+	binaryPayload := []byte{0xff}
+	decodedBinary, err := canonicalPayload(binaryPayload, nil)
+	if err != nil {
+		t.Fatalf("binary payload error = %v", err)
+	}
+	if string(decodedBinary) != string(binaryPayload) {
+		t.Fatalf("binary payload = %x, want %x", decodedBinary, binaryPayload)
+	}
+	got, err := canonicalEncodedValue(canonicalLogicalValue(binaryPayload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hex.EncodeToString(got) != "030000000000000001ff" {
+		t.Fatalf("binary logical value encoded = %x, want blob tag", got)
 	}
 }

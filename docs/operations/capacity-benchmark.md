@@ -33,9 +33,8 @@ corpora (tiny page-slack, enormous rows, CJK, high-entropy, repetitive). This
 is a benchmark, not part of `go test ./...`. It writes one store per kind and
 `calibrate.json` (`traceary.store-gate-calibrate/v1`) using the same
 `doctor` InspectCapacity path and operator-cost inspectors as a real store. Search-index
-amplification stays `unmeasured` unless a completed search-projection
-generation already exists (the rebuild path needs ≥ 8 MiB of recent-tier
-sample). See [`../research/storage-gate-calibration.md`](../research/storage-gate-calibration.md).
+amplification stays `unmeasured` (`recent index family is no longer stored`
+after #2319). See [`../research/storage-gate-calibration.md`](../research/storage-gate-calibration.md).
 
 ```sh
 go run ./cmd/store-benchmark --calibrate-gates /private/tmp/traceary-calibrate

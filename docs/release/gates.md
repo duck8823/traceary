@@ -14,19 +14,16 @@ The default live path (`~/.config/traceary/traceary.db`) is refused. A fixture o
 
 ## Gates
 
-These seven rows are evaluated. `skip` is not a miss. Six of them are evaluated by `release evaluate-gates` / `go test`; projection rebuild completion is evaluated by `scripts/verify-projection-completion.sh`, whose fixture path runs in CI and whose live path runs on an operator copy before a release.
+These six rows are evaluated by `release evaluate-gates` / `go test`. `skip` is not a miss. The former projection-rebuild completion gate was retired with the search-projection family (#2319).
 
 | Gate | Threshold | How it is measured |
 |---|---|---|
 | Event-emission amplification | `<= 2.0` | events / (`prompt` + `command_executed`) |
 | Whole-store amplification | `<= 3x` | `OperatorCostInspector.Amplification` (resident / retained source bytes) |
-| Recent search-index amplification | `<= 4x` | `search_projection_state.recent_amplification_ppm` when a **complete** generation recorded a measured status; otherwise skipped |
+| Recent search-index amplification | `<= 4x` | always skip after #2319 (`recent index family is no longer stored`) |
 | `events.body` duplicate share | `< 5%` | uncompressed plaintext bytes versus one copy per `body_sha256` (strict `< 0.05`) |
 | Refinement coverage | `>= 95%` of sessions worth folding | `#1879` `FoldGateInspector` |
 | Wake injection | works on every eligible host, within budget | `#1879` `FoldGateInspector` (unmeasured / skip when no eligible host) |
-| Projection rebuild completion | `state=complete` with a non-empty `active_generation_id` on a live-store copy | `scripts/verify-projection-completion.sh` (evidence JSON: `wall_seconds`, `transitions`, `final_state_row`, `final_lifecycle_row`, `family_bytes.by_table`, `doctor`) |
-
-Peak resident during a search-index rebuild, and the structural recent-index-tier row, stay with #1751 / #1753. They are not gates here.
 
 ## Measurements
 
@@ -44,19 +41,6 @@ Corpus: **maintainer store 2026-08-11 uncompressed #1620**.
 
 ## Rebuild
 
-In operator-facing text, **rebuild** means rebuilding the **search-index family** (`traceary store compact --projection-rebuild` / `traceary doctor --fix`). It is not a compile step and not a whole-store rebuild. See [search projection rebuild](../search-projection-rebuild.md).
+The search-projection family was deleted in v0.49.0 (#2319). `store compact --projection-rebuild` / `--projection-abort` are unknown flags. Search uses the two-tier read path. Offline DROP + VACUUM of the old family is `traceary doctor --fix` (verified candidate, never at store open). See [search projection rebuild](../search-projection-rebuild.md).
 
-### Projection rebuild completion
-
-This gate runs on a **copy only**. It refuses the default live path (`~/.config/traceary/traceary.db`) and anything under `~/.config/traceary/`. Family bytes versus the 1,464 MiB target are **recorded, not gated**.
-
-```sh
-TRACEARY_NO_AUDIT=1 TRACEARY_DB_PATH="$SCRATCH/traceary-copy.db" \
-  scripts/verify-projection-completion.sh \
-    --traceary "$SCRATCH/traceary-dev" \
-    --out "$SCRATCH/projection-completion.json"
-```
-
-Evidence fields: `wall_seconds`, `transitions`, `final_state_row`, `final_lifecycle_row`, `family_bytes.by_table`, and `doctor`. PASS requires `state=complete` and a non-empty `active_generation_id`. A rebuild that does not complete is recorded as FAIL with the lifecycle state and reason — it is not skipped.
-
-`WITHOUT ROWID` conversion of `search_projection_session_keywords` and `literal_search_fingerprints` (#2266) stays unshipped: this gate has not recorded `state=complete` on an operator-store copy.
+The #2265 projection-rebuild completion gate (`scripts/verify-projection-completion.sh`) is retired. `WITHOUT ROWID` conversion of `search_projection_session_keywords` and `literal_search_fingerprints` (#2266) stays unshipped.

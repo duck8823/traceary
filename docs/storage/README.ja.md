@@ -172,7 +172,7 @@ input / output テキストを符号化してから vacuum します。
 - 既定 retention: `90` 日 (`--keep-days 90`)
 - 物理容量回収は書き換えそのもの。in-place `VACUUM` ではない
 - 未 refine の破棄対象には機械要約（`degraded=1`）を書いて本文を破棄する。止めたいときは `--refuse-unrefined`
-- search-projection の再構築は `store compact --projection-rebuild` / `--projection-abort`。parked した failed の復旧は `doctor --fix`。archive / backup の file retention は `store compact --retention-plan` / `--retention-apply`。
+- archive / backup の file retention は `store compact --retention-plan` / `--retention-apply`。search-projection family は compact ではなく offline migration 80（非空 store では `traceary doctor --fix`）で DROP します。`--projection-rebuild` / `--projection-abort` は unknown flag です。
 
 **Reclaim warning。** hook 以外のコマンドの後、Traceary は stderr に `TRACEARY: ストアに回収できる領域が約 <size> あります。traceary store compact を実行してください` を、ストアごとに 24 時間に 1 回まで表示します（記録は `<db>.reclaim-warn`）。表示条件は、free page list — `PRAGMA freelist_count × PRAGMA page_size`、`traceary doctor` が `reclaimable=` として報告するのと同じ O(1) signal — が `compact.reclaim_warn_bytes`（既定 1 GiB）以上、**かつ** ストア全体の 10 % 以上であることです。ファイルサイズだけでは表示しません。freelist が空の 14 GiB ストアは、書き換えてもファイルシステムに返る領域がないため何も表示しません。`doctor` は同じ signal と同じ 10 % 比率を、より低い 256 MiB の floor で使うため、trailer が黙っている回収可能領域を報告することがあります（逆はありません）。`compact.reclaim_warn_bytes` を `0` にすると trailer を止められます。ストアを安価に読めない場合（writer が保持している、500 ms を超えたなど）は何も表示しません。store growth signal が不明であることの報告は `traceary doctor` の役割です。
 
@@ -180,13 +180,7 @@ free page は `store compact` が回収できるバイト数と同じではあ�
 
 ### Derived generation のディスク上限
 
-search-projection の derived 行は `generation_id` でキーされます。このファミリのディスク上限:
-
-- **定常状態**: complete な 1 世代分 — session summaries、command aggregates、session keywords、literal fingerprints、および `--index-family-bytes` 内の recent-document ティア。session keywords と literal fingerprints はコーパス比例で evict できません。family 予算が抑えるのは recent ティアだけです。
-- **再構築ピーク**: 直前の complete 世代 + 構築中の世代。新しい世代の cleanup が終わるまで両方残ります。
-- **terminal 世代**: `traceary doctor --fix` または既定の `traceary store compact` のあと 0。一時的には、前回の recovery 以降に `failed` / `abandoned` になった世代まで。#2261 以前は失敗した rebuild の回数に比例して増え続けました。
-
-操作面: `traceary doctor` の `search-projection-terminal-rows`、`traceary store compact` JSON の `steps.projection_reclaim` と `steps.audit_encode`。`--index-family-bytes` が対象にするのは *family* であり、terminal の残り行ではありません。
+search-projection family は v0.49.0（#2319）で削除されました。世代 lifecycle も `--index-family-bytes` 予算も、doctor の `search-projection-terminal-rows` 検査もありません。compact JSON の `steps.audit_encode` は残ります。物理 DROP は offline migration 80 です。
 
 compact は最初に **orphan range** を機械要約します。orphan とは `session_refinements.covers_to` より先にあり、エージェントがもう畳めないイベント範囲です（セッション終了、24h 無活動の stale 扱い、または post-compact での前倒し記録）。session start/end 以外を含む、まだ畳まれていない各範囲に対し、`degraded=1` の refinement（`produced_by=gc:orphan-consolidation`）を書きます。内容はいつ・どの kind が何回・どのコマンドかだけで、エージェントの判断理由（なぜ）は復元しません。lifecycle だけの tail（正しく fold したあとに着く `session_ended` が典型）は `covers_to` だけ進め、機械的な脚注は付けません。`degraded` は「合成テキストを含む」意味のまま、wake 適格性のビットにはしません。wake injection は `has_agent_reasoning` を読むため、正しく fold されたセッションは reduction のあとも注入対象に残ります。この機械 refinement も破棄にとって**有効な被覆**です。破棄が失うのはテキストだけであり、残すと約束している bytes・timestamps・counts はまさにこの要約が保持するためです。出力は `steps.mechanical_cover` と `covered_sessions` を報告します。この処理に専用コマンドや `--target` はありません。
 
