@@ -124,9 +124,10 @@ leftovers that are not in-flight are also removed by `doctor --fix`.
    Compact also clears leftover `command_executed` bodies that already have a
    `command_audits` row and reports `released_command_body_bytes` as the
    stored blob sum. File size after the rewrite is `bytes_after`.
-4. If search is drifted, run `traceary store compact --projection-rebuild`
-   (start or replace), then run the same command again to resume until
-   complete. Verify normal reads before deleting rollback artifacts. Use
-   `compact rollback RUN_ID` if verification fails.
+4. Search does not need a rebuild step. The search-projection family is gone
+   (`store compact --projection-rebuild` / `--projection-abort` are unknown
+   flags). `traceary search` uses the two-tier read path. Verify normal reads
+   before deleting rollback artifacts. Use `compact rollback RUN_ID` if
+   verification fails.
 5. After interruption, rerun `store compact`; never manually rename candidate
    or rollback files.

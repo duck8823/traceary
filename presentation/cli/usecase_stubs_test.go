@@ -90,17 +90,6 @@ type eventUsecaseStub struct {
 	}
 }
 
-// projectionSessionSearchStub implements queryservice.ProjectionSessionSearch.
-type projectionSessionSearchStub struct {
-	hits     []apptypes.SearchSessionHit
-	err      error
-	ready    *bool
-	readyErr error
-	calls    int
-	criteria []apptypes.EventSearchCriteria
-	excludes [][]types.SessionID
-}
-
 type twoTierSearchStub struct {
 	page apptypes.TwoTierSearchPage
 	err  error
@@ -111,32 +100,6 @@ func (s *twoTierSearchStub) SearchTwoTier(_ context.Context, _ apptypes.EventSea
 		return apptypes.TwoTierSearchPage{}, s.err
 	}
 	return s.page, nil
-}
-
-func (s *projectionSessionSearchStub) SearchSessionPage(
-	_ context.Context,
-	criteria apptypes.EventSearchCriteria,
-	exclude []types.SessionID,
-) (apptypes.SearchSessionPage, error) {
-	if s == nil {
-		return apptypes.SearchSessionPageOf(nil, apptypes.SearchSessionTierNotApplicable), nil
-	}
-	s.calls++
-	s.criteria = append(s.criteria, criteria)
-	s.excludes = append(s.excludes, exclude)
-	if s.err != nil {
-		return apptypes.SearchSessionPage{}, s.err
-	}
-	if criteria.Kind().String() != "" || strings.TrimSpace(criteria.Query()) == "" || criteria.Offset() > 0 || !criteria.PageAnchor().IsZero() {
-		return apptypes.SearchSessionPageOf(nil, apptypes.SearchSessionTierNotApplicable), nil
-	}
-	if s.readyErr != nil {
-		return apptypes.SearchSessionPage{}, s.readyErr
-	}
-	if s.ready != nil && !*s.ready {
-		return apptypes.SearchSessionPageOf(nil, apptypes.SearchSessionTierNotReady), nil
-	}
-	return apptypes.SearchSessionPageOf(s.hits, apptypes.SearchSessionTierReady), nil
 }
 
 func (s *eventUsecaseStub) Log(ctx context.Context, message string, kind types.EventKind, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, logCfg apptypes.LogRedaction) (apptypes.EventWriteResult, error) {

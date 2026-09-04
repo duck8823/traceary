@@ -67,9 +67,6 @@ jobs:
       - name: Verify post-upgrade live-capture gate
         run: ./scripts/smoke_test_integrations.sh post-upgrade-live-capture
 
-      - name: Verify projection completion gate
-        run: ./scripts/smoke_test_integrations.sh projection-completion
-
   test:
     name: Test
     runs-on: ubuntu-latest

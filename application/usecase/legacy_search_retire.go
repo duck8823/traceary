@@ -9,7 +9,7 @@ import (
 
 // LegacySearchRetireStore drops the migration-032 search index family.
 type LegacySearchRetireStore interface {
-	RetireLegacySearchProjection(context.Context) (apptypes.LegacySearchRetireReport, error)
+	RetireLegacySearchFamily(context.Context) (apptypes.LegacySearchRetireReport, error)
 }
 
 // LegacySearchRetireUsecase is the single-command retirement workflow.
@@ -25,5 +25,5 @@ func NewLegacySearchRetireUsecase(store LegacySearchRetireStore) *LegacySearchRe
 // Retire drops the legacy search family in one transaction, or reports that
 // it is already gone.
 func (u *LegacySearchRetireUsecase) Retire(ctx context.Context) (apptypes.LegacySearchRetireReport, error) {
-	return u.store.RetireLegacySearchProjection(ctx)
+	return u.store.RetireLegacySearchFamily(ctx)
 }

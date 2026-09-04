@@ -125,8 +125,8 @@ func TestUpgradeCandidateAppliesEntireSuffixInCatalogOrder(t *testing.T) {
 	if err = rows.Err(); err != nil {
 		t.Fatal(err)
 	}
-	if versions[len(versions)-1] != 79 {
-		t.Fatalf("latest version = %d, want 79", versions[len(versions)-1])
+	if versions[len(versions)-1] != 80 {
+		t.Fatalf("latest version = %d, want 80", versions[len(versions)-1])
 	}
 	for i := 1; i < len(versions); i++ {
 		if versions[i] <= versions[i-1] {
@@ -690,7 +690,7 @@ func runUpgradeEndToEnd(t *testing.T, beforeVersion int, realSized bool) {
 	}
 	defer func() { _ = db.Close() }()
 	var maxVersion int
-	if err := db.QueryRow(`SELECT max(version) FROM schema_migrations`).Scan(&maxVersion); err != nil || maxVersion != 79 {
+	if err := db.QueryRow(`SELECT max(version) FROM schema_migrations`).Scan(&maxVersion); err != nil || maxVersion != 80 {
 		t.Fatalf("published version=%d err=%v", maxVersion, err)
 	}
 }
@@ -701,6 +701,11 @@ func runUpgradeOn(ctx context.Context, t *testing.T, dir, target string, all fs.
 	if err != nil {
 		t.Fatal(err)
 	}
+	return runUpgradeOnWithBudget(ctx, t, dir, target, all, upgradeBudget(uint64(info.Size())))
+}
+
+func runUpgradeOnWithBudget(ctx context.Context, t *testing.T, dir, target string, all fs.FS, budget domain.PreparedStoreUpgradeBudget) application.PreparedStoreUpgradeReceipt {
+	t.Helper()
 	journal := &sqlite.PreparedStoreUpgradeFileJournal{Dir: filepath.Join(dir, "journal")}
 	recipe := &sqlite.PreparedUpgradeMigrationRecipe{PreparedMigrationCandidateRecipe: sqlite.PreparedMigrationCandidateRecipe{
 		Migrations: all,
@@ -713,7 +718,7 @@ func runUpgradeOn(ctx context.Context, t *testing.T, dir, target string, all fs.
 		Operation:       domain.PreparedStoreUpgradeOperationOfflineMigrationUpgrade,
 		TargetPath:      target,
 		ConsumerBinding: "e2e",
-		Budget:          upgradeBudget(uint64(info.Size())),
+		Budget:          budget,
 	})
 	if err != nil {
 		t.Fatal(err)

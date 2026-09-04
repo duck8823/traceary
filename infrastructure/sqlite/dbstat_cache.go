@@ -3,7 +3,6 @@ package sqlite
 import (
 	"encoding/json"
 	"os"
-	"strings"
 	"time"
 
 	apptypes "github.com/duck8823/traceary/application/types"
@@ -57,29 +56,4 @@ func storeDBStatCache(dbPath string, objects []apptypes.CapacityObject) {
 		return
 	}
 	_ = os.WriteFile(dbstatCachePath(dbPath), raw, 0o600)
-}
-
-func searchProjectionFamilyBytesFromObjects(objects []apptypes.CapacityObject) int64 {
-	var total int64
-	for _, object := range objects {
-		if searchProjectionFamilyObjectName(object.Name) {
-			total += object.Bytes
-		}
-	}
-	return total
-}
-
-// searchProjectionFamilyObjectName mirrors select_search_projection_family_total.sql
-// membership (name or tbl_name GLOB search_projection_* / literal_search_*).
-// Capacity cache rows have no tbl_name, so SQLite index/autoindex names that
-// belong to those tables must be included by their own name.
-func searchProjectionFamilyObjectName(name string) bool {
-	return searchProjectionFamilyNameOrIndex(name, "search_projection_") ||
-		searchProjectionFamilyNameOrIndex(name, "literal_search_")
-}
-
-func searchProjectionFamilyNameOrIndex(name, prefix string) bool {
-	return strings.HasPrefix(name, prefix) ||
-		strings.HasPrefix(name, "idx_"+prefix) ||
-		strings.HasPrefix(name, "sqlite_autoindex_"+prefix)
 }

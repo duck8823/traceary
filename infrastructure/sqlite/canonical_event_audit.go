@@ -157,7 +157,7 @@ func canonicalEvents(ctx context.Context, db *sql.DB, hasCodec bool) (canonicalA
 		if decodeErr != nil {
 			return accumulator, decodeErr
 		}
-		values[4] = string(plain)
+		values[4] = canonicalLogicalValue(plain)
 		digest, digestErr := canonicalRowDigest("events", canonicalEventColumns, values[:len(canonicalEventColumns)])
 		if digestErr != nil {
 			return accumulator, digestErr
@@ -198,7 +198,7 @@ func canonicalAudits(ctx context.Context, db *sql.DB, hasCodec bool) (canonicalA
 			if decodeErr != nil {
 				return accumulator, decodeErr
 			}
-			values[index+1] = string(plain)
+			values[index+1] = canonicalLogicalValue(plain)
 		}
 		digest, digestErr := canonicalRowDigest("command_audits", canonicalAuditColumns, values[:len(canonicalAuditColumns)])
 		if digestErr != nil {
@@ -268,10 +268,20 @@ func canonicalPayload(stored any, metadata []any) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !utf8.Valid(plain) {
-		return nil, errors.New("canonical decoded payload is not valid UTF-8")
-	}
 	return plain, nil
+}
+
+// canonicalLogicalValue keeps valid UTF-8 as text (tag 0x02) and hashes
+// non-UTF-8 decoded payloads as blobs (tag 0x03). Operator stores can
+// hold binary audit output; refusing those rows would block verified
+// publication of an otherwise conserving candidate.
+func canonicalLogicalValue(plain []byte) any {
+	if utf8.Valid(plain) {
+		return string(plain)
+	}
+	copied := make([]byte, len(plain))
+	copy(copied, plain)
+	return copied
 }
 
 func tableHasColumn(ctx context.Context, db *sql.DB, table, column string) (bool, error) {

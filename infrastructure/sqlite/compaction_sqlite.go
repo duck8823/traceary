@@ -327,9 +327,6 @@ func verifyFilteredCandidate(ctx context.Context, sourceDB, candidateDB *sql.DB,
 	if err := verifyCommandAudits(ctx, sourceDB, candidateDB, candidateEvents); err != nil {
 		return err
 	}
-	if err := verifySearchProjectionGenerations(ctx, sourceDB, candidateDB); err != nil {
-		return err
-	}
 	if err := verifyDedupeArchive(ctx, sourceDB, candidateDB, filter.ArchiveCutoff); err != nil {
 		return err
 	}

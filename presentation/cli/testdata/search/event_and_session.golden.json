@@ -8,7 +8,8 @@
       "session_id": "session-golden-list",
       "workspace": "duck8823/traceary",
       "message": "first golden event",
-      "created_at": "2026-04-08T13:00:00Z"
+      "created_at": "2026-04-08T13:00:00Z",
+      "tier": "fallback"
     }
   ],
   "sessions": [

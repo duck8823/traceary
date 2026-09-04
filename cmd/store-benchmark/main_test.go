@@ -185,7 +185,7 @@ func TestOpenCompatibleReadOnlyRejectsUnsupportedStoreState(t *testing.T) {
 		value  int
 		match  string
 	}{
-		{"future reader", "minimum_reader_version", 36, "requires reader version 36"},
+		{"future reader", "minimum_reader_version", 37, "requires reader version 37"},
 		{"future payload format", "maximum_payload_format", 2, "payload format 2 is unsupported"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

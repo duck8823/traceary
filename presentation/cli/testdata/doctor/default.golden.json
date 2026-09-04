@@ -95,36 +95,6 @@
       "auto_fix_available": false
     },
     {
-      "name": "search-projection-budget",
-      "status": "skip",
-      "severity": "PASS",
-      "section": "Database",
-      "message": "search projection usecase is not configured",
-      "hint": "",
-      "fix_command": "",
-      "auto_fix_available": false
-    },
-    {
-      "name": "search-projection-parked",
-      "status": "skip",
-      "severity": "PASS",
-      "section": "Database",
-      "message": "search projection usecase is not configured",
-      "hint": "",
-      "fix_command": "",
-      "auto_fix_available": false
-    },
-    {
-      "name": "search-projection-terminal-rows",
-      "status": "skip",
-      "severity": "PASS",
-      "section": "Database",
-      "message": "search projection usecase is not configured",
-      "hint": "",
-      "fix_command": "",
-      "auto_fix_available": false
-    },
-    {
       "name": "dedupe-archive-runs",
       "status": "pass",
       "severity": "PASS",
@@ -425,36 +395,6 @@
           "auto_fix_available": false
         },
         {
-          "name": "search-projection-budget",
-          "status": "skip",
-          "severity": "PASS",
-          "section": "Database",
-          "message": "search projection usecase is not configured",
-          "hint": "",
-          "fix_command": "",
-          "auto_fix_available": false
-        },
-        {
-          "name": "search-projection-parked",
-          "status": "skip",
-          "severity": "PASS",
-          "section": "Database",
-          "message": "search projection usecase is not configured",
-          "hint": "",
-          "fix_command": "",
-          "auto_fix_available": false
-        },
-        {
-          "name": "search-projection-terminal-rows",
-          "status": "skip",
-          "severity": "PASS",
-          "section": "Database",
-          "message": "search projection usecase is not configured",
-          "hint": "",
-          "fix_command": "",
-          "auto_fix_available": false
-        },
-        {
           "name": "dedupe-archive-runs",
           "status": "pass",
           "severity": "PASS",
@@ -687,7 +627,7 @@
     }
   ],
   "summary": {
-    "pass": 32,
+    "pass": 29,
     "warn": 1,
     "fail": 0
   },

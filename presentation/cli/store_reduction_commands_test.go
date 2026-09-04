@@ -41,8 +41,21 @@ func TestStoreReductionCommandsAreRemoved(t *testing.T) {
 	if compact.Flags().Lookup("archive") == nil || compact.Flags().Lookup("retention-plan") == nil {
 		t.Fatal("store compact must absorb --archive and --retention-plan")
 	}
-	if compact.Flags().Lookup("projection-rebuild") == nil || compact.Flags().Lookup("projection-abort") == nil {
-		t.Fatal("store compact must absorb --projection-rebuild and --projection-abort")
+	for _, name := range []string{
+		"projection-rebuild",
+		"projection-abort",
+		"index-family-bytes",
+		"decoded-bytes",
+		"recent-age",
+		"lock-time",
+		"rows",
+		"wall-time",
+		"stored-bytes",
+		"write-bytes",
+	} {
+		if compact.Flags().Lookup(name) != nil {
+			t.Fatalf("store compact must not accept --%s", name)
+		}
 	}
 }
 
@@ -67,21 +80,23 @@ func TestStoreCompactHelpNamesRefuseUnrefined(t *testing.T) {
 	}
 }
 
-func TestSearchProjectionIndexFamilyBytesHelpNamesRebuildPeak(t *testing.T) {
+func TestStoreCompactRemovedProjectionFlagsAreUnknown(t *testing.T) {
 	t.Parallel()
 	root := NewRootCLI().Command()
 	compact := findCommandOrNil(findCommandOrNil(root, "store"), "compact")
 	if compact == nil {
 		t.Fatal("store compact is not registered")
 	}
-	flag := compact.Flags().Lookup("index-family-bytes")
-	if flag == nil {
-		t.Fatal("--index-family-bytes is missing")
-	}
-	if !strings.Contains(flag.Usage, "rebuild-peak") {
-		t.Fatalf("usage=%q, want it to say the budget is not a rebuild-peak cap", flag.Usage)
-	}
-	if compact.Flags().Lookup("projection-rebuild") == nil {
-		t.Fatal("store compact must accept --projection-rebuild")
+	for _, name := range []string{
+		"index-family-bytes",
+		"projection-rebuild",
+		"projection-abort",
+		"decoded-bytes",
+		"recent-age",
+		"lock-time",
+	} {
+		if compact.Flags().Lookup(name) != nil {
+			t.Fatalf("store compact still accepts --%s", name)
+		}
 	}
 }

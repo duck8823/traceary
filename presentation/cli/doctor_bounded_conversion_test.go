@@ -77,7 +77,6 @@ func TestDoctorLargeStoreReportsConsolidationConversion(t *testing.T) {
 	}
 	for _, name := range []string{
 		"payload-codec",
-		"search-projection-budget",
 		"memory-inbox-saturation",
 		"db-write",
 		"audit-reliability",

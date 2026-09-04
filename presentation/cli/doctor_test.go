@@ -630,13 +630,9 @@ func TestRootCLI_DoctorLargeStoreReturnsBoundedMetadataOnlyReport(t *testing.T) 
 	if residueFixes > 1 {
 		t.Fatalf("hook-state-residue fix ran %d times, want at most 1", residueFixes)
 	}
-	generation := statusByName(report, "search-projection-generation")
-	if generation.Status != "skip" {
-		t.Fatalf("search-projection-generation = %#v, want skip on invalid sparse fixture", generation)
-	}
 }
 
-func TestRootCLI_DoctorLargeStoreReportsO1PageAndProjectionSignals(t *testing.T) {
+func TestRootCLI_DoctorLargeStoreReportsO1PageSignals(t *testing.T) {
 	t.Setenv("TRACEARY_LANG", "en")
 	setTracearyPathToCurrentExecutable(t)
 	largeStore := writeValidSparseLargeStore(t)
@@ -687,13 +683,6 @@ func TestRootCLI_DoctorLargeStoreReportsO1PageAndProjectionSignals(t *testing.T)
 	if capacityCheck.Status != "skip" || !strings.Contains(capacityCheck.Message, "filesystem-metadata-only") {
 		t.Fatalf("store-capacity = %#v, want skip", capacityCheck)
 	}
-	generation := statusByName(report, "search-projection-generation")
-	if generation.Status != "pass" || !strings.Contains(generation.Message, "generation=gen-o1") || !strings.Contains(generation.Message, "state=complete") {
-		t.Fatalf("search-projection-generation = %#v", generation)
-	}
-	if generation.Section != "Database" {
-		t.Fatalf("search-projection-generation section = %q", generation.Section)
-	}
 	diag := statusByName(report, "large-store-diagnostics")
 	if diag.Status != "warn" || !strings.Contains(diag.Message, "were not read") {
 		t.Fatalf("large-store-diagnostics = %#v", diag)
@@ -713,14 +702,6 @@ func writeValidSparseLargeStore(t *testing.T) string {
 		`CREATE TABLE scratch (payload BLOB)`,
 		`INSERT INTO scratch(payload) VALUES (zeroblob(65536))`,
 		`DELETE FROM scratch`,
-		`CREATE TABLE search_projection_state (
-			singleton INTEGER PRIMARY KEY CHECK (singleton=1),
-			active_generation_id TEXT,
-			state TEXT,
-			phase TEXT
-		)`,
-		`INSERT INTO search_projection_state(singleton, active_generation_id, state, phase)
-		 VALUES (1, 'gen-o1', 'complete', 'idle')`,
 	}
 	for index, statement := range statements {
 		if _, execErr := db.Exec(statement); execErr != nil {

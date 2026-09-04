@@ -28,7 +28,7 @@ go run ./cmd/store-benchmark --synthetic /private/tmp/traceary-synthetic.db \
   --small-rows 10000 --large-rows 8 --iterations 25 > synthetic-benchmark.json
 ```
 
-#1620 の whole-store amplification を、決定的な 5 コーパス（tiny の page slack、enormous、CJK、高エントロピー、反復）で校正します。これはベンチマークであり `go test ./...` には入りません。kind ごとに 1 ストアと `calibrate.json`（`traceary.store-gate-calibrate/v1`）を書き、live store と同じ `doctor` InspectCapacity 経路 / operator-cost inspector を使います。search-index amplification は completed な search-projection generation が無い限り `unmeasured` です（rebuild 経路は recent-tier の sample が 8 MiB 以上必要）。[`../research/storage-gate-calibration.ja.md`](../research/storage-gate-calibration.ja.md) を参照。
+#1620 の whole-store amplification を、決定的な 5 コーパス（tiny の page slack、enormous、CJK、高エントロピー、反復）で校正します。これはベンチマークであり `go test ./...` には入りません。kind ごとに 1 ストアと `calibrate.json`（`traceary.store-gate-calibrate/v1`）を書き、live store と同じ `doctor` InspectCapacity 経路 / operator-cost inspector を使います。search-index amplification は #2319 以降常に `unmeasured`（`recent index family is no longer stored`）です。[`../research/storage-gate-calibration.ja.md`](../research/storage-gate-calibration.ja.md) を参照。
 
 ```sh
 go run ./cmd/store-benchmark --calibrate-gates /private/tmp/traceary-calibrate

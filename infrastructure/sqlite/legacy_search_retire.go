@@ -20,10 +20,10 @@ var legacySearchFamilyTables = []string{
 	"event_search_backfill_state",
 }
 
-// RetireLegacySearchProjection drops the migration-032 family in one
+// RetireLegacySearchFamily drops the migration-032 family in one
 // transaction when present. It is idempotent: an already-removed family
 // reports already_removed and exits successfully without mutation.
-func (d *Database) RetireLegacySearchProjection(ctx context.Context) (apptypes.LegacySearchRetireReport, error) {
+func (d *Database) RetireLegacySearchFamily(ctx context.Context) (apptypes.LegacySearchRetireReport, error) {
 	db, err := d.open(ctx)
 	if err != nil {
 		return apptypes.LegacySearchRetireReport{}, err
@@ -65,7 +65,7 @@ func (d *Database) RetireLegacySearchProjection(ctx context.Context) (apptypes.L
 	}
 	// Straight DROP — do not DELETE rows first. FTS5 records deletions as
 	// appended delete markers, so emptying the content table grows the index.
-	if err = dropLegacySearchProjection(ctx, tx); err != nil {
+	if err = dropLegacySearchFamily(ctx, tx); err != nil {
 		return apptypes.LegacySearchRetireReport{}, err
 	}
 	logicalAfter, err := legacySearchLogicalBytes(ctx, tx)
@@ -89,7 +89,7 @@ func (d *Database) RetireLegacySearchProjection(ctx context.Context) (apptypes.L
 	}, nil
 }
 
-func dropLegacySearchProjection(ctx context.Context, tx *sql.Tx) error {
+func dropLegacySearchFamily(ctx context.Context, tx *sql.Tx) error {
 	// Writer triggers first, then the view, then FTS, content table, and
 	// backfill state.
 	//
@@ -114,7 +114,7 @@ func dropLegacySearchProjection(ctx context.Context, tx *sql.Tx) error {
 		"DROP TABLE IF EXISTS event_search_backfill_state",
 	} {
 		if _, err := tx.ExecContext(ctx, statement); err != nil {
-			return xerrors.Errorf("drop retired legacy search projection: %w", err)
+			return xerrors.Errorf("drop retired legacy search family: %w", err)
 		}
 	}
 	return nil

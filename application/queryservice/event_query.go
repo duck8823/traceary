@@ -70,11 +70,10 @@ type EventPreviewQueryService interface {
 }
 
 // EventBoundedQueryService provides body-limited event reads without
-// materializing full domain Events. Search documents may select candidate IDs,
-// but bounded bodies always come from authoritative event rows.
+// materializing full domain Events. Bounded bodies always come from
+// authoritative event rows.
 type EventBoundedQueryService interface {
 	ListRecentBounded(ctx context.Context, criteria apptypes.EventListCriteria, bodyRuneLimit int) ([]apptypes.BoundedEvent, error)
-	SearchBounded(ctx context.Context, criteria apptypes.EventSearchCriteria, bodyRuneLimit int) ([]apptypes.BoundedEvent, error)
 	GetContextBounded(ctx context.Context, criteria apptypes.EventContextCriteria, bodyRuneLimit int) ([]apptypes.BoundedEvent, error)
 	// HydrateBounded projects bodies for an already-selected metadata page.
 	// It must not re-run membership filters; the supplied order is preserved.
@@ -82,18 +81,6 @@ type EventBoundedQueryService interface {
 	// LoadCanonicalBodies is the explicit list-only compatibility fallback for
 	// canonical envelopes whose visible body was not response-truncated.
 	LoadCanonicalBodies(ctx context.Context, eventIDs []types.EventID) (map[types.EventID]string, error)
-}
-
-// ProjectionSessionSearch is the port for surfaces that must tell "no session
-// matched" apart from "the projection could not be consulted at all". Hits
-// and that disposition come from one read snapshot so a generation
-// transition cannot make the reason contradict the page.
-//
-// Hits are never events: a session row means "the trail is here, open it".
-// Sessions already represented by event hits in the same response should be
-// passed in excludeSessionIDs so they are omitted.
-type ProjectionSessionSearch interface {
-	SearchSessionPage(ctx context.Context, criteria apptypes.EventSearchCriteria, excludeSessionIDs []types.SessionID) (apptypes.SearchSessionPage, error)
 }
 
 // TwoTierSearch is the single read-side entry for refinement-primary phrase

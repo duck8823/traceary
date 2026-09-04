@@ -48,7 +48,7 @@ func TestLocalizeCobraExecuteError_LeavesOtherErrors(t *testing.T) {
 	}
 }
 
-func TestStoreCompactIndexFamilyBytesHelpIsJapanese(t *testing.T) {
+func TestStoreCompactRemovedProjectionFlagsStayUnknownInJapanese(t *testing.T) {
 	t.Setenv(cliLanguageEnvKey, "ja")
 	resetConfiguredCLILanguageCacheForTest()
 	t.Cleanup(resetConfiguredCLILanguageCacheForTest)
@@ -58,14 +58,7 @@ func TestStoreCompactIndexFamilyBytesHelpIsJapanese(t *testing.T) {
 	if compact == nil {
 		t.Fatal("store compact is not registered")
 	}
-	flag := compact.Flags().Lookup("index-family-bytes")
-	if flag == nil {
-		t.Fatal("--index-family-bytes is missing")
-	}
-	if strings.Contains(flag.Usage, "steady-state physical byte target") {
-		t.Fatalf("usage still English-only: %q", flag.Usage)
-	}
-	if !strings.Contains(flag.Usage, "物理バイト") {
-		t.Fatalf("usage=%q, want Japanese description", flag.Usage)
+	if compact.Flags().Lookup("index-family-bytes") != nil {
+		t.Fatal("--index-family-bytes must remain unknown after projection deletion")
 	}
 }

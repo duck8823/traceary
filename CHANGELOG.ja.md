@@ -8,6 +8,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 ## [Unreleased]
 
 ### Changed
+- **search-projection サブシステムを削除する（#2319）。** offline migration 80 が 13 表と未読の `search_projection_recent_fts` を DROP し、`minimum_reader_version` を 36 に上げます。適用は #2328 の verified candidate 上で、store open では走りません。`event_metadata_projection` は残します。`store compact --projection-rebuild` / `--projection-abort` / `--index-family-bytes` / `--decoded-bytes` / `--recent-age` / `--lock-time` は unknown flag です。検索は #2318 の two-tier 読み取り経路です。
 - **report usage は repository/ticket/PR/batch 帰属と packet/tool byte のために `run_lineages` を結合しません（#2321, #2317）。** 集計キーは `{provider,engine,model}` と `{engine}`。observation の `run_host`/`run_id` は残します。失われる帰属は履歴から復元しません。
 - **forward migration 079 は `usage_observation_runs` を FK なしで rebuild したあと `run_lineages` を DROP し、`minimum_reader_version` を 35 に上げます（#2317）。** 空 store は inline bootstrap。非空 store は #2328 candidate 上で `traceary doctor --fix`。残行は `--approve-drop N:<hex>` なしでは止まります。新しい bundle export は retired entry を出しません（manifest は v2 のまま）。旧空 entry は skip、非空は原子的に拒否します。`payload_backfill_runs` は #2323 の決定で、ここでは DROP しません。
 

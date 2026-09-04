@@ -132,8 +132,8 @@ func verifyDropRetiredTable(ctx context.Context, sourceDB, candidateDB *sql.DB) 
 	if err := candidateDB.QueryRowContext(ctx, `SELECT minimum_reader_version FROM store_format_state WHERE singleton = 1`).Scan(&minimumReader); err != nil {
 		return fmt.Errorf("read candidate minimum_reader_version: %w", err)
 	}
-	if minimumReader != 35 {
-		return fmt.Errorf("candidate minimum_reader_version = %d, want 35", minimumReader)
+	if minimumReader < 35 {
+		return fmt.Errorf("candidate minimum_reader_version = %d, want at least 35", minimumReader)
 	}
 	return nil
 }

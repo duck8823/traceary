@@ -199,14 +199,9 @@ func (c *RootCLI) runSearch(ctx context.Context, warnWriter io.Writer, output io
 		if err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to search event metadata", "イベントメタデータの検索に失敗しました"), err)
 		}
-		sessions, notices, sessionErr := c.searchProjectionSessions(ctx, criteria, sessionIDsFromMetadata(metadata))
-		if sessionErr != nil {
-			return xerrors.Errorf("%s: %w", Localize("failed to search sessions", "セッション検索に失敗しました"), sessionErr)
-		}
-		if err := writeSearchMetadataJSON(output, metadata, sessions, resolvedFields, ""); err != nil {
+		if err := writeSearchMetadataJSON(output, metadata, nil, resolvedFields, ""); err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to print search results", "検索結果の出力に失敗しました"), err)
 		}
-		notices.write(warnWriter)
 		return nil
 	}
 	events, err := c.event.Search(ctx, criteria)
@@ -215,10 +210,6 @@ func (c *RootCLI) runSearch(ctx context.Context, warnWriter io.Writer, output io
 	}
 	if err := c.hydrateCommandLinesForDisplay(ctx, events); err != nil {
 		return err
-	}
-	sessions, notices, err := c.searchProjectionSessions(ctx, criteria, sessionIDsFromEvents(events))
-	if err != nil {
-		return xerrors.Errorf("%s: %w", Localize("failed to search sessions", "セッション検索に失敗しました"), err)
 	}
 
 	color, err := resolveColorMode(
@@ -241,10 +232,9 @@ func (c *RootCLI) runSearch(ctx context.Context, warnWriter io.Writer, output io
 		targetWidth:  terminalWidthOf(output),
 	}
 	extrasFor := c.makeCompactExtrasResolver(ctx, resolvedFields, colorEnabled)
-	if err := writeSearchByFormat(output, events, sessions, input.asJSON, input.fieldsSet, textOpts, extrasFor, ""); err != nil {
+	if err := writeSearchByFormat(output, events, nil, input.asJSON, input.fieldsSet, textOpts, extrasFor, ""); err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to print search results", "検索結果の出力に失敗しました"), err)
 	}
-	notices.write(warnWriter)
 
 	return nil
 }
@@ -314,86 +304,6 @@ func twoTierNotices(page apptypes.TwoTierSearchPage) searchSessionNotices {
 		notices.failuresSuppressed = page.RefinementMatchCount() > 0
 	}
 	return notices
-}
-
-func (c *RootCLI) searchProjectionSessions(
-	ctx context.Context,
-	criteria apptypes.EventSearchCriteria,
-	exclude []types.SessionID,
-) ([]apptypes.SearchSessionHit, searchSessionNotices, error) {
-	notices := searchSessionNotices{}
-	if c.projectionSessionSearch == nil {
-		return []apptypes.SearchSessionHit{}, notices, nil
-	}
-	// --kind never returns session hits (the tier cannot apply kind). Asking
-	// SearchSessionPage with kind set is always not_applicable and does not
-	// open the store. Skip it so the CLI makes one snapshot read, not two.
-	if strings.TrimSpace(criteria.Kind().String()) != "" {
-		// The probe answers exactly one question — "does the session tier match
-		// this query when kind is not applied" — so it is derived from the real
-		// criteria and given no exclusion list. Hits and not-ready come from
-		// that one page; they cannot disagree after a cutover.
-		probe, err := c.projectionSessionSearch.SearchSessionPage(ctx, criteria.WithoutKind(), nil)
-		if err != nil {
-			return nil, notices, xerrors.Errorf("probe projection session hits: %w", err)
-		}
-		notices.kindSuppressed = probe.State() == apptypes.SearchSessionTierReady && len(probe.Hits()) > 0
-		if probe.State() == apptypes.SearchSessionTierNotReady {
-			notices.projectionNotReady = true
-		}
-		return []apptypes.SearchSessionHit{}, notices, nil
-	}
-
-	page, err := c.projectionSessionSearch.SearchSessionPage(ctx, criteria, exclude)
-	if err != nil {
-		return nil, notices, xerrors.Errorf("search projection session hits: %w", err)
-	}
-	if page.State() == apptypes.SearchSessionTierNotReady {
-		notices.projectionNotReady = true
-	}
-	return page.Hits(), notices, nil
-}
-
-func sessionIDsFromEvents(events []*model.Event) []types.SessionID {
-	if len(events) == 0 {
-		return nil
-	}
-	seen := make(map[string]struct{}, len(events))
-	out := make([]types.SessionID, 0, len(events))
-	for _, event := range events {
-		id := event.SessionID()
-		key := id.String()
-		if key == "" {
-			continue
-		}
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		seen[key] = struct{}{}
-		out = append(out, id)
-	}
-	return out
-}
-
-func sessionIDsFromMetadata(metadata []apptypes.EventMetadata) []types.SessionID {
-	if len(metadata) == 0 {
-		return nil
-	}
-	seen := make(map[string]struct{}, len(metadata))
-	out := make([]types.SessionID, 0, len(metadata))
-	for _, event := range metadata {
-		id := event.SessionID()
-		key := id.String()
-		if key == "" {
-			continue
-		}
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		seen[key] = struct{}{}
-		out = append(out, id)
-	}
-	return out
 }
 
 func resolveSearchDateValue(primary string, alias string, primaryName string, aliasName string) (string, error) {

@@ -309,8 +309,15 @@ func BenchmarkV0330CopiedStoreReleaseEvidence(b *testing.B) {
 	searchBoundedIncompleteProbe, searchBoundedIncomplete := measureV0330ReleaseEvidenceProbe(
 		b, "search", "bounded", "incomplete",
 		func() (v0330ReleaseEvidenceSample, error) {
-			events, err := datasource.SearchBounded(ctx, searchCriteria, 500)
-			return v0330ReleaseEvidenceBoundedSample(events), err
+			metadata, err := datasource.SearchMetadata(ctx, searchCriteria)
+			if err != nil {
+				return v0330ReleaseEvidenceSample{}, fmt.Errorf("search metadata: %w", err)
+			}
+			events, err := datasource.HydrateBounded(ctx, metadata, 500)
+			if err != nil {
+				return v0330ReleaseEvidenceSample{}, fmt.Errorf("hydrate bounded search: %w", err)
+			}
+			return v0330ReleaseEvidenceBoundedSample(events), nil
 		},
 	)
 	probes = append(probes, searchBoundedIncompleteProbe)
@@ -354,8 +361,15 @@ func BenchmarkV0330CopiedStoreReleaseEvidence(b *testing.B) {
 	searchBoundedCompleteProbe, searchBoundedComplete := measureV0330ReleaseEvidenceProbe(
 		b, "search", "bounded", "complete",
 		func() (v0330ReleaseEvidenceSample, error) {
-			events, err := datasource.SearchBounded(ctx, searchCriteria, 500)
-			return v0330ReleaseEvidenceBoundedSample(events), err
+			metadata, err := datasource.SearchMetadata(ctx, searchCriteria)
+			if err != nil {
+				return v0330ReleaseEvidenceSample{}, fmt.Errorf("search metadata: %w", err)
+			}
+			events, err := datasource.HydrateBounded(ctx, metadata, 500)
+			if err != nil {
+				return v0330ReleaseEvidenceSample{}, fmt.Errorf("hydrate bounded search: %w", err)
+			}
+			return v0330ReleaseEvidenceBoundedSample(events), nil
 		},
 	)
 	probes = append(probes, searchBoundedCompleteProbe)

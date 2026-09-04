@@ -119,7 +119,6 @@ type duplicateStats struct {
 type recentIndexStats struct {
 	measured bool
 	ratio    float64
-	ppm      int64
 	reason   string
 }
 
@@ -187,33 +186,8 @@ FROM events`).Scan(&out.total, &out.distinct); err != nil {
 	return out, nil
 }
 
-func readRecentIndexAmplification(ctx context.Context, db *sql.DB) (recentIndexStats, error) {
-	out := recentIndexStats{reason: "no completed search-projection generation with a measured amplification"}
-	var exists int
-	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_schema WHERE type='table' AND name='search_projection_state'`).Scan(&exists); err != nil {
-		return out, xerrors.Errorf("failed to inspect search projection schema: %w", err)
-	}
-	if exists == 0 {
-		return out, nil
-	}
-	var state, evidence string
-	var ppm int64
-	if err := db.QueryRowContext(ctx, `
-SELECT COALESCE(state, ''), COALESCE(recent_amplification_ppm, 0), COALESCE(capacity_evidence_status, '')
-  FROM search_projection_state WHERE singleton=1`).Scan(&state, &ppm, &evidence); err != nil {
-		if err == sql.ErrNoRows {
-			return out, nil
-		}
-		return out, xerrors.Errorf("failed to read search-index amplification: %w", err)
-	}
-	if state != "complete" || ppm <= 0 || evidence != searchProjectionEvidenceMeasured {
-		return out, nil
-	}
-	out.measured = true
-	out.ppm = ppm
-	out.ratio = float64(ppm) / 1_000_000
-	out.reason = ""
-	return out, nil
+func readRecentIndexAmplification(_ context.Context, _ *sql.DB) (recentIndexStats, error) {
+	return recentIndexStats{reason: "recent index family is no longer stored"}, nil
 }
 
 func classifyEmission(stats emissionStats) apptypes.ReleaseGateResult {

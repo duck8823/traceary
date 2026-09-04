@@ -33,7 +33,7 @@ const sqlTimestampValidFunc = "ts_valid"
 const sqlPayloadDecodeFunc = "traceary_payload_decode"
 
 const (
-	currentReaderVersion        = 35
+	currentReaderVersion        = 36
 	maximumPayloadFormatVersion = 1
 )
 
@@ -183,19 +183,6 @@ type Database struct {
 	dbPath         string
 	migrations     fs.FS
 	sharedReadOnly *sql.DB
-	// searchProjectionMeasureTimeoutOverride shortens the cutover evidence
-	// deadline so tests can observe an unavailable measurement without building
-	// a projection family large enough to be genuinely slow. Production
-	// databases leave it zero and get searchProjectionMeasureTimeout.
-	searchProjectionMeasureTimeoutOverride time.Duration
-	// afterProjectionLockHeld runs after BEGIN IMMEDIATE succeeds and the
-	// hold clock has started. Tests use it to spend the hold budget; production
-	// leaves it nil.
-	afterProjectionLockHeld func(context.Context) error
-	// afterStatusGenerationScopeRead runs after SearchProjectionStatus has
-	// resolved generation ids inside its snapshot transaction and before it
-	// reads generation-scoped counters. Tests commit a cutover here.
-	afterStatusGenerationScopeRead func()
 	// afterReadOnlyConnectionOpened runs each time openReadOnly or
 	// WithReadScope opens a genuinely fresh read-only connection (i.e. not a
 	// scope/shared-handle reuse). Tests use it to assert O(1) opens across a
@@ -520,13 +507,6 @@ func (d *Database) initializeAt(ctx context.Context, snapshot string, allowOffli
 		}
 	} else if err := d.migrate(ctx, db); err != nil {
 		return xerrors.Errorf("failed to run SQLite migrations: %w", err)
-	}
-	// Bounded projection generation: one durable unit per store open, resumable,
-	// never blocking Initialize on a full rebuild. Projection methods open via
-	// Path(), so skip when SetPath raced against the migrate snapshot.
-	if snapshot == d.Path() {
-		projectionCatchUp, projectionCatchUpErr := catchUpSearchProjection(ctx, d)
-		logSearchProjectionCatchUp(snapshot, projectionCatchUp, projectionCatchUpErr)
 	}
 	normCatchUp, normCatchUpErr := catchUpReportWindowNorm(ctx, db, reportWindowNormCatchUpBatchSize)
 	logReportWindowNormCatchUp(normCatchUp, normCatchUpErr)

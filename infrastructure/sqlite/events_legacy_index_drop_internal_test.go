@@ -27,10 +27,8 @@ func TestShippedEventPlansDoNotUseDroppedCreatedAtIndexes(t *testing.T) {
 
 	from := "2026-01-01T00:00:00.000000000Z"
 	to := "2026-01-02T00:00:00.000000000Z"
-	searchSQL, searchArgs := buildTieredSearchCandidateQuery(
+	searchSQL, searchArgs := buildTwoTierFallbackScanQuery(
 		apptypes.NewEventSearchCriteriaBuilder(10).Query("needle").Build(),
-		"generation",
-		false,
 	)
 	plans := []struct {
 		name  string
@@ -43,7 +41,7 @@ func TestShippedEventPlansDoNotUseDroppedCreatedAtIndexes(t *testing.T) {
 			args:  []any{"", "", "", "", "", "", "", "", "", "", 0, "", "", "", "", 10, 0},
 		},
 		{
-			name:  "search fingerprint-first",
+			name:  "search two-tier fallback",
 			query: searchSQL,
 			args:  searchArgs,
 		},

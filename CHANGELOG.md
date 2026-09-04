@@ -8,6 +8,7 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 ## [Unreleased]
 
 ### Changed
+- **The search-projection subsystem is deleted (#2319).** Offline migration 80 drops the thirteen projection tables plus unread `search_projection_recent_fts`, raises `minimum_reader_version` to 36, and runs on the #2328 verified candidate — never at store open. `event_metadata_projection` stays. `store compact --projection-rebuild` / `--projection-abort` / `--index-family-bytes` / `--decoded-bytes` / `--recent-age` / `--lock-time` fail as unknown flags. Search uses the two-tier read path from #2318.
 - **Report usage no longer joins `run_lineages` for repository/ticket/PR/batch attribution or packet/tool byte facts (#2321, #2317).** Groups are `{provider,engine,model}` and `{engine}`. `run_host`/`run_id` on observations survive. The lost attribution is a documented user-visible change, not restored from history.
 - **Forward migration 079 drops `run_lineages` after rebuilding `usage_observation_runs` without that FK, and raises `minimum_reader_version` to 35 (#2317).** Empty stores keep inline bootstrap. Non-empty stores apply it on a #2328 candidate via `traceary doctor --fix`. Remaining rows stop without `--approve-drop N:<hex>`. New bundle exports omit the retired entry (manifest stays v2); legacy empty entries skip, non-empty entries refuse atomically. `payload_backfill_runs` is decided by #2323 and is not dropped here.
 

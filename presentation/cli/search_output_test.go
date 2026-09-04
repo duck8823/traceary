@@ -38,7 +38,7 @@ func TestRootCLI_SearchText_RecentOnlyMatchesPreSessionShape(t *testing.T) {
 	withEmptySessions := executeSearchText(
 		t,
 		&eventUsecaseStub{searchEvents: []*model.Event{event}},
-		&projectionSessionSearchStub{hits: nil},
+		[]apptypes.SearchSessionHit{},
 	)
 	if diff := cmp.Diff(string(withoutSessions), string(withEmptySessions)); diff != "" {
 		t.Fatalf("recent-only text must stay byte-identical when sessions empty (-without +with):\n%s", diff)
@@ -74,7 +74,7 @@ func TestRootCLI_SearchText_MixedShowsLabelledGroups(t *testing.T) {
 	stdout := executeSearchText(
 		t,
 		&eventUsecaseStub{searchEvents: []*model.Event{event}},
-		&projectionSessionSearchStub{hits: []apptypes.SearchSessionHit{session}},
+		[]apptypes.SearchSessionHit{session},
 	)
 	text := string(stdout)
 	if !strings.Contains(text, "EVENTS (literal matches)") {
@@ -156,7 +156,7 @@ func TestRootCLI_SearchJSON_EmitsEventsSessionsObject(t *testing.T) {
 			stdout, stderr := executeSearchJSON(
 				t,
 				&eventUsecaseStub{searchEvents: tc.events},
-				&projectionSessionSearchStub{hits: tc.hits},
+				tc.hits,
 			)
 			if strings.Contains(string(stderr), "not included in --json") {
 				t.Fatalf("session omission notice must be gone: %q", stderr)
@@ -221,7 +221,25 @@ func TestRootCLI_SearchJSONFields_SelectsEventFieldsInsideEnvelope(t *testing.T)
 		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
 		cli.WithEvent(&eventUsecaseStub{}),
 		cli.WithEventMetadata(metadata),
-		cli.WithProjectionSessionSearch(&projectionSessionSearchStub{hits: []apptypes.SearchSessionHit{session}}),
+		cli.WithTwoTierSearch(&twoTierSearchStub{
+			page: apptypes.TwoTierSearchPageOf(
+				[]apptypes.SearchEventHit{apptypes.SearchEventHitOf(mustGoldenEvent(
+					t,
+					"event-search",
+					types.EventKindNote,
+					"cli",
+					"codex",
+					"session-recent",
+					"duck8823/traceary",
+					"matching line about needle",
+					time.Date(2026, 8, 6, 14, 2, 0, 0, time.UTC),
+					"",
+				), apptypes.SearchHitTierFallback)},
+				[]apptypes.SearchSessionHit{session},
+				apptypes.RefinementDispositionApplied,
+				0,
+			),
+		}),
 	).Command()
 	rootCmd.SetOut(out)
 	rootCmd.SetErr(errOut)
@@ -269,15 +287,15 @@ func TestRootCLI_SearchJSONFields_SelectsEventFieldsInsideEnvelope(t *testing.T)
 func executeSearchJSON(
 	t *testing.T,
 	eventStub *eventUsecaseStub,
-	sessionSearch *projectionSessionSearchStub,
+	sessions []apptypes.SearchSessionHit,
 ) (stdout []byte, stderr []byte) {
 	t.Helper()
 	options := []cli.RootCLIOption{
 		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
 		cli.WithEvent(eventStub),
 	}
-	if sessionSearch != nil {
-		options = append(options, cli.WithProjectionSessionSearch(sessionSearch))
+	if sessions != nil {
+		options = append(options, cli.WithTwoTierSearch(twoTierPageFromEvents(eventStub.searchEvents, sessions)))
 	}
 	out := &bytes.Buffer{}
 	errOut := &bytes.Buffer{}
@@ -293,14 +311,14 @@ func executeSearchJSON(
 	return out.Bytes(), errOut.Bytes()
 }
 
-func executeSearchText(t *testing.T, eventStub *eventUsecaseStub, sessionSearch *projectionSessionSearchStub) []byte {
+func executeSearchText(t *testing.T, eventStub *eventUsecaseStub, sessions []apptypes.SearchSessionHit) []byte {
 	t.Helper()
 	options := []cli.RootCLIOption{
 		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
 		cli.WithEvent(eventStub),
 	}
-	if sessionSearch != nil {
-		options = append(options, cli.WithProjectionSessionSearch(sessionSearch))
+	if sessions != nil {
+		options = append(options, cli.WithTwoTierSearch(twoTierPageFromEvents(eventStub.searchEvents, sessions)))
 	}
 	stdout := &bytes.Buffer{}
 	rootCmd := newTestRootCLI(options...).Command()
@@ -313,4 +331,14 @@ func executeSearchText(t *testing.T, eventStub *eventUsecaseStub, sessionSearch 
 		t.Fatalf("Execute() error = %v", err)
 	}
 	return stdout.Bytes()
+}
+
+func twoTierPageFromEvents(events []*model.Event, sessions []apptypes.SearchSessionHit) *twoTierSearchStub {
+	hits := make([]apptypes.SearchEventHit, 0, len(events))
+	for _, event := range events {
+		hits = append(hits, apptypes.SearchEventHitOf(event, apptypes.SearchHitTierFallback))
+	}
+	return &twoTierSearchStub{
+		page: apptypes.TwoTierSearchPageOf(hits, sessions, apptypes.RefinementDispositionApplied, 0),
+	}
 }

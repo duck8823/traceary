@@ -299,19 +299,6 @@ func isSQLiteBusy(err error) bool {
 	return sqliteErr.Code()&0xff == 5
 }
 
-// isSQLiteFull reports SQLITE_FULL (13). Catch-up must not treat this as a
-// routine incomplete batch (#1836). Match Code() rather than the driver text.
-func isSQLiteFull(err error) bool {
-	if err == nil {
-		return false
-	}
-	var sqliteErr *sqlitelib.Error
-	if !errors.As(err, &sqliteErr) {
-		return false
-	}
-	return sqliteErr.Code()&0xff == 13
-}
-
 func sqliteTableExists(ctx context.Context, db *sql.DB, table string) (bool, error) {
 	var name string
 	err := db.QueryRowContext(ctx, `SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`, table).Scan(&name)

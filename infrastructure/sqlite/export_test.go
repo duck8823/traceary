@@ -52,13 +52,6 @@ func SetAfterVerifiedAttestationSnapshotForTest(fn func(context.Context, *sql.DB
 	afterVerifiedAttestationSnapshot = fn
 }
 
-// SetStatusGenerationReadHookForTest runs after SearchProjectionStatus
-// resolves generation ids and before generation-scoped counters. Pass nil
-// to clear.
-func (d *Database) SetStatusGenerationReadHookForTest(hook func()) {
-	d.afterStatusGenerationScopeRead = hook
-}
-
 // SetTimelinePayloadQueryHookForTest counts schema/body reads on the
 // timeline walk. Pass nil to clear.
 func (d *EventDatasource) SetTimelinePayloadQueryHookForTest(hook func(kind string)) {
