@@ -125,8 +125,8 @@ func TestUpgradeCandidateAppliesEntireSuffixInCatalogOrder(t *testing.T) {
 	if err = rows.Err(); err != nil {
 		t.Fatal(err)
 	}
-	if versions[len(versions)-1] != 77 {
-		t.Fatalf("latest version = %d, want 77", versions[len(versions)-1])
+	if versions[len(versions)-1] != 78 {
+		t.Fatalf("latest version = %d, want 78", versions[len(versions)-1])
 	}
 	for i := 1; i < len(versions); i++ {
 		if versions[i] <= versions[i-1] {
@@ -690,7 +690,7 @@ func runUpgradeEndToEnd(t *testing.T, beforeVersion int, realSized bool) {
 	}
 	defer func() { _ = db.Close() }()
 	var maxVersion int
-	if err := db.QueryRow(`SELECT max(version) FROM schema_migrations`).Scan(&maxVersion); err != nil || maxVersion != 77 {
+	if err := db.QueryRow(`SELECT max(version) FROM schema_migrations`).Scan(&maxVersion); err != nil || maxVersion != 78 {
 		t.Fatalf("published version=%d err=%v", maxVersion, err)
 	}
 }

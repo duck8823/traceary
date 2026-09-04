@@ -126,6 +126,16 @@ func (d *StoreManagementDatasource) PreviewOfflineMigrations(ctx context.Context
 	return versions, nil
 }
 
+// InspectOneOffRepairRetirement reports outstanding/never-ran/retired
+// states for completed one-off repairs. Diagnostic path only.
+func (d *StoreManagementDatasource) InspectOneOffRepairRetirement(ctx context.Context) (apptypes.OneOffRepairRetirement, error) {
+	states, err := inspectOneOffRepairRetirement(ctx, d.db.Path())
+	if err != nil {
+		return apptypes.OneOffRepairRetirement{}, xerrors.Errorf("failed to inspect one-off repairs: %w", err)
+	}
+	return states, nil
+}
+
 // CreateBackup creates a backup of the SQLite DB.
 func (d *StoreManagementDatasource) CreateBackup(ctx context.Context, outputPath string, overwrite bool) (err error) {
 	// Snapshot the current DB path up front so a concurrent SetPath

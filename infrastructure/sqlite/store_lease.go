@@ -193,7 +193,7 @@ func openCoordinatedReadOnlyDB(path, dsn string) *sql.DB {
 
 func openCoordinatedDBMode(path, dsn string, readWrite bool) *sql.DB {
 	lockPath, lockPathErr := canonicalLeasePath(path)
-	return sql.OpenDB(&storeLeaseConnector{driver: coordinatedSQLiteDriver, dsn: dsn, storePath: path, lockPath: lockPath, lockPathErr: lockPathErr, readWrite: readWrite})
+	return sql.OpenDB(&storeLeaseConnector{driver: coordinatedDriver(), dsn: dsn, storePath: path, lockPath: lockPath, lockPathErr: lockPathErr, readWrite: readWrite})
 }
 
 // OpenCoordinatedSQLite opens a live store through the shared physical-

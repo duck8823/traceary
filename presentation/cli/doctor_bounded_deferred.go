@@ -21,6 +21,7 @@ var doctorInspectCallCheckNames = map[string][]string{
 	"inspectStaleActiveSessions":           {"stale-active-sessions"},
 	"inspectArchiveRetention":              {"archive-retention"},
 	"inspectOfflineMigrations":             {"offline-migrations"},
+	"inspectOneOffRepairs":                 {"one-off-repairs"},
 	"inspectWorkspaceAliases":              {"workspace-aliases"},
 	"inspectWorkspaceObservations":         {"workspace-observations"},
 	"inspectCommandAuditReliability":       {"audit-reliability"},

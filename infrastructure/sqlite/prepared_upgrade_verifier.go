@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/duck8823/traceary/domain"
 )
@@ -61,8 +62,13 @@ func (v PreparedMigrationVerifier) VerifyUpgradePair(ctx context.Context, source
 		if err = evaluateConservationLaw(ctx, sourceDB, candidateDB, migration.Version); err != nil {
 			return domain.PreparedCandidateEvidence{}, err
 		}
-		if semanticVerifierFor(migration.Version) == SemanticVerifierCollapseSessionWorkspaceObservations {
+		switch semanticVerifierFor(migration.Version) {
+		case SemanticVerifierCollapseSessionWorkspaceObservations:
 			if err = verifyCollapseSessionWorkspaceObservations(ctx, sourceDB, candidateDB); err != nil {
+				return domain.PreparedCandidateEvidence{}, err
+			}
+		case SemanticVerifierRepairEpochZeroHookUsage:
+			if err = verifyRepairEpochZeroHookUsage(ctx, sourceDB, candidateDB); err != nil {
 				return domain.PreparedCandidateEvidence{}, err
 			}
 		}
@@ -236,6 +242,101 @@ func sqliteIndexExists(ctx context.Context, db *sql.DB, name string) (bool, erro
 		return false, fmt.Errorf("inspect index %s: %w", name, err)
 	}
 	return n > 0, nil
+}
+
+func verifyRepairEpochZeroHookUsage(ctx context.Context, sourceDB, candidateDB *sql.DB) error {
+	sourceHas, err := tableExists(ctx, sourceDB, "usage_observations")
+	if err != nil {
+		return err
+	}
+	candidateHas, err := tableExists(ctx, candidateDB, "usage_observations")
+	if err != nil {
+		return err
+	}
+	if !sourceHas || !candidateHas {
+		return errors.New("usage_observations missing for epoch-zero hook usage verifier")
+	}
+	var sourceRows, candidateRows int64
+	if err = sourceDB.QueryRowContext(ctx, `SELECT COUNT(*) FROM usage_observations`).Scan(&sourceRows); err != nil {
+		return fmt.Errorf("count source usage_observations: %w", err)
+	}
+	if err = candidateDB.QueryRowContext(ctx, `SELECT COUNT(*) FROM usage_observations`).Scan(&candidateRows); err != nil {
+		return fmt.Errorf("count candidate usage_observations: %w", err)
+	}
+	if sourceRows != candidateRows {
+		return fmt.Errorf("usage_observations row count source=%d candidate=%d", sourceRows, candidateRows)
+	}
+	remainingRepairable := `
+SELECT COUNT(*) FROM usage_observations AS observation
+ WHERE ts_norm(observation.observed_at) = ?
+   AND ` + epochZeroHookUsageSourceFilter + `
+   AND ` + epochZeroHookUsageRepairableSQL
+	var remaining int64
+	if err = candidateDB.QueryRowContext(ctx, remainingRepairable, epochZeroHookUsageObservedAt).Scan(&remaining); err != nil {
+		return fmt.Errorf("count remaining repairable epoch-zero hook usage rows: %w", err)
+	}
+	if remaining != 0 {
+		return fmt.Errorf("candidate still has %d repairable epoch-zero hook usage rows", remaining)
+	}
+	columns, err := tableColumns(ctx, sourceDB, "usage_observations")
+	if err != nil {
+		return err
+	}
+	targetIDs, err := epochZeroHookUsageIDs(ctx, sourceDB)
+	if err != nil {
+		return err
+	}
+	nonTargetQuery, args := usageObservationsExcludingIDsQuery(columns, targetIDs)
+	srcCount, srcDigest, err := digestRows(ctx, sourceDB, columns, nonTargetQuery, args...)
+	if err != nil {
+		return fmt.Errorf("digest source non-target usage_observations: %w", err)
+	}
+	candCount, candDigest, err := digestRows(ctx, candidateDB, columns, nonTargetQuery, args...)
+	if err != nil {
+		return fmt.Errorf("digest candidate non-target usage_observations: %w", err)
+	}
+	if srcCount != candCount || srcDigest != candDigest {
+		return errors.New("candidate changed non-target usage_observations rows")
+	}
+	return nil
+}
+
+func epochZeroHookUsageIDs(ctx context.Context, db *sql.DB) ([]string, error) {
+	rows, err := db.QueryContext(ctx, `
+SELECT observation.observation_id
+  FROM usage_observations AS observation
+ WHERE ts_norm(observation.observed_at) = ?
+   AND `+epochZeroHookUsageSourceFilter, epochZeroHookUsageObservedAt)
+	if err != nil {
+		return nil, fmt.Errorf("list epoch-zero hook usage ids: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err = rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan epoch-zero hook usage id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate epoch-zero hook usage ids: %w", err)
+	}
+	return ids, nil
+}
+
+func usageObservationsExcludingIDsQuery(columns, ids []string) (string, []any) {
+	query := `SELECT ` + joinQuotedIdentifiers(columns) + ` FROM usage_observations`
+	if len(ids) == 0 {
+		return query, nil
+	}
+	placeholders := make([]string, len(ids))
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+	return query + ` WHERE observation_id NOT IN (` + strings.Join(placeholders, ",") + `)`, args
 }
 
 func identicalObservationCounts(ctx context.Context, sourceDB, candidateDB *sql.DB) error {

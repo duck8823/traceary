@@ -37,7 +37,16 @@ const (
 	maximumPayloadFormatVersion = 1
 )
 
-var coordinatedSQLiteDriver driver.Driver
+var (
+	coordinatedSQLiteDriver   driver.Driver
+	coordinatedSQLiteDriverMu sync.RWMutex
+)
+
+func coordinatedDriver() driver.Driver {
+	coordinatedSQLiteDriverMu.RLock()
+	defer coordinatedSQLiteDriverMu.RUnlock()
+	return coordinatedSQLiteDriver
+}
 
 // init registers ts_norm on the modernc SQLite driver. Registration is global
 // and applies to every connection opened afterwards, so the per-operation
@@ -519,28 +528,26 @@ func (d *Database) initializeAt(ctx context.Context, snapshot string, allowOffli
 		projectionCatchUp, projectionCatchUpErr := catchUpSearchProjection(ctx, d)
 		logSearchProjectionCatchUp(snapshot, projectionCatchUp, projectionCatchUpErr)
 	}
-	usageRepairResult, usageRepairErr := catchUpEpochZeroHookUsage(ctx, db, epochZeroHookUsageRepairBatchSize)
-	logEpochZeroHookUsageRepair(usageRepairResult, usageRepairErr)
 	normCatchUp, normCatchUpErr := catchUpReportWindowNorm(ctx, db, reportWindowNormCatchUpBatchSize)
 	logReportWindowNormCatchUp(normCatchUp, normCatchUpErr)
-	catchUpResult, catchUpErr := catchUpWorkspaceObservations(ctx, db, workspaceObservationCatchUpBatchSize)
-	if catchUpErr != nil {
-		// Catch-up is additive diagnostic coverage. A malformed historical row
+	backfillResult, backfillErr := backfillWorkspaceObservationsBatch(ctx, db, workspaceObservationCatchUpBatchSize)
+	if backfillErr != nil {
+		// Backfill is additive diagnostic coverage. A malformed historical row
 		// must not block normal ingestion after the schema migration succeeded;
 		// the next initialization retries the still-missing batch.
-		slog.Error("workspace observation catch-up incomplete; retrying on next initialization",
-			"selected", catchUpResult.Selected,
-			"inserted", catchUpResult.Inserted,
-			"retries", catchUpResult.Retries,
-			"more_pending", catchUpResult.MorePending,
-			"error", catchUpErr,
+		slog.Error("workspace observation backfill incomplete; retrying on next initialization",
+			"selected", backfillResult.Selected,
+			"inserted", backfillResult.Inserted,
+			"retries", backfillResult.Retries,
+			"more_pending", backfillResult.MorePending,
+			"error", backfillErr,
 		)
-	} else if catchUpResult.Selected > 0 || catchUpResult.Retries > 0 {
-		slog.Debug("workspace observation catch-up completed",
-			"selected", catchUpResult.Selected,
-			"inserted", catchUpResult.Inserted,
-			"retries", catchUpResult.Retries,
-			"more_pending", catchUpResult.MorePending,
+	} else if backfillResult.Selected > 0 || backfillResult.Retries > 0 {
+		slog.Debug("workspace observation backfill completed",
+			"selected", backfillResult.Selected,
+			"inserted", backfillResult.Inserted,
+			"retries", backfillResult.Retries,
+			"more_pending", backfillResult.MorePending,
 		)
 	}
 

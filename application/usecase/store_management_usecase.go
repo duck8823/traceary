@@ -14,6 +14,9 @@ type StoreManagementUsecase interface {
 	Initialize(ctx context.Context) error
 	// PreviewOfflineMigrations lists pending data-dependent versions without applying them.
 	PreviewOfflineMigrations(ctx context.Context) ([]int64, error)
+	// InspectOneOffRepairRetirement reports outstanding/never-ran/retired
+	// states for completed one-off repairs.
+	InspectOneOffRepairRetirement(ctx context.Context) (apptypes.OneOffRepairRetirement, error)
 
 	// CreateBackup creates a backup of the store.
 	CreateBackup(ctx context.Context, outputPath string, overwrite bool) error

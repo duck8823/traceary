@@ -595,6 +595,10 @@ func TestRootCLI_DoctorLargeStoreReturnsBoundedMetadataOnlyReport(t *testing.T) 
 	if offline.Status != "skip" || !strings.Contains(offline.Message, "filesystem-metadata-only") {
 		t.Fatalf("offline-migrations = %#v, want skip without opening SQLite", offline)
 	}
+	oneOff := statusByName(report, "one-off-repairs")
+	if oneOff.Status != "skip" || !strings.Contains(oneOff.Message, "filesystem-metadata-only") {
+		t.Fatalf("one-off-repairs = %#v, want skip without opening SQLite", oneOff)
+	}
 	if store.authorizedCalled {
 		t.Fatal("large-store doctor --fix called InitializeAuthorized with no pending versions")
 	}
@@ -851,6 +855,10 @@ func TestRootCLI_DoctorLargeStoreReportsHookSpoolMetadataWithoutPayloadReads(t *
 	offline := statusByName(report, "offline-migrations")
 	if offline.Status != "skip" || !strings.Contains(offline.Message, "filesystem-metadata-only") {
 		t.Fatalf("offline-migrations = %#v, want skip without opening SQLite", offline)
+	}
+	oneOff := statusByName(report, "one-off-repairs")
+	if oneOff.Status != "skip" || !strings.Contains(oneOff.Message, "filesystem-metadata-only") {
+		t.Fatalf("one-off-repairs = %#v, want skip without opening SQLite", oneOff)
 	}
 
 	spool := statusByName(report, "hook-spool")

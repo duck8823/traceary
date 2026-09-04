@@ -24,3 +24,21 @@ func (e *OfflineMigrationsRequiredError) Error() string {
 	}
 	return fmt.Sprintf("store has unapplied data-dependent migrations (%s); run `traceary doctor --fix`", strings.Join(parts, ", "))
 }
+
+const (
+	// OneOffRepairOutstanding means remaining work exists and the completion
+	// record is not in the ledger.
+	OneOffRepairOutstanding = "outstanding"
+	// OneOffRepairNeverRan means the offline version is pending and no
+	// remaining work exists.
+	OneOffRepairNeverRan = "never-ran"
+	// OneOffRepairRetired means the completion record is present.
+	OneOffRepairRetired = "retired"
+)
+
+// OneOffRepairRetirement is the per-repair outstanding/retired view doctor
+// prints so "it never ran" and "it finished" are distinguishable.
+type OneOffRepairRetirement struct {
+	Epoch     string
+	Workspace string
+}

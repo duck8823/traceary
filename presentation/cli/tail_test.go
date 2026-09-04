@@ -93,6 +93,9 @@ func (tailStoreManagementStub) Initialize(context.Context) error { return nil }
 func (tailStoreManagementStub) PreviewOfflineMigrations(context.Context) ([]int64, error) {
 	return nil, nil
 }
+func (tailStoreManagementStub) InspectOneOffRepairRetirement(context.Context) (apptypes.OneOffRepairRetirement, error) {
+	return apptypes.OneOffRepairRetirement{}, nil
+}
 func (tailStoreManagementStub) CreateBackup(context.Context, string, bool) error {
 	return nil
 }

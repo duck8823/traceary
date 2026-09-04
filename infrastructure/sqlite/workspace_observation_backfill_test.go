@@ -125,9 +125,9 @@ func TestCatchUpWorkspaceObservations_SkipsWhenExhausted(t *testing.T) {
 		t.Fatalf("create skip schema: %v", err)
 	}
 
-	result, err := catchUpWorkspaceObservations(context.Background(), db, 10)
+	result, err := backfillWorkspaceObservationsBatch(context.Background(), db, 10)
 	if err != nil {
-		t.Fatalf("catchUpWorkspaceObservations() error = %v", err)
+		t.Fatalf("backfillWorkspaceObservationsBatch() error = %v", err)
 	}
 	if !result.Skipped || result.Selected != 0 || result.Inserted != 0 {
 		t.Fatalf("catch-up result = %+v, want skipped with no selected rows", result)
@@ -158,9 +158,9 @@ func TestCatchUpWorkspaceObservations_FillsWhenNewestEventIsMissing(t *testing.T
 		t.Fatalf("create fill schema: %v", err)
 	}
 
-	result, err := catchUpWorkspaceObservations(context.Background(), db, 10)
+	result, err := backfillWorkspaceObservationsBatch(context.Background(), db, 10)
 	if err != nil {
-		t.Fatalf("catchUpWorkspaceObservations() error = %v", err)
+		t.Fatalf("backfillWorkspaceObservationsBatch() error = %v", err)
 	}
 	if result.Skipped || result.Selected != 1 || result.Inserted != 1 {
 		t.Fatalf("catch-up result = %+v, want selected=1 inserted=1", result)
@@ -193,9 +193,9 @@ func TestCatchUpWorkspaceObservations_AdvancesHighWaterMark(t *testing.T) {
 		t.Fatalf("create frontier schema: %v", err)
 	}
 
-	result, err := catchUpWorkspaceObservations(context.Background(), db, 2)
+	result, err := backfillWorkspaceObservationsBatch(context.Background(), db, 2)
 	if err != nil {
-		t.Fatalf("catchUpWorkspaceObservations() error = %v", err)
+		t.Fatalf("backfillWorkspaceObservationsBatch() error = %v", err)
 	}
 	if result.Selected != 2 || result.Inserted != 1 || !result.MorePending {
 		t.Fatalf("catch-up result = %+v, want selected=2 inserted=1 more_pending", result)
@@ -239,9 +239,9 @@ func TestCatchUpWorkspaceObservations_ResumesAfterMark(t *testing.T) {
 		t.Fatalf("create resume schema: %v", err)
 	}
 
-	result, err := catchUpWorkspaceObservations(context.Background(), db, 10)
+	result, err := backfillWorkspaceObservationsBatch(context.Background(), db, 10)
 	if err != nil {
-		t.Fatalf("catchUpWorkspaceObservations() error = %v", err)
+		t.Fatalf("backfillWorkspaceObservationsBatch() error = %v", err)
 	}
 	if result.Selected != 1 || result.Inserted != 1 || result.MorePending {
 		t.Fatalf("catch-up result = %+v, want only the event older than the frontier", result)
@@ -271,14 +271,14 @@ func TestCatchUpWorkspaceObservations_MarksExhaustedOnShortBatch(t *testing.T) {
 		t.Fatalf("create short-batch schema: %v", err)
 	}
 
-	first, err := catchUpWorkspaceObservations(context.Background(), db, 10)
+	first, err := backfillWorkspaceObservationsBatch(context.Background(), db, 10)
 	if err != nil {
 		t.Fatalf("first catch-up error = %v", err)
 	}
 	if first.Selected != 1 || first.Inserted != 1 {
 		t.Fatalf("first catch-up = %+v, want selected=1 inserted=1", first)
 	}
-	second, err := catchUpWorkspaceObservations(context.Background(), db, 10)
+	second, err := backfillWorkspaceObservationsBatch(context.Background(), db, 10)
 	if err != nil {
 		t.Fatalf("second catch-up error = %v", err)
 	}
@@ -292,7 +292,7 @@ func TestCatchUpWorkspaceObservations_MarksExhaustedOnShortBatch(t *testing.T) {
 	if exhausted != 1 {
 		t.Fatalf("exhausted = %d, want 1", exhausted)
 	}
-	third, err := catchUpWorkspaceObservations(context.Background(), db, 10)
+	third, err := backfillWorkspaceObservationsBatch(context.Background(), db, 10)
 	if err != nil {
 		t.Fatalf("third catch-up error = %v", err)
 	}
@@ -317,13 +317,13 @@ func TestCatchUpWorkspaceObservations_ReSweepDoesNotInflateCount(t *testing.T) {
 		t.Fatalf("create resweep schema: %v", err)
 	}
 
-	if _, err := catchUpWorkspaceObservations(context.Background(), db, 10); err != nil {
+	if _, err := backfillWorkspaceObservationsBatch(context.Background(), db, 10); err != nil {
 		t.Fatalf("first catch-up error = %v", err)
 	}
 	if _, err := db.Exec(`UPDATE workspace_observation_catchup_state SET exhausted = 0, frontier_created_at_norm = '', frontier_event_id = '' WHERE singleton = 1`); err != nil {
 		t.Fatalf("rewind frontier: %v", err)
 	}
-	result, err := catchUpWorkspaceObservations(context.Background(), db, 10)
+	result, err := backfillWorkspaceObservationsBatch(context.Background(), db, 10)
 	if err != nil {
 		t.Fatalf("resweep error = %v", err)
 	}
@@ -379,9 +379,9 @@ func TestCatchUpWorkspaceObservations_RetriesConcurrentWriterContention(t *testi
 		close(released)
 	}()
 
-	result, err := catchUpWorkspaceObservations(context.Background(), catchUpDB, 10)
+	result, err := backfillWorkspaceObservationsBatch(context.Background(), catchUpDB, 10)
 	if err != nil {
-		t.Fatalf("catchUpWorkspaceObservations() error = %v", err)
+		t.Fatalf("backfillWorkspaceObservationsBatch() error = %v", err)
 	}
 	<-released
 	if result.Selected != 1 || result.Inserted != 1 || result.Retries == 0 || result.MorePending {
@@ -421,9 +421,9 @@ func TestCatchUpWorkspaceObservations_DoesNotReportRolledBackInserts(t *testing.
 		t.Fatalf("create catch-up schema: %v", err)
 	}
 
-	result, err := catchUpWorkspaceObservations(context.Background(), db, 10)
+	result, err := backfillWorkspaceObservationsBatch(context.Background(), db, 10)
 	if err == nil || !strings.Contains(err.Error(), "forced catch-up failure") {
-		t.Fatalf("catchUpWorkspaceObservations() error = %v, want forced failure", err)
+		t.Fatalf("backfillWorkspaceObservationsBatch() error = %v, want forced failure", err)
 	}
 	if result.Selected != 2 || result.Inserted != 0 || result.Retries != 0 {
 		t.Fatalf("catch-up result = %+v, want selected=2 inserted=0 retries=0", result)

@@ -872,6 +872,12 @@ func (s *storeManagementUsecaseStub) PreviewOfflineMigrations(context.Context) (
 	s.staleMu.Unlock()
 	return pending, nil
 }
+func (s *storeManagementUsecaseStub) InspectOneOffRepairRetirement(context.Context) (apptypes.OneOffRepairRetirement, error) {
+	return apptypes.OneOffRepairRetirement{
+		Epoch:     apptypes.OneOffRepairRetired,
+		Workspace: apptypes.OneOffRepairRetired,
+	}, nil
+}
 func (s *storeManagementUsecaseStub) CreateBackup(_ context.Context, path string, _ bool) error {
 	s.createBackupCalls++
 	s.createBackupPath = path

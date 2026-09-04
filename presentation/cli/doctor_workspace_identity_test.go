@@ -324,5 +324,14 @@ func seededWorkspaceIdentityStore(t *testing.T) (string, usecase.WorkspaceIdenti
 			t.Fatalf("Save(%s) error = %v", item.id, err)
 		}
 	}
+	// Two extra opens finish the existing two-pass workspace backfill so
+	// doctor --json is byte-stable (first pass inserts, second marks
+	// exhausted). Leaving exhausted=0 would change one-off-repairs
+	// between consecutive doctor runs.
+	for i := 0; i < 2; i++ {
+		if err := storeUC.Initialize(ctx); err != nil {
+			t.Fatalf("Initialize(backfill %d) error = %v", i+1, err)
+		}
+	}
 	return dbPath, identityUC, storeUC, db.SetPath
 }
