@@ -108,11 +108,7 @@ func (d *SessionDatasource) SaveBoundary(ctx context.Context, session *model.Ses
 		}
 	}()
 
-	codecMetadata, err := databaseColumnExists(ctx, db, "events", "body_codec")
-	if err != nil {
-		return err
-	}
-	return saveEventTransaction(ctx, db, event, nil, codecMetadata, func(ctx context.Context, tx *sql.Tx) error {
+	return saveEventTransaction(ctx, db, event, nil, func(ctx context.Context, tx *sql.Tx) error {
 		if err := saveSessionBoundary(ctx, tx, session); err != nil {
 			return xerrors.Errorf("failed to save session: %w", err)
 		}

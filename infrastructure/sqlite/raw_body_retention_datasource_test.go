@@ -45,10 +45,7 @@ func TestRawBodyRetention_snapshotReportsEncodedExtents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sql.Open() error = %v", err)
 	}
-	if _, err := db.Exec(`UPDATE events
-SET body=?, body_codec=NULL, body_format_version=NULL, body_plaintext_bytes=NULL,
-    body_encoded_bytes=NULL, body_sha256=NULL
-WHERE id='retention-legacy'`, "日本語"); err != nil {
+	if _, err := db.Exec(`UPDATE events SET body=? WHERE id='retention-legacy'`, "日本語"); err != nil {
 		t.Fatalf("make legacy event: %v", err)
 	}
 	_ = db.Close()
@@ -64,7 +61,7 @@ WHERE id='retention-legacy'`, "日本語"); err != nil {
 		encodedBytes   int
 		plaintextBytes int
 	}{
-		{name: "compressed candidate", id: "retention-compressed", encodedBytes: 44, plaintextBytes: len([]byte(compressedBody))},
+		{name: "compressible candidate", id: "retention-compressed", encodedBytes: len([]byte(compressedBody)), plaintextBytes: len([]byte(compressedBody))},
 		{name: "legacy UTF-8 candidate", id: "retention-legacy", encodedBytes: len([]byte("日本語")), plaintextBytes: len([]byte("日本語"))},
 	}
 	for _, test := range tests {
@@ -97,7 +94,7 @@ WHERE id='retention-legacy'`, "日本語"); err != nil {
 	for _, candidate := range snapshot.Candidates {
 		total += candidate.EncodedBytes
 	}
-	wantTotal := 44 + len([]byte("日本語"))
+	wantTotal := len([]byte(compressedBody)) + len([]byte("日本語"))
 	if diff := cmp.Diff(wantTotal, total); diff != "" {
 		t.Fatalf("encoded reclaim total mismatch (-want +got):\n%s", diff)
 	}
@@ -366,7 +363,7 @@ func TestRawBodyRetention_rejectsStaleCandidateWithoutPruning(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sql.Open() error = %v", err)
 	}
-	if _, err := db.Exec(`UPDATE events SET body = 'changed', body_codec=NULL, body_format_version=NULL, body_plaintext_bytes=NULL, body_encoded_bytes=NULL, body_sha256=NULL WHERE id = 'stale-event'`); err != nil {
+	if _, err := db.Exec(`UPDATE events SET body = 'changed' WHERE id = 'stale-event'`); err != nil {
 		t.Fatalf("mutate body: %v", err)
 	}
 	_ = db.Close()
@@ -414,8 +411,8 @@ func TestRawBodyRetention_rejectsReencodedCandidate(t *testing.T) {
 			if err != nil {
 				t.Fatalf("sql.Open() error = %v", err)
 			}
-			if _, err := db.Exec(`UPDATE events SET body_encoded_bytes = body_encoded_bytes + 1 WHERE id = ?`, eventID); err != nil {
-				t.Fatalf("simulate re-encode: %v", err)
+			if _, err := db.Exec(`UPDATE events SET body = body || 'x' WHERE id = ?`, eventID); err != nil {
+				t.Fatalf("simulate stored-extent change: %v", err)
 			}
 			_ = db.Close()
 
@@ -647,7 +644,7 @@ func TestRawBodyRetention_partialExecutionCanBeRestored(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sql.Open() error = %v", err)
 	}
-	if _, err := db.Exec(`UPDATE events SET body = 'post-plan-change', body_codec=NULL, body_format_version=NULL, body_plaintext_bytes=NULL, body_encoded_bytes=NULL, body_sha256=NULL WHERE id = 'partial-b'`); err != nil {
+	if _, err := db.Exec(`UPDATE events SET body = 'post-plan-change' WHERE id = 'partial-b'`); err != nil {
 		t.Fatalf("update unprocessed candidate: %v", err)
 	}
 	_ = db.Close()
@@ -823,7 +820,7 @@ func rawBodyEncodedBytes(t *testing.T, dbPath, eventID string) int {
 	}
 	defer func() { _ = db.Close() }()
 	var encoded int
-	if err := db.QueryRow(`SELECT body_encoded_bytes FROM events WHERE id = ?`, eventID).Scan(&encoded); err != nil {
+	if err := db.QueryRow(`SELECT length(CAST(body AS BLOB)) FROM events WHERE id = ?`, eventID).Scan(&encoded); err != nil {
 		t.Fatalf("read encoded bytes: %v", err)
 	}
 	return encoded

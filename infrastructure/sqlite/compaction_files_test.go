@@ -112,13 +112,13 @@ func TestPreparedStoreUpgradeJournalFindActiveRejectsSymlinkEntry(t *testing.T) 
 func preparedJournalRun(id string, now time.Time) domain.PreparedStoreUpgradeRun {
 	return domain.PreparedStoreUpgradeRun{
 		ID:              id,
-		SourcePath:      "/tmp/rehearsal.db",
-		CandidatePath:   "/tmp/rehearsal.db.prepare-" + id,
-		RollbackPath:    "/tmp/rehearsal.db.rollback-" + id,
+		SourcePath:      "/tmp/upgrade.db",
+		CandidatePath:   "/tmp/upgrade.db.upgrade-" + id,
+		RollbackPath:    "/tmp/upgrade.db.rollback-" + id,
 		Phase:           domain.PreparedStoreUpgradePlanned,
 		SourceIdentity:  domain.StoreFileIdentity{Device: 1, Inode: 2, Size: 4096},
 		Resources:       domain.PreparedStoreUpgradeResourcePlan{RequiredBytes: 8192, DestinationBytes: 4096, FilesystemDevice: 1, LeaseCapability: true, ExchangeCapability: true},
-		Operation:       domain.PreparedStoreUpgradeOperationPayloadRehearsalMigration,
+		Operation:       domain.PreparedStoreUpgradeOperationOfflineMigrationUpgrade,
 		ConsumerBinding: "binding",
 		PlanDigest:      strings.Repeat("a", 64),
 		SourceDigest:    strings.Repeat("b", 64),

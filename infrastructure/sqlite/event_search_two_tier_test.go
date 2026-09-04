@@ -2,7 +2,6 @@ package sqlite_test
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -260,35 +259,30 @@ func TestTwoTierSearch_SessionWithoutRefinementReachableViaFallback(t *testing.T
 	}
 }
 
-func TestTwoTierSearch_FallbackDecodesZstdBody(t *testing.T) {
+func TestTwoTierSearch_FallbackFindsPlaintextBody(t *testing.T) {
 	t.Parallel()
 	fx := newTwoTierFixture(t)
 	started := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
-	fx.seedSession(t, "sess-zstd-body", "ws", "cli", "codex", started)
-	fx.seedSession(t, "sess-zstd-audit", "ws", "cli", "codex", started.Add(time.Minute))
+	fx.seedSession(t, "sess-plain-body", "ws", "cli", "codex", started)
+	fx.seedSession(t, "sess-plain-audit", "ws", "cli", "codex", started.Add(time.Minute))
 	fx.seedEvent(
-		t, "evt-zstd-body", "sess-zstd-body", "ws", "cli", "codex",
-		twoTierCompressible("zstd-two-tier-needle in the event body"),
+		t, "evt-plain-body", "sess-plain-body", "ws", "cli", "codex",
+		twoTierCompressible("plain-two-tier-needle in the event body"),
 		types.EventKindNote, started.Add(2*time.Second),
 	)
 	fx.seedAuditEvent(
-		t, "evt-zstd-audit", "sess-zstd-audit", "ws", "cli", "codex",
+		t, "evt-plain-audit", "sess-plain-audit", "ws", "cli", "codex",
 		"echo ok",
-		twoTierCompressible("zstd-two-tier-needle in the audit output"),
+		twoTierCompressible("plain-two-tier-needle in the audit output"),
 		false,
 		started.Add(3*time.Second),
 	)
 
-	db := sqlite.OpenStoreForTest(fx.dbPath)
-	t.Cleanup(func() { _ = db.Close() })
-	assertCodec(t, db, `SELECT body_codec FROM events WHERE id = ?`, "evt-zstd-body", "zstd")
-	assertCodec(t, db, `SELECT output_codec FROM command_audits WHERE event_id = ?`, "evt-zstd-audit", "zstd")
-
-	page := fx.search(t, apptypes.NewEventSearchCriteriaBuilder(20).Query("zstd-two-tier-needle").Build())
+	page := fx.search(t, apptypes.NewEventSearchCriteriaBuilder(20).Query("plain-two-tier-needle").Build())
 	got := twoTierEventIDs(page)
-	for _, id := range []string{"evt-zstd-body", "evt-zstd-audit"} {
+	for _, id := range []string{"evt-plain-body", "evt-plain-audit"} {
 		if !containsString(got, id) {
-			t.Fatalf("missing decoded hit %s in %v", id, got)
+			t.Fatalf("missing plaintext hit %s in %v", id, got)
 		}
 	}
 }
@@ -373,17 +367,6 @@ func containsString(values []string, want string) bool {
 	return false
 }
 
-func assertCodec(t *testing.T, db *sql.DB, query, id, want string) {
-	t.Helper()
-	var got sql.NullString
-	if err := db.QueryRow(query, id).Scan(&got); err != nil {
-		t.Fatalf("read codec %s: %v", id, err)
-	}
-	if !got.Valid || got.String != want {
-		t.Fatalf("codec for %s = %q valid=%v, want %q", id, got.String, got.Valid, want)
-	}
-}
-
 func TestTwoTierSearch_FallbackLatencyEvidence(t *testing.T) {
 	if os.Getenv("TRACEARY_SEARCH_LATENCY") == "" {
 		t.Skip("set TRACEARY_SEARCH_LATENCY=1 to record item 7 evidence")
@@ -410,6 +393,6 @@ func TestTwoTierSearch_FallbackLatencyEvidence(t *testing.T) {
 	start := time.Now()
 	page := fx.search(t, criteria)
 	elapsed := time.Since(start)
-	t.Logf("fallback scan over %d events (mixed zstd/plaintext, trailing hit) took %s; hits events=%d sessions=%d",
+	t.Logf("fallback scan over %d events (mixed long/short plaintext, trailing hit) took %s; hits events=%d sessions=%d",
 		n, elapsed, len(page.Events()), len(page.Sessions()))
 }

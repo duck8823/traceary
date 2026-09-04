@@ -76,11 +76,13 @@ func TestCompactStepsHaveNoDedupeArchive(t *testing.T) {
 	t.Parallel()
 	steps := application.CompactSteps{
 		{Name: application.CompactStepProjectionReclaim},
-		{Name: application.CompactStepAuditEncode},
 		{Name: application.CompactStepMechanicalCover},
 	}
 	if _, ok := steps.Find("dedupe_archive"); ok {
 		t.Fatal(`CompactSteps.Find("dedupe_archive") must be absent`)
+	}
+	if _, ok := steps.Find("audit_encode"); ok {
+		t.Fatal(`CompactSteps.Find("audit_encode") must be absent`)
 	}
 }
 

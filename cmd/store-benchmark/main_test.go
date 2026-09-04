@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -134,7 +133,7 @@ func TestSyntheticFixtureKeepsRequestedRowsWhileCreatingFreePages(t *testing.T) 
 	}
 }
 
-func TestSyntheticFixtureWritesCompleteIdentityPayloadMetadata(t *testing.T) {
+func TestSyntheticFixtureWritesPlaintextPayloads(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "metadata.db")
 	if _, err := createSynthetic(context.Background(), path, 2, 1); err != nil {
 		t.Fatal(err)
@@ -154,14 +153,12 @@ func TestSyntheticFixtureWritesCompleteIdentityPayloadMetadata(t *testing.T) {
 		defer func() { _ = rows.Close() }()
 		count := 0
 		for rows.Next() {
-			var payload, codec, digest string
-			var version, plaintextBytes, encodedBytes int
-			if scanErr := rows.Scan(&payload, &codec, &version, &plaintextBytes, &encodedBytes, &digest); scanErr != nil {
+			var payload, sqliteType string
+			if scanErr := rows.Scan(&payload, &sqliteType); scanErr != nil {
 				t.Fatal(scanErr)
 			}
-			sum := sha256.Sum256([]byte(payload))
-			if codec != "identity" || version != 1 || plaintextBytes != len([]byte(payload)) || encodedBytes != len([]byte(payload)) || digest != hex.EncodeToString(sum[:]) {
-				t.Fatalf("invalid identity metadata: codec=%q version=%d plaintext=%d encoded=%d digest=%q payload=%q", codec, version, plaintextBytes, encodedBytes, digest, payload)
+			if sqliteType != "text" {
+				t.Fatalf("typeof = %q, want text (payload=%q)", sqliteType, payload)
 			}
 			count++
 		}
@@ -169,12 +166,12 @@ func TestSyntheticFixtureWritesCompleteIdentityPayloadMetadata(t *testing.T) {
 			t.Fatal(err)
 		}
 		if count == 0 {
-			t.Fatal("metadata query returned no rows")
+			t.Fatal("payload query returned no rows")
 		}
 	}
-	assertPayloadRows(`SELECT body, body_codec, body_format_version, body_plaintext_bytes, body_encoded_bytes, body_sha256 FROM events`)
-	for _, prefix := range []string{"command", "input", "output"} {
-		assertPayloadRows(fmt.Sprintf(`SELECT %[1]s_text, %[1]s_codec, %[1]s_format_version, %[1]s_plaintext_bytes, %[1]s_encoded_bytes, %[1]s_sha256 FROM command_audits`, prefix))
+	assertPayloadRows(`SELECT CAST(body AS TEXT), typeof(body) FROM events`)
+	for _, column := range []string{"command_text", "input_text", "output_text"} {
+		assertPayloadRows(fmt.Sprintf(`SELECT CAST(%[1]s AS TEXT), typeof(%[1]s) FROM command_audits`, column))
 	}
 }
 

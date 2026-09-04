@@ -321,51 +321,33 @@ func recomputeAttestationContent(ctx context.Context, q queryRowContexter, event
 
 func loadAttestedPromptPlaintext(ctx context.Context, q queryRowContexter, eventID string) (string, []byte, error) {
 	var createdAt string
-	var payload payloadRow
+	var body []byte
 	if err := q.QueryRowContext(ctx, `
-		SELECT created_at, body, body_codec, body_format_version,
-		       body_plaintext_bytes, body_encoded_bytes, body_sha256
+		SELECT created_at, body
 		  FROM events
 		 WHERE id = ?`, eventID,
-	).Scan(append([]any{&createdAt}, payload.scanDestinations()...)...); err != nil {
+	).Scan(&createdAt, &body); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return "", nil, xerrors.Errorf("attested prompt %s is missing", eventID)
 		}
 		return "", nil, xerrors.Errorf("load attested prompt %s: %w", eventID, err)
 	}
-	plain, err := payload.decode(maxDecodedPayloadBytes)
-	if err != nil {
-		return "", nil, xerrors.Errorf("decode attested prompt %s: %w", eventID, annotatePayloadError(err, eventID, "body"))
-	}
-	return createdAt, plain, nil
+	return createdAt, body, nil
 }
 
 func loadAttestedCommandPlaintext(ctx context.Context, q queryRowContexter, eventID string) (string, []byte, []byte, error) {
 	var createdAt string
-	var command payloadRow
-	var input payloadRow
+	var commandPlain, inputPlain []byte
 	if err := q.QueryRowContext(ctx, `
-		SELECT e.created_at,
-		       a.command_text, a.command_codec, a.command_format_version,
-		       a.command_plaintext_bytes, a.command_encoded_bytes, a.command_sha256,
-		       a.input_text, a.input_codec, a.input_format_version,
-		       a.input_plaintext_bytes, a.input_encoded_bytes, a.input_sha256
+		SELECT e.created_at, a.command_text, a.input_text
 		  FROM events AS e
 		  JOIN command_audits AS a ON a.event_id = e.id
 		 WHERE e.id = ?`, eventID,
-	).Scan(append(append([]any{&createdAt}, command.scanDestinations()...), input.scanDestinations()...)...); err != nil {
+	).Scan(&createdAt, &commandPlain, &inputPlain); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return "", nil, nil, xerrors.Errorf("attested command %s is missing", eventID)
 		}
 		return "", nil, nil, xerrors.Errorf("load attested command %s: %w", eventID, err)
-	}
-	commandPlain, err := command.decode(maxDecodedPayloadBytes)
-	if err != nil {
-		return "", nil, nil, xerrors.Errorf("decode attested command_text %s: %w", eventID, annotatePayloadError(err, eventID, "command_text"))
-	}
-	inputPlain, err := input.decode(maxDecodedPayloadBytes)
-	if err != nil {
-		return "", nil, nil, xerrors.Errorf("decode attested input_text %s: %w", eventID, annotatePayloadError(err, eventID, "input_text"))
 	}
 	return createdAt, commandPlain, inputPlain, nil
 }

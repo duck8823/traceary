@@ -26,7 +26,7 @@ func TestRawBodyRetentionPlanStoresEncodedExtentsAndProjectedMarkers(t *testing.
 	const (
 		compressedID       = "retention-compressed"
 		legacyID           = "retention-legacy"
-		markerEncodedBytes = 37 // measured by encodePayload(marker, payloadCodecIdentity)
+		markerEncodedBytes = 37 // len([]byte(EventBodyUnavailableRetentionMarker))
 		currentBytes       = 44 + 9
 		projectedBytes     = markerEncodedBytes * 2
 	)

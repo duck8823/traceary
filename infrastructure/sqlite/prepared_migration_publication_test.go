@@ -76,18 +76,14 @@ func TestPreparedMigrationPublishesAndRollsBackOwnedCopy(t *testing.T) {
 	if err = opened.Close(); err != nil {
 		t.Fatal(err)
 	}
-	original, err := os.ReadFile(target)
-	if err != nil {
-		t.Fatal(err)
-	}
 	journal := &sqlite.PreparedStoreUpgradeFileJournal{Dir: filepath.Join(dir, "journal")}
 	recipe := &sqlite.PreparedMigrationCandidateRecipe{Migrations: all, Verifier: sqlite.PreparedMigrationVerifier{Migrations: all}}
-	service := usecase.NewPreparedStoreUpgradeUsecase(target, journal, sqlite.PreparedStoreUpgradeFiles{}, sqlite.StoreLeaseCoordinator{}, map[domain.PreparedStoreUpgradeOperation]application.PreparedCandidateRecipe{domain.PreparedStoreUpgradeOperationPayloadRehearsalMigration: recipe})
+	service := usecase.NewPreparedStoreUpgradeUsecase(target, journal, sqlite.PreparedStoreUpgradeFiles{}, sqlite.StoreLeaseCoordinator{}, map[domain.PreparedStoreUpgradeOperation]application.PreparedCandidateRecipe{domain.PreparedStoreUpgradeOperationOfflineMigrationUpgrade: recipe})
 	info, err := os.Stat(target)
 	if err != nil {
 		t.Fatal(err)
 	}
-	run, err := service.Plan(context.Background(), application.PreparedStoreUpgradeCommand{Operation: domain.PreparedStoreUpgradeOperationPayloadRehearsalMigration, TargetPath: target, ConsumerBinding: "test-binding", Budget: domain.PreparedStoreUpgradeBudget{WallTimeLimit: time.Minute, PublishLockLimit: time.Second, OwnedDiskByteLimit: uint64(info.Size())*4 + 1<<30, WALByteLimit: 1 << 30, TemporaryByteLimit: 1 << 30, SafetyMarginBytes: 1 << 20}})
+	run, err := service.Plan(context.Background(), application.PreparedStoreUpgradeCommand{Operation: domain.PreparedStoreUpgradeOperationOfflineMigrationUpgrade, TargetPath: target, ConsumerBinding: "test-binding", Budget: domain.PreparedStoreUpgradeBudget{WallTimeLimit: time.Minute, PublishLockLimit: time.Second, OwnedDiskByteLimit: uint64(info.Size())*4 + 1<<30, WALByteLimit: 1 << 30, TemporaryByteLimit: 1 << 30, SafetyMarginBytes: 1 << 20}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,27 +109,17 @@ func TestPreparedMigrationPublishesAndRollsBackOwnedCopy(t *testing.T) {
 	if err = currentDB.QueryRow(`SELECT max(version) FROM schema_migrations`).Scan(&maxVersion); err != nil || maxVersion != 82 {
 		t.Fatalf("published version=%d err=%v", maxVersion, err)
 	}
-	// The rehearsal legitimately mutates the published candidate inode. Atomic
-	// rollback must fence object identity, mode, and links without requiring the
-	// original candidate size/mtime to remain frozen.
-	if _, err = currentDB.Exec(`CREATE TABLE rehearsal_shadow_write(id INTEGER PRIMARY KEY, body BLOB)`); err != nil {
+	if _, err = currentDB.Exec(`CREATE TABLE post_publish_write(id INTEGER PRIMARY KEY, body BLOB)`); err != nil {
 		t.Fatal(err)
 	}
 	if err = currentDB.Close(); err != nil {
 		t.Fatal(err)
 	}
-	rolled, err := service.Rollback(context.Background(), run.ID)
-	if err != nil {
-		t.Fatal(err)
+	_, err = service.Rollback(context.Background(), run.ID)
+	if err == nil {
+		t.Fatal("published upgrade must refuse post-commit rollback")
 	}
-	if rolled.Phase != domain.PreparedStoreUpgradeRolledBack {
-		t.Fatalf("rollback phase = %s", rolled.Phase)
-	}
-	restored, err := os.ReadFile(target)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(restored, original) {
-		t.Fatal("rollback did not restore original database bytes")
+	if !bytes.Contains([]byte(err.Error()), []byte("forensic backup")) {
+		t.Fatalf("rollback error = %v, want forensic-backup refusal", err)
 	}
 }

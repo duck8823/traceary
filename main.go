@@ -252,9 +252,7 @@ func run() error {
 		cli.WithPageMetadataInspector(sqlite.NewPageMetadataInspector()),
 		cli.WithEndedSessionInspector(sqlite.NewEndedSessionInspector()),
 		cli.WithOperatorCostInspector(sqlite.NewOperatorCostInspector(db)),
-		cli.WithPayloadCodecInspector(sqlite.NewPayloadCodecInspector(db)),
 		cli.WithAttestationAnchorInspector(sqlite.NewAttestationAnchorInspector(db)),
-		cli.WithBodyCodecChecker(sqlite.NewBodyCodecChecker(db)),
 		cli.WithPreparedStoreUpgradeFactory(func(path string) application.PreparedStoreUpgradeUsecase {
 			journal := &sqlite.PreparedStoreUpgradeFileJournal{Dir: filepath.Join(filepath.Dir(path), ".traceary-upgrade")}
 			recipe := &sqlite.PreparedUpgradeMigrationRecipe{PreparedMigrationCandidateRecipe: sqlite.PreparedMigrationCandidateRecipe{

@@ -44,10 +44,7 @@ func (u *preparedStoreUpgradeUsecase) Plan(ctx context.Context, command applicat
 	id := hex.EncodeToString(idBytes)
 	now := u.now().UTC()
 	candidateSuffix := ".compact-"
-	switch command.Operation {
-	case domain.PreparedStoreUpgradeOperationPayloadRehearsalMigration:
-		candidateSuffix = ".prepare-"
-	case domain.PreparedStoreUpgradeOperationOfflineMigrationUpgrade:
+	if command.Operation == domain.PreparedStoreUpgradeOperationOfflineMigrationUpgrade {
 		candidateSuffix = ".upgrade-"
 	}
 	run := domain.PreparedStoreUpgradeRun{ID: id, SourcePath: command.TargetPath, CandidatePath: command.TargetPath + candidateSuffix + id, RollbackPath: command.TargetPath + ".rollback-" + id, Phase: domain.PreparedStoreUpgradePlanned, Operation: command.Operation, ConsumerBinding: command.ConsumerBinding, Budget: command.Budget, BoundDropApproval: command.BoundDropApproval, CreatedAt: now, UpdatedAt: now}

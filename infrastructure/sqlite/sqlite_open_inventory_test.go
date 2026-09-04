@@ -22,10 +22,8 @@ func TestRuntimeSQLiteOpenInventoryIsExplicit(t *testing.T) {
 		"infrastructure/sqlite/ended_session_inspector.go":            1, // mode=ro bounded ended-session probe; no coordinated lease, no dbstat.
 		"infrastructure/sqlite/oneoff_repair_inspect.go":              1, // mode=ro O(1) doctor probe; PK + EXISTS only, no coordinated lease.
 		"infrastructure/sqlite/page_metadata_inspector.go":            1, // mode=ro O(1) doctor probe; no coordinated lease, no dbstat.
-		"infrastructure/sqlite/payload_rehearsal.go":                  7, // copied rehearsal targets only.
-		"infrastructure/sqlite/payload_rehearsal_migration.go":        1, // copied migration target.
-		"infrastructure/sqlite/payload_rehearsal_target.go":           1, // copied rehearsal target.
 		"infrastructure/sqlite/prepared_migration_recipe.go":          1, // owned offline candidate only.
+		"infrastructure/sqlite/drop_encoded_payloads.go":              1, // rolled-back write probe on the owned candidate only.
 		"cmd/store-benchmark/body_locality.go":                        3, // scratch locality fixtures only; never the live store.
 	}
 	seen := map[string]int{}

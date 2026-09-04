@@ -30,7 +30,6 @@ const sqlTimestampNormalizeFunc = "ts_norm"
 // sqlTimestampValidFunc is the name of the SQLite scalar function that reports
 // whether a stored timestamp parses at all. See validTimestampSQLFunc.
 const sqlTimestampValidFunc = "ts_valid"
-const sqlPayloadDecodeFunc = "traceary_payload_decode"
 
 const (
 	currentReaderVersion = 38
@@ -58,58 +57,12 @@ func init() {
 		normalizeTimestampSQLFunc,
 	)
 	sqlite.MustRegisterDeterministicScalarFunction(sqlTimestampValidFunc, 1, validTimestampSQLFunc)
-	sqlite.MustRegisterDeterministicScalarFunction(sqlPayloadDecodeFunc, 6, decodePayloadSQLFunc)
 	probe, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
 		panic("registered SQLite driver unavailable: " + err.Error())
 	}
 	coordinatedSQLiteDriver = probe.Driver()
 	_ = probe.Close()
-}
-
-// decodePayloadSQLFunc exposes the persisted payload contract to derived SQL
-// projections. This keeps restored trigger-based writers codec-aware without
-// teaching SQLite's JSON functions about compressed storage.
-func decodePayloadSQLFunc(_ *sqlite.FunctionContext, args []driver.Value) (driver.Value, error) {
-	if len(args) != 6 {
-		return nil, xerrors.Errorf("%s expects exactly six arguments, got %d", sqlPayloadDecodeFunc, len(args))
-	}
-	stored, err := driverBytes(args[0])
-	if err != nil {
-		return nil, err
-	}
-	row := payloadRow{Stored: stored}
-	if args[1] != nil {
-		row.Codec = sql.NullString{String: fmt.Sprint(args[1]), Valid: true}
-	}
-	if args[2] != nil {
-		row.FormatVersion = sql.NullInt64{Int64: args[2].(int64), Valid: true}
-	}
-	if args[3] != nil {
-		row.PlaintextBytes = sql.NullInt64{Int64: args[3].(int64), Valid: true}
-	}
-	if args[4] != nil {
-		row.StoredBytes = sql.NullInt64{Int64: args[4].(int64), Valid: true}
-	}
-	if args[5] != nil {
-		row.SHA256 = sql.NullString{String: fmt.Sprint(args[5]), Valid: true}
-	}
-	plain, err := row.decode(maxDecodedPayloadBytes)
-	if err != nil {
-		return nil, err
-	}
-	return string(plain), nil
-}
-
-func driverBytes(value driver.Value) ([]byte, error) {
-	switch typed := value.(type) {
-	case string:
-		return []byte(typed), nil
-	case []byte:
-		return typed, nil
-	default:
-		return nil, xerrors.Errorf("payload storage has unexpected SQL type %T", value)
-	}
 }
 
 // normalizeTimestampSQLFunc adapts normalizeRFC3339NanoForCompare to the

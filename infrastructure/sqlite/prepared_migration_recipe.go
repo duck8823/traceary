@@ -71,7 +71,7 @@ func (r *PreparedMigrationCandidateRecipe) Build(ctx context.Context, request ap
 	if err := exactFileClone(run.SourcePath, run.CandidatePath); err != nil {
 		return fmt.Errorf("clone prepared migration source: %w", err)
 	}
-	db, err := sql.Open("sqlite", writableRehearsalDSN(run.CandidatePath, time.Second))
+	db, err := sql.Open("sqlite", writableCandidateDSN(run.CandidatePath, time.Second))
 	if err != nil {
 		return err
 	}

@@ -83,11 +83,7 @@ func (d *EventDatasource) Save(ctx context.Context, event *model.Event) error {
 		}
 	}()
 
-	codecMetadata, err := databaseColumnExists(ctx, db, "events", "body_codec")
-	if err != nil {
-		return err
-	}
-	return saveEventTransaction(ctx, db, event, nil, codecMetadata, nil, storePath)
+	return saveEventTransaction(ctx, db, event, nil, nil, storePath)
 }
 
 // DeleteTranscript removes one transcript event. Missing or non-transcript
@@ -137,11 +133,7 @@ func (d *EventDatasource) SaveWithAudit(
 		}
 	}()
 
-	codecMetadata, err := databaseColumnExists(ctx, db, "events", "body_codec")
-	if err != nil {
-		return err
-	}
-	return saveEventTransaction(ctx, db, event, audit, codecMetadata, nil, storePath)
+	return saveEventTransaction(ctx, db, event, audit, nil, storePath)
 }
 
 // ListRecent returns events in descending time order.
@@ -556,10 +548,6 @@ func (d *EventDatasource) ListTimelineBlocks(
 		}
 	}()
 
-	hasCodec, err := eventHasCodecColumns(ctx, db)
-	if err != nil {
-		return nil, err
-	}
 	if d.timelinePayloadQueryHook != nil {
 		d.timelinePayloadQueryHook("schema")
 	}
@@ -614,15 +602,15 @@ func (d *EventDatasource) ListTimelineBlocks(
 			return nil, xerrors.Errorf("failed to scan timeline block: %w", err)
 		}
 		scannedEventCount = rowScannedCount
-		firstPromptBody, err := d.firstNonBlankCandidate(ctx, db, promptIDsJSON, hasCodec)
+		firstPromptBody, err := d.firstNonBlankCandidate(ctx, db, promptIDsJSON)
 		if err != nil {
 			return nil, err
 		}
-		compactSummaryBody, err := d.firstNonBlankCandidate(ctx, db, compactIDsJSON, hasCodec)
+		compactSummaryBody, err := d.firstNonBlankCandidate(ctx, db, compactIDsJSON)
 		if err != nil {
 			return nil, err
 		}
-		firstTranscriptBody, err := d.firstNonBlankCandidate(ctx, db, transcriptIDsJSON, hasCodec)
+		firstTranscriptBody, err := d.firstNonBlankCandidate(ctx, db, transcriptIDsJSON)
 		if err != nil {
 			return nil, err
 		}
@@ -700,12 +688,10 @@ func timelineEventScanCap(limit int) int {
 	return scanCap
 }
 
-// firstNonBlankCandidate decodes ranked candidate ids in order and returns the
-// first whose plaintext is not blank. The list is unbounded (#1746): a kind
+// firstNonBlankCandidate reads ranked candidate ids in order and returns the
+// first whose stored body is not blank. The list is unbounded (#1746): a kind
 // does not fall through to the next kind while it still has later candidates.
-// hasCodec is resolved once per ListTimelineBlocks so N candidates cost one
-// schema check plus N body reads, not 2N.
-func (d *EventDatasource) firstNonBlankCandidate(ctx context.Context, db *sql.DB, idsJSON string, hasCodec bool) (string, error) {
+func (d *EventDatasource) firstNonBlankCandidate(ctx context.Context, db *sql.DB, idsJSON string) (string, error) {
 	ids, err := decodeTimelineCandidateIDs(idsJSON)
 	if err != nil {
 		return "", err
@@ -717,7 +703,7 @@ func (d *EventDatasource) firstNonBlankCandidate(ctx context.Context, db *sql.DB
 		if d.timelinePayloadQueryHook != nil {
 			d.timelinePayloadQueryHook("body")
 		}
-		plain, err := decodeEventPlaintext(ctx, db, id, hasCodec)
+		plain, err := loadEventPlaintext(ctx, db, id)
 		if err != nil {
 			return "", err
 		}

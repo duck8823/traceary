@@ -166,10 +166,9 @@ If you need a portable copy, use `traceary store backup create` instead of editi
 ## `compact` defaults
 
 `traceary store compact` rewrites the store file. During the copy it drops the
-retired search index family, drops non-canonical duplicate bodies, discards
-discardable-age covered transcript bodies, encodes remaining event bodies and
-any still-plaintext `command_audits` command / input / output text, and
-vacuums into a new file.
+retired search index family, discards discardable-age covered transcript
+bodies, and vacuums into a new file. Event bodies and `command_audits`
+command / input / output text stay as written plaintext.
 
 - default retention: `90` days (`--keep-days 90`)
 - physical reclamation is the rewrite itself; it is not an in-place `VACUUM`
@@ -178,11 +177,11 @@ vacuums into a new file.
 
 **Reclaim warning.** After a non-hook command, Traceary may print `TRACEARY: store can reclaim about <size>; run traceary store compact` on stderr, at most once every 24 hours per store (tracked in `<db>.reclaim-warn`). It appears only when the store's free-page list — `PRAGMA freelist_count × PRAGMA page_size`, the same O(1) signal `traceary doctor` reports as `reclaimable=` — is at least `compact.reclaim_warn_bytes` (default 1 GiB) **and** at least 10 % of the store. File size alone never triggers it: a 14 GiB store with an empty freelist stays quiet, because a rewrite would return nothing to the filesystem. `doctor` uses the same signal and the same 10 % ratio with a lower floor of 256 MiB, so it can report reclaimable pages that the trailer stays quiet about; it never reports fewer. Set `compact.reclaim_warn_bytes` to `0` to silence the trailer. When the store cannot be read cheaply (a writer holds it, or the read exceeds 500 ms) nothing is printed — `traceary doctor` is where an unknown store-growth signal is reported.
 
-Free pages are not the same as the bytes `store compact` can recover: compact also discards covered transcript bodies and re-encodes audit text, which this O(1) signal cannot see. `traceary store compact --dry-run` is the surface for that estimate.
+Free pages are not the same as the bytes `store compact` can recover: compact also discards covered transcript bodies, which this O(1) signal cannot see. `traceary store compact --dry-run` is the surface for that estimate.
 
 ### Derived generation disk bound
 
-The search-projection family was deleted in v0.49.0 (#2319). There is no generation lifecycle, no `--index-family-bytes` budget, and no doctor `search-projection-terminal-rows` check. Compact JSON still reports `steps.audit_encode`. The physical DROP is offline migration 80.
+The search-projection family was deleted in v0.49.0 (#2319). There is no generation lifecycle, no `--index-family-bytes` budget, and no doctor `search-projection-terminal-rows` check. Compact JSON does not report an encode step. The physical DROP is offline migration 80.
 
 As its first step, compact consolidates **orphan ranges**: event spans past `session_refinements.covers_to` that an agent can no longer fold (session ended, treated as stale after 24h of inactivity, or front-loaded at a post-compact marker). For each still-unfolded range that contains more than session start/end it writes a mechanical `degraded=1` refinement (`produced_by=gc:orphan-consolidation`) covering when, which event kinds, how often, and which commands ran — not agent reasoning. A lifecycle-only tail (typically the `session_ended` event that lands after a correct fold) only advances `covers_to`; it does not attach a mechanical footnote, and `degraded` stays "contains synthesised text" rather than becoming a wake-eligibility bit. Wake injection reads `has_agent_reasoning`, so a correctly folded session stays injectable after reduction. That mechanical refinement **is** sufficient coverage for discard: what a discard removes is the text, and what it promises to keep — bytes, timestamps, counts — is exactly what the refinement records. Output reports `steps.mechanical_cover` and `covered_sessions`. There is no separate command or `--target` for this step.
 
@@ -269,19 +268,12 @@ The attempted event ID is Traceary's per-callback repository identity. A later h
 
 `traceary doctor --json` exposes the same body-free identity fields under `workspace_identity`. The block does not run provenance catch-up. Observation volume is `SUM(observation_count)` after migration 76, which collapses `session_workspace_observations` to one row per `(session_id, workspace, observed_relationship, source_client, source_hook, observation_kind)`. `conflict_pair_count` is the distinct current-conflict `(session_id, workspace)` count, and conflict samples are one latest row per pair including `workspace`. `coverage.covered_events` / `missing_events` are catch-up frontier bookkeeping, not a per-event join. The `workspace-observations` check reports `rows` / `keys` / `orphans`; stores still on the pre-collapse shape WARN with `traceary doctor --fix` (offline class: writes refuse `Initialize` until that runs). Large-store default doctor omits the block (filesystem-metadata-only). See [workspace-conflict meaning](../research/workspace-conflict-meaning.md).
 
-## Payload codec backfill
+## Payload storage
 
-The live-store `payload-backfill` command is retired. `store compact` encodes
-remaining `events.body` and `command_audits` text through the versioned zstd
-codec. See [`payload-backfill.md`](payload-backfill.md). Physical file size
-drops as part of that rewrite; the search projection may end `drifted`/`stale`
-and must be rebuilt.
-
-Live writers, including bundle import, archive restore, dedupe restore, and
-raw-body recovery, use the same canonical encoder as native hook inserts
-(zstd when it shrinks). Bundle and archive files stay plaintext. Retention
-markers stay identity so apply/verify can compare stored TEXT to the sentinel.
-See [`../research/payload-codec-call-sites.md`](../research/payload-codec-call-sites.md).
+Offline migration 82 decodes remaining encoded `events.body` and
+`command_audits` text, then drops codec metadata. Live writers store bodies as
+written plaintext (`typeof(...) = text`). There is no compact encode step and
+no flag to re-enable compression.
 
 ## Backup defaults
 

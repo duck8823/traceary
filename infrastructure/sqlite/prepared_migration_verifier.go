@@ -122,5 +122,5 @@ func verifyPreparedMigrationStore(ctx context.Context, db *sql.DB) error {
 	if err = rows.Err(); err != nil {
 		return fmt.Errorf("iterate SQLite foreign key check: %w", err)
 	}
-	return scrubPayloadCodecs(ctx, db)
+	return nil
 }

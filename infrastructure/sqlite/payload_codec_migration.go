@@ -1,3 +1,6 @@
+// The migration-only decoder lives here so a 0.48 store can still be
+// upgraded. It is unreachable from live read and write paths.
+
 package sqlite
 
 import (
@@ -5,7 +8,6 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
 
@@ -24,7 +26,7 @@ const (
 )
 
 // PayloadIntegrityError identifies corruption or an unsupported row without
-// leaking payload contents. Callers may continue serving body-free metadata.
+// leaking payload contents.
 type PayloadIntegrityError struct {
 	Codec  string
 	Reason string
@@ -40,14 +42,6 @@ func (e *PayloadIntegrityError) Error() string {
 	return fmt.Sprintf("payload integrity error (codec=%s%s): %s", e.Codec, location, e.Reason)
 }
 
-func annotatePayloadError(err error, rowID, field string) error {
-	var integrity *PayloadIntegrityError
-	if errors.As(err, &integrity) {
-		integrity.RowID, integrity.Field = rowID, field
-	}
-	return err
-}
-
 type encodedPayload struct {
 	Bytes          []byte
 	Codec          string
@@ -57,8 +51,9 @@ type encodedPayload struct {
 	SHA256         string
 }
 
-// payloadRow is the only persisted payload contract. Legacy rows have NULL
-// metadata and are interpreted as identity; no plaintext prefix is reserved.
+// payloadRow is the persisted payload contract used by the migration-only
+// decoder and the v81 archive restore. Legacy rows have NULL metadata and
+// are interpreted as identity.
 type payloadRow struct {
 	Stored         []byte
 	Codec          sql.NullString
@@ -66,10 +61,6 @@ type payloadRow struct {
 	PlaintextBytes sql.NullInt64
 	StoredBytes    sql.NullInt64
 	SHA256         sql.NullString
-}
-
-func (r *payloadRow) scanDestinations() []any {
-	return []any{&r.Stored, &r.Codec, &r.FormatVersion, &r.PlaintextBytes, &r.StoredBytes, &r.SHA256}
 }
 
 func (r payloadRow) decode(limit int64) ([]byte, error) {
@@ -96,48 +87,6 @@ func (r payloadRow) decode(limit int64) ([]byte, error) {
 		return nil, &PayloadIntegrityError{Codec: r.Codec.String, Reason: "stored length mismatch"}
 	}
 	return decodePayload(r.Stored, r.Codec.String, int(r.FormatVersion.Int64), r.PlaintextBytes.Int64, r.SHA256.String, limit)
-}
-
-func encodePayload(plaintext []byte, codec string) (encodedPayload, error) {
-	result := encodedPayload{Codec: codec, FormatVersion: payloadFormatVersion, PlaintextBytes: int64(len(plaintext))}
-	sum := sha256.Sum256(plaintext)
-	result.SHA256 = hex.EncodeToString(sum[:])
-	switch codec {
-	case payloadCodecIdentity:
-		result.Bytes = bytes.Clone(plaintext)
-	case payloadCodecZstd:
-		encoder, err := zstd.NewWriter(nil, zstd.WithEncoderConcurrency(1))
-		if err != nil {
-			return encodedPayload{}, fmt.Errorf("create zstd encoder: %w", err)
-		}
-		result.Bytes = encoder.EncodeAll(plaintext, nil)
-		if err := encoder.Close(); err != nil {
-			return encodedPayload{}, fmt.Errorf("close zstd encoder: %w", err)
-		}
-	default:
-		return encodedPayload{}, &PayloadIntegrityError{Codec: codec, Reason: "unsupported codec"}
-	}
-	result.StoredBytes = int64(len(result.Bytes))
-	return result, nil
-}
-
-// encodeCanonicalPayload applies the canonical-write policy. Codec metadata is
-// the capability boundary: without it, a compressed value would be
-// unrecoverable because readers would have no codec contract to follow.
-// Compression is accepted only when it shrinks the payload; identity remains
-// TEXT through storedBodyArg so SQLite affinity stays part of the contract.
-func encodeCanonicalPayload(plaintext []byte, codecMetadata bool) (encodedPayload, error) {
-	if !codecMetadata {
-		return encodePayload(plaintext, payloadCodecIdentity)
-	}
-	compressed, err := encodePayload(plaintext, payloadCodecZstd)
-	if err != nil {
-		return encodedPayload{}, err
-	}
-	if compressed.StoredBytes < compressed.PlaintextBytes {
-		return compressed, nil
-	}
-	return encodePayload(plaintext, payloadCodecIdentity)
 }
 
 func decodePayload(stored []byte, codec string, formatVersion int, plaintextBytes int64, checksum string, limit int64) ([]byte, error) {
@@ -180,13 +129,11 @@ func decodePayload(stored []byte, codec string, formatVersion int, plaintextByte
 	return decoded, nil
 }
 
-func isPayloadIntegrityError(err error) bool {
-	var target *PayloadIntegrityError
-	return errors.As(err, &target)
-}
-
-// SupportedBodyCodecs returns the body_codec values this binary can decode.
-// The list is sourced from the same switch as decodePayload.
-func SupportedBodyCodecs() []string {
-	return []string{payloadCodecIdentity, payloadCodecZstd}
+// storedBodyArg preserves the column affinity each codec is stored with:
+// identity as TEXT, zstd as BLOB. Kept for v81 archive restore.
+func storedBodyArg(payload encodedPayload) any {
+	if payload.Codec == payloadCodecIdentity {
+		return string(payload.Bytes)
+	}
+	return payload.Bytes
 }

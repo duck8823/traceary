@@ -64,7 +64,12 @@ func decodeLaneRows(ctx context.Context, db *sql.DB, lane decodeLane) error {
 		quoteIdentifier(plainCol) + `, ` + quoteIdentifier(storedCol) + `, ` + quoteIdentifier(shaCol) +
 		` FROM ` + quoteIdentifier(lane.Table) +
 		` WHERE ` + quoteIdentifier(lane.PKColumn) + ` > ? ORDER BY ` + quoteIdentifier(lane.PKColumn) + ` LIMIT ?`
-	update := `UPDATE ` + quoteIdentifier(lane.Table) + ` SET ` + quoteIdentifier(lane.Column) + ` = ? WHERE ` + quoteIdentifier(lane.PKColumn) + ` = ?`
+	update := `UPDATE ` + quoteIdentifier(lane.Table) + ` SET ` + quoteIdentifier(lane.Column) + ` = ?, ` +
+		quoteIdentifier(codecCol) + ` = NULL, ` +
+		quoteIdentifier(versionCol) + ` = NULL, ` +
+		quoteIdentifier(plainCol) + ` = NULL, ` +
+		quoteIdentifier(storedCol) + ` = NULL, ` +
+		quoteIdentifier(shaCol) + ` = NULL WHERE ` + quoteIdentifier(lane.PKColumn) + ` = ?`
 	after := ""
 	for {
 		page, err := db.QueryContext(ctx, query, after, decodePayloadPageRows)

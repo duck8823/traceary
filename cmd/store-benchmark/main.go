@@ -3,7 +3,6 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -375,12 +374,6 @@ func openCompatibleReadOnly(ctx context.Context, path string) (*sql.DB, error) {
 	return db, nil
 }
 
-func identityPayloadMetadata(payload string) (string, int, int, int, string) {
-	bytes := []byte(payload)
-	digest := sha256.Sum256(bytes)
-	return "identity", 1, len(bytes), len(bytes), fmt.Sprintf("%x", digest)
-}
-
 //nolint:wrapcheck // command boundary adds the benchmark case name before display.
 func benchmark(ctx context.Context, path string, iterations int, name, query string, args []any) (caseResult, error) {
 	cold, warm := make([]int64, 0, iterations), make([]int64, 0, iterations)
@@ -501,8 +494,7 @@ func createSynthetic(ctx context.Context, path string, smallRows, largeRows int)
 		return fixtureInfo{}, err
 	}
 	insertEvent := func(id, kind, sessionID, body, createdAt string) error {
-		codec, version, plaintextBytes, encodedBytes, digest := identityPayloadMetadata(body)
-		_, execErr := db.ExecContext(ctx, `INSERT INTO events(id,kind,agent,session_id,body,created_at,client,workspace,body_codec,body_format_version,body_plaintext_bytes,body_encoded_bytes,body_sha256) VALUES(?,?,'codex',?,?,?,'cli','synthetic',?,?,?,?,?)`, id, kind, sessionID, body, createdAt, codec, version, plaintextBytes, encodedBytes, digest)
+		_, execErr := db.ExecContext(ctx, `INSERT INTO events(id,kind,agent,session_id,body,created_at,client,workspace) VALUES(?,?,'codex',?,?,?,'cli','synthetic')`, id, kind, sessionID, body, createdAt)
 		return execErr
 	}
 	for _, event := range []struct{ id, kind, sessionID, body, createdAt string }{
@@ -521,10 +513,7 @@ func createSynthetic(ctx context.Context, path string, smallRows, largeRows int)
 			return fixtureInfo{}, err
 		}
 		command, input, output := fmt.Sprintf("echo synthetic-%02d", index), "", "synthetic output"
-		commandCodec, commandVersion, commandPlaintextBytes, commandEncodedBytes, commandDigest := identityPayloadMetadata(command)
-		inputCodec, inputVersion, inputPlaintextBytes, inputEncodedBytes, inputDigest := identityPayloadMetadata(input)
-		outputCodec, outputVersion, outputPlaintextBytes, outputEncodedBytes, outputDigest := identityPayloadMetadata(output)
-		if _, err = db.ExecContext(ctx, `INSERT INTO command_audits(event_id,command_text,input_text,output_text,command_codec,command_format_version,command_plaintext_bytes,command_encoded_bytes,command_sha256,input_codec,input_format_version,input_plaintext_bytes,input_encoded_bytes,input_sha256,output_codec,output_format_version,output_plaintext_bytes,output_encoded_bytes,output_sha256) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, eventID, command, input, output, commandCodec, commandVersion, commandPlaintextBytes, commandEncodedBytes, commandDigest, inputCodec, inputVersion, inputPlaintextBytes, inputEncodedBytes, inputDigest, outputCodec, outputVersion, outputPlaintextBytes, outputEncodedBytes, outputDigest); err != nil {
+		if _, err = db.ExecContext(ctx, `INSERT INTO command_audits(event_id,command_text,input_text,output_text) VALUES(?,?,?,?)`, eventID, command, input, output); err != nil {
 			return fixtureInfo{}, err
 		}
 	}
@@ -538,7 +527,7 @@ func createSynthetic(ctx context.Context, path string, smallRows, largeRows int)
 	if err != nil {
 		return fixtureInfo{}, err
 	}
-	stmt, err := tx.PrepareContext(ctx, `INSERT INTO events(id,kind,agent,session_id,body,created_at,client,workspace,body_codec,body_format_version,body_plaintext_bytes,body_encoded_bytes,body_sha256) VALUES(?,'prompt','codex',?,?,?,'cli','synthetic',?,?,?,?,?)`)
+	stmt, err := tx.PrepareContext(ctx, `INSERT INTO events(id,kind,agent,session_id,body,created_at,client,workspace) VALUES(?,'prompt','codex',?,?,?,'cli','synthetic')`)
 	if err != nil {
 		return fixtureInfo{}, err
 	}
@@ -552,8 +541,7 @@ func createSynthetic(ctx context.Context, path string, smallRows, largeRows int)
 			body = strings.Repeat("L", 1<<20)
 		}
 		createdAt := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC).Add(time.Duration(index) * time.Millisecond).Format(time.RFC3339Nano)
-		codec, version, plaintextBytes, encodedBytes, digest := identityPayloadMetadata(body)
-		if _, err = stmt.ExecContext(ctx, fmt.Sprintf("synthetic-keep-%09d", index), "synthetic-active", body, createdAt, codec, version, plaintextBytes, encodedBytes, digest); err != nil {
+		if _, err = stmt.ExecContext(ctx, fmt.Sprintf("synthetic-keep-%09d", index), "synthetic-active", body, createdAt); err != nil {
 			return fixtureInfo{}, err
 		}
 	}

@@ -14,13 +14,6 @@ import (
 	"github.com/duck8823/traceary/presentation/cli"
 )
 
-type panicPayloadCodecInspector struct{ calls int }
-
-func (p *panicPayloadCodecInspector) InspectPayloadCodec(context.Context) (application.PayloadCodecState, error) {
-	p.calls++
-	panic("payload codec inspector must not run for large store")
-}
-
 type stubAttestationAnchorInspector struct {
 	calls int
 	last  application.AttestationAnchorInspectOptions
@@ -127,7 +120,6 @@ func TestRootCLI_DoctorLargeStoreAttestationAnchorIsFileOnly(t *testing.T) {
 	}
 
 	store := &storeManagementUsecaseStub{}
-	codec := &panicPayloadCodecInspector{}
 	inspector := &stubAttestationAnchorInspector{
 		state: application.AttestationAnchorState{
 			Relation: "file_ok",
@@ -137,7 +129,6 @@ func TestRootCLI_DoctorLargeStoreAttestationAnchorIsFileOnly(t *testing.T) {
 	}
 	rootCmd := newTestRootCLI(
 		cli.WithStoreManagement(store),
-		cli.WithPayloadCodecInspector(codec),
 		cli.WithAttestationAnchorInspector(inspector),
 	).Command()
 	stdout := &bytes.Buffer{}
@@ -154,9 +145,6 @@ func TestRootCLI_DoctorLargeStoreAttestationAnchorIsFileOnly(t *testing.T) {
 	}
 	if store.initCalled {
 		t.Fatal("large-store doctor initialized SQLite")
-	}
-	if codec.calls != 0 {
-		t.Fatalf("large-store payload codec calls=%d, want zero", codec.calls)
 	}
 	if inspector.calls != 1 {
 		t.Fatalf("Inspect calls = %d, want 1", inspector.calls)

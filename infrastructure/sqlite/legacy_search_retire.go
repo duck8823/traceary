@@ -190,7 +190,7 @@ func databasePhysicalBytes(ctx context.Context, q interface {
 // VerifyPair and VerifyStoreCompatibility diagnose that far more precisely.
 // Only a store that demonstrably carries the family is rejected here.
 func (PreparedStoreUpgradeFiles) RejectRetiredSearchIndex(ctx context.Context, run domain.CompactionRun) error {
-	if run.Operation == domain.PreparedStoreUpgradeOperationPayloadRehearsalMigration || run.Operation == domain.PreparedStoreUpgradeOperationOfflineMigrationUpgrade {
+	if run.Operation == domain.PreparedStoreUpgradeOperationOfflineMigrationUpgrade {
 		return nil
 	}
 	target := run.SourcePath

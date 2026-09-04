@@ -194,28 +194,8 @@ CREATE TABLE command_audits (
 		},
 		"000004_add_gc_discard_dependencies.sql": {
 			Data: []byte(`
-ALTER TABLE events ADD COLUMN body_codec TEXT;
-ALTER TABLE events ADD COLUMN body_format_version INTEGER;
-ALTER TABLE events ADD COLUMN body_plaintext_bytes INTEGER;
-ALTER TABLE events ADD COLUMN body_encoded_bytes INTEGER;
-ALTER TABLE events ADD COLUMN body_sha256 TEXT;
 ALTER TABLE events ADD COLUMN body_pruned_at TEXT;
 ALTER TABLE events ADD COLUMN body_pruned_plan_id TEXT;
-ALTER TABLE command_audits ADD COLUMN command_codec TEXT;
-ALTER TABLE command_audits ADD COLUMN command_format_version TEXT;
-ALTER TABLE command_audits ADD COLUMN command_plaintext_bytes TEXT;
-ALTER TABLE command_audits ADD COLUMN command_encoded_bytes TEXT;
-ALTER TABLE command_audits ADD COLUMN command_sha256 TEXT;
-ALTER TABLE command_audits ADD COLUMN input_codec TEXT;
-ALTER TABLE command_audits ADD COLUMN input_format_version TEXT;
-ALTER TABLE command_audits ADD COLUMN input_plaintext_bytes TEXT;
-ALTER TABLE command_audits ADD COLUMN input_encoded_bytes TEXT;
-ALTER TABLE command_audits ADD COLUMN input_sha256 TEXT;
-ALTER TABLE command_audits ADD COLUMN output_codec TEXT;
-ALTER TABLE command_audits ADD COLUMN output_format_version TEXT;
-ALTER TABLE command_audits ADD COLUMN output_plaintext_bytes TEXT;
-ALTER TABLE command_audits ADD COLUMN output_encoded_bytes TEXT;
-ALTER TABLE command_audits ADD COLUMN output_sha256 TEXT;
 CREATE TABLE sessions (session_id TEXT PRIMARY KEY, ended_at TEXT);
 CREATE TABLE session_refinements (session_id TEXT PRIMARY KEY, covers_from_event_id TEXT NOT NULL, covers_to_event_id TEXT NOT NULL);`),
 		},

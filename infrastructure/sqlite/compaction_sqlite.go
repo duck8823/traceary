@@ -292,16 +292,8 @@ func verifyFilteredCandidate(ctx context.Context, sourceDB, candidateDB *sql.DB,
 			if want.availability != "available" {
 				return fmt.Errorf("candidate revived event %s", id)
 			}
-			wantPlain, decodeErr := want.row.decode(maxDecodedPayloadBytes)
-			if decodeErr != nil {
-				return fmt.Errorf("source available event %s is not decodable: %w", id, decodeErr)
-			}
-			gotPlain, decodeErr := got.row.decode(maxDecodedPayloadBytes)
-			if decodeErr != nil {
-				return fmt.Errorf("candidate available event %s is not decodable: %w", id, decodeErr)
-			}
-			if !bytes.Equal(wantPlain, gotPlain) {
-				if _, cleared := permittedClears[id]; cleared && len(gotPlain) == 0 {
+			if !bytes.Equal(want.body, got.body) {
+				if _, cleared := permittedClears[id]; cleared && len(got.body) == 0 {
 					continue
 				}
 				return fmt.Errorf("candidate rewrote body of event %s", id)
@@ -334,19 +326,11 @@ type eventIdentity struct {
 type eventVerifyRecord struct {
 	ident        eventIdentity
 	availability string
-	row          payloadRow
+	body         []byte
 }
 
 func eventVerifyMap(ctx context.Context, db *sql.DB) (map[string]eventVerifyRecord, error) {
 	hasAvail, err := databaseColumnExists(ctx, db, "events", "body_availability")
-	if err != nil {
-		return nil, err
-	}
-	hasSHA, err := databaseColumnExists(ctx, db, "events", "body_sha256")
-	if err != nil {
-		return nil, err
-	}
-	hasCodec, err := databaseColumnExists(ctx, db, "events", "body_codec")
 	if err != nil {
 		return nil, err
 	}
@@ -374,18 +358,7 @@ func eventVerifyMap(ctx context.Context, db *sql.DB) (map[string]eventVerifyReco
 	} else {
 		query += `'available', `
 	}
-	query += `body`
-	if hasCodec {
-		query += `, body_codec, body_format_version, body_plaintext_bytes, body_encoded_bytes`
-	} else {
-		query += `, NULL, NULL, NULL, NULL`
-	}
-	if hasSHA {
-		query += `, body_sha256`
-	} else {
-		query += `, NULL`
-	}
-	query += ` FROM events`
+	query += `body FROM events`
 	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
@@ -406,12 +379,7 @@ func eventVerifyMap(ctx context.Context, db *sql.DB) (map[string]eventVerifyReco
 			&rec.ident.SourceHook,
 			&rec.ident.CreatedAtNorm,
 			&rec.availability,
-			&rec.row.Stored,
-			&rec.row.Codec,
-			&rec.row.FormatVersion,
-			&rec.row.PlaintextBytes,
-			&rec.row.StoredBytes,
-			&rec.row.SHA256,
+			&rec.body,
 		); err != nil {
 			return nil, err
 		}
@@ -421,11 +389,11 @@ func eventVerifyMap(ctx context.Context, db *sql.DB) (map[string]eventVerifyReco
 }
 
 func permittedCommandBodyClears(ctx context.Context, sourceDB *sql.DB) (map[string]struct{}, error) {
-	ready, hasCodec, err := commandBodyReclaimReady(ctx, sourceDB)
+	ready, err := commandBodyReclaimReady(ctx, sourceDB)
 	if err != nil || !ready {
 		return map[string]struct{}{}, err
 	}
-	rows, err := sourceDB.QueryContext(ctx, `SELECT id FROM events WHERE `+duplicatedCommandExecutedBodyPredicate(hasCodec))
+	rows, err := sourceDB.QueryContext(ctx, `SELECT id FROM events WHERE `+duplicatedCommandExecutedBodyPredicate())
 	if err != nil {
 		return nil, fmt.Errorf("list reclaimable command_executed bodies: %w", err)
 	}
@@ -474,9 +442,6 @@ func scrubStore(ctx context.Context, db *sql.DB) (storeScrub, error) {
 	}
 	tables, err := logicalDigest(ctx, db, compactRowDigestSkipTables())
 	if err != nil {
-		return storeScrub{}, err
-	}
-	if err := scrubPayloadCodecs(ctx, db); err != nil {
 		return storeScrub{}, err
 	}
 	return storeScrub{Schema: schema, Tables: tables}, nil
@@ -627,28 +592,6 @@ func joinQuotedIdentifiers(s []string) string {
 		out[i] = quoteIdentifier(v)
 	}
 	return strings.Join(out, ",")
-}
-
-func scrubPayloadCodecs(ctx context.Context, db *sql.DB) error {
-	var exists int
-	if err := db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='payload_rehearsal_rows')`).Scan(&exists); err != nil || exists == 0 {
-		return err
-	}
-	rows, err := db.QueryContext(ctx, `SELECT payload,codec,format_version,plaintext_bytes,stored_bytes,payload_sha256 FROM payload_rehearsal_rows`)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var r payloadRow
-		if err := rows.Scan(&r.Stored, &r.Codec, &r.FormatVersion, &r.PlaintextBytes, &r.StoredBytes, &r.SHA256); err != nil {
-			return err
-		}
-		if _, err := r.decode(maxDecodedPayloadBytes); err != nil {
-			return fmt.Errorf("payload codec scrub: %w", err)
-		}
-	}
-	return rows.Err()
 }
 
 // requireStaticSearchState re-checks at apply time, after the exclusive lease,

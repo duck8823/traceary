@@ -164,13 +164,13 @@ func readBodyDuplicateShare(ctx context.Context, db *sql.DB) (duplicateStats, er
 	}
 	if err := db.QueryRowContext(ctx, `
 SELECT
-  COALESCE(SUM(COALESCE(body_plaintext_bytes, body_stored_bytes, 0)), 0),
+  COALESCE(SUM(COALESCE(body_stored_bytes, length(CAST(body AS BLOB)), 0)), 0),
   COALESCE((
     SELECT SUM(sz) FROM (
-      SELECT MAX(COALESCE(body_plaintext_bytes, body_stored_bytes, 0)) AS sz
+      SELECT MAX(COALESCE(body_stored_bytes, length(CAST(body AS BLOB)), 0)) AS sz
         FROM events
-       WHERE body_sha256 IS NOT NULL AND body_sha256 != ''
-       GROUP BY body_sha256
+       WHERE length(CAST(body AS BLOB)) > 0
+       GROUP BY body
     )
   ), 0)
 FROM events`).Scan(&out.total, &out.distinct); err != nil {

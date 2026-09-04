@@ -3,31 +3,8 @@ package application
 import (
 	"context"
 
-	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain"
 )
-
-// RehearsalPreparationPlan is the body-free preparation decision.
-type RehearsalPreparationPlan struct {
-	Required           bool
-	MigrationSetDigest string
-}
-
-// RehearsalPreparedTarget binds the published target to its durable rollback run.
-type RehearsalPreparedTarget struct{ Receipt PreparedStoreUpgradeReceipt }
-
-// RehearsalRollbackResult identifies a completed physical rollback.
-type RehearsalRollbackResult struct {
-	RunID      string
-	RolledBack bool
-}
-
-// RehearsalTargetPreparation bridges copied-store rehearsal to prepared publication.
-type RehearsalTargetPreparation interface {
-	Preview(context.Context, apptypes.PayloadRehearsalConfig) (RehearsalPreparationPlan, error)
-	EnsurePrepared(context.Context, apptypes.PayloadRehearsalConfig) (RehearsalPreparedTarget, error)
-	RollbackPrepared(context.Context, apptypes.PayloadRehearsalConfig) (RehearsalRollbackResult, error)
-}
 
 // PreparedStoreUpgradeCommand starts one operation selected from the fixed
 // composition-time recipe registry.
@@ -86,7 +63,7 @@ type PreparedStoreUpgradeFiles interface {
 	// RejectRetiredSearchIndex refuses to publish a store that still carries
 	// the retired migration-032 search index family. Compaction declares the
 	// same method; both protocols reach the same exchange, so both must ask.
-	// A payload-rehearsal migration is exempt — that publication is how a
+	// An offline-migration upgrade is exempt — that publication is how a
 	// store reaches the schema where the family can be retired at all.
 	RejectRetiredSearchIndex(context.Context, domain.PreparedStoreUpgradeRun) error
 	FenceCandidate(context.Context, domain.PreparedStoreUpgradeRun) (domain.PreparedStoreUpgradeRun, error)

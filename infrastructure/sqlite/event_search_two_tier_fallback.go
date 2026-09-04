@@ -15,22 +15,10 @@ const twoTierFallbackScanSelect = `
 SELECT e.id, e.kind, e.client, e.agent, e.session_id, e.workspace,
        e.body_availability, e.source_hook, e.created_at,
        CASE WHEN length(CAST(e.body AS BLOB)) <= ? THEN e.body END,
-       e.body_codec, e.body_format_version, e.body_plaintext_bytes,
-       e.body_encoded_bytes, e.body_sha256,
-       length(CAST(e.body AS BLOB)),
        a.event_id,
        CASE WHEN length(CAST(a.command_text AS BLOB)) <= ? THEN a.command_text END,
-       a.command_codec, a.command_format_version, a.command_plaintext_bytes,
-       a.command_encoded_bytes, a.command_sha256,
-       length(CAST(a.command_text AS BLOB)),
        CASE WHEN length(CAST(a.input_text AS BLOB)) <= ? THEN a.input_text END,
-       a.input_codec, a.input_format_version, a.input_plaintext_bytes,
-       a.input_encoded_bytes, a.input_sha256,
-       length(CAST(a.input_text AS BLOB)),
        CASE WHEN length(CAST(a.output_text AS BLOB)) <= ? THEN a.output_text END,
-       a.output_codec, a.output_format_version, a.output_plaintext_bytes,
-       a.output_encoded_bytes, a.output_sha256,
-       length(CAST(a.output_text AS BLOB)),
        s.started_at
   FROM events e
   LEFT JOIN command_audits a ON a.event_id = e.id
@@ -38,27 +26,17 @@ SELECT e.id, e.kind, e.client, e.agent, e.session_id, e.workspace,
  WHERE 1 = 1`
 
 type scannedPayload struct {
-	row       payloadRow
-	storedLen sql.NullInt64
+	stored []byte
 }
 
 func (p *scannedPayload) destinations() []any {
-	return append(p.row.scanDestinations(), &p.storedLen)
+	return []any{&p.stored}
 }
 
 func (p scannedPayload) decode(rowID, field string) ([]byte, error) {
-	if p.storedLen.Valid && p.storedLen.Int64 > maxStoredPayloadBytes {
-		codec := p.row.Codec.String
-		if !p.row.Codec.Valid {
-			codec = payloadCodecIdentity
-		}
-		return nil, &PayloadIntegrityError{Codec: codec, RowID: rowID, Field: field, Reason: "stored length exceeds limit"}
-	}
-	plain, err := p.row.decode(maxDecodedPayloadBytes)
-	if err != nil {
-		return nil, annotatePayloadError(err, rowID, field)
-	}
-	return plain, nil
+	_ = rowID
+	_ = field
+	return p.stored, nil
 }
 
 func buildTwoTierFallbackScanQuery(criteria apptypes.EventSearchCriteria) (string, []any) {

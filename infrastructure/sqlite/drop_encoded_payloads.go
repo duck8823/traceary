@@ -86,14 +86,17 @@ func verifyPayloadFamilyTablesAbsent(ctx context.Context, db *sql.DB) error {
 		return fmt.Errorf("list candidate payload family tables: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
-	for rows.Next() {
+	if rows.Next() {
 		var name string
 		if err := rows.Scan(&name); err != nil {
 			return fmt.Errorf("scan payload family table: %w", err)
 		}
 		return fmt.Errorf("candidate still has table %s", name)
 	}
-	return rows.Err()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate payload family tables: %w", err)
+	}
+	return nil
 }
 
 func verifyEncodedPayloadsReaderState(ctx context.Context, db *sql.DB) error {
@@ -198,7 +201,7 @@ func digestLanePlaintext(ctx context.Context, db *sql.DB, lane decodeLane, decod
 	}
 	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
-		return 0, [32]byte{}, err
+		return 0, [32]byte{}, fmt.Errorf("query %s.%s plaintext: %w", lane.Table, lane.Field, err)
 	}
 	defer func() { _ = rows.Close() }()
 	skip := make(map[string]struct{}, len(skipIDs))
@@ -213,16 +216,16 @@ func digestLanePlaintext(ctx context.Context, db *sql.DB, lane decodeLane, decod
 		if decode {
 			var row payloadRow
 			if err := rows.Scan(&pk, &row.Stored, &row.Codec, &row.FormatVersion, &row.PlaintextBytes, &row.StoredBytes, &row.SHA256); err != nil {
-				return 0, [32]byte{}, err
+				return 0, [32]byte{}, fmt.Errorf("scan %s.%s: %w", lane.Table, lane.Field, err)
 			}
 			plain, err = row.decode(maxDecodedPayloadBytes)
 			if err != nil {
-				return 0, [32]byte{}, err
+				return 0, [32]byte{}, fmt.Errorf("decode %s.%s %s: %w", lane.Table, lane.Field, pk, err)
 			}
 		} else {
 			var stored []byte
 			if err := rows.Scan(&pk, &stored); err != nil {
-				return 0, [32]byte{}, err
+				return 0, [32]byte{}, fmt.Errorf("scan %s.%s: %w", lane.Table, lane.Field, err)
 			}
 			plain = stored
 		}
@@ -236,7 +239,7 @@ func digestLanePlaintext(ctx context.Context, db *sql.DB, lane decodeLane, decod
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return 0, [32]byte{}, err
+		return 0, [32]byte{}, fmt.Errorf("iterate %s.%s: %w", lane.Table, lane.Field, err)
 	}
 	return count, xor, nil
 }
@@ -259,7 +262,10 @@ func verifyNoPayloadFamilyReferences(ctx context.Context, db *sql.DB) error {
 			return fmt.Errorf("candidate %s %s still references dropped codec columns", objectType, name)
 		}
 	}
-	return rows.Err()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate candidate triggers and views: %w", err)
+	}
+	return nil
 }
 
 func verifyEncodedPayloadSurvivors(ctx context.Context, db *sql.DB) error {

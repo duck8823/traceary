@@ -431,9 +431,6 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		c.appendBoundedDoctorDeferredChecks(ctx, report)
 		return report, nil
 	}
-	if c.payloadCodecInspector != nil {
-		report.Checks = append(report.Checks, c.inspectPayloadCodec(ctx, snapshot))
-	}
 	report.Checks = append(report.Checks, c.inspectStoreGrowthBudget(ctx, resolvedDBPath, snapshot)...)
 	report.Checks = append(report.Checks, inspectTracearyOnPath())
 	report.Checks = append(report.Checks, inspectStaleTracearyProcesses(input.currentVersion, time.Now()))
@@ -467,7 +464,6 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		report.Checks = append(report.Checks, c.inspectContentEventReliability(ctx, input.strict))
 		report.Checks = append(report.Checks, c.inspectRetryLoops(ctx))
 		report.Checks = append(report.Checks, c.inspectSensitiveAccessAuditCoverage(ctx))
-		report.Checks = append(report.Checks, c.inspectBodyCodec(ctx))
 		if c.attestationAnchorInspector != nil {
 			report.Checks = append(report.Checks, c.inspectAttestationAnchor(ctx, resolvedDBPath, true))
 		}

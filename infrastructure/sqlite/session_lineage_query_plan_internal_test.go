@@ -43,8 +43,7 @@ CREATE INDEX idx_events_session_created_at_norm_id_desc
     ON events(session_id, created_at_norm DESC, id DESC);
 CREATE TABLE command_audits (
     event_id TEXT PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
-    command_text TEXT NOT NULL,
-    command_codec TEXT
+    command_text TEXT NOT NULL
 );
 CREATE TABLE session_refinements (
     session_id TEXT PRIMARY KEY,
@@ -112,8 +111,7 @@ CREATE INDEX idx_events_session_created_at_norm_id_desc
     ON events(session_id, created_at_norm DESC, id DESC);
 CREATE TABLE command_audits (
     event_id TEXT PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
-    command_text TEXT NOT NULL,
-    command_codec TEXT
+    command_text TEXT NOT NULL
 );
 CREATE TABLE session_refinements (
     session_id TEXT PRIMARY KEY,
