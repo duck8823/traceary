@@ -71,6 +71,10 @@ func (v PreparedMigrationVerifier) VerifyUpgradePair(ctx context.Context, source
 			if err = verifyRepairEpochZeroHookUsage(ctx, sourceDB, candidateDB); err != nil {
 				return domain.PreparedCandidateEvidence{}, err
 			}
+		case SemanticVerifierDropRetiredTable:
+			if err = verifyDropRetiredTable(ctx, sourceDB, candidateDB); err != nil {
+				return domain.PreparedCandidateEvidence{}, err
+			}
 		}
 	}
 	return evidence, nil

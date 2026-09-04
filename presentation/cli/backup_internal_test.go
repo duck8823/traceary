@@ -78,6 +78,9 @@ func (s *restoreStoreBackupUsecaseForTest) PreviewOfflineMigrations(context.Cont
 func (s *restoreStoreBackupUsecaseForTest) InspectOneOffRepairRetirement(context.Context) (apptypes.OneOffRepairRetirement, error) {
 	return apptypes.OneOffRepairRetirement{}, nil
 }
+func (s *restoreStoreBackupUsecaseForTest) InspectBoundDrop(context.Context) (apptypes.BoundDropInspection, error) {
+	return apptypes.BoundDropInspection{}, nil
+}
 func (s *restoreStoreBackupUsecaseForTest) CreateBackup(_ context.Context, _ string, _ bool) error {
 	return nil
 }

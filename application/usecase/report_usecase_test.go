@@ -145,9 +145,7 @@ func TestReportUsecaseGenerate_AggregatesUsageWithoutExcludedOrRunDuplicates(t *
 	base := apptypes.ReportUsageRecord{
 		ObservedAt: observedAt, Engine: "codex", Provider: "openai", Model: "gpt-5.6",
 		Accounting: types.UsageAccountingAdditive, TerminalCode: types.UsageTerminalSuccess,
-		RunHost: "codex", RunID: "run-1", Repository: "github.com/duck8823/traceary",
-		TicketRef: "GH#1449", PullRequest: types.Some(int64(1501)), BatchID: "batch-1",
-		PacketBytes: types.Some(int64(100)), ToolOutputBytes: types.Some(int64(50)),
+		RunHost: "codex", RunID: "run-1",
 	}
 	first := base
 	first.ObservationID, first.Counters, first.Cost = "usage-1", countersA, providerCost
@@ -158,8 +156,6 @@ func TestReportUsecaseGenerate_AggregatesUsageWithoutExcludedOrRunDuplicates(t *
 	excluded.Accounting = types.UsageAccountingExcluded
 	excluded.Counters = excludedCounters
 	excluded.Cost = providerCost
-	excluded.PacketBytes = types.Some(int64(999))
-	excluded.ToolOutputBytes = types.Some(int64(999))
 
 	window := reportWindow(t, criteria, nil, nil, nil, false)
 	window.Usage = []apptypes.ReportUsageRecord{excluded, first, second}
@@ -199,9 +195,7 @@ func TestReportUsecaseGenerate_AggregatesUsageWithoutExcludedOrRunDuplicates(t *
 		t.Fatalf("costs = %+v", aggregate.Costs)
 	}
 	run := got.Usage.Runs[0]
-	if run.Runs != 1 || run.PacketBytes.KnownRuns != 1 || run.PacketBytes.Sum != 100 ||
-		run.ToolOutputBytes.KnownRuns != 1 || run.ToolOutputBytes.Sum != 50 ||
-		run.WallTimeMS.UnavailableRuns != 1 {
+	if run.Runs != 1 || run.WallTimeMS.UnavailableRuns != 1 {
 		t.Fatalf("run aggregate = %+v", run)
 	}
 	if aggregate.RoleAvailability != "unavailable" || aggregate.RoundAvailability != "unavailable" ||
@@ -349,40 +343,6 @@ func TestReportUsecaseGenerate_RejectsUsageSumOverflow(t *testing.T) {
 				func() apptypes.ReportUsageRecord {
 					row := base
 					row.ObservationID, row.Cost = "cost-one", oneCost
-					return row
-				}(),
-			},
-		},
-		{
-			name: "run packet bytes",
-			records: []apptypes.ReportUsageRecord{
-				func() apptypes.ReportUsageRecord {
-					row := base
-					row.ObservationID, row.RunHost, row.RunID = "run-max", "codex", "run-max"
-					row.PacketBytes = types.Some(int64(math.MaxInt64))
-					return row
-				}(),
-				func() apptypes.ReportUsageRecord {
-					row := base
-					row.ObservationID, row.RunHost, row.RunID = "run-one", "codex", "run-one"
-					row.PacketBytes = types.Some(int64(1))
-					return row
-				}(),
-			},
-		},
-		{
-			name: "run tool output bytes",
-			records: []apptypes.ReportUsageRecord{
-				func() apptypes.ReportUsageRecord {
-					row := base
-					row.ObservationID, row.RunHost, row.RunID = "tool-max", "codex", "tool-max"
-					row.ToolOutputBytes = types.Some(int64(math.MaxInt64))
-					return row
-				}(),
-				func() apptypes.ReportUsageRecord {
-					row := base
-					row.ObservationID, row.RunHost, row.RunID = "tool-one", "codex", "tool-one"
-					row.ToolOutputBytes = types.Some(int64(1))
 					return row
 				}(),
 			},

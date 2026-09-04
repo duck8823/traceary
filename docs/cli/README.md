@@ -914,15 +914,15 @@ records and summarizes failure rates by client. Ratios and failure rates are
 reported only when their source coverage is complete.
 
 The usage section comes from finalized `usage_observations`, joined to
-`usage_observation_runs` for the run identity and to `run_lineages` for the
-repository, ticket, pull request, and batch attribution. Superseded
-observations are excluded: only the latest, non-superseded snapshot for an
-observation is aggregated.
+`usage_observation_runs` for the run identity. Repository, ticket, pull
+request, batch, packet-byte, and tool-output-byte attribution from the
+retired `run_lineages` table is no longer reported. Superseded observations
+are excluded: only the latest, non-superseded snapshot for an observation is
+aggregated.
 
-Packet and tool-output byte counts are immutable run facts from
-`run_lineages`. They are deduplicated by run identity and reported under
-`usage.runs`, so multiple usage observations for the same run do not multiply
-those byte counts.
+Runs are deduplicated by run identity (`run_host`/`run_id`) and counted per
+engine with wall-time only. Packet and tool-output byte facts are no longer
+reported.
 
 Sessions, events, commands, and usage are loaded in one read-only
 transaction. Each family has an independent coverage extent containing its

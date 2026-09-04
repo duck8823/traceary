@@ -48,6 +48,10 @@ const SemanticVerifierCollapseSessionWorkspaceObservations SemanticVerifierID = 
 // offline migration 78.
 const SemanticVerifierRepairEpochZeroHookUsage SemanticVerifierID = "repair_epoch_zero_hook_usage_078"
 
+// SemanticVerifierDropRetiredTable is the Layer-2 verifier for offline
+// migration 79 (owner #2317).
+const SemanticVerifierDropRetiredTable SemanticVerifierID = "drop_retired_table"
+
 type migrationManifestEntry struct {
 	Version            int64
 	Name               string
@@ -169,9 +173,11 @@ var preparedMigrationManifest = map[int64]migrationManifestEntry{
 	77: {Version: 77, Name: "000077_add_command_audit_output_metadata.sql", SHA256: "ffadbfeb307987aa8305253eea16911b5f09c31812cf40d9fc5039b44dd2d414", Class: MigrationConstantInPlace, ConservationLawID: ConservationLawBaseConserving},
 	// 78 rewrites epoch-zero stop-hook-family / headless_stream usage_observations
 	// and must DROP/CREATE the descriptor-immutability trigger. Not
-	// constant-in-place: cost scales with dirty rows (#2316). 079 report-norm
-	// is withheld pending the owner decision on #2316 §2.2.
+	// constant-in-place: cost scales with dirty rows (#2316).
 	78: {78, "000078_repair_epoch_zero_hook_usage.sql", "0c82371649b43248ca2ea177f9b2e65953deba9a6d785183501e18ce91ae2118", MigrationDataDependentOffline, ConservationLawBaseConserving, SemanticVerifierRepairEpochZeroHookUsage, "2316"},
+	// 79 drops run_lineages after rebuilding usage_observation_runs without
+	// that FK. Cost is a table rebuild plus DROP; never applied at live open.
+	79: {79, "000079_drop_run_lineages.sql", "0f1a5caa404ec83b3788b406699aae06e3f938046a7eb83e5e582df906088c58", MigrationDataDependentOffline, ConservationLawBaseConserving, SemanticVerifierDropRetiredTable, "2317"},
 }
 
 func conservationLawFor(version int64) ConservationLawID {

@@ -120,6 +120,7 @@ func (c *RootCLI) newDoctorCommand() *cobra.Command {
 		workspace         string
 		reviewedBy        string
 		note              string
+		approveDrop       string
 	)
 
 	doctorCmd := &cobra.Command{
@@ -152,6 +153,7 @@ func (c *RootCLI) newDoctorCommand() *cobra.Command {
 				workspace:         workspace,
 				reviewedBy:        reviewedBy,
 				note:              note,
+				approveDrop:       approveDrop,
 				fixSet:            cmd.Flags().Changed("fix"),
 				dryRunSet:         cmd.Flags().Changed("dry-run"),
 				sessionSet:        cmd.Flags().Changed("session"),
@@ -179,6 +181,7 @@ func (c *RootCLI) newDoctorCommand() *cobra.Command {
 	doctorCmd.Flags().StringVar(&workspace, "workspace", "", Localize("with --alias-add/--alias-remove, reviewed alias workspace", "--alias-add / --alias-remove 時の review 済み alias workspace"))
 	doctorCmd.Flags().StringVar(&reviewedBy, "reviewed-by", "", Localize("with --alias-add, reviewer identity", "--alias-add 時の reviewer identity"))
 	doctorCmd.Flags().StringVar(&note, "note", "", Localize("with --alias-add, optional review note", "--alias-add 時の任意の review note"))
+	doctorCmd.Flags().StringVar(&approveDrop, "approve-drop", "", Localize("approve dropping N rows of a retired table; token is N:<hex> from the preflight message", "退役 table の N 行削除を承認する。token は preflight の N:<hex>"))
 	doctorCmd.MarkFlagsMutuallyExclusive("alias-add", "alias-remove", "alias-list")
 
 	return doctorCmd

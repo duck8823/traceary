@@ -279,46 +279,6 @@ SELECT observation.observation_id, session_id, observation.host, source_name, so
 	return observations, nil
 }
 
-// ListBundleRunLineages returns every immutable lineage fact. The usecase
-// validates and orders the complete graph before encoding it.
-func (d *BundleDatasource) ListBundleRunLineages(ctx context.Context) ([]*model.RunLineage, error) {
-	db, err := d.db.open(ctx)
-	if err != nil {
-		return nil, xerrors.Errorf("failed to open DB for bundle run lineage export: %w", err)
-	}
-	defer func() {
-		if err := db.Close(); err != nil {
-			slog.Debug("failed to close resource", "error", err)
-		}
-	}()
-	rows, err := db.QueryContext(ctx, `
-SELECT host, run_id, parent_host, parent_run_id, session_id,
-       batch_id, ticket_ref, repository, pull_request_number, head_sha,
-       packet_sha256, packet_bytes, tool_output_bytes
-  FROM run_lineages
- ORDER BY host, run_id`)
-	if err != nil {
-		return nil, xerrors.Errorf("failed to query run lineages for bundle export: %w", err)
-	}
-	defer func() {
-		if err := rows.Close(); err != nil {
-			slog.Debug("failed to close resource", "error", err)
-		}
-	}()
-	lineages := []*model.RunLineage{}
-	for rows.Next() {
-		lineage, err := scanRunLineage(rows)
-		if err != nil {
-			return nil, xerrors.Errorf("failed to scan bundle run lineage row: %w", err)
-		}
-		lineages = append(lineages, lineage)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, xerrors.Errorf("failed to iterate bundle run lineage rows: %w", err)
-	}
-	return lineages, nil
-}
-
 // BeginBundleImport starts the transaction shared by every table
 // importer in a bundle (sessions, usage_observations, events,
 // command_audits, memories, and memory_edges).
@@ -340,28 +300,6 @@ func (d *BundleDatasource) BeginBundleImport(ctx context.Context) (usecase.Bundl
 type bundleImportTx struct {
 	db *sql.DB
 	tx *sql.Tx
-}
-
-// ImportRunLineage preserves immutable lineage under every bundle conflict
-// policy: exact replay skips, while any semantic conflict fails the transaction.
-func (t *bundleImportTx) ImportRunLineage(ctx context.Context, lineage *model.RunLineage) (bool, error) {
-	if lineage == nil {
-		return false, model.ErrInvalidRunLineage
-	}
-	current, err := findRunLineage(ctx, t.tx, lineage.Identity())
-	if err != nil {
-		return false, xerrors.Errorf("failed to inspect run lineage conflict: %w", err)
-	}
-	if existing, present := current.Value(); present {
-		if _, err := existing.Reconcile(lineage); err != nil {
-			return false, xerrors.Errorf("failed to reconcile imported run lineage: %w", err)
-		}
-		return false, nil
-	}
-	if err := insertRunLineage(ctx, t.tx, lineage); err != nil {
-		return false, xerrors.Errorf("failed to import run lineage: %w", errors.Join(model.ErrInvalidRunLineage, err))
-	}
-	return true, nil
 }
 
 // ImportUsageObservation converges exact replays and pending-to-finalized

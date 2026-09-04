@@ -7,6 +7,10 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ## [Unreleased]
 
+### Changed
+- **Report usage no longer joins `run_lineages` for repository/ticket/PR/batch attribution or packet/tool byte facts (#2321, #2317).** Groups are `{provider,engine,model}` and `{engine}`. `run_host`/`run_id` on observations survive. The lost attribution is a documented user-visible change, not restored from history.
+- **Forward migration 079 drops `run_lineages` after rebuilding `usage_observation_runs` without that FK, and raises `minimum_reader_version` to 35 (#2317).** Empty stores keep inline bootstrap. Non-empty stores apply it on a #2328 candidate via `traceary doctor --fix`. Remaining rows stop without `--approve-drop N:<hex>`. New bundle exports omit the retired entry (manifest stays v2); legacy empty entries skip, non-empty entries refuse atomically. `payload_backfill_runs` is decided by #2323 and is not dropped here.
+
 ## [v0.48.2] - 2026-08-30
 
 ### Fixed

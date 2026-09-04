@@ -64,7 +64,6 @@ func TestRootCLI_Report_JSONUsesSharedSnapshot(t *testing.T) {
 
 func TestRootCLI_Report_JSONGolden(t *testing.T) {
 	t.Parallel()
-	pullRequest := int64(1490)
 	extent := apptypes.ReportSourceExtent{
 		Coverage: apptypes.ReportCoveragePartial, ObservedCount: 1, PageSize: 2, ResultCap: 1,
 		ResponseTruncated: true, TruncationReason: "result_cap",
@@ -92,8 +91,7 @@ func TestRootCLI_Report_JSONGolden(t *testing.T) {
 		Usage: apptypes.ReportUsageSnapshot{
 			Aggregates: []apptypes.ReportUsageAggregateRow{{
 				Provider: "openai", Engine: "codex", Model: "gpt-5.6-sol",
-				RoleAvailability: "unavailable", Repository: "duck8823/traceary",
-				TicketRef: "#1449", PullRequest: &pullRequest, BatchID: "release-v0.32",
+				RoleAvailability:  "unavailable",
 				RoundAvailability: "unavailable", Observations: 2, Accounted: 1, Excluded: 1,
 				Unavailable:     1,
 				InputTokens:     apptypes.ReportUsageMetric{KnownObservations: 1, Sum: 100},
@@ -105,12 +103,8 @@ func TestRootCLI_Report_JSONGolden(t *testing.T) {
 			}},
 			Runs: []apptypes.ReportUsageRunAggregateRow{{
 				Engine: "codex", RoleAvailability: "unavailable",
-				Repository: "duck8823/traceary", TicketRef: "#1449",
-				PullRequest: &pullRequest, BatchID: "release-v0.32",
 				RoundAvailability: "unavailable", Runs: 1,
-				PacketBytes:     apptypes.ReportUsageRunMetric{KnownRuns: 1, Sum: 2048},
-				ToolOutputBytes: apptypes.ReportUsageRunMetric{KnownRuns: 1, Sum: 4096},
-				WallTimeMS:      apptypes.ReportUsageRunMetric{UnavailableRuns: 1},
+				WallTimeMS: apptypes.ReportUsageRunMetric{UnavailableRuns: 1},
 			}},
 		},
 		EventScanCount:   1,

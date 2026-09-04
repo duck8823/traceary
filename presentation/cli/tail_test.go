@@ -96,6 +96,9 @@ func (tailStoreManagementStub) PreviewOfflineMigrations(context.Context) ([]int6
 func (tailStoreManagementStub) InspectOneOffRepairRetirement(context.Context) (apptypes.OneOffRepairRetirement, error) {
 	return apptypes.OneOffRepairRetirement{}, nil
 }
+func (tailStoreManagementStub) InspectBoundDrop(context.Context) (apptypes.BoundDropInspection, error) {
+	return apptypes.BoundDropInspection{}, nil
+}
 func (tailStoreManagementStub) CreateBackup(context.Context, string, bool) error {
 	return nil
 }

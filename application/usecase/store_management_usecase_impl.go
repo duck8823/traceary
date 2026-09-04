@@ -56,6 +56,20 @@ func (u *storeManagementUsecase) InspectOneOffRepairRetirement(ctx context.Conte
 	return apptypes.OneOffRepairRetirement{}, nil
 }
 
+func (u *storeManagementUsecase) InspectBoundDrop(ctx context.Context) (apptypes.BoundDropInspection, error) {
+	type inspector interface {
+		InspectBoundDrop(context.Context) (apptypes.BoundDropInspection, error)
+	}
+	if inspect, ok := u.storeManager.(inspector); ok {
+		inspection, err := inspect.InspectBoundDrop(ctx)
+		if err != nil {
+			return apptypes.BoundDropInspection{}, xerrors.Errorf("failed to inspect bound drop: %w", err)
+		}
+		return inspection, nil
+	}
+	return apptypes.BoundDropInspection{}, nil
+}
+
 func (u *storeManagementUsecase) CreateBackup(ctx context.Context, outputPath string, overwrite bool) error {
 	if strings.TrimSpace(outputPath) == "" {
 		return xerrors.Errorf("output path must not be empty")

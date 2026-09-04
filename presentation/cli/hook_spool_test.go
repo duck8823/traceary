@@ -1221,6 +1221,9 @@ func (s *spoolStoreManagementStub) PreviewOfflineMigrations(context.Context) ([]
 func (s *spoolStoreManagementStub) InspectOneOffRepairRetirement(context.Context) (apptypes.OneOffRepairRetirement, error) {
 	return apptypes.OneOffRepairRetirement{}, nil
 }
+func (s *spoolStoreManagementStub) InspectBoundDrop(context.Context) (apptypes.BoundDropInspection, error) {
+	return apptypes.BoundDropInspection{}, nil
+}
 func (s *spoolStoreManagementStub) CreateBackup(context.Context, string, bool) error {
 	return nil
 }

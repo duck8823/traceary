@@ -281,6 +281,7 @@ type PreparedStoreUpgradeRun struct {
 	ConsumerBinding           string                           `json:"consumer_binding,omitempty"`
 	PlanDigest                string                           `json:"plan_digest,omitempty"`
 	SourceDigest              string                           `json:"source_digest,omitempty"`
+	BoundDropApproval         *BoundDropApproval               `json:"bound_drop_approval,omitempty"`
 	Budget                    PreparedStoreUpgradeBudget       `json:"budget,omitempty"`
 	Evidence                  PreparedCandidateEvidence        `json:"evidence,omitempty"`
 	CreatedAt                 time.Time                        `json:"created_at"`

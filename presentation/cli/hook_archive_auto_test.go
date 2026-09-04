@@ -156,6 +156,9 @@ func (s *minimalStoreStub) PreviewOfflineMigrations(context.Context) ([]int64, e
 func (s *minimalStoreStub) InspectOneOffRepairRetirement(context.Context) (apptypes.OneOffRepairRetirement, error) {
 	return apptypes.OneOffRepairRetirement{}, nil
 }
+func (s *minimalStoreStub) InspectBoundDrop(context.Context) (apptypes.BoundDropInspection, error) {
+	return apptypes.BoundDropInspection{}, nil
+}
 func (s *minimalStoreStub) CreateBackup(context.Context, string, bool) error {
 	return nil
 }

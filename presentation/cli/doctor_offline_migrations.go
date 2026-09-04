@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/duck8823/traceary/application"
+	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain"
 	"golang.org/x/xerrors"
 )
@@ -83,6 +85,11 @@ func (c *RootCLI) applyAuthorizedStoreInit(ctx context.Context, input doctorComm
 		return log, false
 	}
 	versions := formatMigrationVersions(pending)
+	approval, err := boundDropApprovalForFix(ctx, c.storeManagement, input.approveDrop)
+	if err != nil {
+		log.Error = err.Error()
+		return log, true
+	}
 	if input.dryRun {
 		log.Action = "dry-run: would apply data-dependent migrations " + versions
 		return log, true
@@ -98,9 +105,10 @@ func (c *RootCLI) applyAuthorizedStoreInit(ctx context.Context, input doctorComm
 	}
 	svc := c.preparedStoreUpgradeFactory(resolved)
 	receipt, err := svc.RunUpgrade(ctx, application.PreparedStoreUpgradeCommand{
-		Operation:       domain.PreparedStoreUpgradeOperationOfflineMigrationUpgrade,
-		TargetPath:      resolved,
-		ConsumerBinding: "traceary-doctor-offline-upgrade",
+		Operation:         domain.PreparedStoreUpgradeOperationOfflineMigrationUpgrade,
+		TargetPath:        resolved,
+		ConsumerBinding:   "traceary-doctor-offline-upgrade",
+		BoundDropApproval: approval,
 		Budget: domain.PreparedStoreUpgradeBudget{
 			WallTimeLimit:      time.Hour,
 			PublishLockLimit:   time.Hour,
@@ -117,4 +125,29 @@ func (c *RootCLI) applyAuthorizedStoreInit(ctx context.Context, input doctorComm
 	log.Action = "applied data-dependent migrations: " + versions +
 		"\nrollback copy retained as forensic backup (not an interchangeable rollback target): " + receipt.RollbackPath
 	return log, true
+}
+
+func boundDropApprovalForFix(ctx context.Context, store usecase.StoreManagementUsecase, token string) (*domain.BoundDropApproval, error) {
+	inspection, err := store.InspectBoundDrop(ctx)
+	if err != nil {
+		return nil, xerrors.Errorf("inspect bound drop: %w", err)
+	}
+	if inspection.RowCount == 0 {
+		return nil, nil
+	}
+	if token == "" {
+		return nil, &apptypes.BoundDropApprovalRequiredError{RowCount: inspection.RowCount, Digest: inspection.Digest}
+	}
+	count, digest, err := apptypes.ParseBoundDropApprovalToken(token)
+	if err != nil {
+		return nil, xerrors.Errorf("parse bound drop approval: %w", err)
+	}
+	approval, err := domain.NewBoundDropApproval(count, digest)
+	if err != nil {
+		return nil, xerrors.Errorf("bound drop approval: %w", err)
+	}
+	if !approval.Matches(inspection.RowCount, inspection.Digest) {
+		return nil, &apptypes.BoundDropApprovalRequiredError{RowCount: inspection.RowCount, Digest: inspection.Digest}
+	}
+	return &approval, nil
 }

@@ -32,10 +32,11 @@ type RehearsalTargetPreparation interface {
 // PreparedStoreUpgradeCommand starts one operation selected from the fixed
 // composition-time recipe registry.
 type PreparedStoreUpgradeCommand struct {
-	Operation       domain.PreparedStoreUpgradeOperation
-	TargetPath      string
-	ConsumerBinding string
-	Budget          domain.PreparedStoreUpgradeBudget
+	Operation         domain.PreparedStoreUpgradeOperation
+	TargetPath        string
+	ConsumerBinding   string
+	Budget            domain.PreparedStoreUpgradeBudget
+	BoundDropApproval *domain.BoundDropApproval
 }
 
 // PreparedCandidateRequest contains only durable, recipe-safe values.
@@ -57,6 +58,12 @@ type PreparedCandidateRecipe interface {
 	ClassifyOwnedCandidate(context.Context, PreparedCandidateInspection) (domain.CandidateCondition, error)
 	Sync(context.Context, PreparedCandidateRequest) error
 	Verify(context.Context, PreparedCandidateRequest) (domain.PreparedCandidateEvidence, error)
+}
+
+// BoundDropVerifier re-checks a bound drop approval against the live source
+// immediately before Build. Recipes that do not drop rows omit it.
+type BoundDropVerifier interface {
+	VerifyBoundDrop(context.Context, PreparedCandidateRequest) error
 }
 
 // PreparedStoreUpgradeJournal persists bounded protocol records outside every
