@@ -149,8 +149,7 @@ type minimalStoreStub struct {
 	lastParams   apptypes.StoreArchiveCreateParams
 }
 
-func (s *minimalStoreStub) Initialize(context.Context) error           { return nil }
-func (s *minimalStoreStub) InitializeAuthorized(context.Context) error { return nil }
+func (s *minimalStoreStub) Initialize(context.Context) error { return nil }
 func (s *minimalStoreStub) PreviewOfflineMigrations(context.Context) ([]int64, error) {
 	return nil, nil
 }

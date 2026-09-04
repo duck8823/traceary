@@ -15,3 +15,7 @@ func validateStoreLinkIdentity(string) error {
 func acquireAdvisoryLease(context.Context, string, bool) (advisoryLease, error) {
 	return nil, ErrPreparedUpgradeUnsupported
 }
+
+func acquireAdvisoryLeaseConsulting(context.Context, string, bool, func() error) (advisoryLease, error) {
+	return nil, ErrPreparedUpgradeUnsupported
+}

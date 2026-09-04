@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/duck8823/traceary/application"
 	"github.com/duck8823/traceary/application/usecase"
 	sqliteinfra "github.com/duck8823/traceary/infrastructure/sqlite"
 	"github.com/duck8823/traceary/presentation/cli"
@@ -16,20 +17,33 @@ func TestRootCLI_DoctorFixAppliesAuthorizedOfflineMigrations(t *testing.T) {
 	t.Setenv("TRACEARY_LANG", "en")
 	setTracearyPathToCurrentExecutable(t)
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	if err := os.WriteFile(dbPath, []byte("store"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	stub := &storeManagementUsecaseStub{previewOffline: []int64{35, 45}}
+	upgrade := &recordingPreparedUpgrade{receipt: application.PreparedStoreUpgradeReceipt{RollbackPath: dbPath + ".rollback-test"}}
 	stdout := &bytes.Buffer{}
-	rootCmd := newTestRootCLI(cli.WithStoreManagement(stub)).Command()
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(stub),
+		cli.WithPreparedStoreUpgradeFactory(func(string) application.PreparedStoreUpgradeUsecase { return upgrade }),
+	).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{"doctor", "--fix", "--warnings-ok", "--json", "--db-path", dbPath})
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
-	if !stub.authorizedCalled {
-		t.Fatal("InitializeAuthorized was not called")
+	if upgrade.starts != 1 {
+		t.Fatalf("RunUpgrade starts = %d, want 1", upgrade.starts)
 	}
-	if !strings.Contains(stdout.String(), `"applied data-dependent migrations: 35, 45"`) && !strings.Contains(stdout.String(), "applied data-dependent migrations: 35, 45") {
+	if stub.authorizedCalled {
+		t.Fatal("InitializeAuthorized must not be called on the live store")
+	}
+	if !strings.Contains(stdout.String(), "applied data-dependent migrations: 35, 45") {
 		t.Fatalf("stdout = %q, want applied versions", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "forensic backup (not an interchangeable rollback target)") {
+		t.Fatalf("stdout = %q, want forensic-backup wording", stdout.String())
 	}
 }
 
@@ -38,16 +52,20 @@ func TestRootCLI_DoctorFixDryRunDoesNotApplyOfflineMigrations(t *testing.T) {
 	setTracearyPathToCurrentExecutable(t)
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
 	stub := &storeManagementUsecaseStub{previewOffline: []int64{35, 45}}
+	upgrade := &recordingPreparedUpgrade{}
 	stdout := &bytes.Buffer{}
-	rootCmd := newTestRootCLI(cli.WithStoreManagement(stub)).Command()
+	rootCmd := newTestRootCLI(
+		cli.WithStoreManagement(stub),
+		cli.WithPreparedStoreUpgradeFactory(func(string) application.PreparedStoreUpgradeUsecase { return upgrade }),
+	).Command()
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{"doctor", "--fix", "--dry-run", "--warnings-ok", "--json", "--db-path", dbPath})
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
-	if stub.authorizedCalled {
-		t.Fatal("dry-run must not call InitializeAuthorized")
+	if upgrade.starts != 0 {
+		t.Fatal("dry-run must not call RunUpgrade")
 	}
 	if !strings.Contains(stdout.String(), "would apply data-dependent migrations 35, 45") {
 		t.Fatalf("stdout = %q, want dry-run versions", stdout.String())

@@ -93,6 +93,7 @@ type PreparedStoreUpgradeFiles interface {
 // publication or physical recovery.
 type PreparedStoreUpgradeLease interface {
 	AcquireExclusive(context.Context, string) (func(), error)
+	HoldsExclusive(storePath string) bool
 }
 
 // PreparedStoreUpgradeReceipt binds a published inode to body-free evidence.
@@ -102,6 +103,7 @@ type PreparedStoreUpgradeReceipt struct {
 	ConsumerBinding     string
 	TargetIdentity      domain.StoreFileIdentity
 	RollbackIdentity    domain.StoreFileIdentity
+	RollbackPath        string
 	Evidence            domain.PreparedCandidateEvidence
 	PublishMilliseconds int64
 }
@@ -113,4 +115,5 @@ type PreparedStoreUpgradeUsecase interface {
 	Publish(context.Context, string) (PreparedStoreUpgradeReceipt, error)
 	Resume(context.Context, string) (PreparedStoreUpgradeReceipt, error)
 	Rollback(context.Context, string) (domain.PreparedStoreUpgradeRun, error)
+	RunUpgrade(context.Context, PreparedStoreUpgradeCommand) (PreparedStoreUpgradeReceipt, error)
 }

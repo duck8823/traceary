@@ -228,7 +228,7 @@ func (d *Database) WithReadScope(ctx context.Context, fn func(context.Context) e
 	}
 
 	dbPath := d.Path()
-	db := openCoordinatedDB(dbPath, sqliteReadOnlyDSN(dbPath))
+	db := openCoordinatedReadOnlyDB(dbPath, sqliteReadOnlyDSN(dbPath))
 	pingCtx := application.StoreOpenContext(ctx)
 	if err := db.PingContext(pingCtx); err != nil {
 		_ = db.Close()
@@ -255,7 +255,7 @@ func (d *Database) WithReadScope(ctx context.Context, fn func(context.Context) e
 
 // NewImmutableReadDatabase opens one shared immutable connection group for benchmark orchestration.
 func NewImmutableReadDatabase(ctx context.Context, dbPath string) (*Database, error) {
-	db := openCoordinatedDB(dbPath, sqliteImmutableDSN(dbPath))
+	db := openCoordinatedReadOnlyDB(dbPath, sqliteImmutableDSN(dbPath))
 	if err := db.PingContext(ctx); err != nil {
 		_ = db.Close()
 		return nil, xerrors.Errorf("ping immutable SQLite store: %w", err)
@@ -312,7 +312,12 @@ func (d *Database) Path() string {
 // openAt opens a new SQLite connection at the given path and pings it.
 // Callers snapshot Database.Path() at entry and pass the snapshot here
 // so a racing SetPath cannot split the snapshot and the connection.
+var afterOpenAtHook func()
+
 func (d *Database) openAt(ctx context.Context, dbPath string) (_ *sql.DB, err error) {
+	if afterOpenAtHook != nil {
+		afterOpenAtHook()
+	}
 	db := openCoordinatedDB(dbPath, sqliteDSN(dbPath))
 	defer func() {
 		if err != nil {
@@ -369,7 +374,7 @@ func (d *Database) openReadOnly(ctx context.Context) (_ *sql.DB, err error) {
 		return d.sharedReadOnly, nil
 	}
 	dbPath := d.Path()
-	db := openCoordinatedDB(dbPath, sqliteReadOnlyDSN(dbPath))
+	db := openCoordinatedReadOnlyDB(dbPath, sqliteReadOnlyDSN(dbPath))
 	defer func() {
 		if err != nil {
 			if closeErr := db.Close(); closeErr != nil {
@@ -455,16 +460,16 @@ func (d *Database) previewOfflineMigrations(ctx context.Context, snapshot string
 	if _, statErr := os.Stat(snapshot); os.IsNotExist(statErr) {
 		return pendingOfflineMigrations(migrations, map[int64]string{}), nil
 	}
-	db, err := d.openAt(ctx, snapshot)
+	db, err := openDirectReadOnly(ctx, snapshot)
 	if err != nil {
 		return nil, xerrors.Errorf("open store for offline preview: %w", err)
 	}
 	defer func() { _ = db.Close() }()
-	if err = ensureSchemaMigrationsTable(ctx, db); err != nil {
-		return nil, xerrors.Errorf("ensure schema_migrations for offline preview: %w", err)
-	}
 	applied, err := loadAppliedMigrations(ctx, db)
 	if err != nil {
+		if schemaMigrationsTableMissing(err) {
+			return pendingOfflineMigrations(migrations, map[int64]string{}), nil
+		}
 		return nil, xerrors.Errorf("load applied migrations for offline preview: %w", err)
 	}
 	return pendingOfflineMigrations(migrations, applied), nil

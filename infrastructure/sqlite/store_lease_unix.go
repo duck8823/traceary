@@ -33,6 +33,10 @@ func validateStoreLinkIdentity(path string) error {
 }
 
 func acquireAdvisoryLease(ctx context.Context, path string, exclusive bool) (advisoryLease, error) {
+	return acquireAdvisoryLeaseConsulting(ctx, path, exclusive, nil)
+}
+
+func acquireAdvisoryLeaseConsulting(ctx context.Context, path string, exclusive bool, consult func() error) (advisoryLease, error) {
 	if !exclusive && processHoldsExclusiveLease(path) {
 		return nil, selfDeadlockError(path)
 	}
@@ -65,6 +69,15 @@ func acquireAdvisoryLease(ctx context.Context, path string, exclusive bool) (adv
 		if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EAGAIN) {
 			_ = file.Close()
 			return nil, fmt.Errorf("acquire store lease: %w", err)
+		}
+		if !exclusive && afterSharedLeaseWouldBlock != nil {
+			afterSharedLeaseWouldBlock()
+		}
+		if consult != nil {
+			if consultErr := consult(); consultErr != nil {
+				_ = file.Close()
+				return nil, consultErr
+			}
 		}
 		now := time.Now()
 		if now.Sub(lastWait) >= exclusiveLeaseWaitInterval {

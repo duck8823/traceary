@@ -59,13 +59,16 @@ func (d *Database) migrateWithOptions(ctx context.Context, db *sql.DB, allowOffl
 			continue
 		}
 		if !allowOffline && isDataDependentOfflineMigration(migration.version) {
-			hasEvents, inspectErr := storeHasSourceEvents(ctx, db)
+			hasCanonical, inspectErr := storeHasCanonicalSourceData(ctx, db)
 			if inspectErr != nil {
 				return inspectErr
 			}
-			if hasEvents {
+			if hasCanonical {
 				return &apptypes.OfflineMigrationsRequiredError{Versions: pendingOfflineMigrations(migrations, applied)}
 			}
+			// WITHHELD-PENDING-OWNER-DECISION #2328: empty-store bootstrap
+			// (options A/B/C) is undecided. Stores with no events, audits,
+			// memories, or refinements keep the historical inline apply.
 		}
 		if allowOffline && isDataDependentOfflineMigration(migration.version) {
 			slog.Info("applying data-dependent migration", "version", migration.version, "name", migration.name)
@@ -125,24 +128,35 @@ func pendingOfflineMigrations(migrations []embeddedMigration, applied map[int64]
 	return versions
 }
 
-func storeHasSourceEvents(ctx context.Context, db *sql.DB) (bool, error) {
-	var name string
-	err := db.QueryRowContext(ctx, `SELECT name FROM sqlite_master WHERE type='table' AND name='events'`).Scan(&name)
-	if err == sql.ErrNoRows {
-		return false, nil
+func storeHasCanonicalSourceData(ctx context.Context, db *sql.DB) (bool, error) {
+	for _, probe := range []struct {
+		table string
+		query string
+	}{
+		{"events", `SELECT id FROM events LIMIT 1`},
+		{"command_audits", `SELECT event_id FROM command_audits LIMIT 1`},
+		{"memories", `SELECT id FROM memories LIMIT 1`},
+		{"session_refinements", `SELECT session_id FROM session_refinements LIMIT 1`},
+	} {
+		var name string
+		err := db.QueryRowContext(ctx, `SELECT name FROM sqlite_master WHERE type='table' AND name=?`, probe.table).Scan(&name)
+		if err == sql.ErrNoRows {
+			continue
+		}
+		if err != nil {
+			return false, xerrors.Errorf("inspect %s table: %w", probe.table, err)
+		}
+		var id string
+		err = db.QueryRowContext(ctx, probe.query).Scan(&id)
+		if err == sql.ErrNoRows {
+			continue
+		}
+		if err != nil {
+			return false, xerrors.Errorf("inspect %s rows: %w", probe.table, err)
+		}
+		return true, nil
 	}
-	if err != nil {
-		return false, xerrors.Errorf("inspect events table: %w", err)
-	}
-	var id string
-	err = db.QueryRowContext(ctx, `SELECT id FROM events LIMIT 1`).Scan(&id)
-	if err == sql.ErrNoRows {
-		return false, nil
-	}
-	if err != nil {
-		return false, xerrors.Errorf("inspect events rows: %w", err)
-	}
-	return true, nil
+	return false, nil
 }
 
 // rejectForeignAppliedMigrations fails initialization when the ledger records

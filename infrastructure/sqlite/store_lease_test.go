@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"database/sql/driver"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,6 +13,8 @@ import (
 	"runtime"
 	"testing"
 	"time"
+
+	apptypes "github.com/duck8823/traceary/application/types"
 )
 
 func TestStoreLeaseMultiprocessContentionAndCrashRelease(t *testing.T) {
@@ -176,13 +179,21 @@ func TestStoreLeaseHelperProcess(t *testing.T) {
 	}
 	path := os.Getenv("TRACEARY_STORE_LEASE_PATH")
 	db := openCoordinatedDB(path, sqliteDSN(path))
-	conn, err := db.Conn(context.Background())
-	if err != nil {
-		t.Fatal(err)
+	defer func() { _ = db.Close() }()
+	for {
+		conn, err := db.Conn(context.Background())
+		if err == nil {
+			defer func() { _ = conn.Close() }()
+			fmt.Println("ready")
+			_, _ = io.ReadAll(os.Stdin)
+			return
+		}
+		var pending *apptypes.StoreMaintenancePendingError
+		if !errors.As(err, &pending) {
+			t.Fatal(err)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
-	defer func() { _ = conn.Close() }()
-	fmt.Println("ready")
-	_, _ = io.ReadAll(os.Stdin)
 }
 
 func TestStoreLeaseConnector_HoldsSharedLeaseForPhysicalConnection(t *testing.T) {

@@ -14,63 +14,64 @@ import (
 
 // RootCLI provides the Traceary root command.
 type RootCLI struct {
-	event                      usecase.EventUsecase
-	eventMetadata              usecase.EventMetadataUsecase
-	projectionSessionSearch    queryservice.ProjectionSessionSearch
-	twoTierSearch              queryservice.TwoTierSearch
-	reportCommand              usecase.ReportCommandUsecase
-	report                     usecase.ReportUsecase
-	codexCaptureDiagnostic     usecase.CodexCaptureDiagnosticUsecase
-	session                    usecase.SessionUsecase
-	sessionRefinement          usecase.SessionRefinementUsecase
-	sessionOrphanRange         usecase.SessionOrphanRangeUsecase
-	orphanConsolidation        usecase.OrphanConsolidationUsecase
-	consolidationPressure      usecase.ConsolidationPressureUsecase
-	consolidationRequest       usecase.ConsolidationRequestUsecase
-	consolidationConversion    queryservice.ConsolidationConversionQueryService
-	sessionEventOrder          model.SessionEventOrderRepository
-	sessionWakeSummary         queryservice.SessionWakeSummaryQueryService
-	memory                     usecase.MemoryUsecase
-	bundle                     usecase.BundleUsecase
-	codexUsage                 usecase.CodexUsageCaptureUsecase
-	codexHeadlessUsage         application.CodexHeadlessUsageStreamFactory
-	claudeUsage                usecase.ClaudeUsageCaptureUsecase
-	claudeHeadlessUsage        application.ClaudeHeadlessUsageStreamFactory
-	geminiUsage                usecase.GeminiUsageCaptureUsecase
-	geminiHeadlessUsage        application.GeminiHeadlessUsageStreamFactory
-	antigravityUsage           usecase.AntigravityUsageCaptureUsecase
-	grokUsage                  usecase.GrokUsageCaptureUsecase
-	grokHeadlessUsage          application.GrokHeadlessUsageStreamFactory
-	kimiUsage                  usecase.KimiUsageCaptureUsecase
-	context                    usecase.ContextUsecase
-	storeManagement            usecase.StoreManagementUsecase
-	capacityInspector          application.CapacityInspector
-	pageMetadataInspector      application.PageMetadataInspector
-	endedSessionInspector      application.EndedSessionInspector
-	operatorCostInspector      application.OperatorCostInspector
-	payloadCodecInspector      application.PayloadCodecInspector
-	attestationAnchorInspector application.AttestationAnchorInspector
-	bodyCodecChecker           application.BodyCodecChecker
-	searchProjection           *usecase.SearchProjectionUsecase
-	storeCompactionFactory     func(string) application.StoreCompactionUsecase
-	fileRetention              usecase.FileRetentionUsecase
-	fileRetentionCapacity      usecase.FileRetentionCapacityInspector
-	workspaceIdentity          usecase.WorkspaceIdentityUsecase
-	hooksOrchestrator          application.HooksOrchestrator
-	hooksInspector             application.HooksInspector
-	pluginCacheInspector       application.PluginCacheInspector
-	pluginDetector             application.ClaudePluginDetector
-	extraRedactPatterns        []string
-	structuredRedactRules      []redaction.RuleConfig
-	defaultAuditMaxInputBytes  int
-	defaultAuditMaxOutputBytes int
-	defaultReadFields          []string
-	readPresets                map[string]presentation.ReadPreset
-	defaultReadColor           string
-	hookMemoryExtractLauncher  func(string) error
-	hookGrokTranscriptLauncher func(string) error
-	hookMemoryBeforeJobRemoval func()
-	hookMemoryAfterFinalCheck  func()
+	event                       usecase.EventUsecase
+	eventMetadata               usecase.EventMetadataUsecase
+	projectionSessionSearch     queryservice.ProjectionSessionSearch
+	twoTierSearch               queryservice.TwoTierSearch
+	reportCommand               usecase.ReportCommandUsecase
+	report                      usecase.ReportUsecase
+	codexCaptureDiagnostic      usecase.CodexCaptureDiagnosticUsecase
+	session                     usecase.SessionUsecase
+	sessionRefinement           usecase.SessionRefinementUsecase
+	sessionOrphanRange          usecase.SessionOrphanRangeUsecase
+	orphanConsolidation         usecase.OrphanConsolidationUsecase
+	consolidationPressure       usecase.ConsolidationPressureUsecase
+	consolidationRequest        usecase.ConsolidationRequestUsecase
+	consolidationConversion     queryservice.ConsolidationConversionQueryService
+	sessionEventOrder           model.SessionEventOrderRepository
+	sessionWakeSummary          queryservice.SessionWakeSummaryQueryService
+	memory                      usecase.MemoryUsecase
+	bundle                      usecase.BundleUsecase
+	codexUsage                  usecase.CodexUsageCaptureUsecase
+	codexHeadlessUsage          application.CodexHeadlessUsageStreamFactory
+	claudeUsage                 usecase.ClaudeUsageCaptureUsecase
+	claudeHeadlessUsage         application.ClaudeHeadlessUsageStreamFactory
+	geminiUsage                 usecase.GeminiUsageCaptureUsecase
+	geminiHeadlessUsage         application.GeminiHeadlessUsageStreamFactory
+	antigravityUsage            usecase.AntigravityUsageCaptureUsecase
+	grokUsage                   usecase.GrokUsageCaptureUsecase
+	grokHeadlessUsage           application.GrokHeadlessUsageStreamFactory
+	kimiUsage                   usecase.KimiUsageCaptureUsecase
+	context                     usecase.ContextUsecase
+	storeManagement             usecase.StoreManagementUsecase
+	capacityInspector           application.CapacityInspector
+	pageMetadataInspector       application.PageMetadataInspector
+	endedSessionInspector       application.EndedSessionInspector
+	operatorCostInspector       application.OperatorCostInspector
+	payloadCodecInspector       application.PayloadCodecInspector
+	attestationAnchorInspector  application.AttestationAnchorInspector
+	bodyCodecChecker            application.BodyCodecChecker
+	searchProjection            *usecase.SearchProjectionUsecase
+	storeCompactionFactory      func(string) application.StoreCompactionUsecase
+	preparedStoreUpgradeFactory func(string) application.PreparedStoreUpgradeUsecase
+	fileRetention               usecase.FileRetentionUsecase
+	fileRetentionCapacity       usecase.FileRetentionCapacityInspector
+	workspaceIdentity           usecase.WorkspaceIdentityUsecase
+	hooksOrchestrator           application.HooksOrchestrator
+	hooksInspector              application.HooksInspector
+	pluginCacheInspector        application.PluginCacheInspector
+	pluginDetector              application.ClaudePluginDetector
+	extraRedactPatterns         []string
+	structuredRedactRules       []redaction.RuleConfig
+	defaultAuditMaxInputBytes   int
+	defaultAuditMaxOutputBytes  int
+	defaultReadFields           []string
+	readPresets                 map[string]presentation.ReadPreset
+	defaultReadColor            string
+	hookMemoryExtractLauncher   func(string) error
+	hookGrokTranscriptLauncher  func(string) error
+	hookMemoryBeforeJobRemoval  func()
+	hookMemoryAfterFinalCheck   func()
 	// databasePathSetter is invoked by each subcommand's RunE after it
 	// resolves --db-path / TRACEARY_DB_PATH, so the shared Database
 	// instance opens the user-specified path instead of the composition-
@@ -283,6 +284,11 @@ func WithSearchProjection(projection *usecase.SearchProjectionUsecase) RootCLIOp
 // WithStoreCompactionFactory injects a path-bound, dedicated composition.
 func WithStoreCompactionFactory(factory func(string) application.StoreCompactionUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.storeCompactionFactory = factory }
+}
+
+// WithPreparedStoreUpgradeFactory injects the offline-migration upgrade driver.
+func WithPreparedStoreUpgradeFactory(factory func(string) application.PreparedStoreUpgradeUsecase) RootCLIOption {
+	return func(c *RootCLI) { c.preparedStoreUpgradeFactory = factory }
 }
 
 // WithFileRetention injects reviewed archive/backup capacity management.

@@ -28,19 +28,6 @@ func (u *storeManagementUsecase) Initialize(ctx context.Context) error {
 	return nil
 }
 
-func (u *storeManagementUsecase) InitializeAuthorized(ctx context.Context) error {
-	type authorized interface {
-		InitializeAuthorized(context.Context) error
-	}
-	if apply, ok := u.storeManager.(authorized); ok {
-		if err := apply.InitializeAuthorized(ctx); err != nil {
-			return xerrors.Errorf("failed to initialize store: %w", err)
-		}
-		return nil
-	}
-	return u.Initialize(ctx)
-}
-
 func (u *storeManagementUsecase) PreviewOfflineMigrations(ctx context.Context) ([]int64, error) {
 	type previewer interface {
 		PreviewOfflineMigrations(context.Context) ([]int64, error)
