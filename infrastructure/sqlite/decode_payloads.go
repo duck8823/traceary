@@ -11,6 +11,10 @@ import (
 
 const decodePayloadPageRows = 500
 
+// decodeWALCheckpointHook is an optional test sink fired after each successful
+// candidate WAL TRUNCATE during decode.
+var decodeWALCheckpointHook func()
+
 func pendingHasDecodePayloads(plan PreparedMigrationPlan) bool {
 	for _, migration := range plan.Pending {
 		if conservationLawFor(migration.Version) == ConservationLawDecodePayloadsDropCodec {
@@ -50,7 +54,10 @@ func decodePayloadsForMigrationOrRefuse(ctx context.Context, db *sql.DB) error {
 			return err
 		}
 	}
-	return nil
+	// Bound WAL before catalog apply / VACUUM. The upgrade recipe sets
+	// wal_autocheckpoint=0, so decode writes would otherwise grow the
+	// candidate WAL without limit (same TRUNCATE as prepared_migration_recipe).
+	return checkpointDecodeCandidateWAL(ctx, db)
 }
 
 func decodeLaneRows(ctx context.Context, db *sql.DB, lane decodeLane) error {
@@ -122,12 +129,28 @@ func decodeLaneRows(ctx context.Context, db *sql.DB, lane decodeLane) error {
 			if err := tx.Commit(); err != nil {
 				return fmt.Errorf("commit %s.%s decode page: %w", lane.Table, lane.Field, err)
 			}
+			if err := checkpointDecodeCandidateWAL(ctx, db); err != nil {
+				return err
+			}
 		}
 		if n < decodePayloadPageRows {
 			return nil
 		}
 		after = lastPK
 	}
+}
+
+// checkpointDecodeCandidateWAL folds the current WAL into the candidate and
+// truncates it. PASSIVE would leave the WAL file growing; TRUNCATE matches
+// prepared_migration_recipe.Build and compaction_sqlite.checkpointSQLite.
+func checkpointDecodeCandidateWAL(ctx context.Context, db *sql.DB) error {
+	if _, err := db.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+		return fmt.Errorf("checkpoint decode candidate WAL: %w", err)
+	}
+	if decodeWALCheckpointHook != nil {
+		decodeWALCheckpointHook()
+	}
+	return nil
 }
 
 func decodeRefused(lane, rowID string, err error) error {
