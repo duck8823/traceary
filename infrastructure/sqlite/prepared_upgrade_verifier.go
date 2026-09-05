@@ -120,7 +120,8 @@ func verifyFiveTableConservation(ctx context.Context, sourceDB, candidateDB *sql
 		}
 		exclude := []string(nil)
 		if dropRetentionPending && table == "events" {
-			exclude = []string{"body_availability"}
+			// 083 drops body_availability, body_pruned_at, and body_pruned_plan_id.
+			exclude = droppedBodyRetentionEventColumns
 		}
 		if err = verifyTableCountAndDigestExcluding(ctx, sourceDB, candidateDB, table, exclude...); err != nil {
 			return err

@@ -11,6 +11,15 @@ import (
 	"github.com/duck8823/traceary/domain"
 )
 
+func TestArchiveEventV1ColumnsOmitDroppedRetentionColumns(t *testing.T) {
+	t.Parallel()
+	for _, column := range domain.ArchiveEventV1Columns() {
+		if column == "body_pruned_at" || column == "body_pruned_plan_id" {
+			t.Fatalf("v1 archive columns still include %s", column)
+		}
+	}
+}
+
 func TestArchive_DoesNotCarryOutputMetadata(t *testing.T) {
 	t.Parallel()
 
@@ -26,7 +35,7 @@ func TestArchive_DoesNotCarryOutputMetadata(t *testing.T) {
 }
 
 func TestHistoryUnitCanonicalBytesPreserveStorageClassesAndBytes(t *testing.T) {
-	eventValues := make([]domain.SQLiteValue, 22)
+	eventValues := make([]domain.SQLiteValue, len(domain.ArchiveEventV1Columns()))
 	for i := range eventValues {
 		eventValues[i] = domain.NullValue()
 	}

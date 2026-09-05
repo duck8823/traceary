@@ -11,6 +11,7 @@ import (
 )
 
 var bodyAvailabilityPattern = regexp.MustCompile(`BodyAvailability|body_availability`)
+var bodyPrunedPattern = regexp.MustCompile(`body_pruned_at|body_pruned_plan_id`)
 var rawBodyRetentionPattern = regexp.MustCompile(`raw_body_retention|RawBodyRetention`)
 var coverRefusePattern = regexp.MustCompile(`ForceCoverSafeToDelete|refuse-unrefined|Unlimited`)
 var orphanPattern = regexp.MustCompile(`session_orphan_ranges|OrphanRange|OrphanConsolidation`)
@@ -20,6 +21,12 @@ var orphanPattern = regexp.MustCompile(`session_orphan_ranges|OrphanRange|Orphan
 // decoder exemption: these names exist so 083 can drop the objects, not so live
 // runtime can discard bodies.
 var allowListedBodyAvailabilityFiles = map[string]bool{
+	filepath.Join("infrastructure", "sqlite", "drop_body_retention.go"):        true,
+	filepath.Join("infrastructure", "sqlite", "prepared_migration_catalog.go"): true,
+	filepath.Join("infrastructure", "sqlite", "prepared_upgrade_verifier.go"):  true,
+}
+
+var allowListedBodyPrunedFiles = map[string]bool{
 	filepath.Join("infrastructure", "sqlite", "drop_body_retention.go"):        true,
 	filepath.Join("infrastructure", "sqlite", "prepared_migration_catalog.go"): true,
 	filepath.Join("infrastructure", "sqlite", "prepared_upgrade_verifier.go"):  true,
@@ -40,6 +47,7 @@ var allowListedOrphanFiles = map[string]bool{
 func TestDroppedBodyDiscardSymbolsAreAbsentFromRuntimeSources(t *testing.T) {
 	t.Parallel()
 	assertRuntimeSymbolAbsence(t, bodyAvailabilityPattern, allowListedBodyAvailabilityFiles, "BodyAvailability/body_availability")
+	assertRuntimeSymbolAbsence(t, bodyPrunedPattern, allowListedBodyPrunedFiles, "body_pruned_at/body_pruned_plan_id")
 	assertRuntimeSymbolAbsence(t, rawBodyRetentionPattern, allowListedRawBodyRetentionFiles, "raw_body_retention/RawBodyRetention")
 	assertRuntimeSymbolAbsence(t, coverRefusePattern, map[string]bool{}, "ForceCoverSafeToDelete/refuse-unrefined/Unlimited")
 	assertRuntimeSymbolAbsence(t, orphanPattern, allowListedOrphanFiles, "session_orphan_ranges/OrphanRange/OrphanConsolidation")
@@ -49,6 +57,9 @@ func TestAllowListedBodyDiscardFilesStillNameTheDroppedObjects(t *testing.T) {
 	t.Parallel()
 	for path := range allowListedBodyAvailabilityFiles {
 		assertFileMatches(t, path, bodyAvailabilityPattern)
+	}
+	for path := range allowListedBodyPrunedFiles {
+		assertFileMatches(t, path, bodyPrunedPattern)
 	}
 	for path := range allowListedRawBodyRetentionFiles {
 		assertFileMatches(t, path, rawBodyRetentionPattern)

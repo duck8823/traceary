@@ -50,6 +50,9 @@ func TestDropBodyRetention_HistoricalMigrationsByteUnchanged(t *testing.T) {
 	if !strings.Contains(string(body), "body_availability") {
 		t.Fatal("historical 000026 no longer introduces body_availability")
 	}
+	if !strings.Contains(string(body), "body_pruned_at") || !strings.Contains(string(body), "body_pruned_plan_id") {
+		t.Fatal("historical 000026 no longer introduces body_pruned_at / body_pruned_plan_id")
+	}
 }
 
 func TestDropBodyRetention_LiveOpenLeavesPopulatedStoreUntouched(t *testing.T) {
@@ -184,13 +187,7 @@ func TestDropBodyRetention_ApprovedUpgradeDropsColumnAndTables(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = db.Close() }()
-	var hasColumn int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('events') WHERE name = 'body_availability'`).Scan(&hasColumn); err != nil {
-		t.Fatal(err)
-	}
-	if hasColumn != 0 {
-		t.Fatal("body_availability still present")
-	}
+	assertEventsColumnsAbsent(t, db, "body_availability", "body_pruned_at", "body_pruned_plan_id")
 	for _, name := range []string{"raw_body_retention_entries", "raw_body_retention_executions", "raw_body_retention_store_identity", "session_orphan_ranges"} {
 		if tablePresent(t, path, name) {
 			t.Fatalf("%s survived 083", name)
@@ -253,17 +250,37 @@ func TestDropBodyRetention_StaleApprovalLeavesLiveStore(t *testing.T) {
 	if fileDigest(t, path) != before {
 		t.Fatal("live store changed after stale approval")
 	}
-	var hasColumn int
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = db.Close() }()
-	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('events') WHERE name = 'body_availability'`).Scan(&hasColumn); err != nil {
-		t.Fatal(err)
+	assertEventsColumnsPresent(t, db, "body_availability", "body_pruned_at", "body_pruned_plan_id")
+}
+
+func assertEventsColumnsAbsent(t *testing.T, db *sql.DB, names ...string) {
+	t.Helper()
+	for _, name := range names {
+		var hasColumn int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('events') WHERE name = ?`, name).Scan(&hasColumn); err != nil {
+			t.Fatal(err)
+		}
+		if hasColumn != 0 {
+			t.Fatalf("%s still present", name)
+		}
 	}
-	if hasColumn != 1 {
-		t.Fatal("live store dropped body_availability after stale approval")
+}
+
+func assertEventsColumnsPresent(t *testing.T, db *sql.DB, names ...string) {
+	t.Helper()
+	for _, name := range names {
+		var hasColumn int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('events') WHERE name = ?`, name).Scan(&hasColumn); err != nil {
+			t.Fatal(err)
+		}
+		if hasColumn != 1 {
+			t.Fatalf("live store dropped %s after stale approval", name)
+		}
 	}
 }
 

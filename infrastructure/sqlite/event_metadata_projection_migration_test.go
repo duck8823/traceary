@@ -117,9 +117,7 @@ func TestMigrations_EventMetadataProjectionBackfillsAndMaintainsRows(t *testing.
 
 	if _, err := db.ExecContext(ctx, `
 		UPDATE events
-		   SET body = ?,
-		       body_pruned_at = '2026-07-26T00:00:03Z',
-		       body_pruned_plan_id = 'projection-plan'
+		   SET body = ?
 		 WHERE id = 'projection-b'
 		   AND body = 'metadata only'
 	`, domtypes.EventBodyUnavailableRetentionMarker); err != nil {
@@ -130,9 +128,7 @@ func TestMigrations_EventMetadataProjectionBackfillsAndMaintainsRows(t *testing.
 	const restoredBody = "restored body with a different byte length"
 	if _, err := db.ExecContext(ctx, `
 		UPDATE events
-		   SET body = ?,
-		       body_pruned_at = NULL,
-		       body_pruned_plan_id = NULL
+		   SET body = ?
 		 WHERE id = 'projection-b'
 	`, restoredBody); err != nil {
 		t.Fatalf("restore authoritative event body: %v", err)

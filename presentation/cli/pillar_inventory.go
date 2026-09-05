@@ -41,7 +41,7 @@ var pillarInventory = []pillarInventoryEntry{
 	{Path: "session start", Pillar: pillarRecord, Reason: "open a recorded session"},
 	{Path: "session end", Pillar: pillarRecord, Reason: "close a recorded session"},
 	{Path: "session run", Pillar: pillarRecord, Reason: "run a bounded recorded session"},
-	{Path: "session refine", Pillar: pillarRecord, Reason: "store the L2 summary that makes transcript bodies discardable"},
+	{Path: "session refine", Pillar: pillarRecord, Reason: "store the L2 session summary"},
 	{Path: "hooks install", Pillar: pillarRecord, Reason: "enable automatic capture; --dry-run absorbs the former hooks print preview and names the expected config path on stderr"},
 	{Path: "report", Pillar: pillarRecord, Reason: "period digest of recorded work"},
 	{Path: "bundle export", Pillar: pillarKeep, Reason: "export the store (both pillars' data) for transfer"},
@@ -76,7 +76,7 @@ var pillarInventory = []pillarInventoryEntry{
 	{Path: "memory admin set-validity", Pillar: pillarMemory, Reason: "set a memory validity window"},
 	{Path: "store backup create", Pillar: pillarKeep, Reason: "operator safety copy"},
 	{Path: "store backup restore", Pillar: pillarKeep, Reason: "restore a safety copy"},
-	{Path: "store compact", Pillar: pillarRecord, Reason: "compress, drop retired index, discard covered bodies, vacuum; --archive absorbs store archive; --retention-plan/--retention-apply absorb store retention files"},
+	{Path: "store compact", Pillar: pillarRecord, Reason: "compress, drop retired index, vacuum; --archive absorbs store archive; --retention-plan/--retention-apply absorb store retention files"},
 	{Path: "store compact rollback", Pillar: pillarRecord, Reason: "restore the pre-compact inode"},
 }
 

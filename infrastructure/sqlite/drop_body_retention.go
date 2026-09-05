@@ -21,6 +21,12 @@ const droppedBodyRetentionReaderVersion = 39
 
 const bodyRetentionCandidateIndex = "idx_events_raw_body_retention_candidates"
 
+var droppedBodyRetentionEventColumns = []string{
+	"body_availability",
+	"body_pruned_at",
+	"body_pruned_plan_id",
+}
+
 var droppedBodyRetentionTables = []string{
 	"raw_body_retention_entries",
 	"raw_body_retention_executions",
@@ -148,12 +154,14 @@ func (r *PreparedUpgradeMigrationRecipe) VerifyUnavailableRetention(ctx context.
 }
 
 func verifyDropBodyRetention(ctx context.Context, candidateDB *sql.DB) error {
-	hasColumn, err := tableHasColumn(ctx, candidateDB, "events", "body_availability")
-	if err != nil {
-		return err
-	}
-	if hasColumn {
-		return fmt.Errorf("candidate events still has column body_availability")
+	for _, column := range droppedBodyRetentionEventColumns {
+		hasColumn, err := tableHasColumn(ctx, candidateDB, "events", column)
+		if err != nil {
+			return err
+		}
+		if hasColumn {
+			return fmt.Errorf("candidate events still has column %s", column)
+		}
 	}
 	for _, name := range droppedBodyRetentionTables {
 		exists, err := tableExists(ctx, candidateDB, name)
@@ -192,8 +200,10 @@ func verifyNoBodyAvailabilityReferences(ctx context.Context, db *sql.DB) error {
 		if err := rows.Scan(&name, &sqlText); err != nil {
 			return fmt.Errorf("scan candidate schema object: %w", err)
 		}
-		if strings.Contains(sqlText, "body_availability") {
-			return fmt.Errorf("candidate object %s still references body_availability", name)
+		for _, column := range droppedBodyRetentionEventColumns {
+			if strings.Contains(sqlText, column) {
+				return fmt.Errorf("candidate object %s still references %s", name, column)
+			}
 		}
 	}
 	if err := rows.Err(); err != nil {

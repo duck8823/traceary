@@ -1,14 +1,15 @@
 -- 000083_drop_body_retention.sql
 --
--- Drops the body-discard machinery: body_availability, the retention
--- candidate index, raw_body_retention_* tables, and session_orphan_ranges.
--- Applied on a run-owned candidate, never at live open
--- (MigrationDataDependentOffline).
+-- Drops the body-discard machinery: body_availability, body_pruned_at,
+-- body_pruned_plan_id, the retention candidate index, raw_body_retention_*
+-- tables, and session_orphan_ranges. Applied on a run-owned candidate,
+-- never at live open (MigrationDataDependentOffline).
 --
 -- Triggers that reference body_availability are dropped first so
 -- ALTER TABLE DROP COLUMN can rewrite events. They are recreated
 -- without the availability gate: a body is what was written until
--- its row is removed.
+-- its row is removed. No index references body_pruned_at or
+-- body_pruned_plan_id; SQLite refuses DROP COLUMN under a live index.
 --
 -- Raises minimum_reader_version to 39 so older binaries fail loudly.
 -- DROP COLUMN / DROP TABLE / DROP INDEX move pages to the freelist;
@@ -26,6 +27,8 @@ DROP TABLE IF EXISTS raw_body_retention_store_identity;
 DROP TABLE IF EXISTS session_orphan_ranges;
 
 ALTER TABLE events DROP COLUMN body_availability;
+ALTER TABLE events DROP COLUMN body_pruned_at;
+ALTER TABLE events DROP COLUMN body_pruned_plan_id;
 
 UPDATE store_format_state SET minimum_reader_version = 39 WHERE singleton = 1;
 

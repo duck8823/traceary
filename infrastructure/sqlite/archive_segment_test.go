@@ -156,7 +156,7 @@ func testArchiveUnits() []ArchiveHistoryUnit {
 }
 
 func testArchiveEvent(id string, created time.Time, body domain.SQLiteValue) domain.ArchiveEventV1 {
-	values := make([]domain.SQLiteValue, 22)
+	values := make([]domain.SQLiteValue, len(domain.ArchiveEventV1Columns()))
 	for i := range values {
 		values[i] = domain.NullValue()
 	}
