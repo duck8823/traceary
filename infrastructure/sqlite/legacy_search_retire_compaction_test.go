@@ -6,9 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/duck8823/traceary/application"
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain"
 )
@@ -136,18 +134,5 @@ func addLegacySearchFamilyObject(t *testing.T, path string) {
 	defer func() { _ = db.Close() }()
 	if _, err := db.Exec(`CREATE TABLE event_search_documents(event_id TEXT PRIMARY KEY, body_text TEXT NOT NULL DEFAULT '', command_text TEXT NOT NULL DEFAULT '', input_text TEXT NOT NULL DEFAULT '', output_text TEXT NOT NULL DEFAULT '')`); err != nil {
 		t.Fatalf("create legacy search family object: %v", err)
-	}
-}
-
-func TestInspectBodyGateZeroOnSampleStore(t *testing.T) {
-	ctx := context.Background()
-	source := filepath.Join(t.TempDir(), "source.db")
-	createCompactableStore(t, source)
-	gate, err := (SQLiteCompactionBuilder{}).InspectBodyGate(ctx, source, application.CompactCutoff(time.Now(), 90))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if gate.MustRefuse(false) {
-		t.Fatalf("sample store gate = %+v, must not refuse", gate)
 	}
 }

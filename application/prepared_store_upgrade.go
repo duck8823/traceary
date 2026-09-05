@@ -9,11 +9,12 @@ import (
 // PreparedStoreUpgradeCommand starts one operation selected from the fixed
 // composition-time recipe registry.
 type PreparedStoreUpgradeCommand struct {
-	Operation         domain.PreparedStoreUpgradeOperation
-	TargetPath        string
-	ConsumerBinding   string
-	Budget            domain.PreparedStoreUpgradeBudget
-	BoundDropApproval *domain.BoundDropApproval
+	Operation                    domain.PreparedStoreUpgradeOperation
+	TargetPath                   string
+	ConsumerBinding              string
+	Budget                       domain.PreparedStoreUpgradeBudget
+	BoundDropApproval            *domain.BoundDropApproval
+	UnavailableRetentionApproval *domain.UnavailableRetentionApproval
 }
 
 // PreparedCandidateRequest contains only durable, recipe-safe values.
@@ -41,6 +42,12 @@ type PreparedCandidateRecipe interface {
 // immediately before Build. Recipes that do not drop rows omit it.
 type BoundDropVerifier interface {
 	VerifyBoundDrop(context.Context, PreparedCandidateRequest) error
+}
+
+// UnavailableRetentionVerifier re-checks a bound unavailable_retention
+// approval against the live source immediately before Build.
+type UnavailableRetentionVerifier interface {
+	VerifyUnavailableRetention(context.Context, PreparedCandidateRequest) error
 }
 
 // PreparedStoreUpgradeJournal persists bounded protocol records outside every

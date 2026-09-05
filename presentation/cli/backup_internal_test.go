@@ -81,6 +81,9 @@ func (s *restoreStoreBackupUsecaseForTest) InspectOneOffRepairRetirement(context
 func (s *restoreStoreBackupUsecaseForTest) InspectBoundDrop(context.Context) (apptypes.BoundDropInspection, error) {
 	return apptypes.BoundDropInspection{}, nil
 }
+func (s *restoreStoreBackupUsecaseForTest) InspectUnavailableRetention(context.Context) (apptypes.UnavailableRetentionInspection, error) {
+	return apptypes.UnavailableRetentionInspection{}, nil
+}
 func (s *restoreStoreBackupUsecaseForTest) CreateBackup(_ context.Context, _ string, _ bool) error {
 	return nil
 }

@@ -26,7 +26,7 @@ func TestArchive_DoesNotCarryOutputMetadata(t *testing.T) {
 }
 
 func TestHistoryUnitCanonicalBytesPreserveStorageClassesAndBytes(t *testing.T) {
-	eventValues := make([]domain.SQLiteValue, 23)
+	eventValues := make([]domain.SQLiteValue, 22)
 	for i := range eventValues {
 		eventValues[i] = domain.NullValue()
 	}

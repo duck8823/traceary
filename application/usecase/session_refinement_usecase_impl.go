@@ -13,8 +13,7 @@ import (
 const sessionRefineMaxAttempts = 3
 
 // errCoverageOnlyNoRow is returned when CoverageOnly is set and the session
-// has no refinement to extend. Orphan consolidation treats it as a skip,
-// not a candidate failure.
+// has no refinement to extend.
 var errCoverageOnlyNoRow = xerrors.New("coverage-only refine requires an existing session refinement")
 
 type sessionRefinementUsecase struct {
@@ -111,10 +110,6 @@ func (u *sessionRefinementUsecase) Refine(ctx context.Context, input SessionRefi
 // and attempts a compare-and-swap write. written is false when another writer
 // won the race (caller should re-read). Unchanged outcomes set written true
 // because no write is required.
-//
-// Summary text is resolved after the re-read: ComposeSummary (when set) sees
-// the same row the write is conditioned on, so a lost race cannot freeze
-// superseded prose into a later successful write.
 func (u *sessionRefinementUsecase) decideAndWrite(
 	ctx context.Context,
 	input SessionRefineInput,
@@ -129,7 +124,7 @@ func (u *sessionRefinementUsecase) decideAndWrite(
 	if input.CoverageOnly {
 		return u.advanceCoverageOnly(ctx, current, sessionID, coversTo)
 	}
-	summary, keywords := resolveRefineText(input, current)
+	summary, keywords := input.Summary, input.Keywords
 	if existing, present := current.Value(); present {
 		// Idempotency: only advance when covers_to is strictly after the stored
 		// bound. Equal or earlier ranges must not bump generation or rewrite text.
@@ -278,16 +273,4 @@ func refineHasAgentReasoning(input SessionRefineInput, current types.Optional[*m
 		return true
 	}
 	return input.HasAgentReasoning
-}
-
-// resolveRefineText returns the summary/keywords for this CAS attempt.
-// ComposeSummary observes the just-read row; plain Summary/Keywords do not.
-func resolveRefineText(
-	input SessionRefineInput,
-	current types.Optional[*model.SessionRefinement],
-) (summary, keywords string) {
-	if input.ComposeSummary != nil {
-		return input.ComposeSummary(current)
-	}
-	return input.Summary, input.Keywords
 }

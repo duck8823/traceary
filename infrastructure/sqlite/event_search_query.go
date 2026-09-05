@@ -14,7 +14,7 @@ import (
 
 const hydrateEventSearchCandidatesQuery = `
 SELECT e.id, e.kind, e.client, e.agent, e.session_id, e.workspace,
-       e.body, e.body_availability, e.source_hook, e.created_at,
+       e.body, e.source_hook, e.created_at,
        ca.command_wrapper, ca.command_name,
        ca.input_truncated, ca.output_truncated,
        ca.input_original_bytes, ca.output_original_bytes, ca.exit_code, ca.failed, ca.failure_reason, ca.output_metadata

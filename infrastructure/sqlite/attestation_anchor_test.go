@@ -536,9 +536,7 @@ func TestCompactKeepsAttestationAnchorSidecar(t *testing.T) {
 		sqlite.StoreLeaseCoordinator{},
 	)
 	if _, err := svc.Compact(ctx, application.CompactInput{
-		Source:   path,
-		KeepDays: 90,
-		Now:      time.Date(2026, 8, 14, 20, 0, 0, 0, time.UTC),
+		Source: path,
 	}); err != nil {
 		t.Fatalf("Compact() error = %v", err)
 	}

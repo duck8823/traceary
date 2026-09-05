@@ -53,28 +53,28 @@ func TestRootCLI_DoctorContentReliability_ExcludesRetentionEmptiedRows(t *testin
 	}
 	t.Cleanup(func() { _ = sqldb.Close() })
 
-	insertEvent := func(id, kind, agent, session, workspace, body, createdAt, sourceHook, availability string) {
+	insertEvent := func(id, kind, agent, session, workspace, body, createdAt, sourceHook string) {
 		t.Helper()
 		if _, err := sqldb.ExecContext(ctx,
-			`INSERT INTO events (id, kind, agent, session_id, workspace, body, created_at, source_hook, client, body_availability)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'hook', ?)`,
-			id, kind, agent, session, workspace, body, createdAt, sourceHook, availability,
+			`INSERT INTO events (id, kind, agent, session_id, workspace, body, created_at, source_hook, client)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'hook')`,
+			id, kind, agent, session, workspace, body, createdAt, sourceHook,
 		); err != nil {
 			t.Fatalf("insert %s error = %v", id, err)
 		}
 	}
 
 	// Genuine duplicate pair: identical identity and body, 2s apart.
-	insertEvent("evt-genuine-1", "prompt", "codex", "session-genuine", "workspace-1", "run the tests", "2026-04-10T00:00:00Z", "user_prompt_submit", "available")
-	insertEvent("evt-genuine-2", "prompt", "codex", "session-genuine", "workspace-1", "run the tests", "2026-04-10T00:00:02Z", "user_prompt_submit", "available")
+	insertEvent("evt-genuine-1", "prompt", "codex", "session-genuine", "workspace-1", "run the tests", "2026-04-10T00:00:00Z", "user_prompt_submit")
+	insertEvent("evt-genuine-2", "prompt", "codex", "session-genuine", "workspace-1", "run the tests", "2026-04-10T00:00:02Z", "user_prompt_submit")
 
 	// Retention-emptied rows: same marker body, same identity-defining
-	// columns, 2s apart each. Pre-fix these hash to one phantom group; the
-	// repair command has always excluded them via dedupeEligibilityFilter.
+	// columns, 2s apart each. Duplicate grouping excludes this well-known
+	// emptied-body string so they do not form a phantom hook group.
 	marker := types.EventBodyUnavailableRetentionMarker
-	insertEvent("evt-retention-1", "prompt", "codex", "session-retention", "workspace-1", marker, "2026-04-10T00:10:00Z", "user_prompt_submit", "unavailable_retention")
-	insertEvent("evt-retention-2", "prompt", "codex", "session-retention", "workspace-1", marker, "2026-04-10T00:10:02Z", "user_prompt_submit", "unavailable_retention")
-	insertEvent("evt-retention-3", "prompt", "codex", "session-retention", "workspace-1", marker, "2026-04-10T00:10:04Z", "user_prompt_submit", "unavailable_retention")
+	insertEvent("evt-retention-1", "prompt", "codex", "session-retention", "workspace-1", marker, "2026-04-10T00:10:00Z", "user_prompt_submit")
+	insertEvent("evt-retention-2", "prompt", "codex", "session-retention", "workspace-1", marker, "2026-04-10T00:10:02Z", "user_prompt_submit")
+	insertEvent("evt-retention-3", "prompt", "codex", "session-retention", "workspace-1", marker, "2026-04-10T00:10:04Z", "user_prompt_submit")
 
 	// Run the shipped doctor diagnostic.
 	rootCmd := newTestRootCLI(cli.WithStoreManagement(storeUC), cli.WithEvent(eventUC)).Command()

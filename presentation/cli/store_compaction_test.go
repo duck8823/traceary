@@ -11,13 +11,11 @@ import (
 )
 
 type compactionCLIStub struct {
-	compacted       string
-	refuseUnrefined bool
+	compacted string
 }
 
 func (s *compactionCLIStub) Compact(_ context.Context, in application.CompactInput) (application.CompactResult, error) {
 	s.compacted = in.Source
-	s.refuseUnrefined = in.RefuseUnrefined
 	return application.CompactResult{Run: domain.CompactionRun{
 		ID:           "run",
 		Phase:        domain.CompactionCommitted,

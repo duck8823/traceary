@@ -22,7 +22,7 @@ const (
 var canonicalEventColumns = []string{
 	"id", "kind", "agent", "session_id", "body", "created_at", "client", "workspace", "source_hook",
 	"body_original_bytes", "body_stored_bytes", "body_ingest_truncated", "body_storage_truncated", "body_metadata_version",
-	"body_availability", "body_pruned_at", "body_pruned_plan_id", "created_at_norm",
+	"body_pruned_at", "body_pruned_plan_id", "created_at_norm",
 }
 
 var canonicalAuditColumns = []string{

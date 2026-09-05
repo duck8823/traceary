@@ -68,6 +68,15 @@ func (d *Database) migrateWithOptions(ctx context.Context, db *sql.DB, allowOffl
 					return boundDropApprovalRequired(count, digest)
 				}
 			}
+			if migration.version == 83 {
+				count, digest, sample, schemaVersion, inspectErr := inspectUnavailableRetention(ctx, db)
+				if inspectErr != nil {
+					return inspectErr
+				}
+				if count > 0 {
+					return unavailableRetentionApprovalRequired(count, digest, sample, schemaVersion)
+				}
+			}
 			hasCanonical, inspectErr := storeHasCanonicalSourceData(ctx, db)
 			if inspectErr != nil {
 				return inspectErr

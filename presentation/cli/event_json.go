@@ -157,10 +157,6 @@ func newEventOutput(e *model.Event) event {
 		SourceHook: e.SourceHook(),
 		CreatedAt:  formatJSONTime(e.CreatedAt()),
 	}
-	if !e.BodyAvailability().IsAvailable() {
-		output.Message = ""
-		output.BodyUnavailableReason = "retention"
-	}
 	return output
 }
 

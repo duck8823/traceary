@@ -59,7 +59,7 @@ func TestStoreReductionCommandsAreRemoved(t *testing.T) {
 	}
 }
 
-func TestStoreCompactHelpNamesRefuseUnrefined(t *testing.T) {
+func TestStoreCompactHelpRejectsRefuseUnrefined(t *testing.T) {
 	t.Parallel()
 	root := NewRootCLI().Command()
 	compact := findCommandOrNil(findCommandOrNil(root, "store"), "compact")
@@ -69,8 +69,8 @@ func TestStoreCompactHelpNamesRefuseUnrefined(t *testing.T) {
 	if compact.Flags().Lookup("force") != nil {
 		t.Fatal("store compact must not accept --force")
 	}
-	if compact.Flags().Lookup("refuse-unrefined") == nil {
-		t.Fatal("store compact must accept --refuse-unrefined")
+	if compact.Flags().Lookup("refuse-unrefined") != nil {
+		t.Fatal("store compact must not accept --refuse-unrefined")
 	}
 	if compact.Flags().Lookup("keep-days") == nil {
 		t.Fatal("store compact must accept --keep-days")

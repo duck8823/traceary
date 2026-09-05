@@ -56,7 +56,7 @@ func byteValue(c SQLiteStorageClass, v []byte) SQLiteValue {
 	return SQLiteValue{Class: c, Bytes: append([]byte(nil), v...)}
 }
 
-var archiveEventV1Columns = [...]string{"id", "kind", "agent", "session_id", "body", "created_at", "client", "workspace", "source_hook", "body_original_bytes", "body_stored_bytes", "body_ingest_truncated", "body_storage_truncated", "body_metadata_version", "body_availability", "body_pruned_at", "body_pruned_plan_id", "created_at_norm", "body_codec", "body_format_version", "body_plaintext_bytes", "body_encoded_bytes", "body_sha256"}
+var archiveEventV1Columns = [...]string{"id", "kind", "agent", "session_id", "body", "created_at", "client", "workspace", "source_hook", "body_original_bytes", "body_stored_bytes", "body_ingest_truncated", "body_storage_truncated", "body_metadata_version", "body_pruned_at", "body_pruned_plan_id", "created_at_norm", "body_codec", "body_format_version", "body_plaintext_bytes", "body_encoded_bytes", "body_sha256"}
 var archiveAuditV1Columns = [...]string{"command_text", "input_text", "output_text", "input_truncated", "output_truncated", "exit_code", "failed", "input_original_bytes", "output_original_bytes", "command_wrapper", "command_name", "failure_reason", "command_codec", "command_format_version", "command_plaintext_bytes", "command_encoded_bytes", "command_sha256", "input_codec", "input_format_version", "input_plaintext_bytes", "input_encoded_bytes", "input_sha256", "output_codec", "output_format_version", "output_plaintext_bytes", "output_encoded_bytes", "output_sha256"}
 
 // ArchiveEventV1Columns returns the fixed events descriptor.

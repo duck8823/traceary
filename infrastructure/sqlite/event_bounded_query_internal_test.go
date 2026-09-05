@@ -23,7 +23,7 @@ import (
 func TestBoundedEventBodyQuery_DoesNotInterpretBodyContent(t *testing.T) {
 	t.Parallel()
 
-	normalized := strings.ToLower(strings.Join(strings.Fields(selectBoundedEventBodiesQuery), " "))
+	normalized := strings.ToLower(strings.Join(strings.Fields(selectBoundedEventIDsQuery), " "))
 	for _, interpretation := range []string{
 		"json_valid(", "json_type(", "json_extract(e.body", "visible_body", "substr(", "like ",
 	} {
@@ -36,8 +36,8 @@ func TestBoundedEventBodyQuery_DoesNotInterpretBodyContent(t *testing.T) {
 			t.Fatalf("bounded query transfers the stored body %q: %s", projected, normalized)
 		}
 	}
-	if !strings.Contains(normalized, "e.body_availability") {
-		t.Fatalf("bounded query must still resolve body availability: %s", normalized)
+	if strings.Contains(normalized, "body_availability") {
+		t.Fatalf("bounded query must not resolve body availability: %s", normalized)
 	}
 	for _, forbidden := range []string{"command_text", "input_text", "output_text", "event_search_documents.body_text"} {
 		if strings.Contains(normalized, forbidden) {
@@ -70,7 +70,7 @@ func TestBoundedEventBodyQuery_UsesEventIdentityIndex(t *testing.T) {
 	}
 	rows, err := db.QueryContext(
 		ctx,
-		"EXPLAIN QUERY PLAN "+selectBoundedEventBodiesQuery,
+		"EXPLAIN QUERY PLAN "+selectBoundedEventIDsQuery,
 		string(encodedIDs),
 	)
 	if err != nil {

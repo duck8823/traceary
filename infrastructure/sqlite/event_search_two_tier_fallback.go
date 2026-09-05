@@ -13,7 +13,7 @@ import (
 
 const twoTierFallbackScanSelect = `
 SELECT e.id, e.kind, e.client, e.agent, e.session_id, e.workspace,
-       e.body_availability, e.source_hook, e.created_at,
+       e.source_hook, e.created_at,
        CASE WHEN length(CAST(e.body AS BLOB)) <= ? THEN e.body END,
        a.event_id,
        CASE WHEN length(CAST(a.command_text AS BLOB)) <= ? THEN a.command_text END,
@@ -103,7 +103,7 @@ func scanTwoTierFallbackRow(
 ) (bool, twoTierHit, twoTierHit, error) {
 	var (
 		eventID, kind, client, agent, sessionID, workspace string
-		availability, createdAtRaw                         string
+		createdAtRaw                                       string
 		sourceHook                                         sql.NullString
 		body                                               scannedPayload
 		auditEventID                                       sql.NullString
@@ -112,7 +112,7 @@ func scanTwoTierFallbackRow(
 	)
 	dest := []any{
 		&eventID, &kind, &client, &agent, &sessionID, &workspace,
-		&availability, &sourceHook, &createdAtRaw,
+		&sourceHook, &createdAtRaw,
 	}
 	dest = append(dest, body.destinations()...)
 	dest = append(dest, &auditEventID)
@@ -129,7 +129,7 @@ func scanTwoTierFallbackRow(
 	_ = workspace
 	_ = sourceHook.String
 
-	matched, err := twoTierFallbackRowMatches(eventID, availability, body, auditEventID.Valid, command, input, output, phrase)
+	matched, err := twoTierFallbackRowMatches(eventID, body, auditEventID.Valid, command, input, output, phrase)
 	if err != nil {
 		return false, twoTierHit{}, twoTierHit{}, err
 	}
@@ -183,21 +183,18 @@ func scanTwoTierFallbackRow(
 
 func twoTierFallbackRowMatches(
 	eventID string,
-	availability string,
 	body scannedPayload,
 	hasAudit bool,
 	command, input, output scannedPayload,
 	phrase apptypes.SearchPhrase,
 ) (bool, error) {
-	if availability != string(types.BodyAvailabilityUnavailableRetention) {
-		plain, err := body.decode(eventID, "body")
-		if err != nil {
-			return false, xerrors.Errorf("decode two-tier event %s body: %w", eventID, err)
-		}
-		visible, _ := visibleEventBody(string(plain), types.BodyAvailability(availability))
-		if phrase.Matches(visible) {
-			return true, nil
-		}
+	plain, err := body.decode(eventID, "body")
+	if err != nil {
+		return false, xerrors.Errorf("decode two-tier event %s body: %w", eventID, err)
+	}
+	visible, _ := visibleEventBody(string(plain))
+	if phrase.Matches(visible) {
+		return true, nil
 	}
 	if !hasAudit {
 		return false, nil

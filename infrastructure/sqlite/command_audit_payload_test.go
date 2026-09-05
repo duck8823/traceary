@@ -45,8 +45,8 @@ func TestListJoinDoesNotSurfaceCommandPayloads(t *testing.T) {
 	)
 
 	if _, err := raw.ExecContext(ctx, `
-INSERT INTO events(id, kind, client, agent, session_id, workspace, body, body_availability, created_at, source_hook)
-VALUES(?, 'command_executed', 'cli', 'codex', ?, '/repo', '', 'available', ?, '')`,
+INSERT INTO events(id, kind, client, agent, session_id, workspace, body, created_at, source_hook)
+VALUES(?, 'command_executed', 'cli', 'codex', ?, '/repo', '', ?, '')`,
 		eventID, sessionID, time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC).Format(time.RFC3339Nano)); err != nil {
 		t.Fatalf("insert event: %v", err)
 	}
@@ -189,8 +189,8 @@ func TestHydrateCommandAuditsQueryCount(t *testing.T) {
 		for i := range pageSize {
 			eventID := fmt.Sprintf("evt-qcount-plain-%02d", i)
 			if _, err := raw.ExecContext(ctx, `
-INSERT INTO events(id, kind, client, agent, session_id, workspace, body, body_availability, created_at, source_hook)
-VALUES(?, 'command_executed', 'cli', 'claude', ?, '/repo', '', 'available', ?, '')`,
+INSERT INTO events(id, kind, client, agent, session_id, workspace, body, created_at, source_hook)
+VALUES(?, 'command_executed', 'cli', 'claude', ?, '/repo', '', ?, '')`,
 				eventID, sessionID,
 				time.Date(2026, 8, 9, 12, 0, i, 0, time.UTC).Format(time.RFC3339Nano),
 			); err != nil {
@@ -272,8 +272,8 @@ INSERT INTO command_audits(
 		for i := range pageSize {
 			eventID := fmt.Sprintf("evt-qcount-legacy-%02d", i)
 			if _, err := raw.ExecContext(ctx, `
-INSERT INTO events(id, kind, client, agent, session_id, workspace, body, body_availability, created_at, source_hook)
-VALUES(?, 'command_executed', 'cli', 'claude', ?, '/repo', '', 'available', ?, '')`,
+INSERT INTO events(id, kind, client, agent, session_id, workspace, body, created_at, source_hook)
+VALUES(?, 'command_executed', 'cli', 'claude', ?, '/repo', '', ?, '')`,
 				eventID, sessionID,
 				time.Date(2026, 8, 9, 12, 0, i, 0, time.UTC).Format(time.RFC3339Nano),
 			); err != nil {

@@ -3,8 +3,6 @@ package cli
 
 import (
 	"encoding/json"
-	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -18,7 +16,6 @@ import (
 func (c *RootCLI) newStoreCompactionCommand() *cobra.Command {
 	var (
 		path              string
-		refuseUnrefined   bool
 		keepDays          int
 		workDir           string
 		archive           bool
@@ -45,44 +42,39 @@ func (c *RootCLI) newStoreCompactionCommand() *cobra.Command {
 		Use:   "compact",
 		Short: Localize("Rewrite the store, or archive / retain on-disk artifacts with absorb flags", "ストアを書き換える。absorb flag で archive / ディスク上 artifact 保持も行う"),
 		Long: Localize(
-			"Rewrite the store, dropping reclaimable bodies and retired indexes. Pass --archive to export GC-eligible rows (former store archive create). Pass --archive-verify / --archive-restore for an existing package. Pass --retention-plan / --retention-apply for on-disk archive and backup file retention (former store retention files).",
-			"ストアを書き換え、回収できる本文と退役済み index を落とします。--archive で GC 適格行を export します（旧 store archive create）。既存 package は --archive-verify / --archive-restore。ディスク上の archive / backup 保持は --retention-plan / --retention-apply（旧 store retention files）。",
+			"Rewrite the store, reclaiming free pages and dropping retired indexes. Pass --archive to export GC-eligible rows (former store archive create). Pass --archive-verify / --archive-restore for an existing package. Pass --retention-plan / --retention-apply for on-disk archive and backup file retention (former store retention files).",
+			"ストアを書き換え、空きページを回収し退役済み index を落とします。--archive で GC 適格行を export します（旧 store archive create）。既存 package は --archive-verify / --archive-restore。ディスク上の archive / backup 保持は --retention-plan / --retention-apply（旧 store retention files）。",
 		),
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			fileRetention.dbPath = path
 			fileRetention.outputPath = output
 			return c.runStoreCompact(cmd, storeCompactInput{
-				path:               path,
-				refuseUnrefined:    refuseUnrefined,
-				keepDays:           keepDays,
-				workDir:            workDir,
-				archive:            archive,
-				archiveVerify:      archiveVerify,
-				archiveRestore:     archiveRestore,
-				deleteAfterVerify:  deleteAfterVerify,
-				target:             target,
-				passphraseEnv:      passphraseEnv,
-				dryRun:             dryRun,
-				output:             output,
-				retentionPlan:      retentionPlan,
-				retentionApply:     retentionApply,
-				planPath:           planPath,
-				confirmPlanID:      confirmPlanID,
-				fileRetention:      fileRetention,
-				refuseUnrefinedSet: cmd.Flags().Changed("refuse-unrefined"),
-				workDirSet:         cmd.Flags().Changed("work-dir"),
-				targetSet:          cmd.Flags().Changed("target"),
-				deleteAfterSet:     cmd.Flags().Changed("delete-after-verify"),
-				dryRunSet:          cmd.Flags().Changed("dry-run"),
+				path:              path,
+				keepDays:          keepDays,
+				workDir:           workDir,
+				archive:           archive,
+				archiveVerify:     archiveVerify,
+				archiveRestore:    archiveRestore,
+				deleteAfterVerify: deleteAfterVerify,
+				target:            target,
+				passphraseEnv:     passphraseEnv,
+				dryRun:            dryRun,
+				output:            output,
+				retentionPlan:     retentionPlan,
+				retentionApply:    retentionApply,
+				planPath:          planPath,
+				confirmPlanID:     confirmPlanID,
+				fileRetention:     fileRetention,
+				workDirSet:        cmd.Flags().Changed("work-dir"),
+				targetSet:         cmd.Flags().Changed("target"),
+				deleteAfterSet:    cmd.Flags().Changed("delete-after-verify"),
+				dryRunSet:         cmd.Flags().Changed("dry-run"),
 			})
 		},
 	}
 	cmd.Flags().StringVar(&path, "db-path", "", dbPathFlagUsage())
-	cmd.Flags().BoolVar(&refuseUnrefined, "refuse-unrefined", false, Localize(
-		"fail instead of writing mechanical summaries for unrefined discardable sessions (pre-v0.48 behaviour)",
-		"未 refine の破棄対象に機械要約を書かず、v0.48 以前どおり失敗する"))
-	cmd.Flags().IntVar(&keepDays, "keep-days", application.DefaultCompactKeepDays, Localize("retain bodies newer than this many days; also the --archive keep window", "この日数より新しい本文は保持する。--archive の保持窓でも使う"))
+	cmd.Flags().IntVar(&keepDays, "keep-days", application.DefaultCompactKeepDays, Localize("with --archive, retain rows newer than this many days", "--archive 時、この日数より新しい行を保持する"))
 	cmd.Flags().StringVar(&workDir, "work-dir", "", Localize("stage the source-sized work copy on another volume when this volume cannot hold a replica", "このボリュームにレプリカを置けないとき、source サイズの work copy を別ボリュームに置く"))
 	cmd.Flags().BoolVar(&archive, "archive", false, Localize("export GC-eligible rows to a versioned archive package (former store archive create)", "GC 適格行を版付き archive package に export する（旧 store archive create）"))
 	cmd.Flags().StringVar(&archiveVerify, "archive-verify", "", Localize("verify an archive package (former store archive verify)", "archive package の完全性を検証する（旧 store archive verify）"))
@@ -111,36 +103,34 @@ func (c *RootCLI) newStoreCompactionCommand() *cobra.Command {
 }
 
 type storeCompactInput struct {
-	path               string
-	refuseUnrefined    bool
-	keepDays           int
-	workDir            string
-	archive            bool
-	archiveVerify      string
-	archiveRestore     string
-	deleteAfterVerify  bool
-	target             string
-	passphraseEnv      string
-	dryRun             bool
-	output             string
-	retentionPlan      bool
-	retentionApply     bool
-	planPath           string
-	confirmPlanID      string
-	fileRetention      storeFileRetentionPlanInput
-	refuseUnrefinedSet bool
-	workDirSet         bool
-	targetSet          bool
-	deleteAfterSet     bool
-	dryRunSet          bool
+	path              string
+	keepDays          int
+	workDir           string
+	archive           bool
+	archiveVerify     string
+	archiveRestore    string
+	deleteAfterVerify bool
+	target            string
+	passphraseEnv     string
+	dryRun            bool
+	output            string
+	retentionPlan     bool
+	retentionApply    bool
+	planPath          string
+	confirmPlanID     string
+	fileRetention     storeFileRetentionPlanInput
+	workDirSet        bool
+	targetSet         bool
+	deleteAfterSet    bool
+	dryRunSet         bool
 }
 
 func (c *RootCLI) runStoreCompact(cmd *cobra.Command, input storeCompactInput) error {
 	absorb := input.archive || input.archiveVerify != "" || input.archiveRestore != "" || input.retentionPlan || input.retentionApply
-	if absorb && (input.refuseUnrefinedSet || input.workDirSet) {
+	if absorb && input.workDirSet {
 		return xerrors.New(Localize(
-			"--refuse-unrefined/--work-dir cannot be combined with --archive/--archive-verify/--archive-restore/--retention-plan/--retention-apply",
-			"--refuse-unrefined/--work-dir は --archive / --archive-verify / --archive-restore / --retention-plan / --retention-apply と同時に使えません",
+			"--work-dir cannot be combined with --archive/--archive-verify/--archive-restore/--retention-plan/--retention-apply",
+			"--work-dir は --archive / --archive-verify / --archive-restore / --retention-plan / --retention-apply と同時に使えません",
 		))
 	}
 	if !input.archive && (input.deleteAfterSet || input.targetSet) {
@@ -206,16 +196,10 @@ func (c *RootCLI) runStoreCompact(cmd *cobra.Command, input storeCompactInput) e
 	}
 	usecase.BindCompactionProgress(service, newCLICompactionProgress(cmd.ErrOrStderr()))
 	result, err := service.Compact(cmd.Context(), application.CompactInput{
-		Source:          resolved,
-		RefuseUnrefined: input.refuseUnrefined,
-		KeepDays:        input.keepDays,
-		WorkDir:         input.workDir,
+		Source:  resolved,
+		WorkDir: input.workDir,
 	})
 	if err != nil {
-		var unrefined application.UnrefinedMaterialError
-		if errors.As(err, &unrefined) {
-			return xerrors.Errorf("%s", unrefined.Error())
-		}
 		if result.CompactStrategy == "" {
 			return err
 		}
@@ -229,26 +213,11 @@ func (c *RootCLI) runStoreCompact(cmd *cobra.Command, input storeCompactInput) e
 }
 
 func encodeCompactResultJSON(cmd *cobra.Command, result application.CompactResult) error {
-	discarded := result.DiscardedBodyBytes
-	if discarded < 0 {
-		discarded = 0
-	}
-	_, _ = fmt.Fprintln(cmd.ErrOrStderr(), localizef(
-		"compact: mechanical cover covered %d session(s), %s of bodies discardable",
-		"compact: 機械要約で %d セッションを被覆、%s の本文が破棄対象",
-		result.CoveredSessions,
-		formatCompactBytes(uint64(discarded)),
-	))
 	payload := map[string]any{
 		"run_id":                      result.Run.ID,
 		"phase":                       result.Run.Phase,
 		"bytes_before":                result.BytesBefore,
 		"bytes_after":                 result.BytesAfter,
-		"unrefined_remaining":         result.UnrefinedRemaining,
-		"unrefined_bytes":             result.UnrefinedBytes,
-		"mechanical_summaries":        result.MechanicalSummaries,
-		"covered_sessions":            result.CoveredSessions,
-		"discarded_body_bytes":        result.DiscardedBodyBytes,
 		"released_command_body_rows":  result.ReleasedCommandBodyRows,
 		"released_command_body_bytes": result.ReleasedCommandBodyBytes,
 		"estimated_reclaimable_bytes": result.EstimatedReclaimableBytes,

@@ -71,7 +71,7 @@ func TestCompactedAuditsStillDecodeOnListAndShow(t *testing.T) {
 		infra.StoreLeaseCoordinator{},
 	)
 	if _, err := svc.Compact(ctx, application.CompactInput{
-		Source: dbPath, KeepDays: 36500, Now: time.Date(2026, 8, 28, 0, 0, 0, 0, time.UTC),
+		Source: dbPath,
 	}); err != nil {
 		t.Fatalf("Compact: %v", err)
 	}

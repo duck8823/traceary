@@ -953,9 +953,6 @@ func TestDatasource_ListRecent_DoesNotInferRetentionFromBodyMarker(t *testing.T)
 	if got := events[0].Body(); got != types.EventBodyUnavailableRetentionMarker {
 		t.Fatalf("Body() = %q, want literal compatibility marker", got)
 	}
-	if got := events[0].BodyAvailability(); got != types.BodyAvailabilityAvailable {
-		t.Fatalf("BodyAvailability() = %s, want available", got)
-	}
 	matches, err := sut.Search(context.Background(), types.EventBodyUnavailableRetentionMarker, "", "", "", "", "", time.Time{}, time.Time{}, 10, 0, false)
 	if err != nil {
 		t.Fatalf("Search(marker literal) error = %v", err)

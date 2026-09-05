@@ -18,7 +18,6 @@ type Event struct {
 	sessionID        types.SessionID
 	workspace        types.Workspace
 	body             string
-	bodyAvailability types.BodyAvailability
 	createdAt        time.Time
 	sourceHook       string
 	rawWorkspace     string
@@ -65,15 +64,14 @@ func NewEventWithClock(
 		return nil, xerrors.Errorf("event body must not be empty")
 	}
 	return &Event{
-		eventID:          eventID,
-		kind:             kind,
-		client:           client,
-		agent:            agent,
-		sessionID:        sessionID,
-		workspace:        workspace,
-		body:             trimmedBody,
-		bodyAvailability: types.BodyAvailabilityAvailable,
-		createdAt:        clockOrSystem(clock).Now(),
+		eventID:   eventID,
+		kind:      kind,
+		client:    client,
+		agent:     agent,
+		sessionID: sessionID,
+		workspace: workspace,
+		body:      trimmedBody,
+		createdAt: clockOrSystem(clock).Now(),
 	}, nil
 }
 
@@ -89,15 +87,14 @@ func EventOf(
 	createdAt time.Time,
 ) *Event {
 	return &Event{
-		eventID:          eventID,
-		kind:             kind,
-		client:           client,
-		agent:            agent,
-		sessionID:        sessionID,
-		workspace:        workspace,
-		body:             body,
-		bodyAvailability: types.BodyAvailabilityAvailable,
-		createdAt:        createdAt,
+		eventID:   eventID,
+		kind:      kind,
+		client:    client,
+		agent:     agent,
+		sessionID: sessionID,
+		workspace: workspace,
+		body:      body,
+		createdAt: createdAt,
 	}
 }
 
@@ -118,28 +115,6 @@ func EventOfWithSourceHook(
 ) *Event {
 	event := EventOf(eventID, kind, client, agent, sessionID, workspace, body, createdAt)
 	event.sourceHook = sourceHook
-	return event
-}
-
-// EventOfWithBodyAvailabilityAndSourceHook restores an Event including its
-// explicit raw-body availability and source hook.
-func EventOfWithBodyAvailabilityAndSourceHook(
-	eventID types.EventID,
-	kind types.EventKind,
-	client types.Client,
-	agent types.Agent,
-	sessionID types.SessionID,
-	workspace types.Workspace,
-	body string,
-	bodyAvailability types.BodyAvailability,
-	createdAt time.Time,
-	sourceHook string,
-) *Event {
-	event := EventOfWithSourceHook(eventID, kind, client, agent, sessionID, workspace, body, createdAt, sourceHook)
-	event.bodyAvailability = bodyAvailability
-	if !bodyAvailability.IsAvailable() {
-		event.body = ""
-	}
 	return event
 }
 
@@ -189,9 +164,6 @@ func (e *Event) Workspace() types.Workspace { return e.workspace }
 
 // Body returns the event body.
 func (e *Event) Body() string { return e.body }
-
-// BodyAvailability returns whether the raw body can be returned.
-func (e *Event) BodyAvailability() types.BodyAvailability { return e.bodyAvailability }
 
 // CreatedAt returns the event creation time.
 func (e *Event) CreatedAt() time.Time { return e.createdAt }

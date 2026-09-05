@@ -26,4 +26,10 @@ const (
 	// filter the main session's session_ended stream away from the
 	// subagent boundary events when that distinction matters.
 	EventBodyMarkerSubagentStop = "[phase:subagent]"
+
+	// EventBodyUnavailableRetentionMarker is the body text left by the
+	// retired body-discard path. After the availability column is gone
+	// these rows are ordinary bodies; search and display treat the
+	// marker as verbatim text.
+	EventBodyUnavailableRetentionMarker = "[traceary:body-unavailable:retention]"
 )

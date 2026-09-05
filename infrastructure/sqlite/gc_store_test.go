@@ -955,7 +955,7 @@ CREATE TABLE sessions (session_id TEXT PRIMARY KEY, started_at TEXT NOT NULL, en
 	return dbPath, store
 }
 
-func TestDatasource_CollectGarbage_discardsOnlyFoldedEndedTranscripts(t *testing.T) {
+func TestDatasource_CollectGarbage_doesNotDiscardEventBodies(t *testing.T) {
 	t.Parallel()
 
 	cutoff := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
@@ -966,16 +966,15 @@ func TestDatasource_CollectGarbage_discardsOnlyFoldedEndedTranscripts(t *testing
 		ended   bool
 		folded  bool
 		target  apptypes.GarbageCollectionTarget
-		want    string
 	}{
-		{name: "folded ended transcript", kind: types.EventKindTranscript, session: "ended", ended: true, folded: true, target: apptypes.GarbageCollectionTargetEvents, want: "unavailable_retention"},
-		{name: "prompt survives events", kind: types.EventKindPrompt, session: "ended", ended: true, folded: true, target: apptypes.GarbageCollectionTargetEvents, want: "available"},
-		{name: "prompt survives all", kind: types.EventKindPrompt, session: "ended", ended: true, folded: true, target: apptypes.GarbageCollectionTargetAll, want: "available"},
-		{name: "prompt survives sessions", kind: types.EventKindPrompt, session: "ended", ended: true, folded: true, target: apptypes.GarbageCollectionTargetSessions, want: "available"},
-		{name: "note survives", kind: types.EventKindNote, session: "ended", ended: true, folded: true, target: apptypes.GarbageCollectionTargetEvents, want: "available"},
-		{name: "unfolded transcript survives", kind: types.EventKindTranscript, session: "ended", ended: true, target: apptypes.GarbageCollectionTargetEvents, want: "available"},
-		{name: "missing session survives", kind: types.EventKindTranscript, session: "missing", target: apptypes.GarbageCollectionTargetEvents, want: "available"},
-		{name: "active session survives", kind: types.EventKindTranscript, session: "active", folded: true, target: apptypes.GarbageCollectionTargetEvents, want: "available"},
+		{name: "folded ended transcript", kind: types.EventKindTranscript, session: "ended", ended: true, folded: true, target: apptypes.GarbageCollectionTargetEvents},
+		{name: "prompt survives events", kind: types.EventKindPrompt, session: "ended", ended: true, folded: true, target: apptypes.GarbageCollectionTargetEvents},
+		{name: "prompt survives all", kind: types.EventKindPrompt, session: "ended", ended: true, folded: true, target: apptypes.GarbageCollectionTargetAll},
+		{name: "prompt survives sessions", kind: types.EventKindPrompt, session: "ended", ended: true, folded: true, target: apptypes.GarbageCollectionTargetSessions},
+		{name: "note survives", kind: types.EventKindNote, session: "ended", ended: true, folded: true, target: apptypes.GarbageCollectionTargetEvents},
+		{name: "unfolded transcript survives", kind: types.EventKindTranscript, session: "ended", ended: true, target: apptypes.GarbageCollectionTargetEvents},
+		{name: "missing session survives", kind: types.EventKindTranscript, session: "missing", target: apptypes.GarbageCollectionTargetEvents},
+		{name: "active session survives", kind: types.EventKindTranscript, session: "active", folded: true, target: apptypes.GarbageCollectionTargetEvents},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -997,16 +996,15 @@ func TestDatasource_CollectGarbage_discardsOnlyFoldedEndedTranscripts(t *testing
 			if err != nil {
 				t.Fatalf("CollectGarbage() error = %v", err)
 			}
-			wantCount := 0
-			if tc.want == "unavailable_retention" {
-				wantCount = 1
-			}
-			if diff := cmp.Diff(wantCount, got); diff != "" {
+			if diff := cmp.Diff(0, got); diff != "" {
 				t.Fatalf("discard count mismatch (-want +got):\n%s", diff)
 			}
-			availability := gcEventAvailability(t, db, "event-1")
-			if diff := cmp.Diff(tc.want, availability); diff != "" {
-				t.Fatalf("availability mismatch (-want +got):\n%s", diff)
+			plaintext, err := sqlite.LoadEventPlaintextForTest(context.Background(), db, "event-1")
+			if err != nil {
+				t.Fatalf("loadEventPlaintext() error = %v", err)
+			}
+			if diff := cmp.Diff("retained metadata", string(plaintext)); diff != "" {
+				t.Fatalf("body rewritten (-want +got):\n%s", diff)
 			}
 			if diff := cmp.Diff(before, gcEventPreservedFields(t, db, "event-1")); diff != "" {
 				t.Fatalf("preserved fields changed (-before +after):\n%s", diff)
@@ -1015,10 +1013,10 @@ func TestDatasource_CollectGarbage_discardsOnlyFoldedEndedTranscripts(t *testing
 	}
 }
 
-func TestDatasource_CollectGarbage_preservesCommandAuditAndDecodesDiscardMarker(t *testing.T) {
+func TestDatasource_CollectGarbage_doesNotRewriteTranscriptBodyOrCommandAudit(t *testing.T) {
 	t.Parallel()
 	dbPath, events, store := prepareDiscardGCFixture(t)
-	transcript := newGCEventFixture(t, "transcript", types.EventKindTranscript, "discard me", time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC))
+	transcript := newGCEventFixture(t, "transcript", types.EventKindTranscript, "keep me", time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC))
 	if err := events.Save(context.Background(), transcript); err != nil {
 		t.Fatalf("Save(transcript) error = %v", err)
 	}
@@ -1030,8 +1028,6 @@ func TestDatasource_CollectGarbage_preservesCommandAuditAndDecodesDiscardMarker(
 	defer func() { _ = db.Close() }()
 	insertGCSession(t, db, "session-1", true)
 	insertGCFold(t, db, "session-1", "transcript", "transcript")
-	prunedAt := time.Date(2026, 7, 2, 3, 4, 5, 6, time.UTC)
-	store.SetGarbageCollectionNowForTest(func() time.Time { return prunedAt })
 	var commandText, inputText string
 	if err := db.QueryRow(`SELECT command_text, input_text FROM command_audits WHERE event_id = ?`, command.EventID().String()).Scan(&commandText, &inputText); err != nil {
 		t.Fatalf("read command audit: %v", err)
@@ -1040,18 +1036,11 @@ func TestDatasource_CollectGarbage_preservesCommandAuditAndDecodesDiscardMarker(
 	if err != nil {
 		t.Fatalf("CollectGarbage() error = %v", err)
 	}
-	if diff := cmp.Diff(1, got); diff != "" {
+	if diff := cmp.Diff(0, got); diff != "" {
 		t.Fatalf("discard count mismatch (-want +got):\n%s", diff)
 	}
 	if diff := cmp.Diff(2, countEvents(t, dbPath)); diff != "" {
 		t.Fatalf("event row count mismatch (-want +got):\n%s", diff)
-	}
-	var recordedPrunedAt string
-	if err := db.QueryRow(`SELECT body_pruned_at FROM events WHERE id = 'transcript'`).Scan(&recordedPrunedAt); err != nil {
-		t.Fatalf("query body_pruned_at: %v", err)
-	}
-	if diff := cmp.Diff(prunedAt.Format(time.RFC3339Nano), recordedPrunedAt); diff != "" {
-		t.Fatalf("body_pruned_at mismatch (-want +got):\n%s", diff)
 	}
 	var afterCommand, afterInput string
 	if err := db.QueryRow(`SELECT command_text, input_text FROM command_audits WHERE event_id = ?`, command.EventID().String()).Scan(&afterCommand, &afterInput); err != nil {
@@ -1064,12 +1053,12 @@ func TestDatasource_CollectGarbage_preservesCommandAuditAndDecodesDiscardMarker(
 	if err != nil {
 		t.Fatalf("loadEventPlaintext() error = %v", err)
 	}
-	if diff := cmp.Diff(types.EventBodyUnavailableRetentionMarker, string(plaintext)); diff != "" {
-		t.Fatalf("decoded marker mismatch (-want +got):\n%s", diff)
+	if diff := cmp.Diff("keep me", string(plaintext)); diff != "" {
+		t.Fatalf("transcript body rewritten (-want +got):\n%s", diff)
 	}
 }
 
-func TestDatasource_CollectGarbage_DryRunReportsEligibleBodiesWithoutMutation(t *testing.T) {
+func TestDatasource_CollectGarbage_DryRunReportsNoEligibleBodies(t *testing.T) {
 	t.Parallel()
 	dbPath, events, store := prepareDiscardGCFixture(t)
 	event := newGCEventFixture(t, "eligible", types.EventKindTranscript, "body", time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC))
@@ -1084,11 +1073,15 @@ func TestDatasource_CollectGarbage_DryRunReportsEligibleBodiesWithoutMutation(t 
 	if err != nil {
 		t.Fatalf("CollectGarbage() error = %v", err)
 	}
-	if diff := cmp.Diff(1, got); diff != "" {
+	if diff := cmp.Diff(0, got); diff != "" {
 		t.Fatalf("candidate count mismatch (-want +got):\n%s", diff)
 	}
-	if diff := cmp.Diff("available", gcEventAvailability(t, db, "eligible")); diff != "" {
-		t.Fatalf("availability mismatch (-want +got):\n%s", diff)
+	plaintext, err := sqlite.LoadEventPlaintextForTest(context.Background(), db, "eligible")
+	if err != nil {
+		t.Fatalf("loadEventPlaintext() error = %v", err)
+	}
+	if diff := cmp.Diff("body", string(plaintext)); diff != "" {
+		t.Fatalf("dry-run mutated body (-want +got):\n%s", diff)
 	}
 }
 
@@ -1113,14 +1106,6 @@ func insertGCFold(t *testing.T, db *sql.DB, sessionID, from, to string) {
 	t.Helper()
 	execRetentionSQL(t, db, `INSERT INTO session_refinements(session_id, generation, covers_from_event_id, covers_to_event_id, summary, produced_by, produced_at, degraded) VALUES (?, 1, ?, ?, 'summary', 'test', '2026-06-02T00:00:00Z', 0)`, sessionID, from, to)
 }
-func gcEventAvailability(t *testing.T, db *sql.DB, id string) string {
-	t.Helper()
-	var value string
-	if err := db.QueryRow(`SELECT body_availability FROM events WHERE id = ?`, id).Scan(&value); err != nil {
-		t.Fatalf("query availability: %v", err)
-	}
-	return value
-}
 func gcEventPreservedFields(t *testing.T, db *sql.DB, id string) []string {
 	t.Helper()
 	var original, stored sql.NullInt64
@@ -1133,6 +1118,13 @@ func gcEventPreservedFields(t *testing.T, db *sql.DB, id string) []string {
 		t.Fatalf("count events: %v", err)
 	}
 	return []string{nullableInt(original), nullableInt(stored), createdAt, kind, strconv.Itoa(count)}
+}
+
+func nullableInt(v sql.NullInt64) string {
+	if !v.Valid {
+		return ""
+	}
+	return strconv.FormatInt(v.Int64, 10)
 }
 
 func TestCollectGarbage_DeletesUnreachableWorkspaceObservations(t *testing.T) {

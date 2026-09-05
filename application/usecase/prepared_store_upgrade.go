@@ -57,6 +57,10 @@ func (u *preparedStoreUpgradeUsecase) Plan(ctx context.Context, command applicat
 	if err != nil {
 		return run, err
 	}
+	if command.UnavailableRetentionApproval != nil {
+		bound := command.UnavailableRetentionApproval.Bind(planned.ID, planned.SourceIdentity)
+		planned.UnavailableRetentionApproval = &bound
+	}
 	if err = u.journal.Create(ctx, planned); err != nil {
 		return run, err
 	}
@@ -95,6 +99,11 @@ func (u *preparedStoreUpgradeUsecase) prepare(ctx context.Context, run domain.Pr
 		case domain.ActionBuildCandidate:
 			if verifier, ok := recipe.(application.BoundDropVerifier); ok {
 				err = verifier.VerifyBoundDrop(ctx, application.PreparedCandidateRequest{Run: run})
+			}
+			if err == nil {
+				if verifier, ok := recipe.(application.UnavailableRetentionVerifier); ok {
+					err = verifier.VerifyUnavailableRetention(ctx, application.PreparedCandidateRequest{Run: run})
+				}
 			}
 			if err == nil {
 				err = recipe.Build(ctx, application.PreparedCandidateRequest{Run: run})

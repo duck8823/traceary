@@ -11,9 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
-	"github.com/duck8823/traceary/application"
 	"github.com/duck8823/traceary/domain"
 )
 
@@ -468,7 +466,7 @@ func (f PreparedStoreUpgradeFiles) Plan(ctx context.Context, run domain.Compacti
 		}
 		temporary += spool
 	} else if id.Size > 0 {
-		estimate, estimateErr := inspectReclaimableBytes(ctx, run.SourcePath, time.Now().UTC().AddDate(0, 0, -application.DefaultCompactKeepDays))
+		estimate, estimateErr := inspectReclaimableBytes(ctx, run.SourcePath)
 		if estimateErr == nil && estimate > 0 && estimate < id.Size {
 			destination = id.Size - estimate
 			if destination < id.Size/10 {

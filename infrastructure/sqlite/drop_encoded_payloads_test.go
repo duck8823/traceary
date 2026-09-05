@@ -32,8 +32,8 @@ func TestDropEncodedPayloads_LiveOpenLeavesPopulatedStoreUntouched(t *testing.T)
 	if !errors.As(err, &required) {
 		t.Fatalf("error=%v, want OfflineMigrationsRequiredError", err)
 	}
-	if len(required.Versions) == 0 || required.Versions[len(required.Versions)-1] != 82 {
-		t.Fatalf("pending offline = %v, want suffix 82", required.Versions)
+	if len(required.Versions) == 0 || required.Versions[len(required.Versions)-1] != 83 {
+		t.Fatalf("pending offline = %v, want suffix 83", required.Versions)
 	}
 	after := readStoreBytes(t, path)
 	if string(after) != string(before) {
@@ -65,7 +65,7 @@ func TestDropEncodedPayloads_MixedCodecUpgrade(t *testing.T) {
 	}
 	runUpgradeOn(ctx, t, dir, target, all)
 
-	assertMinimumReaderVersion(t, target, 38)
+	assertMinimumReaderVersion(t, target, 39)
 	assertQuickCheckOK(t, target)
 	db, err := sql.Open("sqlite", target)
 	if err != nil {
@@ -146,7 +146,7 @@ func TestDropEncodedPayloads_ChainedRestoreIsPlaintext(t *testing.T) {
 	}
 	runUpgradeOn(ctx, t, dir, target, all)
 	assertEventBody(t, target, "arch-zstd", "zstd archived body")
-	assertMinimumReaderVersion(t, target, 38)
+	assertMinimumReaderVersion(t, target, 39)
 }
 
 func insertEncodedEvent(t *testing.T, path, id, plaintext, codec string) {

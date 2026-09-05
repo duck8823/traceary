@@ -213,7 +213,6 @@ func boundedUsecaseEventFixture(
 		body,
 		len([]rune(body)),
 		visibleRunes,
-		types.BodyAvailabilityAvailable,
 		canonical,
 	)
 	if err != nil {

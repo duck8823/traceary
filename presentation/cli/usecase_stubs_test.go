@@ -832,6 +832,9 @@ func (s *storeManagementUsecaseStub) InspectOneOffRepairRetirement(context.Conte
 func (s *storeManagementUsecaseStub) InspectBoundDrop(context.Context) (apptypes.BoundDropInspection, error) {
 	return apptypes.BoundDropInspection{}, nil
 }
+func (s *storeManagementUsecaseStub) InspectUnavailableRetention(context.Context) (apptypes.UnavailableRetentionInspection, error) {
+	return apptypes.UnavailableRetentionInspection{}, nil
+}
 func (s *storeManagementUsecaseStub) CreateBackup(_ context.Context, path string, _ bool) error {
 	s.createBackupCalls++
 	s.createBackupPath = path

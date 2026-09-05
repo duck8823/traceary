@@ -54,7 +54,7 @@ func TestDropDedupeArchive_EmptyArchiveUpgrade(t *testing.T) {
 	if tablePresent(t, target, "event_content_dedupe_archive") {
 		t.Fatal("archive table survived v81")
 	}
-	assertMinimumReaderVersion(t, target, 38)
+	assertMinimumReaderVersion(t, target, 39)
 	assertSchemaMigrationSuffix(t, target, 81, "000081_drop_event_content_dedupe_archive.sql")
 	assertQuickCheckOK(t, target)
 	if got := eventCount(t, target); got != before {
@@ -97,7 +97,7 @@ func TestDropDedupeArchive_PopulatedRestore(t *testing.T) {
 	if tablePresent(t, target, "event_content_dedupe_archive") {
 		t.Fatal("archive table survived populated restore")
 	}
-	assertMinimumReaderVersion(t, target, 38)
+	assertMinimumReaderVersion(t, target, 39)
 	assertQuickCheckOK(t, target)
 	if got := eventCount(t, target); got != sourceCount+2 {
 		t.Fatalf("events count = %d, want source %d + 2", got, sourceCount)

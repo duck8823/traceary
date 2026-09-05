@@ -47,24 +47,6 @@ func retentionReasonLess(left, right string) bool {
 	}
 }
 
-func encodeRetentionPlan(plan apptypes.RetentionPlan) ([]byte, error) {
-	normalizeRetentionPlan(&plan)
-	canonical, err := canonicalRetentionPayload(plan.CanonicalPayload)
-	if err != nil {
-		return nil, err
-	}
-	digest := sha256.Sum256(canonical)
-	plan.PlanID = hex.EncodeToString(digest[:])
-	if err := validateRetentionPlan(plan); err != nil {
-		return nil, err
-	}
-	encoded, err := json.MarshalIndent(plan, "", "  ")
-	if err != nil {
-		return nil, xerrors.Errorf("marshal retention plan: %w", err)
-	}
-	return append(encoded, '\n'), nil
-}
-
 func decodeRetentionPlan(data []byte) (apptypes.RetentionPlan, error) {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()

@@ -264,7 +264,7 @@ func TestEventBoundedQuery_MatchesCanonicalVisibleTextProjection(t *testing.T) {
 	}
 }
 
-func TestEventBoundedQuery_PreservesRetentionUnavailability(t *testing.T) {
+func TestEventBoundedQuery_ShowsRetentionMarkerVerbatim(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -277,7 +277,6 @@ func TestEventBoundedQuery_PreservesRetentionUnavailability(t *testing.T) {
 	if err := store.Initialize(ctx); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
-	const retainedCanonicalBody = `{"blocks":[{"type":"text","text":"must remain unavailable"}]}`
 	event := newEventForSQLiteTest(
 		t,
 		"event-retention-bounded",
@@ -285,29 +284,11 @@ func TestEventBoundedQuery_PreservesRetentionUnavailability(t *testing.T) {
 		"codex",
 		"session-retention",
 		"repo-retention",
-		retainedCanonicalBody,
+		types.EventBodyUnavailableRetentionMarker,
 		time.Date(2026, 7, 26, 3, 0, 0, 0, time.UTC),
 	)
 	if err := sut.Save(ctx, event); err != nil {
 		t.Fatalf("Save() error = %v", err)
-	}
-	db, err := sql.Open("sqlite", dbPath)
-	if err != nil {
-		t.Fatalf("sql.Open() error = %v", err)
-	}
-	if _, err := db.ExecContext(ctx, `
-			UPDATE events
-			   SET body = ?, body_availability = ?
-			 WHERE id = ?`,
-		retainedCanonicalBody,
-		types.BodyAvailabilityUnavailableRetention.String(),
-		event.EventID().String(),
-	); err != nil {
-		_ = db.Close()
-		t.Fatalf("mark body unavailable: %v", err)
-	}
-	if err := db.Close(); err != nil {
-		t.Fatalf("close retention DB: %v", err)
 	}
 
 	got, err := sut.GetContextBounded(
@@ -321,9 +302,7 @@ func TestEventBoundedQuery_PreservesRetentionUnavailability(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("GetContextBounded() len = %d, want 1", len(got))
 	}
-	if got[0].Body() != "" || got[0].VisibleBodyRunes() != 0 ||
-		got[0].BodyAvailability() != types.BodyAvailabilityUnavailableRetention ||
-		got[0].CanonicalEnvelope() {
-		t.Fatalf("retention bounded event = %+v", got[0])
+	if got[0].Body() != types.EventBodyUnavailableRetentionMarker {
+		t.Fatalf("retention bounded event body = %q, want marker verbatim", got[0].Body())
 	}
 }

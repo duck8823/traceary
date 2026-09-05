@@ -125,8 +125,7 @@ func (u *eventBoundedUsecase) attachCanonicalBodyBlocks(
 ) ([]apptypes.BoundedEvent, error) {
 	canonicalIDs := make([]types.EventID, 0)
 	for _, event := range events {
-		if event.BodyAvailability().IsAvailable() &&
-			event.CanonicalEnvelope() &&
+		if event.CanonicalEnvelope() &&
 			!event.BodyResponseTruncated() {
 			canonicalIDs = append(canonicalIDs, event.Metadata().EventID())
 		}

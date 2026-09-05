@@ -266,25 +266,26 @@ func (r PreparedStoreUpgradeRun) RecoveryActions(observation PreparedStoreUpgrad
 
 // PreparedStoreUpgradeRun is the domain record persisted outside the source database.
 type PreparedStoreUpgradeRun struct {
-	ID                        string                           `json:"id"`
-	SourcePath                string                           `json:"source_path"`
-	CandidatePath             string                           `json:"candidate_path"`
-	RollbackPath              string                           `json:"rollback_path"`
-	Phase                     PreparedStoreUpgradePhase        `json:"phase"`
-	SourceIdentity            StoreFileIdentity                `json:"source_identity"`
-	Candidate                 StoreFileIdentity                `json:"candidate_identity,omitempty"`
-	PreparedCandidateIdentity StoreFileIdentity                `json:"prepared_candidate_identity,omitempty"`
-	PreparedAttempt           uint64                           `json:"prepared_attempt"`
-	Resources                 PreparedStoreUpgradeResourcePlan `json:"resources"`
-	Operation                 PreparedStoreUpgradeOperation    `json:"operation,omitempty"`
-	ConsumerBinding           string                           `json:"consumer_binding,omitempty"`
-	PlanDigest                string                           `json:"plan_digest,omitempty"`
-	SourceDigest              string                           `json:"source_digest,omitempty"`
-	BoundDropApproval         *BoundDropApproval               `json:"bound_drop_approval,omitempty"`
-	Budget                    PreparedStoreUpgradeBudget       `json:"budget,omitempty"`
-	Evidence                  PreparedCandidateEvidence        `json:"evidence,omitempty"`
-	CreatedAt                 time.Time                        `json:"created_at"`
-	UpdatedAt                 time.Time                        `json:"updated_at"`
+	ID                           string                           `json:"id"`
+	SourcePath                   string                           `json:"source_path"`
+	CandidatePath                string                           `json:"candidate_path"`
+	RollbackPath                 string                           `json:"rollback_path"`
+	Phase                        PreparedStoreUpgradePhase        `json:"phase"`
+	SourceIdentity               StoreFileIdentity                `json:"source_identity"`
+	Candidate                    StoreFileIdentity                `json:"candidate_identity,omitempty"`
+	PreparedCandidateIdentity    StoreFileIdentity                `json:"prepared_candidate_identity,omitempty"`
+	PreparedAttempt              uint64                           `json:"prepared_attempt"`
+	Resources                    PreparedStoreUpgradeResourcePlan `json:"resources"`
+	Operation                    PreparedStoreUpgradeOperation    `json:"operation,omitempty"`
+	ConsumerBinding              string                           `json:"consumer_binding,omitempty"`
+	PlanDigest                   string                           `json:"plan_digest,omitempty"`
+	SourceDigest                 string                           `json:"source_digest,omitempty"`
+	BoundDropApproval            *BoundDropApproval               `json:"bound_drop_approval,omitempty"`
+	UnavailableRetentionApproval *UnavailableRetentionApproval    `json:"unavailable_retention_approval,omitempty"`
+	Budget                       PreparedStoreUpgradeBudget       `json:"budget,omitempty"`
+	Evidence                     PreparedCandidateEvidence        `json:"evidence,omitempty"`
+	CreatedAt                    time.Time                        `json:"created_at"`
+	UpdatedAt                    time.Time                        `json:"updated_at"`
 }
 
 var preparedStoreUpgradeTransitions = map[PreparedStoreUpgradePhase][]PreparedStoreUpgradePhase{

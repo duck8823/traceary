@@ -20,6 +20,10 @@ type StoreManagementUsecase interface {
 	// InspectBoundDrop reports the preflight count and digest for a pending
 	// retired-table drop. Zero rows means no approval is required.
 	InspectBoundDrop(ctx context.Context) (apptypes.BoundDropInspection, error)
+	// InspectUnavailableRetention reports the preflight count, bounded sample
+	// and sorted-id-set digest of unavailable_retention marker rows. Zero rows
+	// means no approval is required.
+	InspectUnavailableRetention(ctx context.Context) (apptypes.UnavailableRetentionInspection, error)
 
 	// CreateBackup creates a backup of the store.
 	CreateBackup(ctx context.Context, outputPath string, overwrite bool) error

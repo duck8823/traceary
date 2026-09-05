@@ -31,7 +31,7 @@ func TestImplicitOpenRefusesOfflineMigrationsOnPopulatedStore(t *testing.T) {
 	if !errors.As(err, &required) {
 		t.Fatalf("error=%v, want OfflineMigrationsRequiredError", err)
 	}
-	if diff := cmp.Diff([]int64{35, 45, 76, 78, 79, 80, 81, 82}, required.Versions); diff != "" {
+	if diff := cmp.Diff([]int64{35, 45, 76, 78, 79, 80, 81, 82, 83}, required.Versions); diff != "" {
 		t.Fatalf("pending offline (-want +got):\n%s", diff)
 	}
 	if got := maxSchemaVersion(t, path); got != 34 {
@@ -53,8 +53,8 @@ func TestStoreInitAppliesOfflineMigrations(t *testing.T) {
 	if err := current.InitializeAuthorized(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if got := maxSchemaVersion(t, path); got != 82 {
-		t.Fatalf("schema version=%d, want 82", got)
+	if got := maxSchemaVersion(t, path); got != 83 {
+		t.Fatalf("schema version=%d, want 83", got)
 	}
 }
 
@@ -66,8 +66,8 @@ func TestEmptyStoreReachesCurrentSchemaImplicitly(t *testing.T) {
 	if err := store.Initialize(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if got := maxSchemaVersion(t, path); got != 82 {
-		t.Fatalf("schema version=%d, want 82", got)
+	if got := maxSchemaVersion(t, path); got != 83 {
+		t.Fatalf("schema version=%d, want 83", got)
 	}
 }
 
@@ -87,7 +87,7 @@ func TestReclassifiedMigrationsApplyImplicitlyUntilNextOffline(t *testing.T) {
 	if !errors.As(err, &required) {
 		t.Fatalf("error=%v, want OfflineMigrationsRequiredError", err)
 	}
-	if diff := cmp.Diff([]int64{45, 76, 78, 79, 80, 81, 82}, required.Versions); diff != "" {
+	if diff := cmp.Diff([]int64{45, 76, 78, 79, 80, 81, 82, 83}, required.Versions); diff != "" {
 		t.Fatalf("pending offline (-want +got):\n%s", diff)
 	}
 	if got := maxSchemaVersion(t, path); got != 44 {
@@ -115,7 +115,7 @@ func TestImplicitOpenAfterInterruptedOfflineDoesNotRerunIt(t *testing.T) {
 	if !errors.As(err, &required) {
 		t.Fatalf("error=%v, want OfflineMigrationsRequiredError", err)
 	}
-	if diff := cmp.Diff([]int64{45, 76, 78, 79, 80, 81, 82}, required.Versions); diff != "" {
+	if diff := cmp.Diff([]int64{45, 76, 78, 79, 80, 81, 82, 83}, required.Versions); diff != "" {
 		t.Fatalf("pending offline (-want +got):\n%s", diff)
 	}
 	if got := maxSchemaVersion(t, path); got != 44 {
@@ -242,7 +242,7 @@ func TestPreviewOfflineMigrationsNamesPendingVersions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if diff := cmp.Diff([]int64{35, 45, 76, 78, 79, 80, 81, 82}, got); diff != "" {
+	if diff := cmp.Diff([]int64{35, 45, 76, 78, 79, 80, 81, 82, 83}, got); diff != "" {
 		t.Fatalf("preview (-want +got):\n%s", diff)
 	}
 }

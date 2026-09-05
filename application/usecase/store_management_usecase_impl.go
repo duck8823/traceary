@@ -70,6 +70,20 @@ func (u *storeManagementUsecase) InspectBoundDrop(ctx context.Context) (apptypes
 	return apptypes.BoundDropInspection{}, nil
 }
 
+func (u *storeManagementUsecase) InspectUnavailableRetention(ctx context.Context) (apptypes.UnavailableRetentionInspection, error) {
+	type inspector interface {
+		InspectUnavailableRetention(context.Context) (apptypes.UnavailableRetentionInspection, error)
+	}
+	if inspect, ok := u.storeManager.(inspector); ok {
+		inspection, err := inspect.InspectUnavailableRetention(ctx)
+		if err != nil {
+			return apptypes.UnavailableRetentionInspection{}, xerrors.Errorf("failed to inspect unavailable retention: %w", err)
+		}
+		return inspection, nil
+	}
+	return apptypes.UnavailableRetentionInspection{}, nil
+}
+
 func (u *storeManagementUsecase) CreateBackup(ctx context.Context, outputPath string, overwrite bool) error {
 	if strings.TrimSpace(outputPath) == "" {
 		return xerrors.Errorf("output path must not be empty")

@@ -115,26 +115,22 @@ func TestMigrations_EventMetadataProjectionBackfillsAndMaintainsRows(t *testing.
 		storedBodyBytes: int64(len("metadata only")),
 	})
 
-	originalStoredBodyBytes := int64(len("metadata only"))
 	if _, err := db.ExecContext(ctx, `
 		UPDATE events
 		   SET body = ?,
-		       body_availability = 'unavailable_retention',
 		       body_pruned_at = '2026-07-26T00:00:03Z',
 		       body_pruned_plan_id = 'projection-plan'
 		 WHERE id = 'projection-b'
-		   AND body_availability = 'available'
 		   AND body = 'metadata only'
 	`, domtypes.EventBodyUnavailableRetentionMarker); err != nil {
-		t.Fatalf("prune authoritative event body: %v", err)
+		t.Fatalf("rewrite authoritative event body: %v", err)
 	}
-	assertStoredBodyBytesParity(t, db, "projection-b", originalStoredBodyBytes)
+	assertStoredBodyBytesParity(t, db, "projection-b", int64(len(domtypes.EventBodyUnavailableRetentionMarker)))
 
 	const restoredBody = "restored body with a different byte length"
 	if _, err := db.ExecContext(ctx, `
 		UPDATE events
 		   SET body = ?,
-		       body_availability = 'available',
 		       body_pruned_at = NULL,
 		       body_pruned_plan_id = NULL
 		 WHERE id = 'projection-b'
@@ -174,7 +170,7 @@ func TestMigrations_EventMetadataProjectionUpgradesOnlyCopiedStore(t *testing.T)
 			body_availability
 		) VALUES ('copy-event', 'note', 'cli', 'codex', 'copy-session',
 		          'copy-workspace', zeroblob(1048576),
-		          '2026-07-26T00:00:00Z', 'unavailable_retention')
+		          '2026-07-26T00:00:00Z', 'available')
 	`); err != nil {
 		_ = source.Close()
 		t.Fatalf("seed copied-store source: %v", err)
@@ -313,11 +309,10 @@ func TestMigrations_EventMetadataProjectionSupportsPreProjectionWriterRollback(t
 	defer func() { _ = db.Close() }()
 	if _, err := db.ExecContext(ctx, `
 		INSERT INTO events(
-			id, kind, client, agent, session_id, workspace, body, created_at,
-			body_availability
+			id, kind, client, agent, session_id, workspace, body, created_at
 		) VALUES ('rollback-event', 'note', 'cli', 'codex', 'rollback-session',
 		          'rollback-workspace', 'synthetic',
-		          '2026-07-26T00:00:00Z', 'available')
+		          '2026-07-26T00:00:00Z')
 	`); err != nil {
 		t.Fatalf("insert through pre-projection writer: %v", err)
 	}
@@ -359,7 +354,7 @@ func BenchmarkEventMetadataProjectionCopiedStoreMigration(b *testing.B) {
 			id, kind, client, agent, session_id, workspace, body, created_at,
 			body_availability
 		) VALUES (?, 'note', 'cli', 'codex', 'migration-session',
-		          'migration-workspace', zeroblob(?), ?, 'unavailable_retention')
+		          'migration-workspace', zeroblob(?), ?, 'available')
 	`)
 	if err != nil {
 		_ = tx.Rollback()

@@ -195,8 +195,8 @@ func TestMigrations_NormalizedTimestampColumnBackfillsAndMaintainsIndexes(t *tes
 	if normalized != "2026-07-25T00:00:00.500000000Z" {
 		t.Fatalf("maintained normalized timestamp = %q", normalized)
 	}
-	if _, err := db.Exec(`INSERT INTO events(id, kind, agent, session_id, body, created_at, client, workspace, body_availability)
-		VALUES ('post-v031-event', 'note', 'codex', 'session-1', 'new body', '2026-07-25T00:00:01Z', 'hook', 'workspace-1', 'available')`); err != nil {
+	if _, err := db.Exec(`INSERT INTO events(id, kind, agent, session_id, body, created_at, client, workspace)
+		VALUES ('post-v031-event', 'note', 'codex', 'session-1', 'new body', '2026-07-25T00:00:01Z', 'hook', 'workspace-1')`); err != nil {
 		t.Fatalf("insert post-v031 event: %v", err)
 	}
 	if err := db.QueryRow(`SELECT created_at_norm FROM events WHERE id = 'post-v031-event'`).Scan(&normalized); err != nil {

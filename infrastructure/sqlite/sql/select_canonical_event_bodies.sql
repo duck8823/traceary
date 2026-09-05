@@ -4,5 +4,4 @@
 -- Body bytes are loaded via loadEventPlaintext, not this projection (#1685 D6).
 SELECT e.id
   FROM events e
- WHERE e.body_availability = 'available'
-   AND e.id IN (SELECT CAST(value AS TEXT) FROM json_each(?));
+ WHERE e.id IN (SELECT CAST(value AS TEXT) FROM json_each(?));

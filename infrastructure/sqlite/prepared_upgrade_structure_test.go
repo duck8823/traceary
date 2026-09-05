@@ -64,6 +64,7 @@ func TestHistoricalOfflineOwners(t *testing.T) {
 		{80, ConservationLawBaseConserving, SemanticVerifierDropSearchProjectionFamily, "2319"},
 		{81, ConservationLawRestoreDedupeArchive, SemanticVerifierDropDedupeArchive, "2324"},
 		{82, ConservationLawDecodePayloadsDropCodec, SemanticVerifierDropEncodedPayloads, "2323"},
+		{83, ConservationLawBaseConserving, SemanticVerifierDropBodyRetention, "2325"},
 	}
 	for _, tc := range cases {
 		if conservationLawFor(tc.version) != tc.law {

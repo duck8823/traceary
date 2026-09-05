@@ -202,19 +202,18 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("reports body unavailable by retention", func(t *testing.T) {
+	t.Run("displays retention marker body verbatim", func(t *testing.T) {
 		t.Parallel()
 
 		eventDetails, err := apptypes.EventDetailsOf(
-			model.EventOfWithBodyAvailabilityAndSourceHook(
+			model.EventOfWithSourceHook(
 				eventID,
 				types.EventKindNote,
 				"cli",
 				agent,
 				sessionID,
 				"duck8823/traceary",
-				"",
-				types.BodyAvailabilityUnavailableRetention,
+				types.EventBodyUnavailableRetentionMarker,
 				time.Date(2026, 4, 8, 12, 0, 0, 0, time.UTC),
 				"",
 			),
@@ -235,8 +234,11 @@ func TestRootCLI_ShowCommand(t *testing.T) {
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("Execute() error = %v", err)
 		}
-		if !bytes.Contains(stdout.Bytes(), []byte(`"body_unavailable_reason": "retention"`)) || !bytes.Contains(stdout.Bytes(), []byte(`"message": ""`)) {
-			t.Fatalf("stdout does not report retention unavailability: %s", stdout)
+		if bytes.Contains(stdout.Bytes(), []byte(`"body_unavailable_reason"`)) {
+			t.Fatalf("stdout still special-cases retention unavailability: %s", stdout)
+		}
+		if !bytes.Contains(stdout.Bytes(), []byte(types.EventBodyUnavailableRetentionMarker)) {
+			t.Fatalf("stdout does not display the retention marker verbatim: %s", stdout)
 		}
 	})
 

@@ -57,11 +57,12 @@ func (v PreparedMigrationVerifier) VerifyUpgradePair(ctx context.Context, source
 	}
 	skipEvents := pendingHasRestoreDedupeArchive(plan)
 	skipCodecRewrite := pendingHasDecodePayloads(plan)
-	if err = verifyFiveTableConservation(ctx, sourceDB, candidateDB, skipEvents, skipCodecRewrite); err != nil {
+	dropRetentionPending := pendingDropsBodyRetentionObjects(plan)
+	if err = verifyFiveTableConservation(ctx, sourceDB, candidateDB, skipEvents, skipCodecRewrite, dropRetentionPending); err != nil {
 		return domain.PreparedCandidateEvidence{}, err
 	}
 	for _, migration := range plan.Pending {
-		if err = evaluateConservationLaw(ctx, sourceDB, candidateDB, migration.Version, skipCodecRewrite); err != nil {
+		if err = evaluateConservationLaw(ctx, sourceDB, candidateDB, migration.Version, skipCodecRewrite, dropRetentionPending); err != nil {
 			return domain.PreparedCandidateEvidence{}, err
 		}
 		switch semanticVerifierFor(migration.Version) {
@@ -78,7 +79,7 @@ func (v PreparedMigrationVerifier) VerifyUpgradePair(ctx context.Context, source
 				return domain.PreparedCandidateEvidence{}, err
 			}
 		case SemanticVerifierDropSearchProjectionFamily:
-			if err = verifyDropSearchProjectionFamily(ctx, sourceDB, candidateDB, skipEvents, skipCodecRewrite); err != nil {
+			if err = verifyDropSearchProjectionFamily(ctx, sourceDB, candidateDB, skipEvents, skipCodecRewrite, dropRetentionPending); err != nil {
 				return domain.PreparedCandidateEvidence{}, err
 			}
 		case SemanticVerifierDropDedupeArchive:
@@ -86,7 +87,11 @@ func (v PreparedMigrationVerifier) VerifyUpgradePair(ctx context.Context, source
 				return domain.PreparedCandidateEvidence{}, err
 			}
 		case SemanticVerifierDropEncodedPayloads:
-			if err = verifyDropEncodedPayloads(ctx, sourceDB, candidateDB, candidate); err != nil {
+			if err = verifyDropEncodedPayloads(ctx, sourceDB, candidateDB, candidate, dropRetentionPending); err != nil {
+				return domain.PreparedCandidateEvidence{}, err
+			}
+		case SemanticVerifierDropBodyRetention:
+			if err = verifyDropBodyRetention(ctx, candidateDB); err != nil {
 				return domain.PreparedCandidateEvidence{}, err
 			}
 		}
@@ -94,7 +99,7 @@ func (v PreparedMigrationVerifier) VerifyUpgradePair(ctx context.Context, source
 	return evidence, nil
 }
 
-func verifyFiveTableConservation(ctx context.Context, sourceDB, candidateDB *sql.DB, skipEvents, skipCodecRewrite bool) error {
+func verifyFiveTableConservation(ctx context.Context, sourceDB, candidateDB *sql.DB, skipEvents, skipCodecRewrite, dropRetentionPending bool) error {
 	for _, table := range upgradeConservationTables {
 		if skipEvents && table == "events" {
 			continue
@@ -113,7 +118,11 @@ func verifyFiveTableConservation(ctx context.Context, sourceDB, candidateDB *sql
 		if !sourceHas || !candidateHas {
 			continue
 		}
-		if err = verifyTableCountAndDigest(ctx, sourceDB, candidateDB, table); err != nil {
+		exclude := []string(nil)
+		if dropRetentionPending && table == "events" {
+			exclude = []string{"body_availability"}
+		}
+		if err = verifyTableCountAndDigestExcluding(ctx, sourceDB, candidateDB, table, exclude...); err != nil {
 			return err
 		}
 	}
@@ -121,9 +130,27 @@ func verifyFiveTableConservation(ctx context.Context, sourceDB, candidateDB *sql
 }
 
 func verifyTableCountAndDigest(ctx context.Context, sourceDB, candidateDB *sql.DB, table string) error {
+	return verifyTableCountAndDigestExcluding(ctx, sourceDB, candidateDB, table)
+}
+
+func verifyTableCountAndDigestExcluding(ctx context.Context, sourceDB, candidateDB *sql.DB, table string, exclude ...string) error {
 	columns, err := tableColumns(ctx, sourceDB, table)
 	if err != nil {
 		return err
+	}
+	if len(exclude) > 0 {
+		skip := make(map[string]struct{}, len(exclude))
+		for _, name := range exclude {
+			skip[name] = struct{}{}
+		}
+		filtered := make([]string, 0, len(columns))
+		for _, name := range columns {
+			if _, drop := skip[name]; drop {
+				continue
+			}
+			filtered = append(filtered, name)
+		}
+		columns = filtered
 	}
 	query := `SELECT ` + joinQuotedIdentifiers(columns) + ` FROM ` + quoteIdentifier(table)
 	srcCount, srcDigest, err := digestRows(ctx, sourceDB, columns, query)
@@ -140,13 +167,16 @@ func verifyTableCountAndDigest(ctx context.Context, sourceDB, candidateDB *sql.D
 	return nil
 }
 
-func evaluateConservationLaw(ctx context.Context, sourceDB, candidateDB *sql.DB, version int64, decodePending bool) error {
+func evaluateConservationLaw(ctx context.Context, sourceDB, candidateDB *sql.DB, version int64, decodePending bool, dropRetentionPending bool) error {
 	law := conservationLawFor(version)
 	switch law {
 	case ConservationLawBaseConserving:
 		return nil
 	case ConservationLawIndexPresentBasePreserved:
 		for _, spec := range upgradeIndexLaws[version] {
+			if dropRetentionPending && spec.BaseTable == "raw_body_retention_entries" {
+				continue
+			}
 			exists, err := sqliteIndexExists(ctx, candidateDB, spec.Index)
 			if err != nil {
 				return err

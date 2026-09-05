@@ -199,6 +199,10 @@ var preparedMigrationManifest = map[int64]migrationManifestEntry{
 	// then drops codec columns, rehearsal/backfill/compat tables, and
 	// maximum_payload_format. Never applied at live open.
 	82: {82, "000082_drop_encoded_payloads.sql", "c2f6db201021ab4f3456fe74fa171b9ebf73a839991052cc4b87211133fe4469", MigrationDataDependentOffline, ConservationLawDecodePayloadsDropCodec, SemanticVerifierDropEncodedPayloads, "2323"},
+	// 83 drops body_availability, the retention candidate index, the
+	// raw_body_retention_* tables, and session_orphan_ranges. Never applied
+	// at live open.
+	83: {83, "000083_drop_body_retention.sql", "372ff9ff44fbb4afa5daaa9f2c295e28aae2a04360d67f0f908e7eea5eacf79c", MigrationDataDependentOffline, ConservationLawBaseConserving, SemanticVerifierDropBodyRetention, "2325"},
 }
 
 func conservationLawFor(version int64) ConservationLawID {

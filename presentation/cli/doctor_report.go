@@ -138,7 +138,7 @@ func buildDoctorSections(checks []doctorCheck) []doctorSection {
 
 func doctorSectionNameForCheck(name string) string {
 	switch {
-	case name == "db-path" || name == "db-write" || name == "store-capacity" || name == "stale-active-sessions" || name == "archive-retention" || name == "offline-migrations" || name == "one-off-repairs" || name == "workspace-aliases" || strings.HasSuffix(name, "-capacity-retention") || name == "audit-reliability" || name == "content-event-reliability" || name == "sensitive-access-audit" || name == "retry-loops":
+	case name == "db-path" || name == "db-write" || name == "store-capacity" || name == "stale-active-sessions" || name == "archive-retention" || name == "offline-migrations" || name == "unavailable-retention" || name == "one-off-repairs" || name == "workspace-aliases" || strings.HasSuffix(name, "-capacity-retention") || name == "audit-reliability" || name == "content-event-reliability" || name == "sensitive-access-audit" || name == "retry-loops":
 		return "Database"
 	case name == "config" || name == "project-dir" || name == "version" || name == "path" || name == "stale-processes":
 		return "Environment"
