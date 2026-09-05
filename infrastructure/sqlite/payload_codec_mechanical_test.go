@@ -32,6 +32,7 @@ func TestPayloadCodecMechanicalInventory(t *testing.T) {
 	wantCodecColumns := map[string]struct{}{
 		"infrastructure/sqlite/restore_dedupe_archive.go": {},
 		"infrastructure/sqlite/canonical_event_audit.go":  {},
+		"infrastructure/sqlite/attestation_store.go":      {},
 		"domain/archive_segment.go":                       {},
 	}
 	columnHits := grepLive(t, root, regexp.MustCompile(`body_codec|command_codec`), []string{"domain", "application", "presentation", "infrastructure"})
@@ -116,6 +117,7 @@ func TestMigrationDecoderUnreachableFromRuntimePaths(t *testing.T) {
 		"payload_codec_migration.go":           {},
 		"drop_encoded_payloads.go":             {},
 		"canonical_event_audit.go":             {},
+		"attestation_store.go":                 {},
 		"restore_dedupe_archive.go":            {},
 		"decode_payloads.go":                   {},
 		"prepared_upgrade_migration_recipe.go": {},

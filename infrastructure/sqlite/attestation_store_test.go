@@ -2,7 +2,9 @@ package sqlite_test
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/url"
@@ -12,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/klauspost/compress/zstd"
 	_ "modernc.org/sqlite"
 
 	"github.com/duck8823/traceary/application"
@@ -131,6 +134,66 @@ func TestVerifyAttestationChain_CommandTextTamperFailsAndOutputDoesNot(t *testin
 	if errors.As(err, &undetermined) {
 		t.Fatalf("VerifyAttestationChain() reported a real chain break as undetermined: %v", err)
 	}
+}
+
+func TestVerifyAttestationChain_ZstdCommandMatchesPlaintextDigest(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	path, events := newAttestationTestStore(t)
+
+	prompt := model.EventOf(
+		types.EventID("prompt-zstd"), types.EventKindPrompt,
+		types.Client("cli"), types.Agent("codex"),
+		types.SessionID("session-1"), types.Workspace("ws"),
+		"please run tests",
+		time.Date(2026, 8, 14, 10, 0, 0, 0, time.UTC),
+	)
+	if err := events.Save(ctx, prompt); err != nil {
+		t.Fatalf("Save(prompt) error = %v", err)
+	}
+
+	zstdCommand := model.EventOf(
+		types.EventID("command-zstd"), types.EventKindCommandExecuted,
+		types.Client("cli"), types.Agent("codex"),
+		types.SessionID("session-1"), types.Workspace("ws"),
+		"",
+		time.Date(2026, 8, 14, 10, 0, 1, 0, time.UTC),
+	)
+	zstdAudit, err := model.NewCommandAudit(zstdCommand.EventID(), "go test ./...", "pkg", "ok", false, false)
+	if err != nil {
+		t.Fatalf("NewCommandAudit(zstd) error = %v", err)
+	}
+	if err := events.SaveWithAudit(ctx, zstdCommand, zstdAudit); err != nil {
+		t.Fatalf("SaveWithAudit(zstd) error = %v", err)
+	}
+
+	plainCommand := model.EventOf(
+		types.EventID("command-plain"), types.EventKindCommandExecuted,
+		types.Client("cli"), types.Agent("codex"),
+		types.SessionID("session-1"), types.Workspace("ws"),
+		"",
+		time.Date(2026, 8, 14, 10, 0, 2, 0, time.UTC),
+	)
+	plainAudit, err := model.NewCommandAudit(plainCommand.EventID(), "ls", "", "listed", false, false)
+	if err != nil {
+		t.Fatalf("NewCommandAudit(plain) error = %v", err)
+	}
+	if err := events.SaveWithAudit(ctx, plainCommand, plainAudit); err != nil {
+		t.Fatalf("SaveWithAudit(plain) error = %v", err)
+	}
+
+	db := openAttestationDB(t, path)
+	defer func() { _ = db.Close() }()
+
+	ensureAttestedCodecColumns(t, db)
+	rewriteAttestedPayloadZstd(t, db, "events", "id", "prompt-zstd", "body", []byte("please run tests"))
+	rewriteAttestedPayloadZstd(t, db, "command_audits", "event_id", "command-zstd", "command", []byte("go test ./..."))
+	rewriteAttestedPayloadZstd(t, db, "command_audits", "event_id", "command-zstd", "input", []byte("pkg"))
+
+	if err := sqlite.VerifyAttestationChain(ctx, db); err != nil {
+		t.Fatalf("VerifyAttestationChain() error = %v, want nil when attested rows are zstd and the digest is of decoded plaintext", err)
+	}
+	assertAttestationCount(t, db, 3)
 }
 
 func TestVerifyAttestationChain_HistoricalPromptWithoutLinkSucceeds(t *testing.T) {
@@ -496,6 +559,69 @@ func assertAttestationCount(t *testing.T, db *sql.DB, want int) {
 	}
 	if got != want {
 		t.Fatalf("attestation_links = %d, want %d", got, want)
+	}
+}
+
+func ensureAttestedCodecColumns(t *testing.T, db *sql.DB) {
+	t.Helper()
+	columns := []struct {
+		table  string
+		column string
+		decl   string
+	}{
+		{"events", "body_codec", "TEXT"},
+		{"events", "body_format_version", "INTEGER"},
+		{"events", "body_plaintext_bytes", "INTEGER"},
+		{"events", "body_encoded_bytes", "INTEGER"},
+		{"events", "body_sha256", "TEXT"},
+		{"command_audits", "command_codec", "TEXT"},
+		{"command_audits", "command_format_version", "INTEGER"},
+		{"command_audits", "command_plaintext_bytes", "INTEGER"},
+		{"command_audits", "command_encoded_bytes", "INTEGER"},
+		{"command_audits", "command_sha256", "TEXT"},
+		{"command_audits", "input_codec", "TEXT"},
+		{"command_audits", "input_format_version", "INTEGER"},
+		{"command_audits", "input_plaintext_bytes", "INTEGER"},
+		{"command_audits", "input_encoded_bytes", "INTEGER"},
+		{"command_audits", "input_sha256", "TEXT"},
+	}
+	for _, column := range columns {
+		var n int
+		query := fmt.Sprintf("SELECT COUNT(*) FROM pragma_table_info(%q) WHERE name = %q", column.table, column.column)
+		if err := db.QueryRow(query).Scan(&n); err != nil {
+			t.Fatalf("pragma_table_info(%s.%s): %v", column.table, column.column, err)
+		}
+		if n > 0 {
+			continue
+		}
+		stmt := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", column.table, column.column, column.decl)
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatalf("%s: %v", stmt, err)
+		}
+	}
+}
+
+func rewriteAttestedPayloadZstd(t *testing.T, db *sql.DB, table, idColumn, id, field string, plaintext []byte) {
+	t.Helper()
+	encoder, err := zstd.NewWriter(nil, zstd.WithEncoderConcurrency(1))
+	if err != nil {
+		t.Fatalf("zstd encoder: %v", err)
+	}
+	defer func() { _ = encoder.Close() }()
+	stored := encoder.EncodeAll(plaintext, nil)
+	sum := sha256.Sum256(plaintext)
+	stmt := fmt.Sprintf(
+		"UPDATE %s SET %s_text = ?, %s_codec = 'zstd', %s_format_version = 1, %s_plaintext_bytes = ?, %s_encoded_bytes = ?, %s_sha256 = ? WHERE %s = ?",
+		table, field, field, field, field, field, field, idColumn,
+	)
+	if table == "events" {
+		stmt = fmt.Sprintf(
+			"UPDATE events SET body = ?, body_codec = 'zstd', body_format_version = 1, body_plaintext_bytes = ?, body_encoded_bytes = ?, body_sha256 = ? WHERE %s = ?",
+			idColumn,
+		)
+	}
+	if _, err := db.Exec(stmt, stored, int64(len(plaintext)), int64(len(stored)), hex.EncodeToString(sum[:]), id); err != nil {
+		t.Fatalf("rewrite %s %s as zstd: %v", table, id, err)
 	}
 }
 
