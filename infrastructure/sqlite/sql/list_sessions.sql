@@ -64,13 +64,11 @@ SELECT
   COALESCE(s.model, '') AS model,
   COALESCE(latest.latest_event_kind, '') AS latest_event_kind,
   COALESCE(latest.latest_event_id, '') AS latest_event_id,
-  -- New command_executed rows store an empty envelope body (#1675). Fall back to
-  -- command_text only when it is known identity plaintext — never surface
-  -- codec-managed bytes from SQL (checksum / size guards live in Go).
+  -- New command_executed rows store an empty envelope body (#1675). Fall back
+  -- to command_text, which is stored as plaintext.
   COALESCE(
     NULLIF(latest_body.body, ''),
-    CASE WHEN COALESCE(latest_audit.command_codec, 'identity') = 'identity'
-         THEN latest_audit.command_text END,
+    latest_audit.command_text,
     ''
   ) AS latest_event_body
 FROM filtered_sessions s

@@ -21,7 +21,7 @@ These six rows are evaluated by `release evaluate-gates` / `go test`. `skip` is 
 | Event-emission amplification | `<= 2.0` | events / (`prompt` + `command_executed`) |
 | Whole-store amplification | `<= 3x` | `OperatorCostInspector.Amplification` (resident / retained source bytes) |
 | Recent search-index amplification | `<= 4x` | always skip after #2319 (`recent index family is no longer stored`) |
-| `events.body` duplicate share | `< 5%` | uncompressed plaintext bytes versus one copy per `body_sha256` (strict `< 0.05`) |
+| `events.body` duplicate share | `< 5%` | uncompressed plaintext bytes versus one copy per identical `body` (strict `< 0.05`) |
 | Refinement coverage | `>= 95%` of sessions worth folding | `#1879` `FoldGateInspector` |
 | Wake injection | works on every eligible host, within budget | `#1879` `FoldGateInspector` (unmeasured / skip when no eligible host) |
 

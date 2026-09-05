@@ -119,18 +119,9 @@ func verifyCommandAudits(ctx context.Context, sourceDB, candidateDB *sql.DB, can
 			if !bytes.Equal(sourceCur.identDigest, candidateCur.identDigest) {
 				return fmt.Errorf("candidate changed identity of command audit %s", sourceCur.eventID)
 			}
-			lanes := commandAuditLanes()
-			for i, lane := range lanes {
-				wantPlain, decodeErr := sourceCur.payloads[i].decode(maxDecodedPayloadBytes)
-				if decodeErr != nil {
-					return fmt.Errorf("source command audit %s lane %s is not decodable: %w", sourceCur.eventID, lane.Field, decodeErr)
-				}
-				gotPlain, decodeErr := candidateCur.payloads[i].decode(maxDecodedPayloadBytes)
-				if decodeErr != nil {
-					return fmt.Errorf("candidate command audit %s lane %s is not decodable: %w", sourceCur.eventID, lane.Field, decodeErr)
-				}
-				if !bytes.Equal(wantPlain, gotPlain) {
-					return fmt.Errorf("candidate rewrote %s of command audit %s", lane.Field, sourceCur.eventID)
+			for i, field := range commandAuditPayloadFields {
+				if !bytes.Equal(sourceCur.payloads[i], candidateCur.payloads[i]) {
+					return fmt.Errorf("candidate rewrote %s of command audit %s", field, sourceCur.eventID)
 				}
 			}
 			if err := sourceCur.next(); err != nil {
@@ -144,21 +135,15 @@ func verifyCommandAudits(ctx context.Context, sourceDB, candidateDB *sql.DB, can
 	return nil
 }
 
+var commandAuditPayloadFields = []string{"command", "input", "output"}
+
 func commandAuditPayloadSkipSet() map[string]bool {
-	skip := map[string]bool{
+	return map[string]bool{
 		"event_id":     true,
 		"command_text": true,
 		"input_text":   true,
 		"output_text":  true,
 	}
-	for _, lane := range commandAuditLanes() {
-		skip[lane.CodecPrefix+"_codec"] = true
-		skip[lane.CodecPrefix+"_format_version"] = true
-		skip[lane.CodecPrefix+"_plaintext_bytes"] = true
-		skip[lane.CodecPrefix+"_encoded_bytes"] = true
-		skip[lane.CodecPrefix+"_sha256"] = true
-	}
-	return skip
 }
 
 func commandAuditIdentColumns(cols []string) []string {
@@ -174,19 +159,10 @@ func commandAuditIdentColumns(cols []string) []string {
 }
 
 func commandAuditVerifyQuery(ident []string) string {
-	cols := make([]string, 0, 1+len(ident)+18)
+	cols := make([]string, 0, 1+len(ident)+3)
 	cols = append(cols, "event_id")
 	cols = append(cols, ident...)
-	for _, lane := range commandAuditLanes() {
-		cols = append(cols,
-			lane.Column,
-			lane.CodecPrefix+"_codec",
-			lane.CodecPrefix+"_format_version",
-			lane.CodecPrefix+"_plaintext_bytes",
-			lane.CodecPrefix+"_encoded_bytes",
-			lane.CodecPrefix+"_sha256",
-		)
-	}
+	cols = append(cols, "command_text", "input_text", "output_text")
 	return `SELECT ` + joinQuotedIdentifiers(cols) + ` FROM command_audits ORDER BY event_id`
 }
 
@@ -195,7 +171,7 @@ type commandAuditVerifyCursor struct {
 	identCount  int
 	eventID     string
 	identDigest []byte
-	payloads    []payloadRow
+	payloads    [][]byte
 	eof         bool
 }
 
@@ -204,7 +180,7 @@ func openCommandAuditVerifyCursor(ctx context.Context, db *sql.DB, query string,
 	if err != nil {
 		return nil, err
 	}
-	return &commandAuditVerifyCursor{rows: rows, identCount: len(ident), payloads: make([]payloadRow, len(commandAuditLanes()))}, nil
+	return &commandAuditVerifyCursor{rows: rows, identCount: len(ident), payloads: make([][]byte, len(commandAuditPayloadFields))}, nil
 }
 
 func (c *commandAuditVerifyCursor) close() {
@@ -228,12 +204,12 @@ func (c *commandAuditVerifyCursor) next() error {
 	for i := range identValues {
 		identPtrs[i] = &identValues[i]
 	}
-	dest := make([]any, 0, 1+c.identCount+len(c.payloads)*6)
+	dest := make([]any, 0, 1+c.identCount+len(c.payloads))
 	dest = append(dest, &c.eventID)
 	dest = append(dest, identPtrs...)
 	for i := range c.payloads {
-		c.payloads[i] = payloadRow{}
-		dest = append(dest, c.payloads[i].scanDestinations()...)
+		c.payloads[i] = nil
+		dest = append(dest, &c.payloads[i])
 	}
 	if err := c.rows.Scan(dest...); err != nil {
 		return err

@@ -96,7 +96,7 @@ func (recoveryRecipe) Verify(context.Context, application.PreparedCandidateReque
 
 func TestPreparedStoreUpgradeResumeConvergesAfterExchangeBeforeSwappedRecord(t *testing.T) {
 	identity := domain.StoreFileIdentity{Device: 1, Inode: 2, Mode: 0o600, Links: 1}
-	run := domain.PreparedStoreUpgradeRun{ID: "run", SourcePath: "/copy.db", Phase: domain.PreparedStoreUpgradeSwapIntent, Operation: domain.PreparedStoreUpgradeOperationPayloadRehearsalMigration, ConsumerBinding: "binding", Candidate: identity, Budget: domain.PreparedStoreUpgradeBudget{PublishLockLimit: time.Second}}
+	run := domain.PreparedStoreUpgradeRun{ID: "run", SourcePath: "/copy.db", Phase: domain.PreparedStoreUpgradeSwapIntent, Operation: domain.PreparedStoreUpgradeOperationOfflineMigrationUpgrade, ConsumerBinding: "binding", Candidate: identity, Budget: domain.PreparedStoreUpgradeBudget{PublishLockLimit: time.Second}}
 	journal := &recoveryJournal{run: run}
 	files := &recoveryFiles{observation: domain.PreparedStoreUpgradeObservation{Orientation: domain.OrientationSwapped, Source: identity}}
 	service := NewPreparedStoreUpgradeUsecase(run.SourcePath, journal, files, recoveryLease{}, map[domain.PreparedStoreUpgradeOperation]application.PreparedCandidateRecipe{run.Operation: recoveryRecipe{}})
@@ -110,7 +110,7 @@ func TestPreparedStoreUpgradeResumeConvergesAfterExchangeBeforeSwappedRecord(t *
 }
 
 func TestPreparedStoreUpgradeRollbackCatchesUpAfterRollbackExchange(t *testing.T) {
-	run := domain.PreparedStoreUpgradeRun{ID: "run", SourcePath: "/copy.db", Phase: domain.PreparedStoreUpgradeRollbackSwapIntent, Operation: domain.PreparedStoreUpgradeOperationPayloadRehearsalMigration, ConsumerBinding: "binding", Budget: domain.PreparedStoreUpgradeBudget{PublishLockLimit: time.Second}}
+	run := domain.PreparedStoreUpgradeRun{ID: "run", SourcePath: "/copy.db", Phase: domain.PreparedStoreUpgradeRollbackSwapIntent, Operation: domain.PreparedStoreUpgradeOperationOfflineMigrationUpgrade, ConsumerBinding: "binding", Budget: domain.PreparedStoreUpgradeBudget{PublishLockLimit: time.Second}}
 	journal := &recoveryJournal{run: run}
 	files := &recoveryFiles{observation: domain.PreparedStoreUpgradeObservation{Orientation: domain.OrientationRolledBack}}
 	service := NewPreparedStoreUpgradeUsecase(run.SourcePath, journal, files, recoveryLease{}, map[domain.PreparedStoreUpgradeOperation]application.PreparedCandidateRecipe{run.Operation: recoveryRecipe{}})

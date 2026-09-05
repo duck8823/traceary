@@ -21,7 +21,7 @@ go run ./cmd/repo-tooling release evaluate-gates --db /path/to/fixture.db
 | event-emission amplification | `<= 2.0` | events / (`prompt` + `command_executed`) |
 | whole-store amplification | `<= 3x` | `OperatorCostInspector.Amplification`（resident / retained source bytes） |
 | recent search-index amplification | `<= 4x` | #2319 以降は常に skip（`recent index family is no longer stored`） |
-| `events.body` duplicate share | `< 5%` | 非圧縮 plaintext バイト対 `body_sha256` ごとの 1 コピー（判定は厳密な `< 0.05`） |
+| `events.body` duplicate share | `< 5%` | 非圧縮 plaintext バイト対同一 `body` ごとの 1 コピー（判定は厳密な `< 0.05`） |
 | refinement coverage | worth folding の `>= 95%` | `#1879` `FoldGateInspector` |
 | wake injection | 適格 host ごとに budget 内 | `#1879` `FoldGateInspector`（適格 host が無いときは unmeasured / skip） |
 

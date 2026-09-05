@@ -16,15 +16,15 @@ import (
 	"github.com/duck8823/traceary/domain/types"
 )
 
-// TestListJoinDoesNotSurfaceEncodedCommandPayloads pins the #1675 correction:
-// list/search JOINs only fixed-size audit metadata. Codec-managed payloads
-// must go through hydrateAuditPayload so non-identity frames (#1618) do not
-// break sensitive-path classification or MCP body rendering.
-func TestListJoinDoesNotSurfaceEncodedCommandPayloads(t *testing.T) {
+// TestListJoinDoesNotSurfaceCommandPayloads pins the #1675 correction:
+// list/search JOINs only fixed-size audit metadata. Payloads must go through
+// hydrateAuditPayload so sensitive-path classification and MCP body rendering
+// see the stored plaintext only after an explicit hydrate.
+func TestListJoinDoesNotSurfaceCommandPayloads(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "encoded-audit.db")
+	path := filepath.Join(t.TempDir(), "audit-payload.db")
 	database := NewDatabase(path, os.DirFS(filepath.Join("..", "..", "schema", "sqlite", "migrations")))
 	if err := database.initialize(ctx); err != nil {
 		t.Fatalf("initialize: %v", err)
@@ -37,15 +37,12 @@ func TestListJoinDoesNotSurfaceEncodedCommandPayloads(t *testing.T) {
 	defer database.release(raw)
 
 	const (
-		eventID      = "evt-encoded-sensitive"
-		sessionID    = "session-encoded"
+		eventID      = "evt-sensitive"
+		sessionID    = "session-payload"
 		plainCommand = "cat /home/user/.ssh/id_rsa"
 		plainInput   = "stdin-secret-path"
 		plainOutput  = "-----BEGIN OPENSSH PRIVATE KEY-----"
 	)
-	commandPayload := mustEncodeAuditPayload(t, plainCommand, payloadCodecZstd)
-	inputPayload := mustEncodeAuditPayload(t, plainInput, payloadCodecZstd)
-	outputPayload := mustEncodeAuditPayload(t, plainOutput, payloadCodecZstd)
 
 	if _, err := raw.ExecContext(ctx, `
 INSERT INTO events(id, kind, client, agent, session_id, workspace, body, body_availability, created_at, source_hook)
@@ -57,38 +54,16 @@ VALUES(?, 'command_executed', 'cli', 'codex', ?, '/repo', '', 'available', ?, ''
 INSERT INTO command_audits(
   event_id, command_text, command_wrapper, command_name, input_text, output_text,
   input_truncated, output_truncated, input_original_bytes, output_original_bytes,
-  exit_code, failed, failure_reason,
-  command_codec, command_format_version, command_plaintext_bytes, command_encoded_bytes, command_sha256,
-  input_codec, input_format_version, input_plaintext_bytes, input_encoded_bytes, input_sha256,
-  output_codec, output_format_version, output_plaintext_bytes, output_encoded_bytes, output_sha256
+  exit_code, failed, failure_reason
 ) VALUES(
   ?, ?, '', 'cat', ?, ?,
   0, 0, ?, ?,
-  0, 0, 'none',
-  ?, ?, ?, ?, ?,
-  ?, ?, ?, ?, ?,
-  ?, ?, ?, ?, ?
+  0, 0, 'none'
 )`,
-		eventID, commandPayload.Bytes, inputPayload.Bytes, outputPayload.Bytes,
+		eventID, plainCommand, plainInput, plainOutput,
 		len(plainInput), len(plainOutput),
-		commandPayload.Codec, commandPayload.FormatVersion, commandPayload.PlaintextBytes, commandPayload.StoredBytes, commandPayload.SHA256,
-		inputPayload.Codec, inputPayload.FormatVersion, inputPayload.PlaintextBytes, inputPayload.StoredBytes, inputPayload.SHA256,
-		outputPayload.Codec, outputPayload.FormatVersion, outputPayload.PlaintextBytes, outputPayload.StoredBytes, outputPayload.SHA256,
 	); err != nil {
 		t.Fatalf("insert command audit: %v", err)
-	}
-
-	// Sanity: the physical column holds a zstd frame, not the plaintext a
-	// reader would want. Compare exactly rather than by substring — zstd stores
-	// a short incompressible input as a raw literal block, so the plaintext is
-	// still visible inside the frame and a substring check would report "not
-	// encoded" on a correctly encoded payload.
-	var storedCommand []byte
-	if err := raw.QueryRowContext(ctx, `SELECT command_text FROM command_audits WHERE event_id=?`, eventID).Scan(&storedCommand); err != nil {
-		t.Fatalf("read physical command_text: %v", err)
-	}
-	if string(storedCommand) == plainCommand {
-		t.Fatalf("physical command_text still plaintext; test setup is not encoded")
 	}
 
 	datasource := NewEventDatasource(database)
@@ -142,7 +117,7 @@ INSERT INTO command_audits(
 		}
 	})
 
-	t.Run("command-only hydration supplies list/MCP body plaintext under non-identity codec", func(t *testing.T) {
+	t.Run("command-only hydration supplies list/MCP body plaintext", func(t *testing.T) {
 		// Re-list so this subtest starts from metadata-only state.
 		// CLI list/search/tail/context and MCP list/search/context all use
 		// CommandOnlyPayload() so eventBodyForDisplay / MCP body can show the
@@ -178,15 +153,9 @@ INSERT INTO command_audits(
 		if hydrated.Input() != "" || hydrated.Output() != "" {
 			t.Fatalf("command-only hydration filled I/O: input=%q output=%q", hydrated.Input(), hydrated.Output())
 		}
-		// Encoded physical bytes must never be returned as the command line.
-		if strings.Contains(hydrated.Command(), string(storedCommand)) {
-			t.Fatalf("hydrated command contains physical encoded bytes")
-		}
 		if strings.TrimSpace(hydrated.Command()) == "" {
 			t.Fatal("unexpected empty command after hydration")
 		}
-		// List body surface uses audit.Command() after hydration; zstd must
-		// decode to the full line, not leave the command_name basename.
 		if strings.TrimSpace(fresh[0].Body()) != "" {
 			t.Fatalf("events.body should stay empty after #1675, got %q", fresh[0].Body())
 		}
@@ -202,11 +171,11 @@ func TestHydrateCommandAuditsQueryCount(t *testing.T) {
 	const pageSize = 25
 	const sessionID = "session-qcount"
 
-	t.Run("codec shape emits O(1) queries for N events", func(t *testing.T) {
+	t.Run("plaintext shape emits O(1) queries for N events", func(t *testing.T) {
 		t.Parallel()
 
 		ctx := context.Background()
-		path := filepath.Join(t.TempDir(), "qcount-codec.db")
+		path := filepath.Join(t.TempDir(), "qcount-plaintext.db")
 		database := NewDatabase(path, os.DirFS(filepath.Join("..", "..", "schema", "sqlite", "migrations")))
 		if err := database.initialize(ctx); err != nil {
 			t.Fatalf("initialize: %v", err)
@@ -217,9 +186,8 @@ func TestHydrateCommandAuditsQueryCount(t *testing.T) {
 		}
 		defer database.release(raw)
 
-		commandPayload := mustEncodeAuditPayload(t, "ls -la", payloadCodecZstd)
 		for i := range pageSize {
-			eventID := fmt.Sprintf("evt-qcount-codec-%02d", i)
+			eventID := fmt.Sprintf("evt-qcount-plain-%02d", i)
 			if _, err := raw.ExecContext(ctx, `
 INSERT INTO events(id, kind, client, agent, session_id, workspace, body, body_availability, created_at, source_hook)
 VALUES(?, 'command_executed', 'cli', 'claude', ?, '/repo', '', 'available', ?, '')`,
@@ -232,20 +200,13 @@ VALUES(?, 'command_executed', 'cli', 'claude', ?, '/repo', '', 'available', ?, '
 INSERT INTO command_audits(
   event_id, command_text, command_wrapper, command_name, input_text, output_text,
   input_truncated, output_truncated, input_original_bytes, output_original_bytes,
-  exit_code, failed, failure_reason,
-  command_codec, command_format_version, command_plaintext_bytes, command_encoded_bytes, command_sha256,
-  input_codec, input_format_version, input_plaintext_bytes, input_encoded_bytes, input_sha256,
-  output_codec, output_format_version, output_plaintext_bytes, output_encoded_bytes, output_sha256
+  exit_code, failed, failure_reason
 ) VALUES(
   ?, ?, '', 'ls', '', '',
   0, 0, 0, 0,
-  0, 0, 'none',
-  ?, ?, ?, ?, ?,
-  NULL, NULL, NULL, NULL, NULL,
-  NULL, NULL, NULL, NULL, NULL
+  0, 0, 'none'
 )`,
-				eventID, commandPayload.Bytes,
-				commandPayload.Codec, commandPayload.FormatVersion, commandPayload.PlaintextBytes, commandPayload.StoredBytes, commandPayload.SHA256,
+				eventID, "ls -la",
 			); err != nil {
 				t.Fatalf("insert command_audit %d: %v", i, err)
 			}
@@ -280,7 +241,7 @@ INSERT INTO command_audits(
 			t.Errorf("second query kind = %q, want %q", queryKinds[1], "payload")
 		}
 
-		// Correctness: all events must have decoded command payloads.
+		// Correctness: all events must have stored command payloads.
 		for i, ev := range listed {
 			audit, ok := ev.CommandAudit().Value()
 			if !ok || audit == nil {
@@ -308,8 +269,6 @@ INSERT INTO command_audits(
 		}
 		defer database.release(raw)
 
-		// Simulate a legacy (pre-codec) store: command_text is plain-text and
-		// all codec metadata columns are NULL.
 		for i := range pageSize {
 			eventID := fmt.Sprintf("evt-qcount-legacy-%02d", i)
 			if _, err := raw.ExecContext(ctx, `
@@ -324,14 +283,8 @@ VALUES(?, 'command_executed', 'cli', 'claude', ?, '/repo', '', 'available', ?, '
 INSERT INTO command_audits(
   event_id, command_text, command_wrapper, command_name, input_text, output_text,
   input_truncated, output_truncated, input_original_bytes, output_original_bytes,
-  exit_code, failed, failure_reason,
-  command_codec, command_format_version, command_plaintext_bytes, command_encoded_bytes, command_sha256,
-  input_codec, input_format_version, input_plaintext_bytes, input_encoded_bytes, input_sha256,
-  output_codec, output_format_version, output_plaintext_bytes, output_encoded_bytes, output_sha256
-) VALUES(?, 'ls -la', '', 'ls', '', '', 0, 0, 0, 0, 0, 0, 'none',
-  NULL, NULL, NULL, NULL, NULL,
-  NULL, NULL, NULL, NULL, NULL,
-  NULL, NULL, NULL, NULL, NULL)`,
+  exit_code, failed, failure_reason
+) VALUES(?, 'ls -la', '', 'ls', '', '', 0, 0, 0, 0, 0, 0, 'none')`,
 				eventID,
 			); err != nil {
 				t.Fatalf("insert command_audit %d: %v", i, err)
@@ -361,13 +314,4 @@ INSERT INTO command_audits(
 			t.Errorf("expected 2 queries (schema + payload), got %d: %v", len(queryKinds), queryKinds)
 		}
 	})
-}
-
-func mustEncodeAuditPayload(t *testing.T, plaintext, codec string) encodedPayload {
-	t.Helper()
-	payload, err := encodePayload([]byte(plaintext), codec)
-	if err != nil {
-		t.Fatalf("encodePayload(%q): %v", codec, err)
-	}
-	return payload
 }

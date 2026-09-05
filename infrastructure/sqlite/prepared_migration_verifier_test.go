@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestPreparedMigrationVerifierAcceptsSchemaChangeAndLogicalCodecEquivalence(t *testing.T) {
+func TestPreparedMigrationVerifierAcceptsSchemaChangeAndLogicalEquivalence(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	source := dir + "/source.db"
@@ -39,25 +39,6 @@ func TestPreparedMigrationVerifierAcceptsSchemaChangeAndLogicalCodecEquivalence(
 	if err = NewStoreManagementDatasource(NewDatabase(candidate, preparedMigrations(t))).InitializeAuthorized(ctx); err != nil {
 		t.Fatal(err)
 	}
-	encoded, err := encodePayload([]byte("hello"), payloadCodecZstd)
-	if err != nil {
-		t.Fatal(err)
-	}
-	candidateDB, err := sql.Open("sqlite", directSQLiteRWDSN(candidate))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = candidateDB.ExecContext(ctx, `UPDATE events SET body=?,body_codec=?,body_format_version=?,body_plaintext_bytes=?,body_encoded_bytes=?,body_sha256=? WHERE id='e-1'`, encoded.Bytes, encoded.Codec, encoded.FormatVersion, encoded.PlaintextBytes, encoded.StoredBytes, encoded.SHA256); err != nil {
-		t.Fatal(err)
-	}
-	// body_stored_bytes is canonical pre-codec provenance, not v36 codec
-	// metadata. Preserve its source value while varying only codec storage.
-	if _, err = candidateDB.ExecContext(ctx, `UPDATE events SET body_stored_bytes=5 WHERE id='e-1'`); err != nil {
-		t.Fatal(err)
-	}
-	if err = candidateDB.Close(); err != nil {
-		t.Fatal(err)
-	}
 	verifier := PreparedMigrationVerifier{Migrations: preparedMigrations(t)}
 	evidence, err := verifier.VerifyPair(ctx, source, candidate, plan.Digest)
 	if err != nil {
@@ -67,9 +48,9 @@ func TestPreparedMigrationVerifierAcceptsSchemaChangeAndLogicalCodecEquivalence(
 		t.Fatalf("evidence = %+v", evidence)
 	}
 	if err = verifier.VerifyRollbackTarget(ctx, candidate, evidence.Canonical); err != nil {
-		t.Fatalf("VerifyRollbackTarget() rejected canonical-equivalent codec change: %v", err)
+		t.Fatalf("VerifyRollbackTarget() rejected canonical-equivalent schema change: %v", err)
 	}
-	candidateDB, err = sql.Open("sqlite", directSQLiteRWDSN(candidate))
+	candidateDB, err := sql.Open("sqlite", directSQLiteRWDSN(candidate))
 	if err != nil {
 		t.Fatal(err)
 	}

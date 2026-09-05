@@ -88,7 +88,7 @@ func TestInspectStoreGrowthBudgetSeparatesRetiredIndexFromProjection(t *testing.
 		t.Fatalf("legacy fix = %q", legacy.FixCommand)
 	}
 	// Retired family bytes belong on legacy-search-index, not store-size.
-	if strings.Contains(checks[0].Message, "9.0 GiB") {
+	if strings.Contains(checks[0].Message, "event_payload=9.0 GiB") {
 		t.Fatalf("store-size message = %q, absorbed retired index bytes", checks[0].Message)
 	}
 }

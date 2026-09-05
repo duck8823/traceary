@@ -47,22 +47,14 @@ func (p *panicLargeStoreCapacityInspector) InspectCapacity(context.Context) (app
 	panic("capacity inspector must not run for large store")
 }
 
-type panicLargeStorePayloadCodecInspector struct{ calls int }
-
-func (p *panicLargeStorePayloadCodecInspector) InspectPayloadCodec(context.Context) (application.PayloadCodecState, error) {
-	p.calls++
-	panic("payload codec inspector must not run for large store")
-}
-
 // newLargeStoreDoctorRootCLI builds a RootCLI wired the same way production
-// doctor runs are, plus store/event/capacity/codec stubs that panic or count
+// doctor runs are, plus store/event/capacity stubs that panic or count
 // calls so tests can assert the bounded path never touches the store.
-func newLargeStoreDoctorRootCLI(store *trackingStoreStub, events *trackingEventStub, capacity *panicLargeStoreCapacityInspector, codec *panicLargeStorePayloadCodecInspector) *RootCLI {
+func newLargeStoreDoctorRootCLI(store *trackingStoreStub, events *trackingEventStub, capacity *panicLargeStoreCapacityInspector) *RootCLI {
 	return NewRootCLI(
 		WithStoreManagement(store),
 		WithEvent(events),
 		WithCapacityInspector(capacity),
-		WithPayloadCodecInspector(codec),
 		WithHooksOrchestrator(filesystem.NewHooksOrchestrator(map[string]application.HooksClientHandler{
 			"claude":      filesystem.NewClaudeHooksHandler(),
 			"codex":       filesystem.NewCodexHooksHandlerWithHomeDirFunc(func() (string, error) { return CallUserHomeDirFunc() }),
@@ -175,8 +167,7 @@ func TestDoctorLargeStore_HostPackageIdentitySurvivesEarlyReturn(t *testing.T) {
 			store := &trackingStoreStub{}
 			events := &trackingEventStub{}
 			capacity := &panicLargeStoreCapacityInspector{}
-			codec := &panicLargeStorePayloadCodecInspector{}
-			rootCmd := newLargeStoreDoctorRootCLI(store, events, capacity, codec).Command()
+			rootCmd := newLargeStoreDoctorRootCLI(store, events, capacity).Command()
 			rootCmd.Version = "0.39.0"
 			stdout := &bytes.Buffer{}
 			rootCmd.SetOut(stdout)
@@ -224,8 +215,7 @@ func TestDoctorLargeStore_FixStaysNonDestructive(t *testing.T) {
 	store := &trackingStoreStub{}
 	events := &trackingEventStub{}
 	capacity := &panicLargeStoreCapacityInspector{}
-	codec := &panicLargeStorePayloadCodecInspector{}
-	rootCmd := newLargeStoreDoctorRootCLI(store, events, capacity, codec).Command()
+	rootCmd := newLargeStoreDoctorRootCLI(store, events, capacity).Command()
 	rootCmd.Version = "0.39.0"
 	stdout := &bytes.Buffer{}
 	rootCmd.SetOut(stdout)
@@ -293,8 +283,7 @@ func TestDoctorLargeStore_NativeGrokCheckSurvives(t *testing.T) {
 	store := &trackingStoreStub{}
 	events := &trackingEventStub{}
 	capacity := &panicLargeStoreCapacityInspector{}
-	codec := &panicLargeStorePayloadCodecInspector{}
-	rootCmd := newLargeStoreDoctorRootCLI(store, events, capacity, codec).Command()
+	rootCmd := newLargeStoreDoctorRootCLI(store, events, capacity).Command()
 	rootCmd.Version = "0.39.0"
 	stdout := &bytes.Buffer{}
 	rootCmd.SetOut(stdout)
@@ -379,8 +368,7 @@ func TestDoctorLargeStore_NativeKimiCheckSurvives(t *testing.T) {
 	store := &trackingStoreStub{}
 	events := &trackingEventStub{}
 	capacity := &panicLargeStoreCapacityInspector{}
-	codec := &panicLargeStorePayloadCodecInspector{}
-	rootCmd := newLargeStoreDoctorRootCLI(store, events, capacity, codec).Command()
+	rootCmd := newLargeStoreDoctorRootCLI(store, events, capacity).Command()
 	rootCmd.Version = "0.39.0"
 	stdout := &bytes.Buffer{}
 	rootCmd.SetOut(stdout)
@@ -423,8 +411,7 @@ func TestDoctorLargeStore_BoundedSetStaysBounded(t *testing.T) {
 	store := &trackingStoreStub{}
 	events := &trackingEventStub{}
 	capacity := &panicLargeStoreCapacityInspector{}
-	codec := &panicLargeStorePayloadCodecInspector{}
-	rootCmd := newLargeStoreDoctorRootCLI(store, events, capacity, codec).Command()
+	rootCmd := newLargeStoreDoctorRootCLI(store, events, capacity).Command()
 	rootCmd.Version = "0.39.0"
 	stdout := &bytes.Buffer{}
 	rootCmd.SetOut(stdout)

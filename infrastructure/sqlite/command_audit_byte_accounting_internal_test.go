@@ -51,29 +51,6 @@ func TestRecentCommandPreviewsStoredBytesPreferPlaintextOnCompressedCorpus(t *te
 		) VALUES (?, ?, '', '', 0, 0, 0, 0, 0, 0)`, event.EventID().String(), commandPlain); err != nil {
 		t.Fatalf("insert audit: %v", err)
 	}
-	encoded, err := encodePayload([]byte(commandPlain), payloadCodecZstd)
-	if err != nil {
-		t.Fatalf("encode zstd command: %v", err)
-	}
-	if encoded.StoredBytes >= encoded.PlaintextBytes {
-		t.Fatalf("zstd did not shrink command (%d → %d); test cannot detect length confusion",
-			encoded.PlaintextBytes, encoded.StoredBytes)
-	}
-	if _, err := db.Exec(`
-		UPDATE command_audits
-		   SET command_text = ?,
-		       command_codec = ?,
-		       command_format_version = ?,
-		       command_plaintext_bytes = ?,
-		       command_encoded_bytes = ?,
-		       command_sha256 = ?
-		 WHERE event_id = ?`,
-		encoded.Bytes, encoded.Codec, encoded.FormatVersion,
-		encoded.PlaintextBytes, encoded.StoredBytes, encoded.SHA256,
-		event.EventID().String(),
-	); err != nil {
-		t.Fatalf("compress command_text: %v", err)
-	}
 
 	const previewRunes = 64
 	got, err := ds.ListRecentCommandPreviews(ctx, types.SessionID("session-preview"), 10, previewRunes)
@@ -84,14 +61,8 @@ func TestRecentCommandPreviewsStoredBytesPreferPlaintextOnCompressedCorpus(t *te
 		t.Fatalf("previews = %d, want 1", len(got))
 	}
 	if got[0].StoredBytes() != len(commandPlain) {
-		t.Fatalf("stored bytes = %d, want plaintext %d (compressed physical size is %d)",
-			got[0].StoredBytes(), len(commandPlain), encoded.StoredBytes)
+		t.Fatalf("stored bytes = %d, want plaintext %d", got[0].StoredBytes(), len(commandPlain))
 	}
-	if got[0].StoredBytes() == int(encoded.StoredBytes) {
-		t.Fatalf("stored bytes equals compressed size %d; plaintext preference is missing", encoded.StoredBytes)
-	}
-	// After removing the dead substr(command_text) column, the preview body is
-	// still the codec-decoded plaintext (bounded), not empty and not zstd bytes.
 	wantBody := string([]rune(commandPlain)[:previewRunes])
 	if diff := cmp.Diff(wantBody, got[0].Body()); diff != "" {
 		t.Fatalf("preview body mismatch (-want +got):\n%s", diff)
@@ -102,53 +73,50 @@ func TestRecentCommandPreviewsStoredBytesPreferPlaintextOnCompressedCorpus(t *te
 // terms) and a logical decoded figure that prefers *_plaintext_bytes. Against a
 // compressed audit corpus the two must diverge and the logical figure must
 // match the pre-codec plaintext sizes.
-func TestAuditSourceSizingPrefersPlaintextBytes(t *testing.T) {
+func TestAuditSourceSizingMatchesStoredPlaintext(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	db, _ := openPayloadEncodeFixture(t)
-	defer closePayloadEncodeFixture(t, db)
+	path := filepath.Join(t.TempDir(), "audit-size.db")
+	database := NewDatabase(path, preparedMigrations(t))
+	if err := NewStoreManagementDatasource(database).Initialize(ctx); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+	db, err := sql.Open("sqlite", directSQLiteRWDSN(path))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer func() { _ = db.Close() }()
 
 	const id = "proj-size"
 	command := compressibleBody("proj-cmd")
 	input := compressibleBody("proj-in")
 	output := compressibleBody("proj-out")
-	insertPlaintextEvent(t, db, eventSeed{ID: id, Kind: "command_executed", Body: ""})
-	insertPlaintextAudit(t, db, auditSeed{
-		EventID: id, Command: command, Input: input, Output: output,
-	})
-	reencodeAuditFieldToZstd(t, db, id, "command", command)
-	reencodeAuditFieldToZstd(t, db, id, "input", input)
-	reencodeAuditFieldToZstd(t, db, id, "output", output)
+	if _, err := db.Exec(`
+INSERT INTO events(id, kind, client, agent, session_id, workspace, body, created_at)
+VALUES(?, 'command_executed', 'cli', 'codex', 'session', 'ws', '', ?)`,
+		id, time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC).Format(time.RFC3339Nano)); err != nil {
+		t.Fatalf("insert event: %v", err)
+	}
+	if _, err := db.Exec(`
+INSERT INTO command_audits(event_id, command_text, input_text, output_text, input_truncated, output_truncated, input_original_bytes, output_original_bytes, exit_code, failed)
+VALUES(?, ?, ?, ?, 0, 0, 0, 0, 0, 0)`, id, command, input, output); err != nil {
+		t.Fatalf("insert audit: %v", err)
+	}
 
-	// Mirror the production SELECT list used by SelectSnapshot's source phase.
-	var stored, decoded int64
+	var stored int64
 	if err := db.QueryRowContext(ctx, `
 		SELECT COALESCE(length(CAST(e.body AS BLOB)),0)
 		     + COALESCE(length(CAST(a.command_text AS BLOB)),0)
 		     + COALESCE(length(CAST(a.input_text AS BLOB)),0)
-		     + COALESCE(length(CAST(a.output_text AS BLOB)),0),
-		       CASE WHEN e.body_availability='available'
-		            THEN COALESCE(e.body_plaintext_bytes,e.body_stored_bytes,length(CAST(e.body AS BLOB)),0)
-		            ELSE 0 END
-		     + COALESCE(a.command_plaintext_bytes,length(CAST(a.command_text AS BLOB)),0)
-		     + COALESCE(a.input_plaintext_bytes,length(CAST(a.input_text AS BLOB)),0)
-		     + COALESCE(a.output_plaintext_bytes,length(CAST(a.output_text AS BLOB)),0)
+		     + COALESCE(length(CAST(a.output_text AS BLOB)),0)
 		  FROM events e
 		  LEFT JOIN command_audits a ON a.event_id = e.id
-		 WHERE e.id = ?`, id).Scan(&stored, &decoded); err != nil {
+		 WHERE e.id = ?`, id).Scan(&stored); err != nil {
 		t.Fatalf("size query: %v", err)
 	}
-
-	wantDecoded := int64(len(command) + len(input) + len(output))
-	if diff := cmp.Diff(wantDecoded, decoded); diff != "" {
-		t.Fatalf("decoded bytes mismatch (-want +got):\n%s", diff)
-	}
-	if stored >= decoded {
-		t.Fatalf("stored=%d decoded=%d; compressed corpus must shrink the physical figure", stored, decoded)
-	}
-	// Guard against the regression that made length() alone the logical figure.
-	if decoded == stored {
-		t.Fatalf("decoded equals stored (%d); plaintext_bytes preference is not applied", decoded)
+	want := int64(len(command) + len(input) + len(output))
+	if diff := cmp.Diff(want, stored); diff != "" {
+		t.Fatalf("stored bytes mismatch (-want +got):\n%s", diff)
 	}
 }
 

@@ -14,10 +14,8 @@ func TestEventPreviewQuery_SelectsMetadataWithoutCompressedCommandText(t *testin
 	if !strings.Contains(normalized, "left join command_audits a on a.event_id = selected.id") {
 		t.Fatalf("preview query must join command_audits for retained command extent: %s", normalized)
 	}
-	// After payload compression, length(command_text) is the physical size.
-	// StoredBytes must prefer the codec plaintext figure.
-	if !strings.Contains(normalized, "coalesce(a.command_plaintext_bytes, length(cast(a.command_text as blob)), selected.body_stored_bytes)") {
-		t.Fatalf("preview query must prefer command_plaintext_bytes for stored extent: %s", normalized)
+	if !strings.Contains(normalized, "coalesce(length(cast(a.command_text as blob)), selected.body_stored_bytes)") {
+		t.Fatalf("preview query must report stored command length: %s", normalized)
 	}
 	// The outer SELECT must not project a body/command prefix: codec hydration
 	// rebuilds the preview text in Go. Inspect only the result list.

@@ -160,7 +160,7 @@ func TestVerifyPairRejectsSourceHookAndCreatedAtNormDrift(t *testing.T) {
 	}
 }
 
-func TestVerifyPairRejectsUndecodableAvailableCandidate(t *testing.T) {
+func TestVerifyPairRejectsRewrittenAvailableCandidate(t *testing.T) {
 	t.Parallel()
 	dbPath, events, store := prepareDiscardGCFixture(t)
 	_ = store
@@ -177,21 +177,14 @@ func TestVerifyPairRejectsUndecodableAvailableCandidate(t *testing.T) {
 		t.Fatal(err)
 	}
 	db := openRetentionDB(t, candidate)
-	if _, err := db.Exec(`
-		UPDATE events
-		   SET body_codec = 'zstd',
-		       body_format_version = 1,
-		       body_plaintext_bytes = 12,
-		       body_encoded_bytes = length(CAST(body AS BLOB)),
-		       body_sha256 = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
-		 WHERE id = 'event-codec'`); err != nil {
+	if _, err := db.Exec(`UPDATE events SET body = 'rewritten-available-body' WHERE id = 'event-codec'`); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
 	if err := (sqlite.SQLiteCompactionBuilder{}).VerifyPair(context.Background(), dbPath, candidate); err == nil {
-		t.Fatal("VerifyPair() error = nil, want rejection of an undecodable available body")
+		t.Fatal("VerifyPair() error = nil, want rejection of a rewritten available body")
 	}
 }
 
@@ -568,8 +561,6 @@ func TestCompactCoverLeavingPreCutoffLeftoverStillFails(t *testing.T) {
 	}
 }
 
-const emptyIdentitySHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-
 func TestCompactClearsDuplicatedCommandExecutedBodiesAndKeepsLogOnlyBodies(t *testing.T) {
 	t.Parallel()
 	dbPath, events, store := prepareDiscardGCFixture(t)
@@ -613,25 +604,23 @@ func TestCompactClearsDuplicatedCommandExecutedBodiesAndKeepsLogOnlyBodies(t *te
 	}
 }
 
-func TestCompactReportsStoredBlobBytesNotPlaintext(t *testing.T) {
+func TestCompactReportsStoredBlobBytes(t *testing.T) {
 	t.Parallel()
 	dbPath, events, store := prepareDiscardGCFixture(t)
 	_ = store
 	plain := strings.Repeat("aaaaaaaaaa", 400)
-	saveHistoricalCommandExecuted(t, events, "cmd-zstd", plain, true)
+	saveHistoricalCommandExecuted(t, events, "cmd-plain", plain, true)
 
 	db := openRetentionDB(t, dbPath)
-	var stored, plaintext int64
-	if err := db.QueryRow(`
-SELECT length(CAST(body AS BLOB)), COALESCE(body_plaintext_bytes, length(CAST(body AS BLOB)))
-  FROM events WHERE id = 'cmd-zstd'`).Scan(&stored, &plaintext); err != nil {
+	var stored int64
+	if err := db.QueryRow(`SELECT length(CAST(body AS BLOB)) FROM events WHERE id = 'cmd-plain'`).Scan(&stored); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if stored <= 0 || plaintext <= stored {
-		t.Fatalf("fixture stored=%d plaintext=%d, want compressed stored < plaintext", stored, plaintext)
+	if stored != int64(len(plain)) {
+		t.Fatalf("fixture stored=%d, want plaintext length %d", stored, len(plain))
 	}
 
 	got, err := newTestCompactionUsecase(t, dbPath).Compact(context.Background(), application.CompactInput{
@@ -643,7 +632,7 @@ SELECT length(CAST(body AS BLOB)), COALESCE(body_plaintext_bytes, length(CAST(bo
 		t.Fatalf("Compact() error = %v", err)
 	}
 	if got.ReleasedCommandBodyBytes != stored {
-		t.Fatalf("ReleasedCommandBodyBytes = %d, want stored blob %d (not plaintext %d)", got.ReleasedCommandBodyBytes, stored, plaintext)
+		t.Fatalf("ReleasedCommandBodyBytes = %d, want stored blob %d", got.ReleasedCommandBodyBytes, stored)
 	}
 }
 
@@ -787,29 +776,18 @@ func dropRetiredSearchFamily(t *testing.T, db *sql.DB) {
 
 func emptyCommandExecutedBody(t *testing.T, db *sql.DB, id string) {
 	t.Helper()
-	if _, err := db.Exec(`
-		UPDATE events
-		   SET body = '',
-		       body_codec = 'identity',
-		       body_format_version = 1,
-		       body_plaintext_bytes = 0,
-		       body_encoded_bytes = 0,
-		       body_sha256 = ?
-		 WHERE id = ?`, emptyIdentitySHA256, id); err != nil {
+	if _, err := db.Exec(`UPDATE events SET body = '' WHERE id = ?`, id); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func assertClearedCommandBody(t *testing.T, db *sql.DB, id string) {
 	t.Helper()
-	var body, codec, sha string
-	var plaintext, encoded int64
-	if err := db.QueryRow(`
-SELECT CAST(body AS TEXT), body_codec, body_plaintext_bytes, body_encoded_bytes, body_sha256
-  FROM events WHERE id = ?`, id).Scan(&body, &codec, &plaintext, &encoded, &sha); err != nil {
+	var body string
+	if err := db.QueryRow(`SELECT CAST(body AS TEXT) FROM events WHERE id = ?`, id).Scan(&body); err != nil {
 		t.Fatal(err)
 	}
-	if body != "" || codec != "identity" || plaintext != 0 || encoded != 0 || sha != emptyIdentitySHA256 {
-		t.Fatalf("cleared body = body=%q codec=%s plain=%d enc=%d sha=%s", body, codec, plaintext, encoded, sha)
+	if body != "" {
+		t.Fatalf("cleared body = %q, want empty", body)
 	}
 }

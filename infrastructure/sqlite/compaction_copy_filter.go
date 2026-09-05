@@ -89,12 +89,6 @@ func applyCopyFilters(ctx context.Context, work string, filter application.Compa
 		}
 	}
 
-	if err := encodeAvailableEventBodies(ctx, db); err != nil {
-		return err
-	}
-	if err := encodeCommandAuditPayloadsStep(ctx, db, filter); err != nil {
-		return err
-	}
 	if _, err := db.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
 		_ = err
 	}
@@ -112,74 +106,6 @@ func dropLegacySearchFamilyOn(ctx context.Context, db *sql.DB) error {
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit work-copy search drop: %w", err)
-	}
-	return nil
-}
-
-func encodeAvailableEventBodies(ctx context.Context, db *sql.DB) error {
-	hasCodec, err := databaseColumnExists(ctx, db, "events", "body_codec")
-	if err != nil {
-		return err
-	}
-	if !hasCodec {
-		return nil
-	}
-	rows, err := db.QueryContext(ctx, `
-		SELECT id, body, body_codec, body_format_version, body_plaintext_bytes, body_encoded_bytes, body_sha256
-		  FROM events
-		 WHERE body_availability = 'available'
-		   AND body IS NOT NULL`)
-	if err != nil {
-		return fmt.Errorf("select bodies to encode: %w", err)
-	}
-	defer func() { _ = rows.Close() }()
-	type update struct {
-		id      string
-		encoded encodedPayload
-	}
-	var updates []update
-	for rows.Next() {
-		var id string
-		var row payloadRow
-		if err := rows.Scan(append([]any{&id}, row.scanDestinations()...)...); err != nil {
-			return fmt.Errorf("scan body to encode: %w", err)
-		}
-		plain, err := row.decode(maxDecodedPayloadBytes)
-		if err != nil {
-			return fmt.Errorf("decode body %s for encode: %w", id, err)
-		}
-		encoded, err := encodeCanonicalPayload(plain, true)
-		if err != nil {
-			return fmt.Errorf("encode body %s: %w", id, err)
-		}
-		if row.Codec.Valid && row.Codec.String == encoded.Codec && row.SHA256.Valid && row.SHA256.String == encoded.SHA256 && int64(len(row.Stored)) == encoded.StoredBytes {
-			continue
-		}
-		updates = append(updates, update{id: id, encoded: encoded})
-	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("iterate bodies to encode: %w", err)
-	}
-	for _, item := range updates {
-		if _, err := db.ExecContext(ctx, `
-			UPDATE events
-			   SET body = ?,
-			       body_codec = ?,
-			       body_format_version = ?,
-			       body_plaintext_bytes = ?,
-			       body_encoded_bytes = ?,
-			       body_sha256 = ?
-			 WHERE id = ?`,
-			storedBodyArg(item.encoded),
-			item.encoded.Codec,
-			item.encoded.FormatVersion,
-			item.encoded.PlaintextBytes,
-			item.encoded.StoredBytes,
-			item.encoded.SHA256,
-			item.id,
-		); err != nil {
-			return fmt.Errorf("write encoded body %s: %w", item.id, err)
-		}
 	}
 	return nil
 }
@@ -235,17 +161,11 @@ SELECT COUNT(*), COALESCE(SUM(length(CAST(body AS BLOB))), 0)
 	return gate, nil
 }
 
-func duplicatedCommandExecutedBodyPredicate(hasCodec bool) string {
-	predicate := `
+func duplicatedCommandExecutedBodyPredicate() string {
+	return `
 kind = 'command_executed'
 AND EXISTS (SELECT 1 FROM command_audits a WHERE a.event_id = events.id)
-AND (length(CAST(body AS BLOB)) > 0`
-	if hasCodec {
-		predicate += `
-	OR COALESCE(body_plaintext_bytes, 0) > 0
-	OR COALESCE(body_encoded_bytes, 0) > 0`
-	}
-	return predicate + `)`
+AND length(CAST(body AS BLOB)) > 0`
 }
 
 // InspectReclaimableBytes is a bounded metadata-only estimate of bytes
@@ -320,7 +240,7 @@ func (SQLiteCompactionBuilder) InspectCommandBodyReclaim(ctx context.Context, so
 }
 
 func measureDuplicatedCommandExecutedBodies(ctx context.Context, db *sql.DB) (application.CommandBodyReclaim, error) {
-	ready, hasCodec, err := commandBodyReclaimReady(ctx, db)
+	ready, err := commandBodyReclaimReady(ctx, db)
 	if err != nil || !ready {
 		return application.CommandBodyReclaim{}, err
 	}
@@ -328,14 +248,14 @@ func measureDuplicatedCommandExecutedBodies(ctx context.Context, db *sql.DB) (ap
 	if err := db.QueryRowContext(ctx, `
 SELECT COUNT(*), COALESCE(SUM(length(CAST(body AS BLOB))), 0)
   FROM events
- WHERE `+duplicatedCommandExecutedBodyPredicate(hasCodec)).Scan(&reclaim.Rows, &reclaim.Bytes); err != nil {
+ WHERE `+duplicatedCommandExecutedBodyPredicate()).Scan(&reclaim.Rows, &reclaim.Bytes); err != nil {
 		return application.CommandBodyReclaim{}, fmt.Errorf("measure duplicated command_executed bodies: %w", err)
 	}
 	return reclaim, nil
 }
 
 func clearDuplicatedCommandExecutedBodies(ctx context.Context, db *sql.DB) (application.CommandBodyReclaim, error) {
-	ready, hasCodec, err := commandBodyReclaimReady(ctx, db)
+	ready, err := commandBodyReclaimReady(ctx, db)
 	if err != nil || !ready {
 		return application.CommandBodyReclaim{}, err
 	}
@@ -343,51 +263,22 @@ func clearDuplicatedCommandExecutedBodies(ctx context.Context, db *sql.DB) (appl
 	if err != nil || reclaim.Rows == 0 {
 		return reclaim, err
 	}
-	empty, err := encodePayload(nil, payloadCodecIdentity)
-	if err != nil {
-		return application.CommandBodyReclaim{}, fmt.Errorf("encode empty command_executed body: %w", err)
-	}
-	query := `UPDATE events SET body = ? WHERE ` + duplicatedCommandExecutedBodyPredicate(hasCodec)
-	args := []any{storedBodyArg(empty)}
-	if hasCodec {
-		query = `
-UPDATE events
-   SET body = ?,
-       body_codec = ?,
-       body_format_version = ?,
-       body_plaintext_bytes = ?,
-       body_encoded_bytes = ?,
-       body_sha256 = ?
- WHERE ` + duplicatedCommandExecutedBodyPredicate(hasCodec)
-		args = []any{
-			storedBodyArg(empty),
-			empty.Codec,
-			empty.FormatVersion,
-			empty.PlaintextBytes,
-			empty.StoredBytes,
-			empty.SHA256,
-		}
-	}
-	if _, err := db.ExecContext(ctx, query, args...); err != nil {
+	if _, err := db.ExecContext(ctx, `UPDATE events SET body = ? WHERE `+duplicatedCommandExecutedBodyPredicate(), ""); err != nil {
 		return application.CommandBodyReclaim{}, fmt.Errorf("clear duplicated command_executed bodies: %w", err)
 	}
 	return reclaim, nil
 }
 
-func commandBodyReclaimReady(ctx context.Context, db *sql.DB) (bool, bool, error) {
+func commandBodyReclaimReady(ctx context.Context, db *sql.DB) (bool, error) {
 	hasEvents, err := tableExists(ctx, db, "events")
 	if err != nil || !hasEvents {
-		return false, false, err
+		return false, err
 	}
 	hasAudits, err := tableExists(ctx, db, "command_audits")
 	if err != nil || !hasAudits {
-		return false, false, err
+		return false, err
 	}
-	hasCodec, err := databaseColumnExists(ctx, db, "events", "body_codec")
-	if err != nil {
-		return false, false, err
-	}
-	return true, hasCodec, nil
+	return true, nil
 }
 
 const unrefinedDiscardableSessionsQuery = `

@@ -54,7 +54,7 @@ func TestDropDedupeArchive_EmptyArchiveUpgrade(t *testing.T) {
 	if tablePresent(t, target, "event_content_dedupe_archive") {
 		t.Fatal("archive table survived v81")
 	}
-	assertMinimumReaderVersion(t, target, 37)
+	assertMinimumReaderVersion(t, target, 38)
 	assertSchemaMigrationSuffix(t, target, 81, "000081_drop_event_content_dedupe_archive.sql")
 	assertQuickCheckOK(t, target)
 	if got := eventCount(t, target); got != before {
@@ -97,7 +97,7 @@ func TestDropDedupeArchive_PopulatedRestore(t *testing.T) {
 	if tablePresent(t, target, "event_content_dedupe_archive") {
 		t.Fatal("archive table survived populated restore")
 	}
-	assertMinimumReaderVersion(t, target, 37)
+	assertMinimumReaderVersion(t, target, 38)
 	assertQuickCheckOK(t, target)
 	if got := eventCount(t, target); got != sourceCount+2 {
 		t.Fatalf("events count = %d, want source %d + 2", got, sourceCount)
@@ -361,7 +361,7 @@ func eventsRowDigestExcluding(t *testing.T, path string, skip []string) string {
 		t.Fatal(err)
 	}
 	defer func() { _ = db.Close() }()
-	rows, err := db.Query(`SELECT id, kind, body, COALESCE(body_codec, ''), COALESCE(body_sha256, '') FROM events ORDER BY id`)
+	rows, err := db.Query(`SELECT id, kind, body FROM events ORDER BY id`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -372,9 +372,9 @@ func eventsRowDigestExcluding(t *testing.T, path string, skip []string) string {
 	}
 	sum := sha256.New()
 	for rows.Next() {
-		var id, kind, codec, digest string
+		var id, kind string
 		var body []byte
-		if err := rows.Scan(&id, &kind, &body, &codec, &digest); err != nil {
+		if err := rows.Scan(&id, &kind, &body); err != nil {
 			t.Fatal(err)
 		}
 		if _, skipped := skipSet[id]; skipped {
@@ -383,8 +383,6 @@ func eventsRowDigestExcluding(t *testing.T, path string, skip []string) string {
 		_, _ = sum.Write([]byte(id))
 		_, _ = sum.Write([]byte(kind))
 		_, _ = sum.Write(body)
-		_, _ = sum.Write([]byte(codec))
-		_, _ = sum.Write([]byte(digest))
 	}
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)

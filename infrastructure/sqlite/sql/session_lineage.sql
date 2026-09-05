@@ -61,8 +61,7 @@ WITH RECURSIVE
       lei.kind AS latest_event_kind,
       COALESCE(
         NULLIF(e.body, ''),
-        CASE WHEN COALESCE(a.command_codec, 'identity') = 'identity'
-             THEN a.command_text END,
+        a.command_text,
         ''
       ) AS latest_event_body
     FROM latest_event_ids lei

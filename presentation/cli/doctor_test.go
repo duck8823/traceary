@@ -553,12 +553,10 @@ func TestRootCLI_DoctorLargeStoreReturnsBoundedMetadataOnlyReport(t *testing.T) 
 	store := &storeManagementUsecaseStub{}
 	events := &eventUsecaseStub{}
 	capacity := &panicCapacityInspector{}
-	codec := &panicPayloadCodecInspector{}
 	rootCmd := newTestRootCLI(
 		cli.WithStoreManagement(store),
 		cli.WithEvent(events),
 		cli.WithCapacityInspector(capacity),
-		cli.WithPayloadCodecInspector(codec),
 	).Command()
 	stdout := &bytes.Buffer{}
 	rootCmd.SetOut(stdout)
@@ -602,9 +600,6 @@ func TestRootCLI_DoctorLargeStoreReturnsBoundedMetadataOnlyReport(t *testing.T) 
 	if store.authorizedCalled {
 		t.Fatal("large-store doctor --fix called InitializeAuthorized with no pending versions")
 	}
-	if codec.calls != 0 {
-		t.Fatalf("large-store payload codec calls=%d, want zero", codec.calls)
-	}
 	check := statusByName(report, "large-store-diagnostics")
 	if check.Status != "warn" || !strings.Contains(check.Message, "were not read") {
 		t.Fatalf("large-store-diagnostics = %#v, want explicit metadata-only warning", check)
@@ -639,13 +634,11 @@ func TestRootCLI_DoctorLargeStoreReportsO1PageSignals(t *testing.T) {
 	store := &storeManagementUsecaseStub{}
 	events := &eventUsecaseStub{}
 	capacity := &panicCapacityInspector{}
-	codec := &panicPayloadCodecInspector{}
 	rootCmd := newTestRootCLI(
 		cli.WithStoreManagement(store),
 		cli.WithEvent(events),
 		cli.WithCapacityInspector(capacity),
 		cli.WithPageMetadataInspector(infra.NewPageMetadataInspector()),
-		cli.WithPayloadCodecInspector(codec),
 	).Command()
 	stdout := &bytes.Buffer{}
 	rootCmd.SetOut(stdout)

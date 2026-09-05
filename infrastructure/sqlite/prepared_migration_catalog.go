@@ -39,6 +39,11 @@ const (
 	// rows into events (version 81). Candidate events count equals source
 	// count plus archive rows; source event bytes are preserved.
 	ConservationLawRestoreDedupeArchive ConservationLawID = "restore_dedupe_archive"
+	// ConservationLawDecodePayloadsDropCodec decodes stored payloads to
+	// plaintext then drops codec metadata (version 82). events and
+	// command_audits are excluded from byte-digest (they grow by design)
+	// and covered by SemanticVerifierDropEncodedPayloads.
+	ConservationLawDecodePayloadsDropCodec ConservationLawID = "decode_payloads_drop_codec"
 )
 
 // SemanticVerifierID names a Layer-2 canonical-data transform verifier.
@@ -190,6 +195,10 @@ var preparedMigrationManifest = map[int64]migrationManifestEntry{
 	// (or refuses) then drops the table. Restore runs in Go before this SQL.
 	// Never applied at live open.
 	81: {81, "000081_drop_event_content_dedupe_archive.sql", "2882557910cfc4a91bbd5b8fceb2612a5932afbd8dafbc336a8414c9e661fee9", MigrationDataDependentOffline, ConservationLawRestoreDedupeArchive, SemanticVerifierDropDedupeArchive, "2324"},
+	// 82 decodes remaining encoded payloads on the candidate (Go beforeApply)
+	// then drops codec columns, rehearsal/backfill/compat tables, and
+	// maximum_payload_format. Never applied at live open.
+	82: {82, "000082_drop_encoded_payloads.sql", "c2f6db201021ab4f3456fe74fa171b9ebf73a839991052cc4b87211133fe4469", MigrationDataDependentOffline, ConservationLawDecodePayloadsDropCodec, SemanticVerifierDropEncodedPayloads, "2323"},
 }
 
 func conservationLawFor(version int64) ConservationLawID {

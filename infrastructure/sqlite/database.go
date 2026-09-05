@@ -30,11 +30,9 @@ const sqlTimestampNormalizeFunc = "ts_norm"
 // sqlTimestampValidFunc is the name of the SQLite scalar function that reports
 // whether a stored timestamp parses at all. See validTimestampSQLFunc.
 const sqlTimestampValidFunc = "ts_valid"
-const sqlPayloadDecodeFunc = "traceary_payload_decode"
 
 const (
-	currentReaderVersion        = 37
-	maximumPayloadFormatVersion = 1
+	currentReaderVersion = 38
 )
 
 var (
@@ -59,58 +57,12 @@ func init() {
 		normalizeTimestampSQLFunc,
 	)
 	sqlite.MustRegisterDeterministicScalarFunction(sqlTimestampValidFunc, 1, validTimestampSQLFunc)
-	sqlite.MustRegisterDeterministicScalarFunction(sqlPayloadDecodeFunc, 6, decodePayloadSQLFunc)
 	probe, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
 		panic("registered SQLite driver unavailable: " + err.Error())
 	}
 	coordinatedSQLiteDriver = probe.Driver()
 	_ = probe.Close()
-}
-
-// decodePayloadSQLFunc exposes the persisted payload contract to derived SQL
-// projections. This keeps restored trigger-based writers codec-aware without
-// teaching SQLite's JSON functions about compressed storage.
-func decodePayloadSQLFunc(_ *sqlite.FunctionContext, args []driver.Value) (driver.Value, error) {
-	if len(args) != 6 {
-		return nil, xerrors.Errorf("%s expects exactly six arguments, got %d", sqlPayloadDecodeFunc, len(args))
-	}
-	stored, err := driverBytes(args[0])
-	if err != nil {
-		return nil, err
-	}
-	row := payloadRow{Stored: stored}
-	if args[1] != nil {
-		row.Codec = sql.NullString{String: fmt.Sprint(args[1]), Valid: true}
-	}
-	if args[2] != nil {
-		row.FormatVersion = sql.NullInt64{Int64: args[2].(int64), Valid: true}
-	}
-	if args[3] != nil {
-		row.PlaintextBytes = sql.NullInt64{Int64: args[3].(int64), Valid: true}
-	}
-	if args[4] != nil {
-		row.StoredBytes = sql.NullInt64{Int64: args[4].(int64), Valid: true}
-	}
-	if args[5] != nil {
-		row.SHA256 = sql.NullString{String: fmt.Sprint(args[5]), Valid: true}
-	}
-	plain, err := row.decode(maxDecodedPayloadBytes)
-	if err != nil {
-		return nil, err
-	}
-	return string(plain), nil
-}
-
-func driverBytes(value driver.Value) ([]byte, error) {
-	switch typed := value.(type) {
-	case string:
-		return []byte(typed), nil
-	case []byte:
-		return typed, nil
-	default:
-		return nil, xerrors.Errorf("payload storage has unexpected SQL type %T", value)
-	}
 }
 
 // normalizeTimestampSQLFunc adapts normalizeRFC3339NanoForCompare to the
@@ -405,18 +357,15 @@ func VerifyStoreCompatibility(ctx context.Context, db *sql.DB) error {
 	if exists == 0 {
 		return nil
 	}
-	var minimumReader, maximumPayload int
-	if err := db.QueryRowContext(ctx, `SELECT minimum_reader_version, maximum_payload_format FROM store_format_state WHERE singleton = 1`).Scan(&minimumReader, &maximumPayload); err != nil {
+	var minimumReader int
+	if err := db.QueryRowContext(ctx, `SELECT minimum_reader_version FROM store_format_state WHERE singleton = 1`).Scan(&minimumReader); err != nil {
 		return xerrors.Errorf("read store format state: %w", err)
 	}
-	if minimumReader < 0 || maximumPayload < 0 {
+	if minimumReader < 0 {
 		return xerrors.New("store format state contains invalid negative versions")
 	}
 	if minimumReader > currentReaderVersion {
 		return xerrors.Errorf("store requires reader version %d; this reader supports %d", minimumReader, currentReaderVersion)
-	}
-	if maximumPayload > maximumPayloadFormatVersion {
-		return xerrors.Errorf("store payload format %d is unsupported; maximum supported is %d", maximumPayload, maximumPayloadFormatVersion)
 	}
 	return nil
 }

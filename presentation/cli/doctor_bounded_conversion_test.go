@@ -34,12 +34,10 @@ func TestDoctorLargeStoreReportsConsolidationConversion(t *testing.T) {
 	store := &storeManagementUsecaseStub{}
 	events := &eventUsecaseStub{}
 	capacity := &panicCapacityInspector{}
-	codec := &panicPayloadCodecInspector{}
 	rootCmd := newTestRootCLI(
 		cli.WithStoreManagement(store),
 		cli.WithEvent(events),
 		cli.WithCapacityInspector(capacity),
-		cli.WithPayloadCodecInspector(codec),
 		cli.WithConsolidationConversion(ledger),
 	).Command()
 	stdout := &bytes.Buffer{}
@@ -76,7 +74,6 @@ func TestDoctorLargeStoreReportsConsolidationConversion(t *testing.T) {
 		t.Fatalf("ConversionSince calls = %d, want 1 (must not scale with store size)", ledger.calls)
 	}
 	for _, name := range []string{
-		"payload-codec",
 		"memory-inbox-saturation",
 		"db-write",
 		"audit-reliability",

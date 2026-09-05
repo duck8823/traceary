@@ -15,27 +15,7 @@ import (
 // Compile-time interface assertion.
 var _ queryservice.CommandAuditPayloadQueryService = (*EventDatasource)(nil)
 
-// batchHydrateAuditCodecSQL fetches codec-managed payload columns for a page
-// of event IDs in one query. All three field groups are always selected so the
-// SQL is static; callers skip decoding of unrequested fields at no query cost.
-const batchHydrateAuditCodecSQL = `
-SELECT event_id,
-  CASE WHEN length(CAST(command_text AS BLOB)) <= ? THEN command_text END,
-  command_codec, command_format_version, command_plaintext_bytes, command_encoded_bytes, command_sha256,
-  length(CAST(command_text AS BLOB)),
-  CASE WHEN length(CAST(input_text AS BLOB)) <= ? THEN input_text END,
-  input_codec, input_format_version, input_plaintext_bytes, input_encoded_bytes, input_sha256,
-  length(CAST(input_text AS BLOB)),
-  CASE WHEN length(CAST(output_text AS BLOB)) <= ? THEN output_text END,
-  output_codec, output_format_version, output_plaintext_bytes, output_encoded_bytes, output_sha256,
-  length(CAST(output_text AS BLOB))
-  FROM command_audits
- WHERE event_id IN (SELECT CAST(value AS TEXT) FROM json_each(?))`
-
-// batchHydrateAuditLegacySQL fetches plain-text payload columns for a page of
-// event IDs in one query (pre-codec stores). The size bound uses
-// maxDecodedPayloadBytes because legacy stores use identity codec (stored == decoded).
-const batchHydrateAuditLegacySQL = `
+const batchHydrateAuditSQL = `
 SELECT event_id,
   CASE WHEN length(CAST(command_text AS BLOB)) <= ? THEN command_text END,
   length(CAST(command_text AS BLOB)),
@@ -46,21 +26,18 @@ SELECT event_id,
   FROM command_audits
  WHERE event_id IN (SELECT CAST(value AS TEXT) FROM json_each(?))`
 
-// auditPayloadValues holds the decoded plaintext for the three codec-managed
-// command_audits columns. A zero-value NullString means the field was not
-// requested or the row had no audit record.
+// auditPayloadValues holds the stored plaintext for the three command_audits
+// payload columns. A zero-value NullString means the field was not requested
+// or the row had no audit record.
 type auditPayloadValues struct {
 	command sql.NullString
 	input   sql.NullString
 	output  sql.NullString
 }
 
-// HydrateCommandAudits decodes selected codec-managed command_audits columns
-// onto listed events. Listing joins only fixed-size metadata; this is the
-// exclusive read path for command_text / input_text / output_text on list and
-// search results.
-//
-// Query cost: O(1) schema probe + O(1) batch SELECT regardless of page size.
+// HydrateCommandAudits loads selected command_audits columns onto listed
+// events. Listing joins only fixed-size metadata; this is the exclusive read
+// path for command_text / input_text / output_text on list and search results.
 func (d *EventDatasource) HydrateCommandAudits(
 	ctx context.Context,
 	events []*model.Event,
@@ -108,17 +85,12 @@ func (d *EventDatasource) HydrateCommandAudits(
 		return nil
 	}
 
-	// Schema probe: once per call, not once per field per event.
-	hasCodec, err := auditHasCodecColumns(ctx, db)
-	if err != nil {
-		return xerrors.Errorf("inspect command_audits schema: %w", err)
-	}
 	if d.onAuditHydrationQuery != nil {
 		d.onAuditHydrationQuery("schema")
 	}
 
 	// Batch-fetch all payload columns for the whole id page in one SELECT.
-	payloads, err := batchFetchAuditPayloads(ctx, db, ids, fields, hasCodec)
+	payloads, err := batchFetchAuditPayloads(ctx, db, ids, fields)
 	if err != nil {
 		return err
 	}
@@ -126,7 +98,7 @@ func (d *EventDatasource) HydrateCommandAudits(
 		d.onAuditHydrationQuery("payload")
 	}
 
-	// Reconstruct domain objects from pre-decoded values (no further queries).
+	// Reconstruct domain objects from stored plaintext (no further queries).
 	for _, e := range entries {
 		values := payloads[e.audit.EventID().String()]
 		hydrated, err := restoreCommandAuditFromValues(e.audit, fields, values)
@@ -138,109 +110,19 @@ func (d *EventDatasource) HydrateCommandAudits(
 	return nil
 }
 
-// batchFetchAuditPayloads fetches codec-managed payload fields for all ids in
-// a single SELECT using json_each. It returns a map keyed by event ID string.
-// Event IDs present in ids but absent from command_audits are silently omitted.
-//
-// Codec / integrity / size-limit semantics are identical to hydrateAuditPayload.
 func batchFetchAuditPayloads(
 	ctx context.Context,
 	queryer eventSearchQueryer,
 	ids []string,
 	fields queryservice.CommandAuditPayloadFields,
-	hasCodec bool,
 ) (map[string]auditPayloadValues, error) {
 	jsonIDs, err := json.Marshal(ids)
 	if err != nil {
 		return nil, xerrors.Errorf("encode audit event ID list: %w", err)
 	}
 	result := make(map[string]auditPayloadValues, len(ids))
-	if hasCodec {
-		return batchFetchAuditCodecPayloads(ctx, queryer, string(jsonIDs), fields, result)
-	}
-	return batchFetchAuditLegacyPayloads(ctx, queryer, string(jsonIDs), fields, result)
-}
-
-func batchFetchAuditCodecPayloads(
-	ctx context.Context,
-	queryer eventSearchQueryer,
-	jsonIDs string,
-	fields queryservice.CommandAuditPayloadFields,
-	result map[string]auditPayloadValues,
-) (map[string]auditPayloadValues, error) {
-	rows, err := queryer.QueryContext(ctx, batchHydrateAuditCodecSQL,
-		maxStoredPayloadBytes, maxStoredPayloadBytes, maxStoredPayloadBytes, jsonIDs)
-	if err != nil {
-		return nil, xerrors.Errorf("batch fetch audit codec payloads: %w", err)
-	}
-	defer func() { _ = rows.Close() }()
-
-	for rows.Next() {
-		var eventID string
-		var cmdRow payloadRow
-		var cmdLen sql.NullInt64
-		var inpRow payloadRow
-		var inpLen sql.NullInt64
-		var outRow payloadRow
-		var outLen sql.NullInt64
-
-		if err := rows.Scan(
-			&eventID,
-			&cmdRow.Stored, &cmdRow.Codec, &cmdRow.FormatVersion, &cmdRow.PlaintextBytes, &cmdRow.StoredBytes, &cmdRow.SHA256, &cmdLen,
-			&inpRow.Stored, &inpRow.Codec, &inpRow.FormatVersion, &inpRow.PlaintextBytes, &inpRow.StoredBytes, &inpRow.SHA256, &inpLen,
-			&outRow.Stored, &outRow.Codec, &outRow.FormatVersion, &outRow.PlaintextBytes, &outRow.StoredBytes, &outRow.SHA256, &outLen,
-		); err != nil {
-			return nil, xerrors.Errorf("scan batch audit codec row: %w", err)
-		}
-
-		var values auditPayloadValues
-		if fields.Command {
-			if cmdLen.Valid && cmdLen.Int64 > maxStoredPayloadBytes {
-				return nil, &PayloadIntegrityError{Codec: cmdRow.Codec.String, RowID: eventID, Field: "command", Reason: "stored length exceeds limit"}
-			}
-			plain, err := cmdRow.decode(maxDecodedPayloadBytes)
-			if err != nil {
-				return nil, annotatePayloadError(err, eventID, "command")
-			}
-			values.command = sql.NullString{String: string(plain), Valid: true}
-		}
-		if fields.Input {
-			if inpLen.Valid && inpLen.Int64 > maxStoredPayloadBytes {
-				return nil, &PayloadIntegrityError{Codec: inpRow.Codec.String, RowID: eventID, Field: "input", Reason: "stored length exceeds limit"}
-			}
-			plain, err := inpRow.decode(maxDecodedPayloadBytes)
-			if err != nil {
-				return nil, annotatePayloadError(err, eventID, "input")
-			}
-			values.input = sql.NullString{String: string(plain), Valid: true}
-		}
-		if fields.Output {
-			if outLen.Valid && outLen.Int64 > maxStoredPayloadBytes {
-				return nil, &PayloadIntegrityError{Codec: outRow.Codec.String, RowID: eventID, Field: "output", Reason: "stored length exceeds limit"}
-			}
-			plain, err := outRow.decode(maxDecodedPayloadBytes)
-			if err != nil {
-				return nil, annotatePayloadError(err, eventID, "output")
-			}
-			values.output = sql.NullString{String: string(plain), Valid: true}
-		}
-		result[eventID] = values
-	}
-	if err := rows.Err(); err != nil {
-		return nil, xerrors.Errorf("iterate batch audit codec rows: %w", err)
-	}
-	return result, nil
-}
-
-func batchFetchAuditLegacyPayloads(
-	ctx context.Context,
-	queryer eventSearchQueryer,
-	jsonIDs string,
-	fields queryservice.CommandAuditPayloadFields,
-	result map[string]auditPayloadValues,
-) (map[string]auditPayloadValues, error) {
-	rows, err := queryer.QueryContext(ctx, batchHydrateAuditLegacySQL,
-		maxDecodedPayloadBytes, maxDecodedPayloadBytes, maxDecodedPayloadBytes, jsonIDs)
+	rows, err := queryer.QueryContext(ctx, batchHydrateAuditSQL,
+		maxDecodedPayloadBytes, maxDecodedPayloadBytes, maxDecodedPayloadBytes, string(jsonIDs))
 	if err != nil {
 		return nil, xerrors.Errorf("batch fetch audit legacy payloads: %w", err)
 	}

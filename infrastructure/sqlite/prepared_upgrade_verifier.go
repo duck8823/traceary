@@ -56,11 +56,12 @@ func (v PreparedMigrationVerifier) VerifyUpgradePair(ctx context.Context, source
 		return domain.PreparedCandidateEvidence{}, err
 	}
 	skipEvents := pendingHasRestoreDedupeArchive(plan)
-	if err = verifyFiveTableConservation(ctx, sourceDB, candidateDB, skipEvents); err != nil {
+	skipCodecRewrite := pendingHasDecodePayloads(plan)
+	if err = verifyFiveTableConservation(ctx, sourceDB, candidateDB, skipEvents, skipCodecRewrite); err != nil {
 		return domain.PreparedCandidateEvidence{}, err
 	}
 	for _, migration := range plan.Pending {
-		if err = evaluateConservationLaw(ctx, sourceDB, candidateDB, migration.Version); err != nil {
+		if err = evaluateConservationLaw(ctx, sourceDB, candidateDB, migration.Version, skipCodecRewrite); err != nil {
 			return domain.PreparedCandidateEvidence{}, err
 		}
 		switch semanticVerifierFor(migration.Version) {
@@ -77,11 +78,15 @@ func (v PreparedMigrationVerifier) VerifyUpgradePair(ctx context.Context, source
 				return domain.PreparedCandidateEvidence{}, err
 			}
 		case SemanticVerifierDropSearchProjectionFamily:
-			if err = verifyDropSearchProjectionFamily(ctx, sourceDB, candidateDB, skipEvents); err != nil {
+			if err = verifyDropSearchProjectionFamily(ctx, sourceDB, candidateDB, skipEvents, skipCodecRewrite); err != nil {
 				return domain.PreparedCandidateEvidence{}, err
 			}
 		case SemanticVerifierDropDedupeArchive:
-			if err = verifyDropDedupeArchive(ctx, sourceDB, candidateDB); err != nil {
+			if err = verifyDropDedupeArchive(ctx, sourceDB, candidateDB, skipCodecRewrite); err != nil {
+				return domain.PreparedCandidateEvidence{}, err
+			}
+		case SemanticVerifierDropEncodedPayloads:
+			if err = verifyDropEncodedPayloads(ctx, sourceDB, candidateDB, candidate); err != nil {
 				return domain.PreparedCandidateEvidence{}, err
 			}
 		}
@@ -89,9 +94,12 @@ func (v PreparedMigrationVerifier) VerifyUpgradePair(ctx context.Context, source
 	return evidence, nil
 }
 
-func verifyFiveTableConservation(ctx context.Context, sourceDB, candidateDB *sql.DB, skipEvents bool) error {
+func verifyFiveTableConservation(ctx context.Context, sourceDB, candidateDB *sql.DB, skipEvents, skipCodecRewrite bool) error {
 	for _, table := range upgradeConservationTables {
 		if skipEvents && table == "events" {
+			continue
+		}
+		if skipCodecRewrite && (table == "events" || table == "command_audits") {
 			continue
 		}
 		sourceHas, err := tableExists(ctx, sourceDB, table)
@@ -132,7 +140,7 @@ func verifyTableCountAndDigest(ctx context.Context, sourceDB, candidateDB *sql.D
 	return nil
 }
 
-func evaluateConservationLaw(ctx context.Context, sourceDB, candidateDB *sql.DB, version int64) error {
+func evaluateConservationLaw(ctx context.Context, sourceDB, candidateDB *sql.DB, version int64, decodePending bool) error {
 	law := conservationLawFor(version)
 	switch law {
 	case ConservationLawBaseConserving:
@@ -164,7 +172,9 @@ func evaluateConservationLaw(ctx context.Context, sourceDB, candidateDB *sql.DB,
 	case ConservationLawRewriteCollapse:
 		return nil
 	case ConservationLawRestoreDedupeArchive:
-		return verifyRestoreDedupeArchiveConservation(ctx, sourceDB, candidateDB)
+		return verifyRestoreDedupeArchiveConservation(ctx, sourceDB, candidateDB, decodePending)
+	case ConservationLawDecodePayloadsDropCodec:
+		return nil
 	case "":
 		return fmt.Errorf("migration %d has no conservation law", version)
 	default:

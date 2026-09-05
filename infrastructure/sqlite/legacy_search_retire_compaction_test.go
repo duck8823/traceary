@@ -108,10 +108,10 @@ func TestRejectRetiredSearchIndexInspectsWhateverWouldBePublished(t *testing.T) 
 		t.Fatalf("RejectRetiredSearchIndex() error = %v, must not name the removed command", err)
 	}
 
-	rehearsal := run
-	rehearsal.Operation = domain.PreparedStoreUpgradeOperationPayloadRehearsalMigration
-	if err := (PreparedStoreUpgradeFiles{}).RejectRetiredSearchIndex(ctx, rehearsal); err != nil {
-		t.Fatalf("RejectRetiredSearchIndex() on a prepared migration error = %v, want it exempt", err)
+	upgrade := run
+	upgrade.Operation = domain.PreparedStoreUpgradeOperationOfflineMigrationUpgrade
+	if err := (PreparedStoreUpgradeFiles{}).RejectRetiredSearchIndex(ctx, upgrade); err != nil {
+		t.Fatalf("RejectRetiredSearchIndex() on an offline upgrade error = %v, want it exempt", err)
 	}
 }
 

@@ -354,9 +354,6 @@ func validateInitialRun(run domain.CompactionRun) error {
 	if run.Operation != "" && (!run.Operation.Known() || run.ConsumerBinding == "") {
 		return errors.New("initial prepared upgrade binding is invalid")
 	}
-	if run.Operation == domain.PreparedStoreUpgradeOperationPayloadRehearsalMigration && (run.PlanDigest == "" || run.SourceDigest == "" || run.Budget.WallTimeLimit <= 0 || run.Budget.PublishLockLimit <= 0 || run.Budget.PublishLockLimit > time.Second || run.Budget.OwnedDiskByteLimit == 0 || run.Budget.WALByteLimit == 0 || run.Budget.TemporaryByteLimit == 0) {
-		return errors.New("initial prepared migration plan or budget is invalid")
-	}
 	if run.Operation == domain.PreparedStoreUpgradeOperationOfflineMigrationUpgrade && (run.PlanDigest == "" || run.SourceDigest == "" || run.Budget.WallTimeLimit <= 0 || run.Budget.PublishLockLimit <= 0 || run.Budget.OwnedDiskByteLimit == 0 || run.Budget.WALByteLimit == 0 || run.Budget.TemporaryByteLimit == 0) {
 		return errors.New("initial offline upgrade plan or budget is invalid")
 	}
@@ -455,12 +452,7 @@ func (f PreparedStoreUpgradeFiles) Plan(ctx context.Context, run domain.Compacti
 	}
 	temporary := uint64(0)
 	destination := id.Size
-	if run.Operation == domain.PreparedStoreUpgradeOperationPayloadRehearsalMigration {
-		if ^uint64(0)-run.Budget.WALByteLimit < run.Budget.TemporaryByteLimit {
-			return run, errors.New("prepared upgrade resource size overflow")
-		}
-		temporary = run.Budget.WALByteLimit + run.Budget.TemporaryByteLimit
-	} else if run.Operation == domain.PreparedStoreUpgradeOperationOfflineMigrationUpgrade {
+	if run.Operation == domain.PreparedStoreUpgradeOperationOfflineMigrationUpgrade {
 		destination = id.Size
 		if id.Size < 0 {
 			return run, errors.New("negative source size")
@@ -752,9 +744,6 @@ func (f PreparedStoreUpgradeFiles) RemoveAbandonedCandidate(ctx context.Context,
 }
 
 func ownedCandidatePath(run domain.PreparedStoreUpgradeRun) string {
-	if run.Operation == domain.PreparedStoreUpgradeOperationPayloadRehearsalMigration {
-		return run.SourcePath + ".prepare-" + run.ID
-	}
 	if run.Operation == domain.PreparedStoreUpgradeOperationOfflineMigrationUpgrade {
 		return run.SourcePath + ".upgrade-" + run.ID
 	}

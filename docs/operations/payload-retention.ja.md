@@ -4,18 +4,13 @@
 
 Status: Issue #1446、#1444、#1443、#1445 の v0.31.0 contract。copied-store の [dogfooding と recovery 証拠](./retention-dogfood-v0.31.ja.md) に基づいて手動 command を公開し、automatic retention は既定無効のままにします。
 
-## Payload codec と downgrade 警告
+## ペイロード保存
 
-Traceary v0.34 は、新しい canonical event と command-audit payload について、
-圧縮後に小さくなる場合だけ zstd を使います。圧縮に向かない値と短い値は
-identity の TEXT のままです。この書込み経路の変更は既存行を変換しません。
-既存行の書き換えは別の処理です。
-
-`traceary doctor` で codec 状態を確認できます。downgrade 用の fallback が必要なら、
-v0.34 を初めて実行する前に `traceary store backup create ~/traceary-pre-v0.34.db` を実行してください。v0.34 が圧縮行を
-書いた後は v0.33.1 以前の binary が body を garbage として読み、v0.34 の機能でそれを
-防ぐことはできません。その後に取得した backup は圧縮前 representation の fallback には
-なりません。
+オフライン migration 82 は残っている encoded な event / command-audit
+payload を decode し、codec メタデータを落とします。live writer は書いた
+ままの plaintext を保存します。compact の encode ステップはなく、圧縮を
+再有効化する flag もありません。0.48 ストアは prepared-upgrade candidate
+上の migration-only decoder でまだ upgrade できます。
 
 ## 要求要約
 

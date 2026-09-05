@@ -165,9 +165,9 @@ Durable memory に紐づく artifact ref です。
 ## `compact` の既定動作
 
 `traceary store compact` はストアファイルを書き換えます。copy の途中で退役済み
-検索インデックス、非 canonical な重複本文、破棄可能な被覆済み transcript 本文を
-落とし、残っている event 本文とまだ plaintext の `command_audits` command /
-input / output テキストを符号化してから vacuum します。
+検索インデックスと破棄可能な被覆済み transcript 本文を落とし、vacuum します。
+event 本文と `command_audits` の command / input / output テキストは書いたままの
+plaintext です。
 
 - 既定 retention: `90` 日 (`--keep-days 90`)
 - 物理容量回収は書き換えそのもの。in-place `VACUUM` ではない
@@ -176,11 +176,11 @@ input / output テキストを符号化してから vacuum します。
 
 **Reclaim warning。** hook 以外のコマンドの後、Traceary は stderr に `TRACEARY: ストアに回収できる領域が約 <size> あります。traceary store compact を実行してください` を、ストアごとに 24 時間に 1 回まで表示します（記録は `<db>.reclaim-warn`）。表示条件は、free page list — `PRAGMA freelist_count × PRAGMA page_size`、`traceary doctor` が `reclaimable=` として報告するのと同じ O(1) signal — が `compact.reclaim_warn_bytes`（既定 1 GiB）以上、**かつ** ストア全体の 10 % 以上であることです。ファイルサイズだけでは表示しません。freelist が空の 14 GiB ストアは、書き換えてもファイルシステムに返る領域がないため何も表示しません。`doctor` は同じ signal と同じ 10 % 比率を、より低い 256 MiB の floor で使うため、trailer が黙っている回収可能領域を報告することがあります（逆はありません）。`compact.reclaim_warn_bytes` を `0` にすると trailer を止められます。ストアを安価に読めない場合（writer が保持している、500 ms を超えたなど）は何も表示しません。store growth signal が不明であることの報告は `traceary doctor` の役割です。
 
-free page は `store compact` が回収できるバイト数と同じではありません。compact は被覆済み transcript 本文の破棄や audit text の再符号化も行い、それらはこの O(1) signal からは見えません。その見積もりは `traceary store compact --dry-run` の担当です。
+free page は `store compact` が回収できるバイト数と同じではありません。compact は被覆済み transcript 本文の破棄も行い、それはこの O(1) signal からは見えません。その見積もりは `traceary store compact --dry-run` の担当です。
 
 ### Derived generation のディスク上限
 
-search-projection family は v0.49.0（#2319）で削除されました。世代 lifecycle も `--index-family-bytes` 予算も、doctor の `search-projection-terminal-rows` 検査もありません。compact JSON の `steps.audit_encode` は残ります。物理 DROP は offline migration 80 です。
+search-projection family は v0.49.0（#2319）で削除されました。世代 lifecycle も `--index-family-bytes` 予算も、doctor の `search-projection-terminal-rows` 検査もありません。compact JSON に encode step はありません。物理 DROP は offline migration 80 です。
 
 compact は最初に **orphan range** を機械要約します。orphan とは `session_refinements.covers_to` より先にあり、エージェントがもう畳めないイベント範囲です（セッション終了、24h 無活動の stale 扱い、または post-compact での前倒し記録）。session start/end 以外を含む、まだ畳まれていない各範囲に対し、`degraded=1` の refinement（`produced_by=gc:orphan-consolidation`）を書きます。内容はいつ・どの kind が何回・どのコマンドかだけで、エージェントの判断理由（なぜ）は復元しません。lifecycle だけの tail（正しく fold したあとに着く `session_ended` が典型）は `covers_to` だけ進め、機械的な脚注は付けません。`degraded` は「合成テキストを含む」意味のまま、wake 適格性のビットにはしません。wake injection は `has_agent_reasoning` を読むため、正しく fold されたセッションは reduction のあとも注入対象に残ります。この機械 refinement も破棄にとって**有効な被覆**です。破棄が失うのはテキストだけであり、残すと約束している bytes・timestamps・counts はまさにこの要約が保持するためです。出力は `steps.mechanical_cover` と `covered_sessions` を報告します。この処理に専用コマンドや `--target` はありません。
 
@@ -267,20 +267,12 @@ migration `000023` は `hook_delivery_attempts` を追加します。各行が�
 
 `traceary doctor --json` が同じ本文なし identity フィールドを `workspace_identity` で出します。ブロック自体は provenance catch-up を実行しません。migration 76 以降の observation volume は `SUM(observation_count)` です。テーブルは `(session_id, workspace, observed_relationship, source_client, source_hook, observation_kind)` あたり 1 行に畳みます。`conflict_pair_count` は現行 conflict の distinct `(session_id, workspace)`、conflict sample は pair あたり最新 1 行で `workspace` を含みます。`coverage.covered_events` / `missing_events` は catch-up frontier の bookkeeping であり、event ごとの join ではありません。`workspace-observations` check が `rows` / `keys` / `orphans` を出します。collapse 前の store は WARN と `traceary doctor --fix`（offline class: それが終わるまで `Initialize` は書き込みを拒否します）。2 GiB 以上の既定 doctor はこのブロックを出しません（filesystem-metadata-only）。意味は [workspace-conflict の意味](../research/workspace-conflict-meaning.ja.md) を見てください。
 
-## ペイロード codec バックフィル
+## ペイロード保存
 
-ライブストア向け `payload-backfill` コマンドは退役しました。残っている
-`events.body` と `command_audits` テキストの符号化は `store compact` が
-バージョン付き zstd codec で行います。詳細は [`payload-backfill.ja.md`](payload-backfill.ja.md)。
-物理的なファイル縮小はその書き換えの一部として現れ、検索 projection は
-`drifted`/`stale` で終わることがあるため rebuild が必要です。
-
-live writer（bundle import、archive restore、dedupe restore、raw-body recovery）
-は native hook insert と同じ canonical encoder（縮むとき zstd）を使います。
-bundle / archive ファイルは plaintext のままです。retention marker は identity
-のまま（apply/verify が stored TEXT を sentinel と比較するため）。
-[`../research/payload-codec-call-sites.ja.md`](../research/payload-codec-call-sites.ja.md)
-を参照。
+offline migration 82 が残っている符号化済み `events.body` と
+`command_audits` テキストを decode し、codec メタデータを落とします。live
+writer は本文を書いたままの plaintext で保存します（`typeof(...) = text`）。
+compact の encode step も、圧縮を戻す flag もありません。
 
 ## backup の既定動作
 

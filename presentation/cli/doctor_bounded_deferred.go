@@ -9,7 +9,6 @@ const boundedDoctorDeferredSkipReasonJA = "2 GiB 以上の store では skip。d
 // path after the large-store early return to the check names they emit.
 // Bounded mode must include each name as a real status or an explicit skip.
 var doctorInspectCallCheckNames = map[string][]string{
-	"inspectPayloadCodec":                  {"payload-codec"},
 	"inspectStoreGrowthBudget":             {"store-size"},
 	"inspectTracearyOnPath":                {"path"},
 	"inspectStaleTracearyProcesses":        {"stale-processes"},
@@ -24,7 +23,6 @@ var doctorInspectCallCheckNames = map[string][]string{
 	"inspectContentEventReliability":       {"content-event-reliability"},
 	"inspectRetryLoops":                    {"retry-loops"},
 	"inspectSensitiveAccessAuditCoverage":  {"sensitive-access-audit"},
-	"inspectBodyCodec":                     {"body-codec"},
 	"inspectAttestationAnchor":             {"attestation-anchor"},
 	"inspectOperatorCost":                  {"store-operator-cost"},
 	"inspectFileRetentionCapacity":         {"archive-capacity-retention", "backup-capacity-retention"},

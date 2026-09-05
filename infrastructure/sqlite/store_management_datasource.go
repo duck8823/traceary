@@ -641,19 +641,11 @@ func discardEligibleEventBodies(
 	},
 	beforeValue, discardedAt string,
 ) (int, error) {
-	// Identity on purpose (#1779): this is the same short retention sentinel
-	// as raw-body prune. Readers and SQL compare stored TEXT to the marker
-	// literal; encodeCanonicalPayload would not shrink it and must not change
-	// the stored bytes independently of those checks.
-	marker, err := encodePayload([]byte(types.EventBodyUnavailableRetentionMarker), payloadCodecIdentity)
-	if err != nil {
-		return 0, err
-	}
 	query, err := composeDiscardableEventBodiesQuery(discardEventBodiesQuery)
 	if err != nil {
 		return 0, err
 	}
-	return execRowsAffected(ctx, executor, query, string(marker.Bytes), marker.Codec, marker.FormatVersion, marker.PlaintextBytes, marker.StoredBytes, marker.SHA256, discardedAt, beforeValue)
+	return execRowsAffected(ctx, executor, query, types.EventBodyUnavailableRetentionMarker, discardedAt, beforeValue)
 }
 
 func execRowsAffected(
@@ -972,7 +964,7 @@ func discardPredicateSupported(
 	// migrations, so the table can exist without them; session_refinements has
 	// carried every column this predicate reads since the migration that
 	// created it, so its presence is already answered above.
-	for _, column := range []string{"body_availability", "body_codec", "body_format_version", "body_plaintext_bytes", "body_encoded_bytes", "body_sha256"} {
+	for _, column := range []string{"body_availability"} {
 		var exists bool
 		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM pragma_table_info('events') WHERE name = ?)`, column).Scan(&exists); err != nil {
 			return false, xerrors.Errorf("inspect discard predicate column %s: %w", column, err)

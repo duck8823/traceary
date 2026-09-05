@@ -47,9 +47,7 @@ type RootCLI struct {
 	pageMetadataInspector       application.PageMetadataInspector
 	endedSessionInspector       application.EndedSessionInspector
 	operatorCostInspector       application.OperatorCostInspector
-	payloadCodecInspector       application.PayloadCodecInspector
 	attestationAnchorInspector  application.AttestationAnchorInspector
-	bodyCodecChecker            application.BodyCodecChecker
 	storeCompactionFactory      func(string) application.StoreCompactionUsecase
 	preparedStoreUpgradeFactory func(string) application.PreparedStoreUpgradeUsecase
 	fileRetention               usecase.FileRetentionUsecase
@@ -249,19 +247,9 @@ func WithOperatorCostInspector(inspector application.OperatorCostInspector) Root
 	return func(c *RootCLI) { c.operatorCostInspector = inspector }
 }
 
-// WithPayloadCodecInspector injects read-only payload representation status.
-func WithPayloadCodecInspector(inspector application.PayloadCodecInspector) RootCLIOption {
-	return func(c *RootCLI) { c.payloadCodecInspector = inspector }
-}
-
 // WithAttestationAnchorInspector injects the store-side attestation sidecar check.
 func WithAttestationAnchorInspector(inspector application.AttestationAnchorInspector) RootCLIOption {
 	return func(c *RootCLI) { c.attestationAnchorInspector = inspector }
-}
-
-// WithBodyCodecChecker injects the body_codec unknown-value scanner.
-func WithBodyCodecChecker(checker application.BodyCodecChecker) RootCLIOption {
-	return func(c *RootCLI) { c.bodyCodecChecker = checker }
 }
 
 // WithStoreCompactionFactory injects a path-bound, dedicated composition.

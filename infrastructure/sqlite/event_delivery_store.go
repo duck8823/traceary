@@ -36,7 +36,6 @@ func saveEventTransaction(
 	db *sql.DB,
 	event *model.Event,
 	audit *model.CommandAudit,
-	codecMetadata bool,
 	afterInsert func(context.Context, *sql.Tx) error,
 	storePath string,
 ) error {
@@ -46,7 +45,7 @@ func saveEventTransaction(
 			return xerrors.Errorf("failed to begin event delivery transaction: %w", err)
 		}
 
-		inserted, persistedID, published, persistErr := persistEventDelivery(ctx, tx, event, audit, codecMetadata)
+		inserted, persistedID, published, persistErr := persistEventDelivery(ctx, tx, event, audit)
 		if persistErr == nil && inserted && afterInsert != nil {
 			persistErr = afterInsert(ctx, tx)
 		}
@@ -94,7 +93,6 @@ func persistEventDelivery(
 	tx *sql.Tx,
 	event *model.Event,
 	audit *model.CommandAudit,
-	codecMetadata bool,
 ) (bool, string, *attestation.AnchorRecord, error) {
 	if event == nil {
 		return false, "", nil, xerrors.Errorf("event must not be nil")
@@ -136,7 +134,7 @@ func persistEventDelivery(
 		}
 	}
 
-	if err := insertEventAndAudit(ctx, tx, event, audit, codecMetadata); err != nil {
+	if err := insertEventAndAudit(ctx, tx, event, audit); err != nil {
 		return false, "", nil, err
 	}
 	published, err := appendAttestationLink(ctx, tx, event, audit)
@@ -183,13 +181,7 @@ func insertHookDeliveryAttempt(ctx context.Context, tx *sql.Tx, event *model.Eve
 	return nil
 }
 
-func insertEventAndAudit(ctx context.Context, tx *sql.Tx, event *model.Event, audit *model.CommandAudit, codecMetadata bool) error {
-	eventPayload, err := encodeCanonicalPayload([]byte(event.Body()), codecMetadata)
-	if err != nil {
-		return xerrors.Errorf("encode event payload: %w", err)
-	}
-	eventHasCodec := codecMetadata
-	eventQuery := insertEventQuery
+func insertEventAndAudit(ctx context.Context, tx *sql.Tx, event *model.Event, audit *model.CommandAudit) error {
 	eventArgs := []any{
 		event.EventID().String(),
 		event.Kind().String(),
@@ -197,32 +189,14 @@ func insertEventAndAudit(ctx context.Context, tx *sql.Tx, event *model.Event, au
 		event.Agent().String(),
 		event.SessionID().String(),
 		event.Workspace().String(),
-		storedBodyArg(eventPayload),
+		event.Body(),
 		formatTimestamp(event.CreatedAt()),
 		nullableString(event.SourceHook())}
-	if eventHasCodec {
-		eventQuery = `INSERT INTO events(id, kind, client, agent, session_id, workspace, body, created_at, source_hook,
-body_codec, body_format_version, body_plaintext_bytes, body_encoded_bytes, body_sha256)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-		eventArgs = append(eventArgs, eventPayload.Codec, eventPayload.FormatVersion, eventPayload.PlaintextBytes, eventPayload.StoredBytes, eventPayload.SHA256)
-	}
-	if _, err := tx.ExecContext(ctx, eventQuery, eventArgs...); err != nil {
+	if _, err := tx.ExecContext(ctx, insertEventQuery, eventArgs...); err != nil {
 		return xerrors.Errorf("failed to insert event: %w", err)
 	}
 	if audit == nil {
 		return nil
-	}
-	commandPayload, err := encodeCanonicalPayload([]byte(audit.Command()), codecMetadata)
-	if err != nil {
-		return xerrors.Errorf("encode command payload: %w", err)
-	}
-	inputPayload, err := encodeCanonicalPayload([]byte(audit.Input()), codecMetadata)
-	if err != nil {
-		return xerrors.Errorf("encode command input payload: %w", err)
-	}
-	outputPayload, err := encodeCanonicalPayload([]byte(audit.Output()), codecMetadata)
-	if err != nil {
-		return xerrors.Errorf("encode command output payload: %w", err)
 	}
 	var exitCodeSQL *int
 	if exitCode, ok := audit.ExitCode().Value(); ok {
@@ -232,17 +206,16 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	if value, ok := audit.CommandIdentity().Wrapper().Value(); ok {
 		wrapper = value.String()
 	}
-	auditHasCodec := codecMetadata
 	columns := []string{"event_id", "command_text", "command_wrapper", "command_name",
 		"input_text", "output_text", "input_truncated", "output_truncated",
 		"input_original_bytes", "output_original_bytes", "exit_code", "failed", "failure_reason"}
 	auditArgs := []any{
 		audit.EventID().String(),
-		storedBodyArg(commandPayload),
+		audit.Command(),
 		wrapper,
 		audit.CommandIdentity().Command().String(),
-		storedBodyArg(inputPayload),
-		storedBodyArg(outputPayload),
+		audit.Input(),
+		audit.Output(),
 		audit.InputTruncated(),
 		audit.OutputTruncated(),
 		audit.InputOriginalBytes(),
@@ -250,16 +223,6 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 		exitCodeSQL,
 		audit.Failed(),
 		audit.FailureReason().String()}
-	if auditHasCodec {
-		columns = append(columns,
-			"command_codec", "command_format_version", "command_plaintext_bytes", "command_encoded_bytes", "command_sha256",
-			"input_codec", "input_format_version", "input_plaintext_bytes", "input_encoded_bytes", "input_sha256",
-			"output_codec", "output_format_version", "output_plaintext_bytes", "output_encoded_bytes", "output_sha256")
-		auditArgs = append(auditArgs,
-			commandPayload.Codec, commandPayload.FormatVersion, commandPayload.PlaintextBytes, commandPayload.StoredBytes, commandPayload.SHA256,
-			inputPayload.Codec, inputPayload.FormatVersion, inputPayload.PlaintextBytes, inputPayload.StoredBytes, inputPayload.SHA256,
-			outputPayload.Codec, outputPayload.FormatVersion, outputPayload.PlaintextBytes, outputPayload.StoredBytes, outputPayload.SHA256)
-	}
 	if metadata, ok := audit.OutputMetadata().Value(); ok {
 		hasMetadataColumn, err := transactionColumnExists(ctx, tx, "command_audits", "output_metadata")
 		if err != nil {

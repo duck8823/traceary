@@ -175,16 +175,6 @@
       "auto_fix_available": false
     },
     {
-      "name": "body-codec",
-      "status": "skip",
-      "severity": "PASS",
-      "section": "Database",
-      "message": "body codec checker is not configured",
-      "hint": "",
-      "fix_command": "",
-      "auto_fix_available": false
-    },
-    {
       "name": "project-dir",
       "status": "pass",
       "severity": "PASS",
@@ -463,16 +453,6 @@
           "hint": "",
           "fix_command": "",
           "auto_fix_available": false
-        },
-        {
-          "name": "body-codec",
-          "status": "skip",
-          "severity": "PASS",
-          "section": "Database",
-          "message": "body codec checker is not configured",
-          "hint": "",
-          "fix_command": "",
-          "auto_fix_available": false
         }
       ]
     },
@@ -607,7 +587,7 @@
     }
   ],
   "summary": {
-    "pass": 28,
+    "pass": 27,
     "warn": 1,
     "fail": 0
   },

@@ -149,9 +149,8 @@ func TestSQLiteFileRetentionGenerationRejectsFutureStoreFormat(t *testing.T) {
 	}
 	if _, err := database.Exec(`CREATE TABLE store_format_state (
 		singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-		minimum_reader_version INTEGER NOT NULL,
-		maximum_payload_format INTEGER NOT NULL
-	); INSERT INTO store_format_state(singleton, minimum_reader_version, maximum_payload_format) VALUES (1, 38, 1)`); err != nil {
+		minimum_reader_version INTEGER NOT NULL
+	); INSERT INTO store_format_state(singleton, minimum_reader_version) VALUES (1, 39)`); err != nil {
 		_ = database.Close()
 		t.Fatalf("seed future store format error = %v", err)
 	}
@@ -159,7 +158,7 @@ func TestSQLiteFileRetentionGenerationRejectsFutureStoreFormat(t *testing.T) {
 		t.Fatalf("Close(SQLite) error = %v", err)
 	}
 
-	if _, _, err := sqliteFileRetentionGeneration(path); err == nil || !strings.Contains(err.Error(), "requires reader version 38") {
+	if _, _, err := sqliteFileRetentionGeneration(path); err == nil || !strings.Contains(err.Error(), "requires reader version 39") {
 		t.Fatalf("sqliteFileRetentionGeneration() error = %v, want future reader rejection", err)
 	}
 }

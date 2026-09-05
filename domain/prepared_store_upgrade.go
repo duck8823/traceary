@@ -65,14 +65,13 @@ type PreparedStoreUpgradeResourcePlan struct {
 type PreparedStoreUpgradeOperation string
 
 const (
-	PreparedStoreUpgradeOperationCompaction                PreparedStoreUpgradeOperation = "compaction"
-	PreparedStoreUpgradeOperationPayloadRehearsalMigration PreparedStoreUpgradeOperation = "payload_rehearsal_migration"
-	PreparedStoreUpgradeOperationOfflineMigrationUpgrade   PreparedStoreUpgradeOperation = "offline_migration_upgrade"
+	PreparedStoreUpgradeOperationCompaction              PreparedStoreUpgradeOperation = "compaction"
+	PreparedStoreUpgradeOperationOfflineMigrationUpgrade PreparedStoreUpgradeOperation = "offline_migration_upgrade"
 )
 
 // Known reports whether the journal operation can be dispatched safely.
 func (o PreparedStoreUpgradeOperation) Known() bool {
-	return o == PreparedStoreUpgradeOperationCompaction || o == PreparedStoreUpgradeOperationPayloadRehearsalMigration || o == PreparedStoreUpgradeOperationOfflineMigrationUpgrade
+	return o == PreparedStoreUpgradeOperationCompaction || o == PreparedStoreUpgradeOperationOfflineMigrationUpgrade
 }
 
 // PreparedStoreUpgradeBudget bounds preparation and the publication lease.

@@ -66,7 +66,6 @@ type CompactStep struct {
 // Compact step names are the JSON keys under store compact "steps".
 const (
 	CompactStepProjectionReclaim = "projection_reclaim" // #2261
-	CompactStepAuditEncode       = "audit_encode"       // #2264
 	CompactStepMechanicalCover   = "mechanical_cover"   // #2268
 )
 
