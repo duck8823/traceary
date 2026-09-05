@@ -23,7 +23,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
-	"log/slog"
 
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/chacha20poly1305"
@@ -61,9 +60,7 @@ type fakeBundleRepo struct {
 	exportSessions            []*model.Session
 	exportCommandAudits       []*model.CommandAudit
 	memories                  map[string]*model.Memory
-	memoryEdges               map[string]*model.MemoryEdge
 	exportMemories            []apptypes.MemoryDetails
-	exportMemoryEdges         []*model.MemoryEdge
 	usageObservations         map[string]*model.UsageObservation
 	exportUsageObservations   []*model.UsageObservation
 	enforceMemorySupersedesFK bool
@@ -80,9 +77,6 @@ func (r *fakeBundleRepo) ListBundleCommandAudits(context.Context) ([]*model.Comm
 func (r *fakeBundleRepo) ListBundleMemories(context.Context) ([]apptypes.MemoryDetails, error) {
 	return r.exportMemories, nil
 }
-func (r *fakeBundleRepo) ListBundleMemoryEdges(context.Context) ([]*model.MemoryEdge, error) {
-	return r.exportMemoryEdges, nil
-}
 func (r *fakeBundleRepo) ListBundleUsageObservations(context.Context) ([]*model.UsageObservation, error) {
 	return r.exportUsageObservations, nil
 }
@@ -91,7 +85,6 @@ func (r *fakeBundleRepo) BeginBundleImport(context.Context) (usecase.BundleImpor
 		repo:              r,
 		events:            map[string]bool{},
 		memories:          map[string]*model.Memory{},
-		memoryEdges:       map[string]*model.MemoryEdge{},
 		usageObservations: map[string]*model.UsageObservation{},
 	}
 	for id, value := range r.events {
@@ -99,9 +92,6 @@ func (r *fakeBundleRepo) BeginBundleImport(context.Context) (usecase.BundleImpor
 	}
 	for id, value := range r.memories {
 		tx.memories[id] = value
-	}
-	for id, value := range r.memoryEdges {
-		tx.memoryEdges[id] = value
 	}
 	for id, value := range r.usageObservations {
 		tx.usageObservations[id] = value
@@ -113,7 +103,6 @@ type fakeBundleTx struct {
 	repo              *fakeBundleRepo
 	events            map[string]bool
 	memories          map[string]*model.Memory
-	memoryEdges       map[string]*model.MemoryEdge
 	usageObservations map[string]*model.UsageObservation
 }
 
@@ -250,33 +239,9 @@ func (tx *fakeBundleTx) MemoryExists(_ context.Context, memoryID types.MemoryID)
 	_, ok := tx.memories[memoryID.String()]
 	return ok, nil
 }
-func (tx *fakeBundleTx) MemoryEdgeExists(_ context.Context, edgeID types.MemoryEdgeID) (bool, error) {
-	_, ok := tx.memoryEdges[edgeID.String()]
-	return ok, nil
-}
-func (tx *fakeBundleTx) ImportMemoryEdge(_ context.Context, edge *model.MemoryEdge, policy usecase.BundleConflictPolicy) (bool, error) {
-	r := tx.repo
-	if r.forceErr != nil {
-		return false, r.forceErr
-	}
-	id := edge.EdgeID().String()
-	if _, ok := tx.memoryEdges[id]; ok {
-		if policy == usecase.BundleConflictError {
-			return false, xerrors.Errorf("memory edge conflict")
-		}
-		if policy == usecase.BundleConflictReplace {
-			tx.memoryEdges[id] = edge
-			return true, nil
-		}
-		return false, nil
-	}
-	tx.memoryEdges[id] = edge
-	return true, nil
-}
 func (tx *fakeBundleTx) Commit(context.Context) error {
 	tx.repo.events = tx.events
 	tx.repo.memories = tx.memories
-	tx.repo.memoryEdges = tx.memoryEdges
 	tx.repo.usageObservations = tx.usageObservations
 	return nil
 }
@@ -400,36 +365,6 @@ func mustBundleExclusiveUsage(
 		t.Fatal(err)
 	}
 	return observation
-}
-
-func mustBundleMemoryID(t *testing.T, id string) types.MemoryID {
-	t.Helper()
-	memoryID, err := types.MemoryIDFrom(id)
-	if err != nil {
-		t.Fatalf("MemoryIDFrom: %v", err)
-	}
-	return memoryID
-}
-
-func mustMemoryEdge(t *testing.T, id, fromID, toID string, ts time.Time) *model.MemoryEdge {
-	t.Helper()
-	edgeID, err := types.MemoryEdgeIDFrom(id)
-	if err != nil {
-		t.Fatalf("MemoryEdgeIDFrom: %v", err)
-	}
-	edge, err := model.NewMemoryEdge(
-		edgeID,
-		mustBundleMemoryID(t, fromID),
-		mustBundleMemoryID(t, toID),
-		types.MemoryEdgeRelationSupports,
-		ts.Add(-time.Minute),
-		types.None[time.Time](),
-		ts,
-	)
-	if err != nil {
-		t.Fatalf("NewMemoryEdge: %v", err)
-	}
-	return edge
 }
 
 func mustSession(t *testing.T, id, parent string, ts time.Time) *model.Session {
@@ -880,8 +815,7 @@ func TestBundleUsecase_ExportWritesManifestV2Tables(t *testing.T) {
 	ts := time.Date(2026, 4, 25, 10, 0, 0, 0, time.UTC)
 	events := []*model.Event{mustEvent(t, "e-1", ts)}
 	memories := []apptypes.MemoryDetails{mustMemoryDetails(t, "mem-a", types.MemoryStatusAccepted, ts)}
-	edges := []*model.MemoryEdge{mustMemoryEdge(t, "edge-a", "mem-a", "mem-b", ts)}
-	uc := usecase.NewBundleUsecase(fakeEventQuery{events: events}, &fakeBundleRepo{schema: 13, exportMemories: memories, exportMemoryEdges: edges}, func() time.Time { return ts })
+	uc := usecase.NewBundleUsecase(fakeEventQuery{events: events}, &fakeBundleRepo{schema: 13, exportMemories: memories}, func() time.Time { return ts })
 
 	out := filepath.Join(t.TempDir(), "bundle.tbun")
 	if err := uc.Export(context.Background(), usecase.BundleExportOptions{
@@ -914,20 +848,24 @@ func TestBundleUsecase_ExportWritesManifestV2Tables(t *testing.T) {
 	if got := hashForTest(files["events.ndjson"]); got != entry.Checksum {
 		t.Fatalf("events checksum = %s, want %s", entry.Checksum, got)
 	}
-	for table, file := range map[string]string{"memories": "memories.ndjson", "memory_edges": "memory_edges.ndjson"} {
-		entry := manifest.Tables[table]
-		if entry.TableName != table || entry.File != file || entry.RowCount != 1 {
-			t.Fatalf("%s table entry = %+v", table, entry)
-		}
-		if got := hashForTest(files[file]); got != entry.Checksum {
-			t.Fatalf("%s checksum = %s, want %s", table, entry.Checksum, got)
-		}
+	memEntry := manifest.Tables["memories"]
+	if memEntry.TableName != "memories" || memEntry.File != "memories.ndjson" || memEntry.RowCount != 1 {
+		t.Fatalf("memories table entry = %+v", memEntry)
+	}
+	if got := hashForTest(files["memories.ndjson"]); got != memEntry.Checksum {
+		t.Fatalf("memories checksum = %s, want %s", memEntry.Checksum, got)
 	}
 	if _, present := manifest.Tables["run_lineages"]; present {
 		t.Fatal("new export must omit retired run_lineages entry")
 	}
 	if _, present := files["run_lineages.ndjson"]; present {
 		t.Fatal("new export must omit run_lineages.ndjson")
+	}
+	if _, present := manifest.Tables["memory_edges"]; present {
+		t.Fatal("new export must omit retired memory_edges entry (manifest subtraction, no version bump)")
+	}
+	if _, present := files["memory_edges.ndjson"]; present {
+		t.Fatal("new export must omit memory_edges.ndjson")
 	}
 }
 
@@ -1358,134 +1296,125 @@ func TestBundleUsecase_FilteredExportKeepsCompleteUsageSnapshotChainForSelectedS
 	}
 }
 
-func TestBundleUsecase_OrphanMemoryEdgeDefaultSkipsWithStructuredWarning(t *testing.T) {
+func TestBundleUsecase_NewBundleRoundTripsMemoriesWithoutMemoryEdgesEntry(t *testing.T) {
+	t.Parallel()
 	ts := time.Date(2026, 4, 25, 10, 0, 0, 0, time.UTC)
-	exportRepo := &fakeBundleRepo{
-		schema: 13,
-		exportMemories: []apptypes.MemoryDetails{
-			mustMemoryDetails(t, "mem-a", types.MemoryStatusAccepted, ts),
-		},
-		exportMemoryEdges: []*model.MemoryEdge{
-			mustMemoryEdge(t, "edge-orphan", "mem-a", "mem-missing", ts),
-		},
-	}
+	memories := []apptypes.MemoryDetails{mustMemoryDetails(t, "mem-a", types.MemoryStatusAccepted, ts)}
+	exportRepo := &fakeBundleRepo{schema: 13, exportMemories: memories}
 	uc := usecase.NewBundleUsecase(fakeEventQuery{}, exportRepo, func() time.Time { return ts })
-	out := filepath.Join(t.TempDir(), "bundle.tbun")
+	out := filepath.Join(t.TempDir(), "round-trip.tbun")
 	if err := uc.Export(context.Background(), usecase.BundleExportOptions{OutPath: out, Passphrase: []byte("pass1")}); err != nil {
 		t.Fatalf("Export: %v", err)
 	}
 	files := openTestBundle(t, out, []byte("pass1"))
-	if _, ok := files["memory_edges.ndjson"]; !ok {
-		t.Fatalf("bundle missing memory_edges.ndjson")
+	var manifest struct {
+		ManifestVersion int            `json:"manifest_version"`
+		Tables          map[string]any `json:"tables"`
 	}
-
-	var logs bytes.Buffer
-	previous := slog.Default()
-	slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn})))
-	defer slog.SetDefault(previous)
-
+	if err := json.Unmarshal(files["manifest.json"], &manifest); err != nil {
+		t.Fatalf("manifest unmarshal: %v", err)
+	}
+	if manifest.ManifestVersion != 2 {
+		t.Fatalf("manifest_version = %d, want 2 (no bump for table subtraction)", manifest.ManifestVersion)
+	}
+	if _, present := manifest.Tables["memory_edges"]; present {
+		t.Fatal("new export must omit memory_edges from the v2 manifest")
+	}
+	if _, present := files["memory_edges.ndjson"]; present {
+		t.Fatal("new export must omit memory_edges.ndjson from the tar")
+	}
 	importRepo := &fakeBundleRepo{schema: 13}
-	importUC := usecase.NewBundleUsecase(fakeEventQuery{}, importRepo, nil)
-	result, err := importUC.Import(context.Background(), usecase.BundleImportOptions{InPath: out, Passphrase: []byte("pass1")})
+	result, err := usecase.NewBundleUsecase(fakeEventQuery{}, importRepo, nil).Import(context.Background(), usecase.BundleImportOptions{InPath: out, Passphrase: []byte("pass1")})
 	if err != nil {
 		t.Fatalf("Import: %v", err)
 	}
-	if result.MemoriesImported != 1 || result.MemoryEdgesImported != 0 || result.MemoryEdgesSkipped != 1 {
-		t.Fatalf("Import result = %+v, want memory imported and orphan edge skipped", result)
+	if result.MemoriesImported != 1 {
+		t.Fatalf("memories imported = %d, want 1", result.MemoriesImported)
 	}
-	logText := logs.String()
-	for _, want := range []string{"bundle import skipped orphan memory edge", "\"table\":\"memory_edges\"", "\"edge_id\":\"edge-orphan\"", "\"to_exists\":false"} {
-		if !strings.Contains(logText, want) {
-			t.Fatalf("structured warning = %q, want containing %q", logText, want)
-		}
+	if importRepo.memories["mem-a"] == nil {
+		t.Fatal("round-trip lost memory mem-a")
 	}
 }
 
-func TestBundleUsecase_OrphanMemoryEdgeRejectRollsBackTransaction(t *testing.T) {
+func TestBundleUsecase_LegacyZeroRowMemoryEdgesImportsMemories(t *testing.T) {
+	t.Parallel()
 	ts := time.Date(2026, 4, 25, 10, 0, 0, 0, time.UTC)
-	exportRepo := &fakeBundleRepo{
-		schema: 13,
-		exportMemories: []apptypes.MemoryDetails{
-			mustMemoryDetails(t, "mem-a", types.MemoryStatusAccepted, ts),
-		},
-		exportMemoryEdges: []*model.MemoryEdge{
-			mustMemoryEdge(t, "edge-orphan", "mem-a", "mem-missing", ts),
-		},
+	memories := []apptypes.MemoryDetails{mustMemoryDetails(t, "mem-keep", types.MemoryStatusAccepted, ts)}
+	out := filepath.Join(t.TempDir(), "empty-edges.tbun")
+	if err := usecase.NewBundleUsecase(fakeEventQuery{}, &fakeBundleRepo{schema: 13, exportMemories: memories}, func() time.Time { return ts }).Export(context.Background(), usecase.BundleExportOptions{OutPath: out, Passphrase: []byte("pass1")}); err != nil {
+		t.Fatal(err)
 	}
-	uc := usecase.NewBundleUsecase(fakeEventQuery{}, exportRepo, func() time.Time { return ts })
-	out := filepath.Join(t.TempDir(), "bundle.tbun")
-	if err := uc.Export(context.Background(), usecase.BundleExportOptions{OutPath: out, Passphrase: []byte("pass1")}); err != nil {
-		t.Fatalf("Export: %v", err)
-	}
-	importRepo := &fakeBundleRepo{schema: 13}
-	importUC := usecase.NewBundleUsecase(fakeEventQuery{}, importRepo, nil)
-	_, err := importUC.Import(context.Background(), usecase.BundleImportOptions{
-		InPath:      out,
-		Passphrase:  []byte("pass1"),
-		OrphanEdges: usecase.BundleOrphanEdgesReject,
+	memBytes := openTestBundle(t, out, []byte("pass1"))["memories.ndjson"]
+	empty := []byte{}
+	bundle := buildBundleWithManifestAndFiles(t, 2, nil, map[string][]byte{
+		"memories.ndjson":     memBytes,
+		"memory_edges.ndjson": empty,
+	}, map[string]any{
+		"memories":     map[string]any{"table_name": "memories", "file": "memories.ndjson", "row_count": 1, "checksum": hashForTest(memBytes)},
+		"memory_edges": map[string]any{"table_name": "memory_edges", "file": "memory_edges.ndjson", "row_count": 0, "checksum": hashForTest(empty)},
 	})
-	if err == nil {
-		t.Fatalf("Import unexpectedly succeeded")
+	in := filepath.Join(t.TempDir(), "empty-edges-in.tbun")
+	if err := os.WriteFile(in, bundle, 0o600); err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(err.Error(), "references missing endpoint") {
-		t.Fatalf("Import error = %q, want missing endpoint", err.Error())
+	repo := &fakeBundleRepo{schema: 13}
+	result, err := usecase.NewBundleUsecase(fakeEventQuery{}, repo, nil).Import(context.Background(), usecase.BundleImportOptions{InPath: in, Passphrase: []byte("testpass")})
+	if err != nil {
+		t.Fatalf("Import zero-row memory_edges: %v", err)
 	}
-	if len(importRepo.memories) != 0 || len(importRepo.memoryEdges) != 0 {
-		t.Fatalf("rollback failed: memories=%d edges=%d", len(importRepo.memories), len(importRepo.memoryEdges))
+	if result.MemoriesImported != 1 {
+		t.Fatalf("memories imported = %d, want 1", result.MemoriesImported)
+	}
+	if repo.memories["mem-keep"] == nil {
+		t.Fatal("zero-row retired memory_edges import lost memories")
 	}
 }
 
-func TestBundleUsecase_OrphanMemoryEdgeConflictErrorRollsBackBeforeSkip(t *testing.T) {
+func TestBundleUsecase_LegacyNonZeroMemoryEdgesRefusesAtomically(t *testing.T) {
+	t.Parallel()
 	ts := time.Date(2026, 4, 25, 10, 0, 0, 0, time.UTC)
-	exportRepo := &fakeBundleRepo{
-		schema: 13,
-		exportMemories: []apptypes.MemoryDetails{
-			mustMemoryDetails(t, "mem-new", types.MemoryStatusAccepted, ts),
-		},
-		exportMemoryEdges: []*model.MemoryEdge{
-			mustMemoryEdge(t, "edge-collide", "mem-missing-from", "mem-missing-to", ts),
-		},
+	memories := []apptypes.MemoryDetails{mustMemoryDetails(t, "mem-keep", types.MemoryStatusAccepted, ts)}
+	out := filepath.Join(t.TempDir(), "nonzero-edges.tbun")
+	if err := usecase.NewBundleUsecase(fakeEventQuery{}, &fakeBundleRepo{schema: 13, exportMemories: memories}, func() time.Time { return ts }).Export(context.Background(), usecase.BundleExportOptions{OutPath: out, Passphrase: []byte("pass1")}); err != nil {
+		t.Fatal(err)
 	}
-	uc := usecase.NewBundleUsecase(fakeEventQuery{}, exportRepo, func() time.Time { return ts })
-	out := filepath.Join(t.TempDir(), "bundle.tbun")
-	if err := uc.Export(context.Background(), usecase.BundleExportOptions{OutPath: out, Passphrase: []byte("pass1")}); err != nil {
-		t.Fatalf("Export: %v", err)
-	}
-
-	importRepo := &fakeBundleRepo{
-		schema: 13,
-		memoryEdges: map[string]*model.MemoryEdge{
-			"edge-collide": mustMemoryEdge(t, "edge-collide", "mem-existing-from", "mem-existing-to", ts),
-		},
-	}
-	importUC := usecase.NewBundleUsecase(fakeEventQuery{}, importRepo, nil)
-	_, err := importUC.Import(context.Background(), usecase.BundleImportOptions{
-		InPath:     out,
-		Passphrase: []byte("pass1"),
-		OnConflict: usecase.BundleConflictError,
+	memBytes := openTestBundle(t, out, []byte("pass1"))["memories.ndjson"]
+	line := []byte("{\"id\":\"edge-legacy\",\"from_memory_id\":\"mem-a\",\"to_memory_id\":\"mem-b\",\"relation_type\":\"related-to\",\"valid_from\":\"2026-04-25T10:00:00Z\",\"created_at\":\"2026-04-25T10:00:00Z\"}\n")
+	bundle := buildBundleWithManifestAndFiles(t, 2, nil, map[string][]byte{
+		"memories.ndjson":     memBytes,
+		"memory_edges.ndjson": line,
+	}, map[string]any{
+		"memories":     map[string]any{"table_name": "memories", "file": "memories.ndjson", "row_count": 1, "checksum": hashForTest(memBytes)},
+		"memory_edges": map[string]any{"table_name": "memory_edges", "file": "memory_edges.ndjson", "row_count": 1, "checksum": hashForTest(line)},
 	})
-	if err == nil {
-		t.Fatalf("Import unexpectedly succeeded")
+	in := filepath.Join(t.TempDir(), "nonzero-edges-in.tbun")
+	if err := os.WriteFile(in, bundle, 0o600); err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(err.Error(), "memory edge conflict") {
-		t.Fatalf("Import error = %q, want memory edge conflict", err.Error())
+	repo := &fakeBundleRepo{schema: 13, memories: map[string]*model.Memory{}}
+	_, err := usecase.NewBundleUsecase(fakeEventQuery{}, repo, nil).Import(context.Background(), usecase.BundleImportOptions{InPath: in, Passphrase: []byte("testpass")})
+	if err == nil || !strings.Contains(err.Error(), "1 rows present") || !strings.Contains(err.Error(), "0.48.2") || !strings.Contains(err.Error(), "memory_edges") {
+		t.Fatalf("Import error = %v", err)
 	}
-	if len(importRepo.memories) != 0 {
-		t.Fatalf("rollback failed: imported memories=%d, want 0", len(importRepo.memories))
+	if len(repo.memories) != 0 {
+		t.Fatalf("non-zero retired memory_edges import mutated destination: %d memories", len(repo.memories))
 	}
 }
 
-func TestBundleUsecase_ManifestV2SixTableSpecDocReachable(t *testing.T) {
+func TestBundleUsecase_ManifestV2FiveTableSpecDocReachable(t *testing.T) {
 	t.Parallel()
 	content, err := os.ReadFile(filepath.Join("..", "..", "docs", "operations", "cross-machine-handoff.md"))
 	if err != nil {
 		t.Fatalf("ReadFile(cross-machine-handoff.md): %v", err)
 	}
 	text := string(content)
-	for _, want := range []string{"manifest_version = 2", "events.ndjson", "sessions.ndjson", "command_audits.ndjson", "memories.ndjson", "memory_edges.ndjson", "usage_observations.ndjson", "Conflict matrix", "Six-table inclusion rules"} {
+	for _, want := range []string{"manifest_version = 2", "events.ndjson", "sessions.ndjson", "command_audits.ndjson", "memories.ndjson", "usage_observations.ndjson", "Conflict matrix", "Five-table inclusion rules"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("doc missing %q", want)
 		}
+	}
+	if !strings.Contains(text, "retired") || !strings.Contains(text, "memory_edges") {
+		t.Fatal("doc must still name retired memory_edges import handling")
 	}
 }
 

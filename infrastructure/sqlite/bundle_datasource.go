@@ -195,43 +195,6 @@ ORDER BY
 	return out, nil
 }
 
-// ListBundleMemoryEdges returns every memory graph edge for bundle export.
-func (d *BundleDatasource) ListBundleMemoryEdges(ctx context.Context) ([]*model.MemoryEdge, error) {
-	db, err := d.db.open(ctx)
-	if err != nil {
-		return nil, xerrors.Errorf("failed to open DB for bundle memory edge export: %w", err)
-	}
-	defer func() {
-		if err := db.Close(); err != nil {
-			slog.Debug("failed to close resource", "error", err)
-		}
-	}()
-	rows, err := db.QueryContext(ctx, `
-SELECT id, from_memory_id, to_memory_id, relation_type, valid_from, valid_to, created_at
-  FROM memory_edges
- ORDER BY valid_from, id`)
-	if err != nil {
-		return nil, xerrors.Errorf("failed to query memory edges for bundle export: %w", err)
-	}
-	defer func() {
-		if err := rows.Close(); err != nil {
-			slog.Debug("failed to close resource", "error", err)
-		}
-	}()
-	edges := []*model.MemoryEdge{}
-	for rows.Next() {
-		edge, err := scanMemoryEdge(rows)
-		if err != nil {
-			return nil, xerrors.Errorf("failed to scan bundle memory edge row: %w", err)
-		}
-		edges = append(edges, edge)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, xerrors.Errorf("failed to iterate bundle memory edge rows: %w", err)
-	}
-	return edges, nil
-}
-
 // ListBundleUsageObservations returns every durable usage observation in a
 // deterministic order that keeps snapshot predecessors before successors.
 func (d *BundleDatasource) ListBundleUsageObservations(ctx context.Context) ([]*model.UsageObservation, error) {
@@ -281,7 +244,7 @@ SELECT observation.observation_id, session_id, observation.host, source_name, so
 
 // BeginBundleImport starts the transaction shared by every table
 // importer in a bundle (sessions, usage_observations, events,
-// command_audits, memories, and memory_edges).
+// command_audits, and memories).
 func (d *BundleDatasource) BeginBundleImport(ctx context.Context) (usecase.BundleImportTransaction, error) {
 	db, err := d.db.open(ctx)
 	if err != nil {
@@ -614,47 +577,6 @@ func (t *bundleImportTx) ImportMemory(ctx context.Context, memory *model.Memory,
 	return true, nil
 }
 
-// ImportMemoryEdge inserts or replaces a memory graph edge according to policy.
-func (t *bundleImportTx) ImportMemoryEdge(ctx context.Context, edge *model.MemoryEdge, policy usecase.BundleConflictPolicy) (bool, error) {
-	if edge == nil {
-		return false, xerrors.Errorf("memory edge must not be nil")
-	}
-	validToValue := nullableString("")
-	if to, ok := edge.ValidTo().Value(); ok {
-		validToValue = nullableString(formatMemoryValidityTimestamp(to))
-	}
-	query := insertMemoryEdgeQuery
-	if policy == usecase.BundleConflictReplace {
-		query = `INSERT INTO memory_edges (id, from_memory_id, to_memory_id, relation_type, valid_from, valid_to, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT(id) DO UPDATE SET
-  from_memory_id = excluded.from_memory_id,
-  to_memory_id = excluded.to_memory_id,
-  relation_type = excluded.relation_type,
-  valid_from = excluded.valid_from,
-  valid_to = excluded.valid_to,
-  created_at = excluded.created_at`
-	}
-	_, err := t.tx.ExecContext(
-		ctx,
-		query,
-		edge.EdgeID().String(),
-		edge.FromMemoryID().String(),
-		edge.ToMemoryID().String(),
-		edge.RelationType().String(),
-		formatMemoryValidityTimestamp(edge.ValidFrom()),
-		validToValue,
-		edge.CreatedAt().UTC().Format(time.RFC3339Nano),
-	)
-	if err == nil {
-		return true, nil
-	}
-	if policy == usecase.BundleConflictSkip && isSQLiteUniqueOrPKConflict(err) {
-		return false, nil
-	}
-	return false, xerrors.Errorf("failed to import memory edge %s: %w", edge.EdgeID(), err)
-}
-
 func (t *bundleImportTx) MemoryExists(ctx context.Context, memoryID types.MemoryID) (bool, error) {
 	var value int
 	err := t.tx.QueryRowContext(ctx, `SELECT 1 FROM memories WHERE id = ?`, memoryID.String()).Scan(&value)
@@ -665,18 +587,6 @@ func (t *bundleImportTx) MemoryExists(ctx context.Context, memoryID types.Memory
 		return false, nil
 	}
 	return false, xerrors.Errorf("failed to check memory conflict %s: %w", memoryID, err)
-}
-
-func (t *bundleImportTx) MemoryEdgeExists(ctx context.Context, edgeID types.MemoryEdgeID) (bool, error) {
-	var value int
-	err := t.tx.QueryRowContext(ctx, `SELECT 1 FROM memory_edges WHERE id = ?`, edgeID.String()).Scan(&value)
-	if err == nil {
-		return true, nil
-	}
-	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
-	}
-	return false, xerrors.Errorf("failed to check memory edge conflict %s: %w", edgeID, err)
 }
 
 func (t *bundleImportTx) sessionExists(ctx context.Context, sessionID types.SessionID) (bool, error) {

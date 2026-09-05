@@ -62,6 +62,9 @@ func (r *PreparedUpgradeMigrationRecipe) Build(ctx context.Context, request appl
 	if err := r.bindArchiveSegmentsRefuse(ctx, request); err != nil {
 		return err
 	}
+	if err := r.bindMemoryEdgesRefuse(ctx, request); err != nil {
+		return err
+	}
 	return r.PreparedMigrationCandidateRecipe.Build(ctx, request)
 }
 
@@ -84,6 +87,30 @@ func (r *PreparedUpgradeMigrationRecipe) bindArchiveSegmentsRefuse(ctx context.C
 				}
 			}
 			return refuseArchiveSegmentsIfNonEmpty(buildCtx, db)
+		}
+	}
+	return nil
+}
+
+func (r *PreparedUpgradeMigrationRecipe) bindMemoryEdgesRefuse(ctx context.Context, request application.PreparedCandidateRequest) error {
+	db, err := openDirectReadOnly(ctx, request.Run.SourcePath)
+	if err != nil {
+		return fmt.Errorf("open source to gate memory_edges drop: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+	plan, err := BuildPreparedMigrationPlan(ctx, db, r.Migrations)
+	if err != nil {
+		return err
+	}
+	if pendingDropsMemoryEdges(plan) {
+		prev := r.beforeApply
+		r.beforeApply = func(buildCtx context.Context, db *sql.DB) error {
+			if prev != nil {
+				if err := prev(buildCtx, db); err != nil {
+					return err
+				}
+			}
+			return refuseMemoryEdgesIfNonEmpty(buildCtx, db)
 		}
 	}
 	return nil

@@ -4,7 +4,7 @@
 // machines through any file-transport they already have (AirDrop,
 // scp, Syncthing, etc.). Traceary never ships its own transport.
 //
-// Portability covers events, sessions, command_audits, memories, memory_edges,
+// Portability covers events, sessions, command_audits, memories,
 // and usage_observations — see docs/operations/cross-machine-handoff
 // for the operator guide.
 package usecase
@@ -284,35 +284,6 @@ func encodeMemoriesNDJSON(memories []apptypes.MemoryDetails) (*bytes.Buffer, err
 		}
 		if err := enc.Encode(row); err != nil {
 			return nil, xerrors.Errorf("encode memory: %w", err)
-		}
-	}
-	return buf, nil
-}
-
-func encodeMemoryEdgesNDJSON(edges []*model.MemoryEdge) (*bytes.Buffer, error) {
-	buf := &bytes.Buffer{}
-	edges = append([]*model.MemoryEdge(nil), edges...)
-	sort.Slice(edges, func(i, j int) bool {
-		if !edges[i].ValidFrom().Equal(edges[j].ValidFrom()) {
-			return edges[i].ValidFrom().Before(edges[j].ValidFrom())
-		}
-		return edges[i].EdgeID().String() < edges[j].EdgeID().String()
-	})
-	enc := json.NewEncoder(buf)
-	for _, edge := range edges {
-		row := bundleMemoryEdgeRow{
-			EdgeID:       edge.EdgeID().String(),
-			FromMemoryID: edge.FromMemoryID().String(),
-			ToMemoryID:   edge.ToMemoryID().String(),
-			RelationType: edge.RelationType().String(),
-			ValidFrom:    edge.ValidFrom().UTC().Format(time.RFC3339Nano),
-			CreatedAt:    edge.CreatedAt().UTC().Format(time.RFC3339Nano),
-		}
-		if validTo, ok := edge.ValidTo().Value(); ok {
-			row.ValidTo = validTo.UTC().Format(time.RFC3339Nano)
-		}
-		if err := enc.Encode(row); err != nil {
-			return nil, xerrors.Errorf("encode memory edge: %w", err)
 		}
 	}
 	return buf, nil

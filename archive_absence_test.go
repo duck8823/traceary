@@ -26,6 +26,24 @@ func TestArchiveAndFileRetentionSymbolsAreAbsentFromRuntimeSources(t *testing.T)
 	assertRuntimeSymbolAbsence(t, fileRetentionPattern, map[string]bool{}, "FileRetention/file_retention")
 }
 
+func TestMemoryEdgeSymbolsAreAbsentFromRuntimeSources(t *testing.T) {
+	t.Parallel()
+	pattern := regexp.MustCompile(`MemoryEdge|memory_edges`)
+	allow := map[string]bool{
+		filepath.Join("infrastructure", "sqlite", "drop_memory_edges.go"):                 true,
+		filepath.Join("infrastructure", "sqlite", "prepared_migration_catalog.go"):        true,
+		filepath.Join("infrastructure", "sqlite", "prepared_upgrade_verifier.go"):         true,
+		filepath.Join("infrastructure", "sqlite", "prepared_upgrade_migration_recipe.go"): true,
+		filepath.Join("infrastructure", "sqlite", "migrate.go"):                           true,
+		filepath.Join("application", "types", "memory_edges_nonempty.go"):                 true,
+		filepath.Join("application", "usecase", "bundle_rows.go"):                         true,
+	}
+	assertRuntimeSymbolAbsence(t, pattern, allow, "MemoryEdge/memory_edges")
+	for path := range allow {
+		assertFileMatches(t, path, pattern)
+	}
+}
+
 func TestHookArchiveThenGCModeIsGone(t *testing.T) {
 	t.Parallel()
 	pattern := regexp.MustCompile(`archive_then_gc|runOpportunisticArchiveThenGC|hook_archive_auto`)

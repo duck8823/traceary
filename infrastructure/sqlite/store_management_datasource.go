@@ -62,15 +62,6 @@ var clearStaleExtractedCandidateSupersedesRefsQuery string
 // Tracked under #1368 / v0.11.0 sub-issue #832.
 const staleExtractedCandidateRetention = 14 * 24 * time.Hour
 
-//go:embed sql/delete_old_memory_edges.sql
-var deleteOldMemoryEdgesQuery string
-
-//go:embed sql/count_old_memory_edges.sql
-var countOldMemoryEdgesQuery string
-
-//go:embed sql/count_old_memory_edges_after_memory_gc.sql
-var countOldMemoryEdgesAfterMemoryGCQuery string
-
 //go:embed sql/count_stale_sessions.sql
 var countStaleSessionsQuery string
 
@@ -371,7 +362,6 @@ func (d *StoreManagementDatasource) countGarbageInTx(
 	}
 
 	beforeValue := formatTimestamp(before)
-	memoryEdgeBeforeValue := formatMemoryValidityTimestamp(before)
 	total := 0
 	matched := target == apptypes.GarbageCollectionTargetEvents || target == apptypes.GarbageCollectionTargetAll
 	if target == apptypes.GarbageCollectionTargetSessions || target == apptypes.GarbageCollectionTargetAll {
@@ -407,20 +397,6 @@ func (d *StoreManagementDatasource) countGarbageInTx(
 			return 0, xerrors.Errorf("failed to count stale extracted candidates: %w", err)
 		}
 		total += extractedCount
-	}
-	if target == apptypes.GarbageCollectionTargetMemoryEdges || target == apptypes.GarbageCollectionTargetAll {
-		matched = true
-		query := countOldMemoryEdgesQuery
-		args := []any{memoryEdgeBeforeValue}
-		if target == apptypes.GarbageCollectionTargetAll {
-			query = countOldMemoryEdgesAfterMemoryGCQuery
-			args = append(args, beforeValue, beforeValue)
-		}
-		count, err := queryCount(ctx, tx, query, args...)
-		if err != nil {
-			return 0, xerrors.Errorf("failed to count old memory edges: %w", err)
-		}
-		total += count
 	}
 	if !matched {
 		return 0, xerrors.Errorf("unsupported garbage-collection target: %s", target)
@@ -471,7 +447,6 @@ func (d *StoreManagementDatasource) collectGarbageInTx(
 	target apptypes.GarbageCollectionTarget,
 ) (int, error) {
 	beforeValue := formatTimestamp(before)
-	memoryEdgeBeforeValue := formatMemoryValidityTimestamp(before)
 
 	if _, ok := apptypes.GarbageCollectionTargetFrom(target.String()); !ok {
 		return 0, xerrors.Errorf("unsupported garbage-collection target: %s", target)
@@ -523,14 +498,6 @@ func (d *StoreManagementDatasource) collectGarbageInTx(
 			return 0, xerrors.Errorf("failed to decay stale extracted candidates: %w", err)
 		}
 		total += extractedCount
-	}
-	if target == apptypes.GarbageCollectionTargetMemoryEdges || target == apptypes.GarbageCollectionTargetAll {
-		matched = true
-		count, err := execRowsAffected(ctx, tx, deleteOldMemoryEdgesQuery, memoryEdgeBeforeValue)
-		if err != nil {
-			return 0, xerrors.Errorf("failed to delete old memory edges: %w", err)
-		}
-		total += count
 	}
 	if !matched {
 		return 0, xerrors.Errorf("unsupported garbage-collection target: %s", target)

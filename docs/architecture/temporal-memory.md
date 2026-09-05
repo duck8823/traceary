@@ -4,6 +4,8 @@
 
 Part of #567 · closes the evaluation half of #573.
 
+**Removed in #2327.** The memory-graph overlay (`memory_edges`, relation vocabulary, CLI/MCP graph commands) is gone. Memory validity windows, expiry, and supersede remain. Keep this document as the historical evaluation of the overlay, not as a live contract.
+
 ## Context
 
 v0.8 (#565) added half-open `[valid_from, valid_to)` windows to every accepted memory. Readers can time-travel with `traceary memory search --all --as-of <date>`, and `memory admin hygiene scan`'s `validity_overlap_supersede` detector uses the same windows to propose replacement chains.

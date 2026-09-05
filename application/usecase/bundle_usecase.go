@@ -4,7 +4,7 @@
 // machines through any file-transport they already have (AirDrop,
 // scp, Syncthing, etc.). Traceary never ships its own transport.
 //
-// Portability covers events, sessions, command_audits, memories, memory_edges,
+// Portability covers events, sessions, command_audits, memories,
 // and usage_observations — see docs/operations/cross-machine-handoff
 // for the operator guide.
 package usecase
@@ -103,28 +103,6 @@ func (p BundleMissingParentPolicy) normalized() (BundleMissingParentPolicy, erro
 	}
 }
 
-// BundleOrphanEdgesPolicy controls how bundle import handles memory edges
-// whose endpoints are absent from the destination store after memories import.
-type BundleOrphanEdgesPolicy string
-
-const (
-	// BundleOrphanEdgesSkip skips orphan edges and emits a structured warning.
-	BundleOrphanEdgesSkip BundleOrphanEdgesPolicy = "skip"
-	// BundleOrphanEdgesReject fails the import on the first orphan edge.
-	BundleOrphanEdgesReject BundleOrphanEdgesPolicy = "reject"
-)
-
-func (p BundleOrphanEdgesPolicy) normalized() (BundleOrphanEdgesPolicy, error) {
-	switch p {
-	case "", BundleOrphanEdgesSkip:
-		return BundleOrphanEdgesSkip, nil
-	case BundleOrphanEdgesReject, "error":
-		return BundleOrphanEdgesReject, nil
-	default:
-		return "", xerrors.Errorf("unsupported bundle orphan-edges policy %q (want skip or reject)", p)
-	}
-}
-
 // BundleImportOptions controls a single Import call.
 type BundleImportOptions struct {
 	// InPath is the filesystem path of the archive to read.
@@ -136,9 +114,6 @@ type BundleImportOptions struct {
 	OnConflict BundleConflictPolicy
 	// MissingParent controls how the sessions importer handles an imported session whose parent session is absent. Empty defaults to reject.
 	MissingParent BundleMissingParentPolicy
-	// OrphanEdges controls memory_edges rows whose endpoints are missing after
-	// memories import. Empty defaults to skip-with-warning.
-	OrphanEdges BundleOrphanEdgesPolicy
 }
 
 // BundleImportResult summarises what changed during Import.
@@ -156,10 +131,6 @@ type BundleImportResult struct {
 	// written vs dropped because of a pre-existing memory id collision.
 	MemoriesImported int
 	MemoriesSkipped  int
-	// MemoryEdgesImported / MemoryEdgesSkipped count memory graph edges that were
-	// newly written vs skipped due to idempotency or orphan-edge tolerance.
-	MemoryEdgesImported int
-	MemoryEdgesSkipped  int
 	// UsageObservationsImported / UsageObservationsSkipped count durable usage
 	// observations restored vs retained as exact or policy-selected duplicates.
 	UsageObservationsImported int
@@ -196,7 +167,6 @@ type bundleManifestWriter struct {
 type bundleManifestImportDefaults struct {
 	OnConflict    string `json:"on_conflict"`
 	MissingParent string `json:"missing_parent"`
-	OrphanEdges   string `json:"orphan_edges"`
 }
 
 type bundleTableEntry struct {
@@ -231,8 +201,6 @@ type BundleEventRepository interface {
 	ListBundleCommandAudits(ctx context.Context) ([]*model.CommandAudit, error)
 	// ListBundleMemories returns all durable memories and their refs for bundle export.
 	ListBundleMemories(ctx context.Context) ([]apptypes.MemoryDetails, error)
-	// ListBundleMemoryEdges returns all memory graph edges for bundle export.
-	ListBundleMemoryEdges(ctx context.Context) ([]*model.MemoryEdge, error)
 	// ListBundleUsageObservations returns all provider-neutral usage evidence.
 	ListBundleUsageObservations(ctx context.Context) ([]*model.UsageObservation, error)
 	// BeginBundleImport starts the single transaction used by all table
@@ -248,8 +216,6 @@ type BundleImportTransaction interface {
 	ImportCommandAudit(ctx context.Context, audit *model.CommandAudit, policy BundleConflictPolicy) (bool, error)
 	ImportMemory(ctx context.Context, memory *model.Memory, policy BundleConflictPolicy) (bool, error)
 	MemoryExists(ctx context.Context, memoryID types.MemoryID) (bool, error)
-	MemoryEdgeExists(ctx context.Context, edgeID types.MemoryEdgeID) (bool, error)
-	ImportMemoryEdge(ctx context.Context, edge *model.MemoryEdge, policy BundleConflictPolicy) (bool, error)
 	ImportUsageObservation(ctx context.Context, observation *model.UsageObservation, policy BundleConflictPolicy) (bool, error)
 	Commit(ctx context.Context) error
 	Rollback(ctx context.Context) error
@@ -310,10 +276,6 @@ func (u *bundleUsecase) Export(ctx context.Context, opts BundleExportOptions) er
 	if err != nil {
 		return xerrors.Errorf("failed to list memories for bundle: %w", err)
 	}
-	memoryEdges, err := u.repository.ListBundleMemoryEdges(ctx)
-	if err != nil {
-		return xerrors.Errorf("failed to list memory edges for bundle: %w", err)
-	}
 	usageObservations, err := u.repository.ListBundleUsageObservations(ctx)
 	if err != nil {
 		return xerrors.Errorf("failed to list usage observations for bundle: %w", err)
@@ -343,11 +305,6 @@ func (u *bundleUsecase) Export(ctx context.Context, opts BundleExportOptions) er
 	if err != nil {
 		return xerrors.Errorf("failed to encode memories: %w", err)
 	}
-	memoryEdgesImporter := registry["memory_edges"]
-	memoryEdgesBuf, err := memoryEdgesImporter.Export(ctx, bundleExportInputRows{MemoryEdges: memoryEdges})
-	if err != nil {
-		return xerrors.Errorf("failed to encode memory edges: %w", err)
-	}
 	usageObservationsImporter := registry["usage_observations"]
 	usageObservationsBuf, err := usageObservationsImporter.Export(ctx, bundleExportInputRows{UsageObservations: usageObservations})
 	if err != nil {
@@ -363,7 +320,6 @@ func (u *bundleUsecase) Export(ctx context.Context, opts BundleExportOptions) er
 		ImportDefaults: bundleManifestImportDefaults{
 			OnConflict:    string(BundleConflictSkip),
 			MissingParent: string(BundleMissingParentReject),
-			OrphanEdges:   string(BundleOrphanEdgesSkip),
 		},
 		Filters: bundleFilters{
 			Since:     formatOptionalTime(opts.Since),
@@ -395,12 +351,6 @@ func (u *bundleUsecase) Export(ctx context.Context, opts BundleExportOptions) er
 				RowCount:  len(memories),
 				Checksum:  hashSHA256(memoriesBuf.Bytes()),
 			},
-			"memory_edges": {
-				TableName: "memory_edges",
-				File:      memoryEdgesImporter.FileName(),
-				RowCount:  len(memoryEdges),
-				Checksum:  hashSHA256(memoryEdgesBuf.Bytes()),
-			},
 			"usage_observations": {
 				TableName: "usage_observations",
 				File:      usageObservationsImporter.FileName(),
@@ -420,7 +370,6 @@ func (u *bundleUsecase) Export(ctx context.Context, opts BundleExportOptions) er
 		"events.ndjson":             eventsBuf.Bytes(),
 		"command_audits.ndjson":     commandAuditsBuf.Bytes(),
 		"memories.ndjson":           memoriesBuf.Bytes(),
-		"memory_edges.ndjson":       memoryEdgesBuf.Bytes(),
 		"usage_observations.ndjson": usageObservationsBuf.Bytes(),
 	})
 	if err != nil {
@@ -448,10 +397,6 @@ func (u *bundleUsecase) Import(ctx context.Context, opts BundleImportOptions) (B
 		return BundleImportResult{}, err
 	}
 	missingParent, err := opts.MissingParent.normalized()
-	if err != nil {
-		return BundleImportResult{}, err
-	}
-	orphanEdges, err := opts.OrphanEdges.normalized()
 	if err != nil {
 		return BundleImportResult{}, err
 	}
@@ -505,7 +450,7 @@ func (u *bundleUsecase) Import(ctx context.Context, opts BundleImportOptions) (B
 	decodedTables := make(map[string][]bundleRow, len(tableEntries))
 	for _, entry := range tableEntries {
 		if entry.retired {
-			count, err := countRetiredBundleTableRows(bytes.NewReader(files[entry.File]))
+			count, err := countRetiredBundleTableRows(entry.TableName, bytes.NewReader(files[entry.File]))
 			if err != nil {
 				return result, xerrors.Errorf("failed to validate retired table %s: %w", entry.TableName, err)
 			}
@@ -516,7 +461,7 @@ func (u *bundleUsecase) Import(ctx context.Context, opts BundleImportOptions) (B
 				)
 			}
 			if count > 0 {
-				return result, retiredBundleTableNonEmptyError(count)
+				return result, retiredBundleTableNonEmptyError(entry.TableName, count)
 			}
 			continue
 		}
@@ -552,7 +497,7 @@ func (u *bundleUsecase) Import(ctx context.Context, opts BundleImportOptions) (B
 			continue
 		}
 		rows := decodedTables[entry.TableName]
-		imported, skipped, err := importer.Apply(ctx, tx, rows, bundleImportPolicy{OnConflict: onConflict, MissingParent: missingParent, OrphanEdges: orphanEdges})
+		imported, skipped, err := importer.Apply(ctx, tx, rows, bundleImportPolicy{OnConflict: onConflict, MissingParent: missingParent})
 		if err != nil {
 			return result, xerrors.Errorf("failed to import %s: %w", entry.TableName, err)
 		}
@@ -569,9 +514,6 @@ func (u *bundleUsecase) Import(ctx context.Context, opts BundleImportOptions) (B
 		case "memories":
 			result.MemoriesImported += imported
 			result.MemoriesSkipped += skipped
-		case "memory_edges":
-			result.MemoryEdgesImported += imported
-			result.MemoryEdgesSkipped += skipped
 		case "usage_observations":
 			result.UsageObservationsImported += imported
 			result.UsageObservationsSkipped += skipped
@@ -593,14 +535,12 @@ type bundleExportInputRows struct {
 	Events            []*model.Event
 	CommandAudits     []*model.CommandAudit
 	Memories          []apptypes.MemoryDetails
-	MemoryEdges       []*model.MemoryEdge
 	UsageObservations []*model.UsageObservation
 }
 
 type bundleImportPolicy struct {
 	OnConflict    BundleConflictPolicy
 	MissingParent BundleMissingParentPolicy
-	OrphanEdges   BundleOrphanEdgesPolicy
 }
 
 type bundleTableImporter interface {

@@ -207,6 +207,10 @@ var preparedMigrationManifest = map[int64]migrationManifestEntry{
 	// applied at live open (empty-store inline bootstrap may DROP only when
 	// the table has 0 rows).
 	84: {84, "000084_drop_archive_segments.sql", "9e575636036987dab2c33d896e940e8e456f8d03222ce039742395ba1c1e25d9", MigrationDataDependentOffline, ConservationLawBaseConserving, SemanticVerifierDropArchiveSegments, "2326"},
+	// 85 drops memory_edges after Go refuses a non-empty table. Never
+	// applied at live open (empty-store inline bootstrap may DROP only when
+	// the table has 0 rows).
+	85: {85, "000085_drop_memory_edges.sql", "8ef559d0b96d566771f3784ff57c5cf4fe71867e8445782fdf21de29e80588c2", MigrationDataDependentOffline, ConservationLawBaseConserving, SemanticVerifierDropMemoryEdges, "2327"},
 }
 
 func conservationLawFor(version int64) ConservationLawID {
