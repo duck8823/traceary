@@ -1672,6 +1672,28 @@ func TestBundleUsecase_WrongPassphraseFailsAEAD(t *testing.T) {
 	}
 }
 
+func TestBundleUsecase_GarbageBytesUseGenericDecryptPath(t *testing.T) {
+	t.Parallel()
+	in := filepath.Join(t.TempDir(), "garbage.tbun")
+	if err := os.WriteFile(in, []byte("not-an-archive-package-or-bundle"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := usecase.NewBundleUsecase(fakeEventQuery{}, &fakeBundleRepo{schema: 13}, nil).Import(context.Background(), usecase.BundleImportOptions{
+		InPath:     in,
+		Passphrase: []byte("testpass"),
+	})
+	if err == nil {
+		t.Fatal("want generic invalid-format refusal")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "failed to decrypt bundle") {
+		t.Fatalf("error = %q, want generic decrypt path", msg)
+	}
+	if strings.Contains(msg, "archive package") || strings.Contains(msg, "0.48.2") || strings.Contains(msg, "archive-restore") {
+		t.Fatalf("archive-specific branch leaked: %q", msg)
+	}
+}
+
 func TestBundleUsecase_RejectsMissingRequiredChecksum(t *testing.T) {
 	t.Parallel()
 

@@ -81,16 +81,6 @@ func ResetAntigravityBundleExistsFunc() {
 	storeAntigravityBundleExistsFunc(defaultAntigravityBundleExists)
 }
 
-// SetGCNowFunc replaces the current-time function for tests.
-func SetGCNowFunc(f func() time.Time) {
-	storeGCNowFunc(f)
-}
-
-// ResetGCNowFunc restores the default current-time function for tests.
-func ResetGCNowFunc() {
-	storeGCNowFunc(time.Now)
-}
-
 // SetTopNowFunc replaces the current-time function used by sessions / top
 // snapshot loading for tests.
 func SetTopNowFunc(f func() time.Time) {

@@ -1239,15 +1239,6 @@ func (s *spoolStoreManagementStub) CollectGarbage(context.Context, time.Time, ap
 func (s *spoolStoreManagementStub) CloseStaleSessions(context.Context, time.Duration, bool, []types.SessionID) (apptypes.CloseStaleSessionsResult, error) {
 	return apptypes.CloseStaleSessionsResult{}, nil
 }
-func (s *spoolStoreManagementStub) CreateStoreArchive(context.Context, apptypes.StoreArchiveCreateParams) (apptypes.StoreArchiveResult, error) {
-	return apptypes.StoreArchiveResult{}, nil
-}
-func (s *spoolStoreManagementStub) VerifyStoreArchive(context.Context, string, []byte) error {
-	return nil
-}
-func (s *spoolStoreManagementStub) RestoreStoreArchive(context.Context, string, []byte, bool) (apptypes.StoreArchiveRestoreResult, error) {
-	return apptypes.StoreArchiveRestoreResult{}, nil
-}
 
 type spoolEventUsecaseStub struct {
 	logCalls    int

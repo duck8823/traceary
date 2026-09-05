@@ -14,6 +14,7 @@ import (
 	"github.com/duck8823/traceary/application"
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/infrastructure/filesystem"
 )
 
@@ -450,4 +451,30 @@ func TestDoctorLargeStore_BoundedSetStaysBounded(t *testing.T) {
 			t.Fatalf("bounded report missing filesystem host check %q", name)
 		}
 	}
+}
+
+type minimalStoreStub struct{}
+
+func (s *minimalStoreStub) Initialize(context.Context) error { return nil }
+func (s *minimalStoreStub) PreviewOfflineMigrations(context.Context) ([]int64, error) {
+	return nil, nil
+}
+func (s *minimalStoreStub) InspectOneOffRepairRetirement(context.Context) (apptypes.OneOffRepairRetirement, error) {
+	return apptypes.OneOffRepairRetirement{}, nil
+}
+func (s *minimalStoreStub) InspectBoundDrop(context.Context) (apptypes.BoundDropInspection, error) {
+	return apptypes.BoundDropInspection{}, nil
+}
+func (s *minimalStoreStub) InspectUnavailableRetention(context.Context) (apptypes.UnavailableRetentionInspection, error) {
+	return apptypes.UnavailableRetentionInspection{}, nil
+}
+func (s *minimalStoreStub) CreateBackup(context.Context, string, bool) error { return nil }
+func (s *minimalStoreStub) RestoreBackup(context.Context, string, bool) error {
+	return nil
+}
+func (s *minimalStoreStub) CollectGarbage(context.Context, time.Time, apptypes.GarbageCollectionTarget, bool) (apptypes.CollectGarbageResult, error) {
+	return apptypes.CollectGarbageResult{}, nil
+}
+func (s *minimalStoreStub) CloseStaleSessions(context.Context, time.Duration, bool, []types.SessionID) (apptypes.CloseStaleSessionsResult, error) {
+	return apptypes.CloseStaleSessionsResult{}, nil
 }

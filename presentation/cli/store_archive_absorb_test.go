@@ -5,135 +5,134 @@ import (
 	"strings"
 	"testing"
 
-	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/spf13/cobra"
+
 	"github.com/duck8823/traceary/presentation/cli"
 )
 
-func TestRootCLI_StoreCompactArchiveDryRunDispatchesToCreate(t *testing.T) {
-	t.Setenv("TRACEARY_LANG", "en")
-	stub := &storeManagementUsecaseStub{}
-	root := cli.NewRootCLI(cli.WithStoreManagement(stub)).Command()
-	root.SetArgs([]string{"store", "compact", "--archive", "--dry-run", "--db-path", filepath.Join(t.TempDir(), "traceary.db")})
-	var stdout strings.Builder
-	root.SetOut(&stdout)
-	root.SetErr(&strings.Builder{})
-	if err := root.Execute(); err != nil {
-		t.Fatalf("Execute() error = %v", err)
-	}
-	if !stub.archiveCreateParams.DryRun {
-		t.Fatal("CreateStoreArchive DryRun = false, want true")
-	}
-	if stub.archiveCreateParams.DeleteAfterVerify {
-		t.Fatal("dry-run must not request delete-after-verify")
-	}
-	if !strings.Contains(stdout.String(), "Archive candidates") {
-		t.Fatalf("stdout = %q, want dry-run counts", stdout.String())
-	}
+var removedArchiveRetentionFlags = []string{
+	"archive",
+	"archive-verify",
+	"archive-restore",
+	"archive-max-age",
+	"archive-max-count",
+	"archive-max-allocated-bytes",
+	"archive-root",
+	"backup-max-age",
+	"backup-max-count",
+	"backup-max-allocated-bytes",
+	"backup-root",
+	"retention-plan",
+	"retention-apply",
+	"confirm-plan-id",
+	"plan",
+	"expires-after",
+	"output",
+	"passphrase-env",
+	"delete-after-verify",
+	"dry-run",
+	"keep-days",
+	"target",
 }
 
-func TestRootCLI_StoreCompactArchiveDeleteAfterVerify(t *testing.T) {
-	stub := &storeManagementUsecaseStub{
-		archiveCreateResult: apptypes.StoreArchiveResult{Path: "/tmp/out.trcaryar", TotalRows: 2, DeletedAfterVerify: true, DeletedCount: 2},
-	}
-	root := cli.NewRootCLI(cli.WithStoreManagement(stub)).Command()
-	out := filepath.Join(t.TempDir(), "out.trcaryar")
-	root.SetArgs([]string{
-		"store", "compact", "--archive",
-		"--output", out,
-		"--delete-after-verify",
-		"--db-path", filepath.Join(t.TempDir(), "traceary.db"),
-	})
-	root.SetOut(&strings.Builder{})
-	root.SetErr(&strings.Builder{})
-	if err := root.Execute(); err != nil {
-		t.Fatalf("Execute() error = %v", err)
-	}
-	if !stub.archiveCreateParams.DeleteAfterVerify {
-		t.Fatal("DeleteAfterVerify = false, want true")
-	}
-	if stub.archiveCreateParams.OutputPath != out {
-		t.Fatalf("OutputPath = %q, want %q", stub.archiveCreateParams.OutputPath, out)
-	}
-}
-
-func TestRootCLI_StoreCompactArchiveVerifyAndRestore(t *testing.T) {
-	stub := &storeManagementUsecaseStub{}
-	pkg := filepath.Join(t.TempDir(), "pack.trcaryar")
-	root := cli.NewRootCLI(cli.WithStoreManagement(stub)).Command()
-	root.SetOut(&strings.Builder{})
-	root.SetErr(&strings.Builder{})
-	root.SetArgs([]string{"store", "compact", "--archive-verify", pkg, "--db-path", filepath.Join(t.TempDir(), "traceary.db")})
-	if err := root.Execute(); err != nil {
-		t.Fatalf("verify Execute() error = %v", err)
-	}
-	if stub.archiveVerifyPath != pkg {
-		t.Fatalf("verify path = %q, want %q", stub.archiveVerifyPath, pkg)
-	}
-
-	root = cli.NewRootCLI(cli.WithStoreManagement(stub)).Command()
-	root.SetOut(&strings.Builder{})
-	root.SetErr(&strings.Builder{})
-	root.SetArgs([]string{"store", "compact", "--archive-restore", pkg, "--dry-run", "--db-path", filepath.Join(t.TempDir(), "traceary.db")})
-	if err := root.Execute(); err != nil {
-		t.Fatalf("restore Execute() error = %v", err)
-	}
-	if stub.archiveRestorePath != pkg || !stub.archiveRestoreDry {
-		t.Fatalf("restore path/dry = %q/%t", stub.archiveRestorePath, stub.archiveRestoreDry)
-	}
-}
-
-func TestRootCLI_StoreCompactRejectsAbsorbFlagsWithoutMode(t *testing.T) {
+func TestRootCLI_StoreCompactRejectsRemovedArchiveFlags(t *testing.T) {
 	t.Setenv("TRACEARY_LANG", "en")
 	db := filepath.Join(t.TempDir(), "traceary.db")
-	tests := []struct {
-		name    string
-		args    []string
-		wantErr string
-	}{
-		{
-			name:    "output without mode",
-			args:    []string{"store", "compact", "--output", "out.trcaryar", "--db-path", db},
-			wantErr: "--output requires --archive or --retention-plan",
-		},
-		{
-			name:    "plan without apply",
-			args:    []string{"store", "compact", "--plan", "p.json", "--db-path", db},
-			wantErr: "--plan/--confirm-plan-id require --retention-apply",
-		},
-		{
-			name:    "confirm-plan-id without apply",
-			args:    []string{"store", "compact", "--confirm-plan-id", "abc", "--db-path", db},
-			wantErr: "--plan/--confirm-plan-id require --retention-apply",
-		},
-		{
-			name:    "backup-root without retention-plan",
-			args:    []string{"store", "compact", "--backup-root", t.TempDir(), "--db-path", db},
-			wantErr: "file-retention ceiling flags require --retention-plan",
-		},
-		{
-			name:    "passphrase-env without archive mode",
-			args:    []string{"store", "compact", "--passphrase-env", "TRACEARY_ARCHIVE_PASS", "--db-path", db},
-			wantErr: "--passphrase-env requires --archive/--archive-verify/--archive-restore",
-		},
-		{
-			name:    "retention-apply missing plan",
-			args:    []string{"store", "compact", "--retention-apply", "--confirm-plan-id", "abc"},
-			wantErr: "--retention-apply requires --plan and --confirm-plan-id",
-		},
+	boolFlags := map[string]struct{}{
+		"archive": {}, "retention-plan": {}, "retention-apply": {},
+		"delete-after-verify": {}, "dry-run": {},
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			root := cli.NewRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{})).Command()
+	for _, name := range removedArchiveRetentionFlags {
+		t.Run("--"+name, func(t *testing.T) {
+			root := cli.NewRootCLI().Command()
 			root.SetOut(&strings.Builder{})
 			root.SetErr(&strings.Builder{})
-			root.SetArgs(tt.args)
+			args := []string{"store", "compact", "--" + name, "--db-path", db}
+			if _, ok := boolFlags[name]; !ok {
+				args = []string{"store", "compact", "--" + name, "value", "--db-path", db}
+			}
+			root.SetArgs(args)
 			err := root.Execute()
 			if err == nil {
-				t.Fatalf("Execute(%v) error = nil, want %q", tt.args, tt.wantErr)
+				t.Fatalf("Execute(%v) error = nil, want unknown flag", args)
 			}
-			if !strings.Contains(err.Error(), tt.wantErr) {
-				t.Fatalf("Execute(%v) error = %q, want substring %q", tt.args, err.Error(), tt.wantErr)
+			if !strings.Contains(err.Error(), "unknown flag") {
+				t.Fatalf("Execute(%v) error = %q, want Cobra unknown-flag", args, err.Error())
 			}
 		})
 	}
+}
+
+func TestRootCLI_StoreCompactHelpOmitsArchiveRetentionFlags(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+	root := cli.NewRootCLI().Command()
+	compact := mustFindCommand(t, root, "store", "compact")
+	help := compact.Flags().FlagUsages()
+	for _, name := range removedArchiveRetentionFlags {
+		if compact.Flags().Lookup(name) != nil {
+			t.Fatalf("store compact still registers --%s", name)
+		}
+		if strings.Contains(help, "--"+name) {
+			t.Fatalf("store compact --help still mentions --%s", name)
+		}
+	}
+}
+
+func TestRootCLI_ArchiveRestoreHasNoBespokeMessage(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+	root := cli.NewRootCLI().Command()
+	root.SetOut(&strings.Builder{})
+	errBuf := &strings.Builder{}
+	root.SetErr(errBuf)
+	root.SetArgs([]string{"store", "compact", "--archive-restore", "pkg", "--db-path", filepath.Join(t.TempDir(), "traceary.db")})
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("want unknown flag")
+	}
+	text := err.Error() + errBuf.String()
+	if !strings.Contains(text, "unknown flag") {
+		t.Fatalf("error = %q, want Cobra unknown-flag", text)
+	}
+	if strings.Contains(text, "0.48.2") || strings.Contains(strings.ToLower(text), "archive package") {
+		t.Fatalf("bespoke archive-restore message leaked: %q", text)
+	}
+}
+
+func TestRootCLI_BundleAndBackupHelpStillWork(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+	root := cli.NewRootCLI().Command()
+	export := mustFindCommand(t, root, "bundle", "export")
+	if export.Flags().Lookup("passphrase-env") == nil {
+		t.Fatal("bundle export --passphrase-env must remain")
+	}
+	imp := mustFindCommand(t, root, "bundle", "import")
+	if imp.Flags().Lookup("passphrase-env") == nil {
+		t.Fatal("bundle import --passphrase-env must remain")
+	}
+	backup := mustFindCommand(t, root, "store", "backup")
+	if backup == nil {
+		t.Fatal("store backup missing")
+	}
+}
+
+func mustFindCommand(t *testing.T, root *cobra.Command, path ...string) *cobra.Command {
+	t.Helper()
+	cmd := root
+	for _, name := range path {
+		next := commandNamed(cmd, name)
+		if next == nil {
+			t.Fatalf("command %s missing under %s", name, cmd.Name())
+		}
+		cmd = next
+	}
+	return cmd
+}
+
+func commandNamed(parent *cobra.Command, name string) *cobra.Command {
+	for _, cmd := range parent.Commands() {
+		if cmd.Name() == name {
+			return cmd
+		}
+	}
+	return nil
 }

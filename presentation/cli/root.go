@@ -48,8 +48,6 @@ type RootCLI struct {
 	attestationAnchorInspector  application.AttestationAnchorInspector
 	storeCompactionFactory      func(string) application.StoreCompactionUsecase
 	preparedStoreUpgradeFactory func(string) application.PreparedStoreUpgradeUsecase
-	fileRetention               usecase.FileRetentionUsecase
-	fileRetentionCapacity       usecase.FileRetentionCapacityInspector
 	workspaceIdentity           usecase.WorkspaceIdentityUsecase
 	hooksOrchestrator           application.HooksOrchestrator
 	hooksInspector              application.HooksInspector
@@ -248,19 +246,6 @@ func WithStoreCompactionFactory(factory func(string) application.StoreCompaction
 // WithPreparedStoreUpgradeFactory injects the offline-migration upgrade driver.
 func WithPreparedStoreUpgradeFactory(factory func(string) application.PreparedStoreUpgradeUsecase) RootCLIOption {
 	return func(c *RootCLI) { c.preparedStoreUpgradeFactory = factory }
-}
-
-// WithFileRetention injects reviewed archive/backup capacity management.
-func WithFileRetention(retention usecase.FileRetentionUsecase) RootCLIOption {
-	return func(c *RootCLI) {
-		c.fileRetention = retention
-		c.fileRetentionCapacity = retention
-	}
-}
-
-// WithFileRetentionCapacityInspector injects only the read-only doctor/status capability.
-func WithFileRetentionCapacityInspector(inspector usecase.FileRetentionCapacityInspector) RootCLIOption {
-	return func(c *RootCLI) { c.fileRetentionCapacity = inspector }
 }
 
 // WithWorkspaceIdentity injects body-free identity reporting and reviewed aliases.

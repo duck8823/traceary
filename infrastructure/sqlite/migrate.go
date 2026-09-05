@@ -77,6 +77,11 @@ func (d *Database) migrateWithOptions(ctx context.Context, db *sql.DB, allowOffl
 					return unavailableRetentionApprovalRequired(count, digest, sample, schemaVersion)
 				}
 			}
+			if migration.version == 84 {
+				if refuseErr := refuseArchiveSegmentsIfNonEmpty(ctx, db); refuseErr != nil {
+					return refuseErr
+				}
+			}
 			hasCanonical, inspectErr := storeHasCanonicalSourceData(ctx, db)
 			if inspectErr != nil {
 				return inspectErr

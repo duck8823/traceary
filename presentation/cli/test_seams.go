@@ -28,7 +28,6 @@ type (
 var (
 	userHomeDirSlot                    atomic.Pointer[userHomeDirFn]
 	antigravityBundleExistsSlot        atomic.Pointer[antigravityBundleExistsFn]
-	gcNowSlot                          atomic.Pointer[nowFn]
 	topNowSlot                         atomic.Pointer[nowFn]
 	antigravityPendingNowSlot          atomic.Pointer[nowFn]
 	antigravityProcessCwdSlot          atomic.Pointer[antigravityProcessCwdFn]
@@ -42,7 +41,6 @@ var (
 func init() {
 	storeUserHomeDirFunc(os.UserHomeDir)
 	storeAntigravityBundleExistsFunc(defaultAntigravityBundleExists)
-	storeGCNowFunc(time.Now)
 	storeTopNowFunc(time.Now)
 	storeAntigravityPendingNowFunc(time.Now)
 	storeAntigravityProcessCwdFunc(defaultAntigravityProcessCwd)
@@ -70,14 +68,6 @@ func storeAntigravityBundleExistsFunc(f antigravityBundleExistsFn) {
 
 func antigravityBundleExistsFunc(path string) bool {
 	return (*antigravityBundleExistsSlot.Load())(path)
-}
-
-func storeGCNowFunc(f nowFn) {
-	gcNowSlot.Store(&f)
-}
-
-func gcNowFunc() time.Time {
-	return (*gcNowSlot.Load())()
 }
 
 func storeTopNowFunc(f nowFn) {

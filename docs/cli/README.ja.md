@@ -832,27 +832,21 @@ store 管理コマンドは `store` namespace に集約されています。旧 
 
 ストアファイルを書き換えます。実行した瞬間が同意です。Traceary はストアをコピーし、そのコピーを filter し、新しいファイルへ VACUUM INTO したあと atomic exchange します。旧 inode は rollback ファイルとして残ります。
 
-コピー中に、非 canonical な hook 重複本文と退役済み search index family を落とします。transcript 本文は破棄せず、機械要約も書かず、`--refuse-unrefined` フラグはありません。search-projection family 自体は compact ではなく offline migration 80 で DROP します。`--keep-days` は `--archive` の保持窓であり、本文破棄の cutoff ではありません。
+コピー中に、非 canonical な hook 重複本文と退役済み search index family を落とします。transcript 本文は破棄せず、機械要約も書かず、`--refuse-unrefined` フラグはありません。search-projection family 自体は compact ではなく offline migration 80 で DROP します。
 
 preview ではなく、in-place `VACUUM` でもありません。成功後は `traceary store compact rollback RUN_ID` で直前のファイルに戻せます。
 
 主な flag:
 
-- `--keep-days`
 - `--db-path`
+- `--work-dir`
 - `--json`
+
+`--archive`、`--archive-verify`、`--archive-restore`、`--retention-plan`、`--retention-apply`、およびその他の archive/retention flag は unknown です。既存 archive package の取り出しは Traceary 0.48.2 です。この binary に archive reader はありません。可搬コピーは `traceary bundle` と `traceary store backup` です。
 
 ### `traceary store compact rollback RUN_ID`
 
 成功した書き換えが残した rollback inode から、compact 前のストアを戻します。
-
-### `traceary store compact --archive` / `--archive-verify` / `--archive-restore`
-
-GC 適格行を版付き archive package に export するか、package を検証・restore（冪等）します。`--delete-after-verify` が verify-before-delete 経路です。旧 `store archive create|verify|restore` を吸収します。既定の `store compact` rewrite は変わりません。
-
-### `traceary store compact --retention-plan` / `--retention-apply`
-
-ホスト側 archive / backup artifact の file-retention を計画または適用します。`--retention-apply` には `--plan` と `--confirm-plan-id` が必要です。旧 `store retention files plan|apply` を吸収します。apply は operator 同意が必要で、既定 hook 経路には入りません。
 
 ### `traceary bundle export|import`
 

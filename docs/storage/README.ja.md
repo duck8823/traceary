@@ -155,11 +155,12 @@ Durable memory に紐づく artifact ref です。
 
 - migration は `schema/sqlite/migrations` からバイナリに埋め込みます
 - 通常コマンドの実行前に store initialization が走るため、upgrade 時も non-offline migration は自動適用されます
-- データ依存 offline migration（035, 045, 076, 078, 079, 080, 081, 082, 083）は暗黙には適用しません。`traceary doctor --fix` を使います
+- データ依存 offline migration（035, 045, 076, 078, 079, 080, 081, 082, 083, 084）は暗黙には適用しません。`traceary doctor --fix` を使います
 - backup restore では、まず SQLite file をコピーし、その後に store initialization を再実行して newer non-offline migration を適用します
 - migration `000028` は不変な `run_lineages` と `usage_observation_runs` table を追加しました。v27 usage row は書き換えず、attribution 欠落は unknown のままです
 - migration `000079` は `usage_observation_runs` を FK なしで rebuild したあと `run_lineages` を DROP し、`minimum_reader_version` を 35 に上げます。非空 store は candidate 上で `traceary doctor --fix` が適用します。残行の DROP には `--approve-drop N:<hex>` が必要です
 - migration `000083` は `body_availability`、`raw_body_retention_*`、`session_orphan_ranges` を DROP し、`minimum_reader_version` を 39 に上げます。非空 store は candidate 上で `traceary doctor --fix` が適用します。`body_availability` が `unavailable_retention` だった行は 0.48.2 を含むどの binary でも復元できません。preflight と `traceary doctor` は件数、bounded sample、ソート済み id 集合の digest を報告します。件数が 1 以上のときは `--approve-unavailable-retention N:<hex>` が必要です。欠落・stale・drift した token では candidate は未変更のまま、live store にも触れません。件数 0 に approval は不要です。`events.body` に残る legacy marker 文字列 `[traceary:body-unavailable:retention]` は通常の本文です。search も display も verbatim に扱います。
+- migration `000084` は `archive_segments` を DROP し、`minimum_reader_version` を 40 に上げます。空テーブルは `traceary doctor --fix` の candidate 上で落ちます。非空テーブルは DROP 前に拒否し、件数と 0.48.2 の restore/export 手順を出します。この binary は archive package を読めません。DROP はページを freelist へ移すだけで、VACUUM / candidate rewrite なしではファイルは縮みません。
 
 任意の手動 schema edit との後方互換は保証しません。持ち運べるコピーが必要な場合は、DB を直接編集する代わりに `traceary store backup create` を使ってください。
 
@@ -171,33 +172,26 @@ command / input / output テキストは書いたままの plaintext です。co
 cover-free です。機械要約は書かず、transcript 本文も破棄せず、
 `--refuse-unrefined` フラグはありません。
 
-- `--keep-days 90` は `--archive` の保持窓であり、本文破棄の cutoff ではない
 - 物理容量回収は書き換えそのもの。in-place `VACUUM` ではない
 - `command_audits` 行がある履歴 `command_executed` body は空にすることがある（`released_command_body_bytes`）
-- archive / backup の file retention は `store compact --retention-plan` / `--retention-apply`。search-projection family は compact ではなく offline migration 80（非空 store では `traceary doctor --fix`）で DROP します。`--projection-rebuild` / `--projection-abort` は unknown flag です。
+- archive package と file-retention plan は削除されました（#2326）。search-projection family は compact ではなく offline migration 80（非空 store では `traceary doctor --fix`）で DROP します。`--projection-rebuild` / `--projection-abort` / `--archive` / `--retention-plan` は unknown flag です。
 
 **Reclaim warning。** hook 以外のコマンドの後、Traceary は stderr に `TRACEARY: ストアに回収できる領域が約 <size> あります。traceary store compact を実行してください` を、ストアごとに 24 時間に 1 回まで表示します（記録は `<db>.reclaim-warn`）。表示条件は、free page list — `PRAGMA freelist_count × PRAGMA page_size`、`traceary doctor` が `reclaimable=` として報告するのと同じ O(1) signal — が `compact.reclaim_warn_bytes`（既定 1 GiB）以上、**かつ** ストア全体の 10 % 以上であることです。ファイルサイズだけでは表示しません。freelist が空の 14 GiB ストアは、書き換えてもファイルシステムに返る領域がないため何も表示しません。`doctor` は同じ signal と同じ 10 % 比率を、より低い 256 MiB の floor で使うため、trailer が黙っている回収可能領域を報告することがあります（逆はありません）。`compact.reclaim_warn_bytes` を `0` にすると trailer を止められます。ストアを安価に読めない場合（writer が保持している、500 ms を超えたなど）は何も表示しません。store growth signal が不明であることの報告は `traceary doctor` の役割です。
 
-free page は rewrite が SQLite freelist からファイルシステムへ返せるバイト数です。compact は transcript 本文を破棄しないため、O(1) freelist signal が reclaim 見積もりです。`traceary store compact --dry-run` は `--archive` の plan/件数 surface であり、本文破棄の preview ではありません。
+free page は rewrite が SQLite freelist からファイルシステムへ返せるバイト数です。compact は transcript 本文を破棄しないため、O(1) freelist signal が reclaim 見積もりです。`traceary store compact --dry-run` は unknown flag です。
 
 ### Derived generation のディスク上限
 
 search-projection family は v0.49.0（#2319）で削除されました。世代 lifecycle も `--index-family-bytes` 予算も、doctor の `search-projection-terminal-rows` 検査もありません。compact JSON に encode step はありません。物理 DROP は offline migration 80 です。
 
-`--archive` / GC の target ごとの policy（既定の compact rewrite ではない）:
-
-- `events`: event row は削除せず、event 本文も破棄・書き換えしません。event skeleton、`prompt` 本文、`transcript` 本文、他の kind、`command_audits.command_text` / `input_text` は残ります。
-- `sessions`: `COALESCE(ended_at, started_at) < cutoff` かつ surviving event から参照されていない終了済み session を削除します。active session (`ended_at IS NULL`) は常に保護されます。
-- `memories`: `updated_at < cutoff` の `expired` / `superseded` / `rejected` memory を物理削除します。`accepted` と `candidate` は age 削除しません。**例外:** 未レビューの auto-extracted candidate (`source IN (extracted, extracted-hidden, compact-summary)`) は 14 日超で **hard delete ではなく `expired` へ decay** し、keep-days の物理 GC まで restore 可能です（#1368）。物理削除時は evidence/artifact ref が cascade され、削除または decay 直前の行を指す `supersedes_memory_id` は先に NULL へ更新されます。
-- `memory_edges`: `valid_to < cutoff` の終了済み edge を削除します。endpoint の memory が削除される場合も edge は自動 cascade されます。
-- `all`: events、sessions、memories、memory_edges の順に依存関係を保って適用します。event row が残るため、`delete_empty_sessions.sql` は event 削除によって候補を得なくなります。
+hook の opportunistic session GC（`runOpportunisticSessionGC` と `traceary doctor --fix`）は stale な active session を閉じます。archive-then-gc hook 経路はありません。
 
 実務上の意味:
 
 - `store compact` は operator が手動で実行するもので、Traceary が background で自動的に履歴を破棄することはありません
-- event 本文は、行そのものが削除されるまで書いたまま残ります（archive の `--delete-after-verify` または明示 delete）
+- event 本文は、行そのものが削除されるまで書いたまま残ります
 - 長期の監査履歴を残したい場合は、強めの cleanup の前に backup を取ってください
-- cold 行の export と **verify-before-delete** は [Archive-before-GC](./archive-before-gc.ja.md)（#1309）を参照。フルファイル backup は [バックアップガイド](../backup/README.ja.md)
+- 可搬コピーは [bundle](../cli/README.ja.md) と [バックアップガイド](../backup/README.ja.md) です。0.49 より前の archive package は Traceary 0.48.2 に pin して取り出します。
 
 ## レコードごとのストレージ蓄積
 

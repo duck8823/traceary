@@ -76,7 +76,7 @@ var pillarInventory = []pillarInventoryEntry{
 	{Path: "memory admin set-validity", Pillar: pillarMemory, Reason: "set a memory validity window"},
 	{Path: "store backup create", Pillar: pillarKeep, Reason: "operator safety copy"},
 	{Path: "store backup restore", Pillar: pillarKeep, Reason: "restore a safety copy"},
-	{Path: "store compact", Pillar: pillarRecord, Reason: "compress, drop retired index, vacuum; --archive absorbs store archive; --retention-plan/--retention-apply absorb store retention files"},
+	{Path: "store compact", Pillar: pillarRecord, Reason: "compress, drop retired index, vacuum"},
 	{Path: "store compact rollback", Pillar: pillarRecord, Reason: "restore the pre-compact inode"},
 }
 

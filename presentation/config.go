@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/duck8823/traceary/application/redaction"
 	"golang.org/x/xerrors"
@@ -18,7 +17,6 @@ type configFile struct {
 	UI            uiSection            `json:"ui"`
 	Redact        redactSection        `json:"redact"`
 	Read          readSection          `json:"read"`
-	Retention     retentionSection     `json:"retention"`
 	Consolidation consolidationSection `json:"consolidation"`
 	WakeInjection wakeInjectionSection `json:"wake_injection"`
 	Compact       compactSection       `json:"compact"`
@@ -48,13 +46,6 @@ type readSection struct {
 	Color   string                   `json:"color"`
 }
 
-// retentionSection configures optional archive-before-GC automation (#1372).
-// Default mode is disabled (fail-closed): operators must opt into archive_then_gc.
-type retentionSection struct {
-	Mode          string                    `json:"mode"`
-	ArchiveThenGC retentionArchiveThenGCDoc `json:"archive_then_gc"`
-}
-
 // consolidationSection configures the stop-hook consolidation pressure trigger
 // (#1674). ThresholdBytes is a pointer so explicit 0 (disabled) is distinct
 // from an absent key (default 64 KiB), the same way readPresetFilters.Failures
@@ -70,14 +61,6 @@ type consolidationSection struct {
 // an absent key (default 8 KiB), matching consolidationSection.
 type wakeInjectionSection struct {
 	BudgetBytes *int64 `json:"budget_bytes"`
-}
-
-type retentionArchiveThenGCDoc struct {
-	Interval      string `json:"interval"`
-	KeepDays      int    `json:"keep_days"`
-	Target        string `json:"target"`
-	OutputDir     string `json:"output_dir"`
-	PassphraseEnv string `json:"passphrase_env"`
 }
 
 // readPresetDoc mirrors a user-defined read preset entry in config.json. The
@@ -135,9 +118,6 @@ type Config struct {
 	// read commands. Empty string means "fall back to auto". The runtime
 	// validates the value when a command is about to render text.
 	ReadColor string
-	// Retention holds opt-in archive-before-GC automation. Zero Mode means
-	// disabled (same as explicit "disabled").
-	Retention RetentionConfig
 	// Consolidation holds the stop-hook pressure threshold. LoadConfig always
 	// resolves ThresholdBytes: default 64 KiB when the file/key is absent;
 	// explicit 0 disables; unreadable or malformed config also resolves to 0
@@ -155,12 +135,6 @@ type Config struct {
 	// with nobody told.
 	Compact CompactConfig
 }
-
-// RetentionModeDisabled is the fail-closed default for automatic archive-then-gc.
-const RetentionModeDisabled = "disabled"
-
-// RetentionModeArchiveThenGC opts into opportunistic archive-before-GC (#1372).
-const RetentionModeArchiveThenGC = "archive_then_gc"
 
 // DefaultConsolidationThresholdBytes is the stop-hook pressure threshold when
 // consolidation.threshold_bytes is absent from config.json (64 KiB).
@@ -191,23 +165,6 @@ const DefaultWakeInjectionBudgetBytes int64 = 8192
 // a trigger. This warning has no side effect, so a broken file still uses the
 // default and still warns.
 const DefaultCompactReclaimWarnBytes int64 = 1 << 30
-
-// RetentionConfig is the runtime view of config.json retention.
-type RetentionConfig struct {
-	// Mode is "disabled" (default) or "archive_then_gc".
-	Mode string
-	// Interval between automatic archive-then-gc attempts (e.g. "168h").
-	Interval string
-	// KeepDays matches store gc --keep-days when positive; zero means default 90.
-	KeepDays int
-	// Target is events|sessions|memories|memory_edges|all; empty means all.
-	Target string
-	// OutputDir stores archive packages; empty means ~/.config/traceary/archives.
-	OutputDir string
-	// PassphraseEnv is the name of an env var holding an optional passphrase.
-	// Secrets are never stored in config or SQLite.
-	PassphraseEnv string
-}
 
 // ConsolidationConfig is the runtime view of config.json consolidation.
 type ConsolidationConfig struct {
@@ -320,7 +277,6 @@ func LoadConfig() Config {
 		ReadFields:            file.Read.Fields,
 		ReadPresets:           toReadPresetMap(file.Read.Presets),
 		ReadColor:             file.Read.Color,
-		Retention:             toRetentionConfig(file.Retention),
 		Consolidation:         toConsolidationConfig(file.Consolidation),
 		WakeInjection:         toWakeInjectionConfig(file.WakeInjection),
 		Compact:               toCompactConfig(file.Compact),
@@ -332,21 +288,6 @@ func toCompactConfig(raw compactSection) CompactConfig {
 		return CompactConfig{ReclaimWarnBytes: DefaultCompactReclaimWarnBytes}
 	}
 	return CompactConfig{ReclaimWarnBytes: *raw.ReclaimWarnBytes}
-}
-
-func toRetentionConfig(raw retentionSection) RetentionConfig {
-	mode := strings.TrimSpace(raw.Mode)
-	if mode == "" {
-		mode = RetentionModeDisabled
-	}
-	return RetentionConfig{
-		Mode:          mode,
-		Interval:      strings.TrimSpace(raw.ArchiveThenGC.Interval),
-		KeepDays:      raw.ArchiveThenGC.KeepDays,
-		Target:        strings.TrimSpace(raw.ArchiveThenGC.Target),
-		OutputDir:     strings.TrimSpace(raw.ArchiveThenGC.OutputDir),
-		PassphraseEnv: strings.TrimSpace(raw.ArchiveThenGC.PassphraseEnv),
-	}
 }
 
 func toConsolidationConfig(raw consolidationSection) ConsolidationConfig {

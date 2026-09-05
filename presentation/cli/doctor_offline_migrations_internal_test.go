@@ -44,15 +44,6 @@ func (s *offlineMigrationStoreStub) CollectGarbage(context.Context, time.Time, a
 func (s *offlineMigrationStoreStub) CloseStaleSessions(context.Context, time.Duration, bool, []types.SessionID) (apptypes.CloseStaleSessionsResult, error) {
 	return apptypes.CloseStaleSessionsResult{}, nil
 }
-func (s *offlineMigrationStoreStub) CreateStoreArchive(context.Context, apptypes.StoreArchiveCreateParams) (apptypes.StoreArchiveResult, error) {
-	return apptypes.StoreArchiveResult{}, nil
-}
-func (s *offlineMigrationStoreStub) VerifyStoreArchive(context.Context, string, []byte) error {
-	return nil
-}
-func (s *offlineMigrationStoreStub) RestoreStoreArchive(context.Context, string, []byte, bool) (apptypes.StoreArchiveRestoreResult, error) {
-	return apptypes.StoreArchiveRestoreResult{}, nil
-}
 
 func TestSkippedOfflineMigrationsCheckIsSkipNotWarn(t *testing.T) {
 	t.Setenv("TRACEARY_LANG", "en")

@@ -114,15 +114,6 @@ func (tailStoreManagementStub) CollectGarbage(context.Context, time.Time, apptyp
 func (tailStoreManagementStub) CloseStaleSessions(context.Context, time.Duration, bool, []types.SessionID) (apptypes.CloseStaleSessionsResult, error) {
 	return apptypes.CloseStaleSessionsResult{}, nil
 }
-func (tailStoreManagementStub) CreateStoreArchive(context.Context, apptypes.StoreArchiveCreateParams) (apptypes.StoreArchiveResult, error) {
-	return apptypes.StoreArchiveResult{}, nil
-}
-func (tailStoreManagementStub) VerifyStoreArchive(context.Context, string, []byte) error {
-	return nil
-}
-func (tailStoreManagementStub) RestoreStoreArchive(context.Context, string, []byte, bool) (apptypes.StoreArchiveRestoreResult, error) {
-	return apptypes.StoreArchiveRestoreResult{}, nil
-}
 
 type fakeTailTicker struct {
 	ch chan time.Time

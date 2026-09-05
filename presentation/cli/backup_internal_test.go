@@ -97,15 +97,6 @@ func (s *restoreStoreBackupUsecaseForTest) CollectGarbage(_ context.Context, _ t
 func (s *restoreStoreBackupUsecaseForTest) CloseStaleSessions(_ context.Context, _ time.Duration, _ bool, _ []types.SessionID) (apptypes.CloseStaleSessionsResult, error) {
 	return apptypes.CloseStaleSessionsResult{}, nil
 }
-func (s *restoreStoreBackupUsecaseForTest) CreateStoreArchive(_ context.Context, _ apptypes.StoreArchiveCreateParams) (apptypes.StoreArchiveResult, error) {
-	return apptypes.StoreArchiveResult{}, nil
-}
-func (s *restoreStoreBackupUsecaseForTest) VerifyStoreArchive(_ context.Context, _ string, _ []byte) error {
-	return nil
-}
-func (s *restoreStoreBackupUsecaseForTest) RestoreStoreArchive(_ context.Context, _ string, _ []byte, _ bool) (apptypes.StoreArchiveRestoreResult, error) {
-	return apptypes.StoreArchiveRestoreResult{}, nil
-}
 
 func TestRunBackupRestore_InteractiveConfirmation(t *testing.T) {
 	t.Parallel()
