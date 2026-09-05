@@ -12,8 +12,6 @@ const (
 	GarbageCollectionTargetSessions GarbageCollectionTarget = "sessions"
 	// GarbageCollectionTargetMemories prunes expired or superseded memories.
 	GarbageCollectionTargetMemories GarbageCollectionTarget = "memories"
-	// GarbageCollectionTargetMemoryEdges prunes closed or orphaned memory edges.
-	GarbageCollectionTargetMemoryEdges GarbageCollectionTarget = "memory_edges"
 	// GarbageCollectionTargetAll applies every garbage-collection target in dependency order.
 	GarbageCollectionTargetAll GarbageCollectionTarget = "all"
 )
@@ -26,8 +24,6 @@ func GarbageCollectionTargetFrom(value string) (GarbageCollectionTarget, bool) {
 		GarbageCollectionTargetSessions,
 		// GarbageCollectionTargetMemories prunes expired or superseded memories.
 		GarbageCollectionTargetMemories,
-		// GarbageCollectionTargetMemoryEdges prunes closed or orphaned memory edges.
-		GarbageCollectionTargetMemoryEdges,
 		// GarbageCollectionTargetAll applies every garbage-collection target in dependency order.
 		GarbageCollectionTargetAll:
 		return target, true

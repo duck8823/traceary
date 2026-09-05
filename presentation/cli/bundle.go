@@ -77,7 +77,6 @@ func (c *RootCLI) newBundleImportCommand() *cobra.Command {
 		passphraseEnv      string
 		onConflictValue    string
 		missingParentValue string
-		orphanEdgesValue   string
 		asJSON             bool
 	)
 	cmd := &cobra.Command{
@@ -91,7 +90,6 @@ func (c *RootCLI) newBundleImportCommand() *cobra.Command {
 				passphraseEnv: passphraseEnv,
 				onConflict:    onConflictValue,
 				missingParent: missingParentValue,
-				orphanEdges:   orphanEdgesValue,
 				asJSON:        asJSON,
 			})
 		},
@@ -101,7 +99,6 @@ func (c *RootCLI) newBundleImportCommand() *cobra.Command {
 	cmd.Flags().StringVar(&passphraseEnv, "passphrase-env", "TRACEARY_BUNDLE_PASSPHRASE", Localize("environment variable that carries the decryption passphrase", "復号 passphrase を格納した環境変数名"))
 	cmd.Flags().StringVar(&onConflictValue, "on-conflict", "skip", Localize("UNIQUE conflict policy: skip, replace, or error", "UNIQUE 衝突時の方針: skip, replace, error"))
 	cmd.Flags().StringVar(&missingParentValue, "missing-parent", "reject", Localize("policy when an imported session's parent session is absent: reject, skip, or backfill", "import する session の親 session が無い場合の方針: reject, skip, backfill"))
-	cmd.Flags().StringVar(&orphanEdgesValue, "orphan-edges", "skip", Localize("memory edge orphan endpoint policy: skip or reject", "memory edge の孤立 endpoint 方針: skip または reject"))
 	cmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON result", "JSON 形式で結果を出力する"))
 	_ = cmd.MarkFlagRequired("in")
 	return cmd
@@ -124,7 +121,6 @@ type bundleImportInput struct {
 	passphraseEnv string
 	onConflict    string
 	missingParent string
-	orphanEdges   string
 	asJSON        bool
 }
 
@@ -199,7 +195,6 @@ func (c *RootCLI) runBundleImport(ctx context.Context, output io.Writer, input b
 		Passphrase:    passphrase,
 		OnConflict:    usecase.BundleConflictPolicy(strings.TrimSpace(input.onConflict)),
 		MissingParent: usecase.BundleMissingParentPolicy(strings.TrimSpace(input.missingParent)),
-		OrphanEdges:   usecase.BundleOrphanEdgesPolicy(strings.TrimSpace(input.orphanEdges)),
 	})
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to import bundle", "bundle の import に失敗しました"), err)
@@ -216,8 +211,6 @@ func (c *RootCLI) runBundleImport(ctx context.Context, output io.Writer, input b
 			CommandAuditsSkipped:      result.CommandAuditsSkipped,
 			MemoriesImported:          result.MemoriesImported,
 			MemoriesSkipped:           result.MemoriesSkipped,
-			MemoryEdgesImported:       result.MemoryEdgesImported,
-			MemoryEdgesSkipped:        result.MemoryEdgesSkipped,
 			UsageObservationsImported: result.UsageObservationsImported,
 			UsageObservationsSkipped:  result.UsageObservationsSkipped,
 			BundleSchemaVersion:       result.BundleSchemaVersion,
@@ -228,13 +221,12 @@ func (c *RootCLI) runBundleImport(ctx context.Context, output io.Writer, input b
 	}
 	if _, err := fmt.Fprintf(
 		output,
-		"%s: sessions_imported=%d, sessions_skipped=%d, events_imported=%d, events_skipped=%d, command_audits_imported=%d, command_audits_skipped=%d, memories_imported=%d, memories_skipped=%d, memory_edges_imported=%d, memory_edges_skipped=%d, usage_observations_imported=%d, usage_observations_skipped=%d, schema=%d\n",
+		"%s: sessions_imported=%d, sessions_skipped=%d, events_imported=%d, events_skipped=%d, command_audits_imported=%d, command_audits_skipped=%d, memories_imported=%d, memories_skipped=%d, usage_observations_imported=%d, usage_observations_skipped=%d, schema=%d\n",
 		Localize("Imported bundle", "bundle を取り込みました"),
 		result.SessionsImported, result.SessionsSkipped,
 		result.EventsImported, result.EventsSkipped,
 		result.CommandAuditsImported, result.CommandAuditsSkipped,
 		result.MemoriesImported, result.MemoriesSkipped,
-		result.MemoryEdgesImported, result.MemoryEdgesSkipped,
 		result.UsageObservationsImported, result.UsageObservationsSkipped,
 		result.BundleSchemaVersion,
 	); err != nil {

@@ -4,6 +4,8 @@
 
 #567 の一部 · #573 の評価フェーズを閉じるドキュメント。
 
+**#2327 で削除。** memory-graph overlay（`memory_edges`、relation vocabulary、CLI/MCP graph コマンド）はなくなりました。memory の validity window、expiry、supersede は残ります。この文書は live contract ではなく overlay の歴史的評価です。
+
 ## 背景
 
 v0.8 (#565) で、すべての accepted memory に半開区間 `[valid_from, valid_to)` が付きました。`traceary memory search --all --as-of <date>` で時間をさかのぼれ、`memory admin hygiene scan` の `validity_overlap_supersede` 検出も同じ窓を使って置換チェーンを提案します。

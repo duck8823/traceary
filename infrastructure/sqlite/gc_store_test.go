@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -407,9 +408,6 @@ func TestDatasource_CollectGarbage_deletesOnlyExpiredSupersededAndRejectedMemori
 	insertRetentionMemory(t, db, "mem-expired-recent", "expired", "", "2026-04-08T00:00:00Z")
 	execRetentionSQL(t, db, `INSERT INTO memory_evidence_refs (memory_id, ordinal, ref_kind, ref_value) VALUES ('mem-expired-old', 0, 'event', 'event-1')`)
 	execRetentionSQL(t, db, `INSERT INTO memory_artifact_refs (memory_id, ordinal, ref_kind, ref_value) VALUES ('mem-superseded-old', 0, 'file', 'README.md')`)
-	execRetentionSQL(t, db, `INSERT INTO memory_edges (id, from_memory_id, to_memory_id, relation_type, valid_from, valid_to, created_at) VALUES
-		('edge-cascade-from', 'mem-expired-old', 'mem-accepted-old', 'related-to', '2026-04-01T00:00:00.000000000Z', NULL, '2026-04-01T00:00:00Z'),
-		('edge-cascade-to', 'mem-accepted-old', 'mem-superseded-old', 'related-to', '2026-04-01T00:00:00.000000000Z', NULL, '2026-04-01T00:00:00Z')`)
 
 	previewCount, err := storeManager.CollectGarbage(context.Background(), time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC), apptypes.GarbageCollectionTargetMemories, true)
 	if err != nil {
@@ -418,7 +416,6 @@ func TestDatasource_CollectGarbage_deletesOnlyExpiredSupersededAndRejectedMemori
 	if diff := cmp.Diff(3, previewCount); diff != "" {
 		t.Fatalf("previewCount mismatch (-want +got):\n%s", diff)
 	}
-	assertRetentionIDs(t, db, "memory_edges", "id", []string{"edge-cascade-from", "edge-cascade-to"})
 
 	deletedCount, err := storeManager.CollectGarbage(context.Background(), time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC), apptypes.GarbageCollectionTargetMemories, false)
 	if err != nil {
@@ -429,7 +426,6 @@ func TestDatasource_CollectGarbage_deletesOnlyExpiredSupersededAndRejectedMemori
 		t.Fatalf("deletedCount mismatch (-want +got):\n%s", diff)
 	}
 	assertRetentionIDs(t, db, "memories", "id", []string{"mem-accepted-old", "mem-expired-recent", "mem-proposed-old", "mem-rejected-recent"})
-	assertRetentionIDs(t, db, "memory_edges", "id", nil)
 	assertRetentionIDs(t, db, "memory_evidence_refs", "memory_id", nil)
 	assertRetentionIDs(t, db, "memory_artifact_refs", "memory_id", nil)
 	var supersedes sql.NullString
@@ -564,38 +560,21 @@ func TestDatasource_CollectGarbage_clearsSupersedesRefBeforeDeletingStaleExtract
 	}
 }
 
-func TestDatasource_CollectGarbage_deletesOldClosedMemoryEdges(t *testing.T) {
+func TestDatasource_CollectGarbage_UnknownMemoryEdgesTargetErrors(t *testing.T) {
 	t.Parallel()
 
-	dbPath, storeManager := prepareRetentionFixture(t)
-	db := openRetentionDB(t, dbPath)
-	defer func() { _ = db.Close() }()
-
-	insertRetentionMemory(t, db, "mem-a", "accepted", "", "2026-04-01T00:00:00Z")
-	insertRetentionMemory(t, db, "mem-b", "accepted", "", "2026-04-01T00:00:00Z")
-	execRetentionSQL(t, db, `INSERT INTO memory_edges (id, from_memory_id, to_memory_id, relation_type, valid_from, valid_to, created_at) VALUES
-		('edge-old-closed', 'mem-a', 'mem-b', 'related-to', '2026-04-01T00:00:00.000000000Z', '2026-04-02T00:00:00.000000000Z', '2026-04-01T00:00:00Z'),
-		('edge-recent-closed', 'mem-a', 'mem-b', 'related-to', '2026-04-01T00:00:00.000000000Z', '2026-04-08T00:00:00.000000000Z', '2026-04-01T00:00:00Z'),
-		('edge-open', 'mem-a', 'mem-b', 'related-to', '2026-04-01T00:00:00.000000000Z', NULL, '2026-04-01T00:00:00Z')`)
-
-	previewCount, err := storeManager.CollectGarbage(context.Background(), time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC), apptypes.GarbageCollectionTargetMemoryEdges, true)
-	if err != nil {
-		t.Fatalf("CollectGarbage(dry-run) error = %v", err)
+	_, storeManager := prepareRetentionFixture(t)
+	for _, dryRun := range []bool{true, false} {
+		_, err := storeManager.CollectGarbage(
+			context.Background(),
+			time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC),
+			apptypes.GarbageCollectionTarget("memory_edges"),
+			dryRun,
+		)
+		if err == nil || !strings.Contains(err.Error(), "unsupported garbage-collection target") {
+			t.Fatalf("dryRun=%v error = %v, want unknown-target", dryRun, err)
+		}
 	}
-	if diff := cmp.Diff(1, previewCount); diff != "" {
-		t.Fatalf("previewCount mismatch (-want +got):\n%s", diff)
-	}
-
-	deletedCount, err := storeManager.CollectGarbage(context.Background(), time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC), apptypes.GarbageCollectionTargetMemoryEdges, false)
-	if err != nil {
-		t.Fatalf("CollectGarbage() error = %v", err)
-	}
-	if diff := cmp.Diff(1, deletedCount); diff != "" {
-		t.Fatalf("deletedCount mismatch (-want +got):\n%s", diff)
-	}
-	assertRetentionIDs(t, db, "memory_edges", "id", []string{"edge-open", "edge-recent-closed"})
-	assertRetentionIDs(t, db, "memories", "id", []string{"mem-a", "mem-b"})
-	assertNoForeignKeyViolations(t, db)
 }
 
 func TestDatasource_CollectGarbageAll_PreviewMatchesApplyAcrossOrderedTargets(t *testing.T) {
@@ -617,23 +596,19 @@ func TestDatasource_CollectGarbageAll_PreviewMatchesApplyAcrossOrderedTargets(t 
 	insertRetentionMemory(t, db, "accepted-a", "accepted", "", "2026-04-01T00:00:00Z")
 	insertRetentionMemory(t, db, "accepted-b", "accepted", "", "2026-04-01T00:00:00Z")
 	insertRetentionMemoryWithSource(t, db, "stale-candidate", "candidate", "extracted", "", staleCandidate)
-	execRetentionSQL(t, db, `INSERT INTO memory_edges (id, from_memory_id, to_memory_id, relation_type, valid_from, valid_to, created_at) VALUES
-		('cascade-edge', 'old-memory', 'accepted-a', 'related-to', '2026-04-01T00:00:00.000000000Z', NULL, '2026-04-01T00:00:00Z'),
-		('independent-old-edge', 'accepted-a', 'accepted-b', 'related-to', '2026-04-01T00:00:00.000000000Z', '2026-04-02T00:00:00.000000000Z', '2026-04-01T00:00:00Z')`)
 
 	previewCount, err := storeManager.CollectGarbage(context.Background(), cutoff, apptypes.GarbageCollectionTargetAll, true)
 	if err != nil {
 		t.Fatalf("CollectGarbage(dry-run) error = %v", err)
 	}
 	// The event is a note, so it is not discardable, and its survival keeps
-	// old-session referenced. Only the memory and memory-edge targets act.
-	if diff := cmp.Diff(3, previewCount); diff != "" {
+	// old-session referenced. Only the memories target acts.
+	if diff := cmp.Diff(2, previewCount); diff != "" {
 		t.Fatalf("previewCount mismatch (-want +got):\n%s", diff)
 	}
 	assertRetentionIDs(t, db, "events", "id", []string{"old-event"})
 	assertRetentionIDs(t, db, "sessions", "session_id", []string{"old-session"})
 	assertRetentionIDs(t, db, "memories", "id", []string{"accepted-a", "accepted-b", "old-memory", "stale-candidate"})
-	assertRetentionIDs(t, db, "memory_edges", "id", []string{"cascade-edge", "independent-old-edge"})
 
 	deletedCount, err := storeManager.CollectGarbage(context.Background(), cutoff, apptypes.GarbageCollectionTargetAll, false)
 	if err != nil {
@@ -645,7 +620,6 @@ func TestDatasource_CollectGarbageAll_PreviewMatchesApplyAcrossOrderedTargets(t 
 	assertRetentionIDs(t, db, "events", "id", []string{"old-event"})
 	assertRetentionIDs(t, db, "sessions", "session_id", []string{"old-session"})
 	assertRetentionIDs(t, db, "memories", "id", []string{"accepted-a", "accepted-b", "stale-candidate"})
-	assertRetentionIDs(t, db, "memory_edges", "id", nil)
 
 	var status string
 	if err := db.QueryRow(`SELECT status FROM memories WHERE id = 'stale-candidate'`).Scan(&status); err != nil {
@@ -679,9 +653,6 @@ func TestDatasource_CollectGarbageAll_PreviewMatchesApplyWithProductionMigration
 	insertRetentionMemory(t, db, "accepted-a", "accepted", "", "2026-04-01T00:00:00Z")
 	insertRetentionMemory(t, db, "accepted-b", "accepted", "", "2026-04-01T00:00:00Z")
 	insertRetentionMemoryWithSource(t, db, "stale-candidate", "candidate", "extracted", "", staleCandidate)
-	execRetentionSQL(t, db, `INSERT INTO memory_edges (id, from_memory_id, to_memory_id, relation_type, valid_from, valid_to, created_at) VALUES
-		('cascade-edge', 'old-memory', 'accepted-a', 'related-to', '2026-04-01T00:00:00.000000000Z', NULL, '2026-04-01T00:00:00Z'),
-		('independent-old-edge', 'accepted-a', 'accepted-b', 'related-to', '2026-04-01T00:00:00.000000000Z', '2026-04-02T00:00:00.000000000Z', '2026-04-01T00:00:00Z')`)
 
 	previewCount, err := storeManager.CollectGarbage(context.Background(), cutoff, apptypes.GarbageCollectionTargetAll, true)
 	if err != nil {
@@ -692,9 +663,8 @@ func TestDatasource_CollectGarbageAll_PreviewMatchesApplyWithProductionMigration
 		t.Fatalf("CollectGarbage() error = %v", err)
 	}
 	// Same expectation as the hand-written fixture, on the real migration set:
-	// the note survives, so its session survives, and only memories and
-	// memory edges are collected.
-	if diff := cmp.Diff(3, previewCount); diff != "" {
+	// the note survives, so its session survives, and only memories are collected.
+	if diff := cmp.Diff(2, previewCount); diff != "" {
 		t.Fatalf("previewCount mismatch (-want +got):\n%s", diff)
 	}
 	if diff := cmp.Diff(previewCount, deletedCount); diff != "" {
@@ -703,7 +673,6 @@ func TestDatasource_CollectGarbageAll_PreviewMatchesApplyWithProductionMigration
 	assertRetentionIDs(t, db, "events", "id", []string{"old-event"})
 	assertRetentionIDs(t, db, "sessions", "session_id", []string{"old-session"})
 	assertRetentionIDs(t, db, "memories", "id", []string{"accepted-a", "accepted-b", "stale-candidate"})
-	assertRetentionIDs(t, db, "memory_edges", "id", nil)
 	assertNoForeignKeyViolations(t, db)
 }
 
@@ -821,15 +790,6 @@ CREATE TABLE memory_artifact_refs (
     ref_kind TEXT NOT NULL,
     ref_value TEXT NOT NULL,
     PRIMARY KEY (memory_id, ordinal)
-);
-CREATE TABLE memory_edges (
-    id TEXT PRIMARY KEY,
-    from_memory_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
-    to_memory_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
-    relation_type TEXT NOT NULL,
-    valid_from TEXT NOT NULL,
-    valid_to TEXT,
-    created_at TEXT NOT NULL
 );`)},
 	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")

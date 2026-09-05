@@ -47,7 +47,7 @@ func refuseArchiveSegmentsIfNonEmpty(ctx context.Context, db *sql.DB) error {
 	return &apptypes.ArchiveSegmentsNonEmptyError{RowCount: rowCount}
 }
 
-func verifyDropArchiveSegments(ctx context.Context, candidateDB *sql.DB) error {
+func verifyDropArchiveSegments(ctx context.Context, candidateDB *sql.DB, laterReaderRaisePending bool) error {
 	exists, err := tableExists(ctx, candidateDB, archiveSegmentsTable)
 	if err != nil {
 		return err
@@ -59,7 +59,11 @@ func verifyDropArchiveSegments(ctx context.Context, candidateDB *sql.DB) error {
 	if err := candidateDB.QueryRowContext(ctx, `SELECT minimum_reader_version FROM store_format_state WHERE singleton = 1`).Scan(&minimumReader); err != nil {
 		return fmt.Errorf("read candidate minimum_reader_version: %w", err)
 	}
-	if minimumReader != droppedArchiveSegmentsReaderVersion {
+	if laterReaderRaisePending {
+		if minimumReader < droppedArchiveSegmentsReaderVersion {
+			return fmt.Errorf("candidate minimum_reader_version = %d, want at least %d", minimumReader, droppedArchiveSegmentsReaderVersion)
+		}
+	} else if minimumReader != droppedArchiveSegmentsReaderVersion {
 		return fmt.Errorf("candidate minimum_reader_version = %d, want %d", minimumReader, droppedArchiveSegmentsReaderVersion)
 	}
 	return nil

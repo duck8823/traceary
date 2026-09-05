@@ -32,7 +32,7 @@ const sqlTimestampNormalizeFunc = "ts_norm"
 const sqlTimestampValidFunc = "ts_valid"
 
 const (
-	currentReaderVersion = 40
+	currentReaderVersion = 41
 )
 
 var (

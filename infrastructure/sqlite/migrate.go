@@ -82,6 +82,11 @@ func (d *Database) migrateWithOptions(ctx context.Context, db *sql.DB, allowOffl
 					return refuseErr
 				}
 			}
+			if migration.version == 85 {
+				if refuseErr := refuseMemoryEdgesIfNonEmpty(ctx, db); refuseErr != nil {
+					return refuseErr
+				}
+			}
 			hasCanonical, inspectErr := storeHasCanonicalSourceData(ctx, db)
 			if inspectErr != nil {
 				return inspectErr

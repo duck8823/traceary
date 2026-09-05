@@ -4,7 +4,7 @@
 // machines through any file-transport they already have (AirDrop,
 // scp, Syncthing, etc.). Traceary never ships its own transport.
 //
-// Portability covers events, sessions, command_audits, memories, memory_edges,
+// Portability covers events, sessions, command_audits, memories,
 // and usage_observations — see docs/operations/cross-machine-handoff
 // for the operator guide.
 package usecase
@@ -15,7 +15,6 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"log/slog"
 	"strconv"
 	"unicode/utf8"
 
@@ -67,20 +66,18 @@ func (u *bundleUsecase) bundleTableRegistry() map[string]bundleTableImporter {
 	events := bundleEventsTable{}
 	commandAudits := bundleCommandAuditsTable{}
 	memories := bundleMemoriesTable{}
-	memoryEdges := bundleMemoryEdgesTable{}
 	usageObservations := bundleUsageObservationsTable{}
 	return map[string]bundleTableImporter{
 		sessions.Name():          sessions,
 		events.Name():            events,
 		commandAudits.Name():     commandAudits,
 		memories.Name():          memories,
-		memoryEdges.Name():       memoryEdges,
 		usageObservations.Name(): usageObservations,
 	}
 }
 
 func bundleTableImportOrder() []string {
-	return []string{"sessions", "usage_observations", "events", "command_audits", "memories", "memory_edges"}
+	return []string{"sessions", "usage_observations", "events", "command_audits", "memories"}
 }
 
 type bundleUsageObservationsTable struct{}
@@ -355,98 +352,6 @@ func (bundleMemoriesTable) Apply(
 
 		if err != nil {
 			return imported, skipped, xerrors.Errorf("memory %s: %w", memory.MemoryID(), err)
-		}
-		if didImport {
-			imported++
-		} else {
-			skipped++
-		}
-	}
-	return imported, skipped, nil
-}
-
-type bundleMemoryEdgesTable struct{}
-
-func (bundleMemoryEdgesTable) Name() string { return "memory_edges" }
-
-func (bundleMemoryEdgesTable) FileName() string { return "memory_edges.ndjson" }
-
-func (bundleMemoryEdgesTable) Export(_ context.Context, input bundleExportInputRows) (*bytes.Buffer, error) {
-	return encodeMemoryEdgesNDJSON(input.MemoryEdges)
-}
-
-func (bundleMemoryEdgesTable) Decode(r io.Reader) ([]bundleRow, error) {
-	decoder := json.NewDecoder(r)
-	rows := []bundleRow{}
-	for decoder.More() {
-		var row bundleMemoryEdgeRow
-		if err := decoder.Decode(&row); err != nil {
-			return nil, xerrors.Errorf("memory edge row: %w", err)
-		}
-		rows = append(rows, row)
-	}
-	return rows, nil
-}
-
-func (bundleMemoryEdgesTable) Apply(
-	ctx context.Context,
-	tx BundleImportTransaction,
-	rows []bundleRow,
-	policy bundleImportPolicy,
-) (int, int, error) {
-	imported := 0
-	skipped := 0
-	for _, generic := range rows {
-		row, ok := generic.(bundleMemoryEdgeRow)
-		if !ok {
-			return imported, skipped, xerrors.Errorf("unexpected memory_edges row type %T", generic)
-		}
-		edge, err := row.toMemoryEdge()
-		if err != nil {
-			return imported, skipped, xerrors.Errorf("restore memory edge: %w", err)
-		}
-		edgeExists, err := tx.MemoryEdgeExists(ctx, edge.EdgeID())
-		if err != nil {
-			return imported, skipped, xerrors.Errorf("edge %s conflict check: %w", edge.EdgeID(), err)
-		}
-		if edgeExists {
-			switch policy.OnConflict {
-			case BundleConflictError:
-				return imported, skipped, xerrors.Errorf("memory edge %s: memory edge conflict", edge.EdgeID())
-			case BundleConflictSkip:
-				skipped++
-				continue
-			}
-		}
-		fromExists, err := tx.MemoryExists(ctx, edge.FromMemoryID())
-		if err != nil {
-			return imported, skipped, xerrors.Errorf("edge %s from endpoint check: %w", edge.EdgeID(), err)
-		}
-		toExists, err := tx.MemoryExists(ctx, edge.ToMemoryID())
-		if err != nil {
-			return imported, skipped, xerrors.Errorf("edge %s to endpoint check: %w", edge.EdgeID(), err)
-		}
-		if !fromExists || !toExists {
-			if policy.OrphanEdges == BundleOrphanEdgesReject {
-				return imported, skipped, xerrors.Errorf("memory edge %s references missing endpoint(s): from_memory_id=%s exists=%t, to_memory_id=%s exists=%t", edge.EdgeID(), edge.FromMemoryID(), fromExists, edge.ToMemoryID(), toExists)
-			}
-			slog.WarnContext(
-				ctx,
-				"bundle import skipped orphan memory edge",
-				"table", "memory_edges",
-				"edge_id", edge.EdgeID().String(),
-				"from_memory_id", edge.FromMemoryID().String(),
-				"from_exists", fromExists,
-				"to_memory_id", edge.ToMemoryID().String(),
-				"to_exists", toExists,
-				"policy", string(BundleOrphanEdgesSkip),
-			)
-			skipped++
-			continue
-		}
-		didImport, err := tx.ImportMemoryEdge(ctx, edge, policy.OnConflict)
-		if err != nil {
-			return imported, skipped, xerrors.Errorf("memory edge %s: %w", edge.EdgeID(), err)
 		}
 		if didImport {
 			imported++

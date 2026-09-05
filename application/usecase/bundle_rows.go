@@ -4,9 +4,10 @@
 // machines through any file-transport they already have (AirDrop,
 // scp, Syncthing, etc.). Traceary never ships its own transport.
 //
-// Portability covers events, sessions, command_audits, memories, memory_edges,
-// and usage_observations — see docs/operations/cross-machine-handoff
-// for the operator guide.
+// Portability covers events, sessions, command_audits, memories,
+// and usage_observations. Retired memory_edges / run_lineages entries are
+// checksum- and row-count-validated on import only. See
+// docs/operations/cross-machine-handoff for the operator guide.
 package usecase
 
 import (
@@ -25,7 +26,16 @@ import (
 	"github.com/duck8823/traceary/domain/types"
 )
 
-const retiredBundleTableName = "run_lineages"
+var retiredBundleTableNames = []string{"run_lineages", "memory_edges"}
+
+func isRetiredBundleTable(name string) bool {
+	for _, retired := range retiredBundleTableNames {
+		if name == retired {
+			return true
+		}
+	}
+	return false
+}
 
 func validateBundleTableEntryFields(entry bundleTableEntry) error {
 	if entry.File == "" {
@@ -40,38 +50,38 @@ func validateBundleTableEntryFields(entry bundleTableEntry) error {
 	return nil
 }
 
-func countRetiredBundleTableRows(r io.Reader) (int, error) {
+func countRetiredBundleTableRows(table string, r io.Reader) (int, error) {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 1024), 1024*1024)
 	count := 0
 	for scanner.Scan() {
 		line := append([]byte(nil), scanner.Bytes()...)
 		if !utf8.Valid(line) {
-			return 0, xerrors.Errorf("%s row contains invalid UTF-8", retiredBundleTableName)
+			return 0, xerrors.Errorf("%s row contains invalid UTF-8", table)
 		}
 		if err := validateStrictJSONUnicode(line); err != nil {
-			return 0, xerrors.Errorf("%s row contains invalid Unicode: %w", retiredBundleTableName, err)
+			return 0, xerrors.Errorf("%s row contains invalid Unicode: %w", table, err)
 		}
 		trimmed := bytes.TrimSpace(line)
 		if len(trimmed) == 0 || trimmed[0] != '{' {
-			return 0, xerrors.Errorf("%s row is not a JSON object", retiredBundleTableName)
+			return 0, xerrors.Errorf("%s row is not a JSON object", table)
 		}
 		var obj map[string]json.RawMessage
 		if err := json.Unmarshal(line, &obj); err != nil {
-			return 0, xerrors.Errorf("%s row is not a JSON object: %w", retiredBundleTableName, err)
+			return 0, xerrors.Errorf("%s row is not a JSON object: %w", table, err)
 		}
 		count++
 	}
 	if err := scanner.Err(); err != nil {
-		return 0, xerrors.Errorf("scan %s rows: %w", retiredBundleTableName, err)
+		return 0, xerrors.Errorf("scan %s rows: %w", table, err)
 	}
 	return count, nil
 }
 
-func retiredBundleTableNonEmptyError(count int) error {
+func retiredBundleTableNonEmptyError(table string, count int) error {
 	return xerrors.Errorf(
-		"%s: %d rows present in legacy bundle; retrieve lineage facts first with the 0.48.2 binary (bundle export includes %s.ndjson); refusing import atomically",
-		retiredBundleTableName, count, retiredBundleTableName,
+		"%s: %d rows present in legacy bundle; retrieve with the 0.48.2 binary (bundle export includes %s.ndjson); refusing import atomically",
+		table, count, table,
 	)
 }
 
@@ -111,7 +121,7 @@ func manifestTableEntries(
 			return nil, xerrors.Errorf("bundle manifest has no table entries")
 		}
 		for name := range manifest.Tables {
-			if name == retiredBundleTableName {
+			if isRetiredBundleTable(name) {
 				continue
 			}
 			if _, ok := registry[name]; !ok {
@@ -139,12 +149,16 @@ func manifestTableEntries(
 			}
 			entries = append(entries, entry)
 		}
-		if entry, present := manifest.Tables[retiredBundleTableName]; present {
-			if entry.TableName == "" {
-				entry.TableName = retiredBundleTableName
+		for _, retiredName := range retiredBundleTableNames {
+			entry, present := manifest.Tables[retiredName]
+			if !present {
+				continue
 			}
-			if entry.TableName != retiredBundleTableName {
-				return nil, xerrors.Errorf("bundle table key %s does not match table_name %s", retiredBundleTableName, entry.TableName)
+			if entry.TableName == "" {
+				entry.TableName = retiredName
+			}
+			if entry.TableName != retiredName {
+				return nil, xerrors.Errorf("bundle table key %s does not match table_name %s", retiredName, entry.TableName)
 			}
 			if err := validateBundleTableEntryFields(entry); err != nil {
 				return nil, err
@@ -499,48 +513,6 @@ type bundleMemoryRow struct {
 	ValidTo            string         `json:"valid_to,omitempty"`
 	CreatedAt          string         `json:"created_at"`
 	UpdatedAt          string         `json:"updated_at"`
-}
-
-type bundleMemoryEdgeRow struct {
-	EdgeID       string `json:"id"`
-	FromMemoryID string `json:"from_memory_id"`
-	ToMemoryID   string `json:"to_memory_id"`
-	RelationType string `json:"relation_type"`
-	ValidFrom    string `json:"valid_from"`
-	ValidTo      string `json:"valid_to,omitempty"`
-	CreatedAt    string `json:"created_at"`
-}
-
-func (r bundleMemoryEdgeRow) toMemoryEdge() (*model.MemoryEdge, error) {
-	edgeID, err := types.MemoryEdgeIDFrom(r.EdgeID)
-	if err != nil {
-		return nil, xerrors.Errorf("id: %w", err)
-	}
-	fromID, err := types.MemoryIDFrom(r.FromMemoryID)
-	if err != nil {
-		return nil, xerrors.Errorf("from_memory_id: %w", err)
-	}
-	toID, err := types.MemoryIDFrom(r.ToMemoryID)
-	if err != nil {
-		return nil, xerrors.Errorf("to_memory_id: %w", err)
-	}
-	validFrom, err := time.Parse(time.RFC3339Nano, r.ValidFrom)
-	if err != nil {
-		return nil, xerrors.Errorf("valid_from: %w", err)
-	}
-	validTo, err := parseOptionalBundleTime(r.ValidTo, "valid_to")
-	if err != nil {
-		return nil, err
-	}
-	createdAt, err := time.Parse(time.RFC3339Nano, r.CreatedAt)
-	if err != nil {
-		return nil, xerrors.Errorf("created_at: %w", err)
-	}
-	edge, err := model.NewMemoryEdge(edgeID, fromID, toID, types.MemoryEdgeRelationOf(r.RelationType), validFrom, validTo, createdAt)
-	if err != nil {
-		return nil, xerrors.Errorf("memory edge: %w", err)
-	}
-	return edge, nil
 }
 
 func (r bundleMemoryRow) toMemory() (*model.Memory, error) {
