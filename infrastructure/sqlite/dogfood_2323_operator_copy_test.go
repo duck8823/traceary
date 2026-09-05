@@ -31,7 +31,7 @@ func TestOperatorCopyDogfood2323(t *testing.T) {
 	size := uint64(info.Size())
 	budget := domain.PreparedStoreUpgradeBudget{
 		WallTimeLimit:      6 * time.Hour,
-		PublishLockLimit:   time.Hour,
+		PublishLockLimit:   6 * time.Hour,
 		OwnedDiskByteLimit: size*8 + 1<<30,
 		WALByteLimit:       size*2 + 1<<30,
 		TemporaryByteLimit: size*4 + 1<<30,
