@@ -102,8 +102,6 @@ func (e doctorExitError) ExitCode() int { return e.exitCode }
 func (c *RootCLI) newDoctorCommand() *cobra.Command {
 	var (
 		dbPath                      string
-		archiveRoot                 string
-		backupRoot                  string
 		client                      string
 		projectDir                  string
 		asJSON                      bool
@@ -135,8 +133,6 @@ func (c *RootCLI) newDoctorCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runDoctor(cmd.Context(), cmd.OutOrStdout(), doctorCommandInput{
 				dbPath:                      dbPath,
-				archiveRoot:                 archiveRoot,
-				backupRoot:                  backupRoot,
 				client:                      client,
 				projectDir:                  projectDir,
 				currentVersion:              cmd.Root().Version,
@@ -165,8 +161,6 @@ func (c *RootCLI) newDoctorCommand() *cobra.Command {
 		},
 	}
 	doctorCmd.Flags().StringVar(&dbPath, "db-path", "", dbPathFlagUsage())
-	doctorCmd.Flags().StringVar(&archiveRoot, "archive-root", "", Localize("read-only archive capacity root", "読み取り専用で容量確認する archive root"))
-	doctorCmd.Flags().StringVar(&backupRoot, "backup-root", "", Localize("read-only backup capacity root", "読み取り専用で容量確認する backup root"))
 	doctorCmd.Flags().StringVar(&client, "client", "", hooksClientFlagUsage)
 	doctorCmd.Flags().StringVar(&projectDir, "project-dir", "", Localize("project directory used for client config checks", "client 設定チェックに使う project directory"))
 	doctorCmd.Flags().BoolVar(&asJSON, "json", false, Localize("print JSON output", "JSON 形式で出力する"))
@@ -456,7 +450,6 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 			Message: localizef("initialized SQLite store: %s", "SQLite ストアを初期化しました: %s", resolvedDBPath),
 		})
 		report.Checks = append(report.Checks, c.inspectStaleActiveSessions(ctx))
-		report.Checks = append(report.Checks, c.inspectArchiveRetention(ctx, resolvedDBPath))
 		report.Checks = append(report.Checks, c.inspectOfflineMigrations(ctx))
 		report.Checks = append(report.Checks, c.inspectUnavailableRetention(ctx))
 		report.Checks = append(report.Checks, c.inspectOneOffRepairs(ctx))
@@ -464,7 +457,6 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 			report.Checks = append(report.Checks, c.inspectWorkspaceAliases(ctx, report))
 			report.Checks = append(report.Checks, c.inspectWorkspaceObservations(ctx, report))
 		}
-		report.Checks = append(report.Checks, c.inspectFileRetentionCapacity(ctx, resolvedDBPath, input.archiveRoot, input.backupRoot)...)
 		report.Checks = append(report.Checks, c.inspectCommandAuditReliability(ctx, input.strict))
 		report.Checks = append(report.Checks, c.inspectContentEventReliability(ctx, input.strict))
 		report.Checks = append(report.Checks, c.inspectRetryLoops(ctx))

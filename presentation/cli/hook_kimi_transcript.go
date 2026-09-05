@@ -321,7 +321,7 @@ func kimiTranscriptTurnStatePath(sessionID string) (string, error) {
 
 // withKimiTranscriptTurnStateLock runs fn while holding an exclusive
 // github.com/gofrs/flock lock scoped to sessionID's turn marker, matching
-// the idiom hook_memory_extract_queue.go and hook_archive_auto.go already
+// the idiom hook_memory_extract_queue.go already
 // use for hook-state locks. Kimi redelivers Stop for the same turn with
 // observed gaps as small as ~0.14s, including effectively concurrent
 // firings, so the check ("already recorded?") and the record-then-mark

@@ -58,6 +58,7 @@ func (v PreparedMigrationVerifier) VerifyUpgradePair(ctx context.Context, source
 	skipEvents := pendingHasRestoreDedupeArchive(plan)
 	skipCodecRewrite := pendingHasDecodePayloads(plan)
 	dropRetentionPending := pendingDropsBodyRetentionObjects(plan)
+	dropArchivePending := pendingDropsArchiveSegments(plan)
 	if err = verifyFiveTableConservation(ctx, sourceDB, candidateDB, skipEvents, skipCodecRewrite, dropRetentionPending); err != nil {
 		return domain.PreparedCandidateEvidence{}, err
 	}
@@ -91,7 +92,11 @@ func (v PreparedMigrationVerifier) VerifyUpgradePair(ctx context.Context, source
 				return domain.PreparedCandidateEvidence{}, err
 			}
 		case SemanticVerifierDropBodyRetention:
-			if err = verifyDropBodyRetention(ctx, candidateDB); err != nil {
+			if err = verifyDropBodyRetention(ctx, candidateDB, dropArchivePending); err != nil {
+				return domain.PreparedCandidateEvidence{}, err
+			}
+		case SemanticVerifierDropArchiveSegments:
+			if err = verifyDropArchiveSegments(ctx, candidateDB); err != nil {
 				return domain.PreparedCandidateEvidence{}, err
 			}
 		}

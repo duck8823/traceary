@@ -153,7 +153,7 @@ func (r *PreparedUpgradeMigrationRecipe) VerifyUnavailableRetention(ctx context.
 	return nil
 }
 
-func verifyDropBodyRetention(ctx context.Context, candidateDB *sql.DB) error {
+func verifyDropBodyRetention(ctx context.Context, candidateDB *sql.DB, dropArchivePending bool) error {
 	for _, column := range droppedBodyRetentionEventColumns {
 		hasColumn, err := tableHasColumn(ctx, candidateDB, "events", column)
 		if err != nil {
@@ -183,7 +183,11 @@ func verifyDropBodyRetention(ctx context.Context, candidateDB *sql.DB) error {
 	if err := candidateDB.QueryRowContext(ctx, `SELECT minimum_reader_version FROM store_format_state WHERE singleton = 1`).Scan(&minimumReader); err != nil {
 		return fmt.Errorf("read candidate minimum_reader_version: %w", err)
 	}
-	if minimumReader != droppedBodyRetentionReaderVersion {
+	if dropArchivePending {
+		if minimumReader < droppedBodyRetentionReaderVersion {
+			return fmt.Errorf("candidate minimum_reader_version = %d, want at least %d", minimumReader, droppedBodyRetentionReaderVersion)
+		}
+	} else if minimumReader != droppedBodyRetentionReaderVersion {
 		return fmt.Errorf("candidate minimum_reader_version = %d, want %d", minimumReader, droppedBodyRetentionReaderVersion)
 	}
 	return verifyNoBodyAvailabilityReferences(ctx, candidateDB)

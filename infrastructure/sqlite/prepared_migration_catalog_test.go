@@ -113,6 +113,29 @@ func TestPreparedManifestClassifies082AsOfflineDecodePayloadsDropCodec(t *testin
 	}
 }
 
+func TestPreparedManifestClassifies084AsOfflineDropArchiveSegments(t *testing.T) {
+	t.Parallel()
+	entry, ok := preparedMigrationManifest[84]
+	if !ok {
+		t.Fatal("missing 084 manifest entry")
+	}
+	if entry.Class != MigrationDataDependentOffline {
+		t.Fatalf("class = %q, want data_dependent_offline", entry.Class)
+	}
+	if entry.ConservationLawID != ConservationLawBaseConserving {
+		t.Fatalf("law = %q, want base_conserving", entry.ConservationLawID)
+	}
+	if entry.SemanticVerifierID != SemanticVerifierDropArchiveSegments {
+		t.Fatalf("verifier = %q, want %q", entry.SemanticVerifierID, SemanticVerifierDropArchiveSegments)
+	}
+	if entry.OwnerIssue != "2326" {
+		t.Fatalf("owner = %q, want 2326", entry.OwnerIssue)
+	}
+	if entry.Name != "000084_drop_archive_segments.sql" {
+		t.Fatalf("name = %q", entry.Name)
+	}
+}
+
 func TestPreparedManifestClassifies083AsOfflineDropBodyRetention(t *testing.T) {
 	t.Parallel()
 	entry, ok := preparedMigrationManifest[83]
@@ -148,7 +171,7 @@ func TestBuildPreparedMigrationPlanClassifiesExactSuffix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.Current != 34 || plan.Latest != 83 || len(plan.Pending) != 48 || !plan.Offline || len(plan.Digest) != 64 {
+	if plan.Current != 34 || plan.Latest != 84 || len(plan.Pending) != 49 || !plan.Offline || len(plan.Digest) != 64 {
 		t.Fatalf("plan = %+v", plan)
 	}
 	want := map[int64]MigrationExecutionClass{
@@ -200,6 +223,7 @@ func TestBuildPreparedMigrationPlanClassifiesExactSuffix(t *testing.T) {
 		81: MigrationDataDependentOffline,
 		82: MigrationDataDependentOffline,
 		83: MigrationDataDependentOffline,
+		84: MigrationDataDependentOffline,
 	}
 	for _, migration := range plan.Pending {
 		if migration.Class != want[migration.Version] {

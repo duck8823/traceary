@@ -842,27 +842,21 @@ Useful flags:
 
 Rewrite the store file. Running the command is the consent: Traceary copies the store, filters the copy, vacuums into a new file, and atomically exchanges it. The old inode stays as the rollback file.
 
-While copying, compact drops non-canonical duplicate hook bodies and does not copy the retired search-index family. It does not discard transcript bodies, does not write mechanical summaries, and has no `--refuse-unrefined` flag. The search-projection family itself is dropped by offline migration 80, not by compact. `--keep-days` is the `--archive` keep window, not a body-discard cutoff.
+While copying, compact drops non-canonical duplicate hook bodies and does not copy the retired search-index family. It does not discard transcript bodies, does not write mechanical summaries, and has no `--refuse-unrefined` flag. The search-projection family itself is dropped by offline migration 80, not by compact.
 
 This is not a preview and not an in-place `VACUUM`. After a successful rewrite, `traceary store compact rollback RUN_ID` restores the previous file.
 
 Useful flags:
 
-- `--keep-days`
 - `--db-path`
+- `--work-dir`
 - `--json`
+
+`--archive`, `--archive-verify`, `--archive-restore`, `--retention-plan`, `--retention-apply`, and the other archive/retention flags are unknown. Existing archive packages are retrieved with Traceary 0.48.2; this binary has no archive reader. Portable copies use `traceary bundle` and `traceary store backup`.
 
 ### `traceary store compact rollback RUN_ID`
 
 Restore the pre-compact store from the rollback inode published by a successful rewrite.
-
-### `traceary store compact --archive` / `--archive-verify` / `--archive-restore`
-
-Export GC-eligible rows to a versioned archive package, verify a package, or restore rows (idempotent). `--delete-after-verify` is the verify-before-delete path. These flags absorb the former `store archive create|verify|restore` leaves. Default `store compact` rewrite is unchanged.
-
-### `traceary store compact --retention-plan` / `--retention-apply`
-
-Plan or apply file-retention actions for host-side archive and backup artifacts. `--retention-apply` requires `--plan` and `--confirm-plan-id`. These flags absorb the former `store retention files plan|apply` leaves. Apply is operator-consented and is not part of the default hook path.
 
 ### `traceary bundle export|import`
 

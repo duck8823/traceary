@@ -155,11 +155,12 @@ Current non-goals:
 
 - migrations are embedded in the binary from `schema/sqlite/migrations`
 - store initialization runs before normal command execution, so upgrades apply non-offline migrations automatically
-- data-dependent offline migrations (035, 045, 076, 078, 079, 080, 081, 082, 083) are not applied implicitly; run `traceary doctor --fix`
+- data-dependent offline migrations (035, 045, 076, 078, 079, 080, 081, 082, 083, 084) are not applied implicitly; run `traceary doctor --fix`
 - backup restore copies the SQLite file first and then reruns store initialization so newer non-offline migrations can be applied
 - migration `000028` added immutable `run_lineages` and `usage_observation_runs` tables without rewriting v27 usage rows; missing attribution remains unknown
 - migration `000079` drops `run_lineages` after rebuilding `usage_observation_runs` without that foreign key, and raises `minimum_reader_version` to 35. Non-empty stores apply it on a candidate via `traceary doctor --fix`; dropping remaining rows requires `--approve-drop N:<hex>`
 - migration `000083` drops `body_availability`, `raw_body_retention_*`, and `session_orphan_ranges`, and raises `minimum_reader_version` to 39. Non-empty stores apply it on a candidate via `traceary doctor --fix`. Rows whose `body_availability` was `unavailable_retention` cannot be recovered by any binary, including 0.48.2. Preflight and `traceary doctor` report the count, a bounded sample, and the digest of the sorted affected id set. When the count is greater than zero, `--approve-unavailable-retention N:<hex>` is required; a missing, stale, or drifted token leaves the candidate unmodified and the live store untouched. Count 0 needs no approval. Legacy marker text `[traceary:body-unavailable:retention]` that remains in `events.body` is ordinary body text: search and display treat it verbatim.
+- migration `000084` drops `archive_segments` and raises `minimum_reader_version` to 40. Empty tables drop on a candidate via `traceary doctor --fix`. A non-empty table refuses before the DROP, prints the row count, and names the 0.48.2 restore/export procedure. This binary cannot read archive packages. DROP moves pages to the freelist; it does not shrink the file without VACUUM or a candidate rewrite.
 
 Traceary does not promise backward compatibility for arbitrary manual schema edits.
 If you need a portable copy, use `traceary store backup create` instead of editing the DB directly.
@@ -172,33 +173,26 @@ retired search index family and vacuums into a new file. Event bodies and
 Compact is cover-free: it does not write mechanical summaries, does not
 discard transcript bodies, and has no `--refuse-unrefined` flag.
 
-- `--keep-days 90` is the `--archive` keep window, not a body-discard cutoff
 - physical reclamation is the rewrite itself; it is not an in-place `VACUUM`
 - leftover `command_executed` bodies that already have a `command_audits` row may be cleared (`released_command_body_bytes`)
-- File retention of archive/backup artifacts is `store compact --retention-plan` / `--retention-apply`. The search-projection family is dropped by offline migration 80 (`traceary doctor --fix` on a non-empty store), not by compact. `--projection-rebuild` / `--projection-abort` are unknown flags.
+- Archive packages and file-retention plans are removed (#2326). The search-projection family is dropped by offline migration 80 (`traceary doctor --fix` on a non-empty store), not by compact. `--projection-rebuild` / `--projection-abort` / `--archive` / `--retention-plan` are unknown flags.
 
 **Reclaim warning.** After a non-hook command, Traceary may print `TRACEARY: store can reclaim about <size>; run traceary store compact` on stderr, at most once every 24 hours per store (tracked in `<db>.reclaim-warn`). It appears only when the store's free-page list — `PRAGMA freelist_count × PRAGMA page_size`, the same O(1) signal `traceary doctor` reports as `reclaimable=` — is at least `compact.reclaim_warn_bytes` (default 1 GiB) **and** at least 10 % of the store. File size alone never triggers it: a 14 GiB store with an empty freelist stays quiet, because a rewrite would return nothing to the filesystem. `doctor` uses the same signal and the same 10 % ratio with a lower floor of 256 MiB, so it can report reclaimable pages that the trailer stays quiet about; it never reports fewer. Set `compact.reclaim_warn_bytes` to `0` to silence the trailer. When the store cannot be read cheaply (a writer holds it, or the read exceeds 500 ms) nothing is printed — `traceary doctor` is where an unknown store-growth signal is reported.
 
-Free pages are the bytes a rewrite can return to the filesystem from SQLite's freelist. Compact no longer discards transcript bodies, so the O(1) freelist signal is the reclaim estimate. `traceary store compact --dry-run` is the `--archive` plan/count surface, not a body-discard preview.
+Free pages are the bytes a rewrite can return to the filesystem from SQLite's freelist. Compact no longer discards transcript bodies, so the O(1) freelist signal is the reclaim estimate. `traceary store compact --dry-run` is an unknown flag.
 
 ### Derived generation disk bound
 
 The search-projection family was deleted in v0.49.0 (#2319). There is no generation lifecycle, no `--index-family-bytes` budget, and no doctor `search-projection-terminal-rows` check. Compact JSON does not report an encode step. The physical DROP is offline migration 80.
 
-Target policies for `--archive` / GC (not the default compact rewrite):
-
-- `events`: never deletes event rows and never discards or rewrites event bodies. Event skeletons, `prompt` bodies, `transcript` bodies, all other kinds, and `command_audits.command_text` / `input_text` remain.
-- `sessions`: delete ended sessions where `COALESCE(ended_at, started_at) < cutoff` and no surviving events reference the session. Active sessions (`ended_at IS NULL`) are always protected.
-- `memories`: physically delete `expired`, `superseded`, or `rejected` memories where `updated_at < cutoff`. `accepted` and `candidate` rows are not age-deleted. **Exception:** unreviewed auto-extracted candidates (`source IN (extracted, extracted-hidden, compact-summary)`) older than 14 days are **decayed to `expired`** (not hard-deleted) so they remain restorable until keep-days GC (#1368). Evidence/artifact refs cascade on physical delete; `supersedes_memory_id` pointers to deleted or about-to-decay rows are cleared first.
-- `memory_edges`: delete closed edges where `valid_to < cutoff`; edges also cascade automatically when either endpoint memory is deleted.
-- `all`: apply the policies in dependency order: events, sessions, memories, then memory_edges. Because events now survive, `delete_empty_sessions.sql` is no longer fed by event deletion.
+Opportunistic session GC (hook `runOpportunisticSessionGC` and `traceary doctor --fix`) still closes stale active sessions. There is no archive-then-gc hook path.
 
 Practical implications:
 
 - `store compact` is operator-initiated; Traceary does not discard history automatically in the background
-- event bodies stay as written until the row itself is removed (archive `--delete-after-verify` or an explicit delete)
+- event bodies stay as written until the row itself is removed
 - if you care about long-term audit history, take a backup before an aggressive cleanup
-- for cold-row export with **verify-before-delete**, see [Archive-before-GC](./archive-before-gc.md) (#1309); full-file backup remains [Backup guide](../backup/README.md)
+- portable copies use [bundle](../cli/README.md) and [Backup guide](../backup/README.md). Pin Traceary 0.48.2 to retrieve a pre-0.49 archive package.
 
 ## Per-record storage accrual
 

@@ -38,10 +38,12 @@ func TestStoreReductionCommandsAreRemoved(t *testing.T) {
 	if findCommandOrNil(store, "archive") != nil {
 		t.Fatal("store archive must be removed by #2074")
 	}
-	if compact.Flags().Lookup("archive") == nil || compact.Flags().Lookup("retention-plan") == nil {
-		t.Fatal("store compact must absorb --archive and --retention-plan")
-	}
 	for _, name := range []string{
+		"archive",
+		"archive-verify",
+		"archive-restore",
+		"retention-plan",
+		"retention-apply",
 		"projection-rebuild",
 		"projection-abort",
 		"index-family-bytes",
@@ -72,8 +74,8 @@ func TestStoreCompactHelpRejectsRefuseUnrefined(t *testing.T) {
 	if compact.Flags().Lookup("refuse-unrefined") != nil {
 		t.Fatal("store compact must not accept --refuse-unrefined")
 	}
-	if compact.Flags().Lookup("keep-days") == nil {
-		t.Fatal("store compact must accept --keep-days")
+	if compact.Flags().Lookup("keep-days") != nil {
+		t.Fatal("store compact must not accept --keep-days")
 	}
 	if !strings.Contains(compact.Short, "Rewrite") && !strings.Contains(compact.Short, "書き換え") {
 		t.Fatalf("compact short = %q, want it to describe the rewrite", compact.Short)

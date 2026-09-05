@@ -203,6 +203,10 @@ var preparedMigrationManifest = map[int64]migrationManifestEntry{
 	// retention candidate index, the raw_body_retention_* tables, and
 	// session_orphan_ranges. Never applied at live open.
 	83: {83, "000083_drop_body_retention.sql", "1a3677c2f752287f5a4b299ce5a970dadb56d77c49d5b5f67ac02df58e03abf6", MigrationDataDependentOffline, ConservationLawBaseConserving, SemanticVerifierDropBodyRetention, "2325"},
+	// 84 drops archive_segments after Go refuses a non-empty table. Never
+	// applied at live open (empty-store inline bootstrap may DROP only when
+	// the table has 0 rows).
+	84: {84, "000084_drop_archive_segments.sql", "9e575636036987dab2c33d896e940e8e456f8d03222ce039742395ba1c1e25d9", MigrationDataDependentOffline, ConservationLawBaseConserving, SemanticVerifierDropArchiveSegments, "2326"},
 }
 
 func conservationLawFor(version int64) ConservationLawID {

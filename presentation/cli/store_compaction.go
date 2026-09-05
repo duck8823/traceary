@@ -3,8 +3,6 @@ package cli
 
 import (
 	"encoding/json"
-	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
@@ -15,181 +13,37 @@ import (
 
 func (c *RootCLI) newStoreCompactionCommand() *cobra.Command {
 	var (
-		path              string
-		keepDays          int
-		workDir           string
-		archive           bool
-		archiveVerify     string
-		archiveRestore    string
-		deleteAfterVerify bool
-		target            string
-		passphraseEnv     string
-		dryRun            bool
-		output            string
-		retentionPlan     bool
-		retentionApply    bool
-		planPath          string
-		confirmPlanID     string
-		fileRetention     storeFileRetentionPlanInput
+		path    string
+		workDir string
 	)
-	fileRetention.archiveMaxCount = -1
-	fileRetention.archiveMaxBytes = -1
-	fileRetention.backupMaxCount = -1
-	fileRetention.backupMaxBytes = -1
-	fileRetention.expiresAfter = time.Hour
 
 	cmd := &cobra.Command{
 		Use:   "compact",
-		Short: Localize("Rewrite the store, or archive / retain on-disk artifacts with absorb flags", "ストアを書き換える。absorb flag で archive / ディスク上 artifact 保持も行う"),
+		Short: Localize("Rewrite the store, reclaiming free pages and dropping retired indexes", "ストアを書き換え、空きページを回収し退役済み index を落とす"),
 		Long: Localize(
-			"Rewrite the store, reclaiming free pages and dropping retired indexes. Pass --archive to export GC-eligible rows (former store archive create). Pass --archive-verify / --archive-restore for an existing package. Pass --retention-plan / --retention-apply for on-disk archive and backup file retention (former store retention files).",
-			"ストアを書き換え、空きページを回収し退役済み index を落とします。--archive で GC 適格行を export します（旧 store archive create）。既存 package は --archive-verify / --archive-restore。ディスク上の archive / backup 保持は --retention-plan / --retention-apply（旧 store retention files）。",
+			"Rewrite the store, reclaiming free pages and dropping retired indexes.",
+			"ストアを書き換え、空きページを回収し退役済み index を落とします。",
 		),
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			fileRetention.dbPath = path
-			fileRetention.outputPath = output
 			return c.runStoreCompact(cmd, storeCompactInput{
-				path:              path,
-				keepDays:          keepDays,
-				workDir:           workDir,
-				archive:           archive,
-				archiveVerify:     archiveVerify,
-				archiveRestore:    archiveRestore,
-				deleteAfterVerify: deleteAfterVerify,
-				target:            target,
-				passphraseEnv:     passphraseEnv,
-				dryRun:            dryRun,
-				output:            output,
-				retentionPlan:     retentionPlan,
-				retentionApply:    retentionApply,
-				planPath:          planPath,
-				confirmPlanID:     confirmPlanID,
-				fileRetention:     fileRetention,
-				workDirSet:        cmd.Flags().Changed("work-dir"),
-				targetSet:         cmd.Flags().Changed("target"),
-				deleteAfterSet:    cmd.Flags().Changed("delete-after-verify"),
-				dryRunSet:         cmd.Flags().Changed("dry-run"),
+				path:    path,
+				workDir: workDir,
 			})
 		},
 	}
 	cmd.Flags().StringVar(&path, "db-path", "", dbPathFlagUsage())
-	cmd.Flags().IntVar(&keepDays, "keep-days", application.DefaultCompactKeepDays, Localize("with --archive, retain rows newer than this many days", "--archive 時、この日数より新しい行を保持する"))
 	cmd.Flags().StringVar(&workDir, "work-dir", "", Localize("stage the source-sized work copy on another volume when this volume cannot hold a replica", "このボリュームにレプリカを置けないとき、source サイズの work copy を別ボリュームに置く"))
-	cmd.Flags().BoolVar(&archive, "archive", false, Localize("export GC-eligible rows to a versioned archive package (former store archive create)", "GC 適格行を版付き archive package に export する（旧 store archive create）"))
-	cmd.Flags().StringVar(&archiveVerify, "archive-verify", "", Localize("verify an archive package (former store archive verify)", "archive package の完全性を検証する（旧 store archive verify）"))
-	cmd.Flags().StringVar(&archiveRestore, "archive-restore", "", Localize("restore rows from an archive package (former store archive restore)", "archive package から行を restore する（旧 store archive restore）"))
-	cmd.Flags().BoolVar(&deleteAfterVerify, "delete-after-verify", false, Localize("with --archive, after a successful verify, delete exact archived identities from the live store", "--archive 時、verify 成功後に archive 済み identity を live store から削除する"))
-	cmd.Flags().StringVar(&target, "target", "all", Localize("with --archive, records to archive (events | sessions | memories | memory_edges | all)", "--archive 時の対象 (events | sessions | memories | memory_edges | all)"))
-	cmd.Flags().StringVar(&passphraseEnv, "passphrase-env", "", Localize("with --archive/--archive-verify/--archive-restore, env var name holding an optional archive passphrase", "--archive / --archive-verify / --archive-restore 時、任意の passphrase を持つ env 名"))
-	cmd.Flags().BoolVar(&dryRun, "dry-run", false, Localize("with --archive or --archive-restore, plan or count only; do not write", "--archive または --archive-restore 時、plan / 件数のみ。書き込まない"))
-	cmd.Flags().StringVar(&output, "output", "", Localize("with --archive or --retention-plan, output path", "--archive または --retention-plan の出力 path"))
-	cmd.Flags().BoolVar(&retentionPlan, "retention-plan", false, Localize("write an immutable archive/backup capacity plan (former store retention files plan)", "変更不能な archive/backup 容量計画を書き出す（旧 store retention files plan）"))
-	cmd.Flags().BoolVar(&retentionApply, "retention-apply", false, Localize("apply an exact reviewed archive/backup plan (former store retention files apply)", "review 済みの archive/backup 計画を厳密に適用する（旧 store retention files apply）"))
-	cmd.Flags().StringVar(&planPath, "plan", "", Localize("with --retention-apply, reviewed plan path", "--retention-apply 時の review 済み plan path"))
-	cmd.Flags().StringVar(&confirmPlanID, "confirm-plan-id", "", Localize("with --retention-apply, exact reviewed plan ID", "--retention-apply 時の review 済み plan ID の完全値"))
-	cmd.Flags().StringVar(&fileRetention.archiveRoot, "archive-root", "", Localize("with --retention-plan, archive directory to inspect", "--retention-plan 時に確認する archive directory"))
-	cmd.Flags().StringVar(&fileRetention.backupRoot, "backup-root", "", Localize("with --retention-plan, backup directory to inspect", "--retention-plan 時に確認する backup directory"))
-	cmd.Flags().DurationVar(&fileRetention.archiveMaxAge, "archive-max-age", 0, Localize("with --retention-plan, maximum archive age (for example 720h)", "--retention-plan 時の archive 最大保持期間（例: 720h）"))
-	cmd.Flags().IntVar(&fileRetention.archiveMaxCount, "archive-max-count", -1, Localize("with --retention-plan, maximum archive count", "--retention-plan 時の archive 最大件数"))
-	cmd.Flags().Int64Var(&fileRetention.archiveMaxBytes, "archive-max-allocated-bytes", -1, Localize("with --retention-plan, maximum allocated archive bytes", "--retention-plan 時の archive 最大割り当て byte 数"))
-	cmd.Flags().DurationVar(&fileRetention.backupMaxAge, "backup-max-age", 0, Localize("with --retention-plan, maximum backup age (for example 720h)", "--retention-plan 時の backup 最大保持期間（例: 720h）"))
-	cmd.Flags().IntVar(&fileRetention.backupMaxCount, "backup-max-count", -1, Localize("with --retention-plan, maximum backup count", "--retention-plan 時の backup 最大件数"))
-	cmd.Flags().Int64Var(&fileRetention.backupMaxBytes, "backup-max-allocated-bytes", -1, Localize("with --retention-plan, maximum allocated backup bytes", "--retention-plan 時の backup 最大割り当て byte 数"))
-	cmd.Flags().DurationVar(&fileRetention.expiresAfter, "expires-after", time.Hour, Localize("with --retention-plan, plan validity duration", "--retention-plan 時の plan 有効期間"))
-	cmd.MarkFlagsMutuallyExclusive("archive", "archive-verify", "archive-restore", "retention-plan", "retention-apply")
 	cmd.AddCommand(c.newStoreCompactionRollbackCommand())
 	return cmd
 }
 
 type storeCompactInput struct {
-	path              string
-	keepDays          int
-	workDir           string
-	archive           bool
-	archiveVerify     string
-	archiveRestore    string
-	deleteAfterVerify bool
-	target            string
-	passphraseEnv     string
-	dryRun            bool
-	output            string
-	retentionPlan     bool
-	retentionApply    bool
-	planPath          string
-	confirmPlanID     string
-	fileRetention     storeFileRetentionPlanInput
-	workDirSet        bool
-	targetSet         bool
-	deleteAfterSet    bool
-	dryRunSet         bool
+	path    string
+	workDir string
 }
 
 func (c *RootCLI) runStoreCompact(cmd *cobra.Command, input storeCompactInput) error {
-	absorb := input.archive || input.archiveVerify != "" || input.archiveRestore != "" || input.retentionPlan || input.retentionApply
-	if absorb && input.workDirSet {
-		return xerrors.New(Localize(
-			"--work-dir cannot be combined with --archive/--archive-verify/--archive-restore/--retention-plan/--retention-apply",
-			"--work-dir は --archive / --archive-verify / --archive-restore / --retention-plan / --retention-apply と同時に使えません",
-		))
-	}
-	if !input.archive && (input.deleteAfterSet || input.targetSet) {
-		return xerrors.New(Localize(
-			"--delete-after-verify/--target require --archive",
-			"--delete-after-verify/--target には --archive が必要です",
-		))
-	}
-	if input.dryRunSet && !input.archive && input.archiveRestore == "" {
-		return xerrors.New(Localize(
-			"--dry-run requires --archive or --archive-restore",
-			"--dry-run には --archive または --archive-restore が必要です",
-		))
-	}
-	if err := validateStoreCompactAbsorbFlags(cmd, input); err != nil {
-		return err
-	}
-	if input.archive {
-		return c.runStoreArchiveCreate(cmd.Context(), cmd.OutOrStdout(), storeArchiveCreateInput{
-			dbPath:            input.path,
-			output:            input.output,
-			keepDays:          input.keepDays,
-			target:            input.target,
-			dryRun:            input.dryRun,
-			deleteAfterVerify: input.deleteAfterVerify,
-			passphraseEnv:     input.passphraseEnv,
-		}, cmd.Root().Version)
-	}
-	if input.archiveVerify != "" {
-		return c.runStoreArchiveVerify(cmd.Context(), cmd.OutOrStdout(), storeArchiveVerifyInput{
-			dbPath:        input.path,
-			input:         input.archiveVerify,
-			passphraseEnv: input.passphraseEnv,
-		})
-	}
-	if input.archiveRestore != "" {
-		return c.runStoreArchiveRestore(cmd.Context(), cmd.OutOrStdout(), storeArchiveRestoreInput{
-			dbPath:        input.path,
-			input:         input.archiveRestore,
-			dryRun:        input.dryRun,
-			passphraseEnv: input.passphraseEnv,
-		})
-	}
-	if input.retentionPlan {
-		return c.runStoreFileRetentionPlan(cmd.Context(), cmd.OutOrStdout(), input.fileRetention)
-	}
-	if input.retentionApply {
-		if strings.TrimSpace(input.planPath) == "" || strings.TrimSpace(input.confirmPlanID) == "" {
-			return xerrors.New(Localize(
-				"--retention-apply requires --plan and --confirm-plan-id",
-				"--retention-apply には --plan と --confirm-plan-id が必要です",
-			))
-		}
-		return c.runStoreFileRetentionApply(cmd.Context(), cmd.OutOrStdout(), storeFileRetentionApplyInput{
-			planPath:        input.planPath,
-			confirmedPlanID: input.confirmPlanID,
-		})
-	}
-
 	resolved, service, err := c.compactionFor(input.path)
 	if err != nil {
 		return err
@@ -253,47 +107,6 @@ func compactStepsJSON(steps application.CompactSteps) map[string]any {
 		}
 	}
 	return out
-}
-
-func validateStoreCompactAbsorbFlags(cmd *cobra.Command, input storeCompactInput) error {
-	changed := func(names ...string) bool {
-		for _, name := range names {
-			if cmd.Flags().Changed(name) {
-				return true
-			}
-		}
-		return false
-	}
-	if changed("output") && !input.archive && !input.retentionPlan {
-		return xerrors.New(Localize(
-			"--output requires --archive or --retention-plan",
-			"--output には --archive または --retention-plan が必要です",
-		))
-	}
-	if changed("passphrase-env") && !input.archive && input.archiveVerify == "" && input.archiveRestore == "" {
-		return xerrors.New(Localize(
-			"--passphrase-env requires --archive/--archive-verify/--archive-restore",
-			"--passphrase-env には --archive / --archive-verify / --archive-restore が必要です",
-		))
-	}
-	if changed("plan", "confirm-plan-id") && !input.retentionApply {
-		return xerrors.New(Localize(
-			"--plan/--confirm-plan-id require --retention-apply",
-			"--plan/--confirm-plan-id には --retention-apply が必要です",
-		))
-	}
-	if changed(
-		"archive-root", "backup-root",
-		"archive-max-age", "archive-max-count", "archive-max-allocated-bytes",
-		"backup-max-age", "backup-max-count", "backup-max-allocated-bytes",
-		"expires-after",
-	) && !input.retentionPlan {
-		return xerrors.New(Localize(
-			"file-retention ceiling flags require --retention-plan",
-			"file-retention の上限 flag には --retention-plan が必要です",
-		))
-	}
-	return nil
 }
 
 func (c *RootCLI) newStoreCompactionRollbackCommand() *cobra.Command {

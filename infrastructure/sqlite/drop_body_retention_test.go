@@ -180,7 +180,7 @@ func TestDropBodyRetention_ApprovedUpgradeDropsColumnAndTables(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	assertMinimumReaderVersion(t, path, 39)
+	assertMinimumReaderVersion(t, path, 40)
 	assertQuickCheckOK(t, path)
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
