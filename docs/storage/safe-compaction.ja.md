@@ -96,13 +96,11 @@ in-flight ではない abandoned `<db>.compact-*` / `*.work-journal` leftover �
 2. 回収したい最古の session を fold します（`traceary-session-refine`）。
    部分 fold のあと compact すると、その分だけ回収されます。
 3. `traceary store compact --db-path /path/to/traceary.db`を実行します。
-   in-place `VACUUM`は実行しません。既定では未 refine の破棄対象へ機械要約を
-   書いて本文を破棄します。止めたいときは `--refuse-unrefined`（v0.48 以前の
-   振る舞い）です。in-place fallback（replica を置く余地がないとき）でも cover
-   は走りますが、残った未 refine セッションは失敗ではなく
-   `unrefined_remaining` に出ます。compact は `command_audits` 行がある履歴
-   `command_executed` body も空にし、`released_command_body_bytes` に stored
-   blob の合計を出します。書き換え後のファイルサイズは `bytes_after` です。
+   in-place `VACUUM`は実行しません。compact は cover-free です。機械要約は
+   書かず、transcript 本文も破棄せず、`--refuse-unrefined` フラグはありません。
+   compact は `command_audits` 行がある履歴 `command_executed` body を空にし、
+   `released_command_body_bytes` に stored blob の合計を出します。書き換え後の
+   ファイルサイズは `bytes_after` です。
 4. search に rebuild 手順はありません。search-projection family は削除済みで、
    `store compact --projection-rebuild` / `--projection-abort` は unknown flag
    です。`traceary search` は two-tier 読み取り経路を使います。通常 read を

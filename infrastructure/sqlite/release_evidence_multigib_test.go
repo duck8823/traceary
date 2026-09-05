@@ -618,7 +618,7 @@ func v0330ReleaseEvidencePreProjectionWriterOK(ctx context.Context, db *sql.DB) 
 	if err != nil {
 		return false, fmt.Errorf("begin writer probe: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO events (id, kind, client, agent, session_id, workspace, body, created_at, body_availability) VALUES ('release-writer-probe', 'note', 'cli', 'codex', 'release-session', 'release-evidence', 'release needle writer probe', '2026-07-26T00:02:10Z', 'available')`); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO events (id, kind, client, agent, session_id, workspace, body, created_at) VALUES ('release-writer-probe', 'note', 'cli', 'codex', 'release-session', 'release-evidence', 'release needle writer probe', '2026-07-26T00:02:10Z')`); err != nil {
 		_ = tx.Rollback()
 		return false, fmt.Errorf("run writer probe: %w", err)
 	}

@@ -83,9 +83,8 @@ var updateStaleSessionsQuery string
 // StoreManagementDatasource provides store lifecycle and maintenance
 // operations backed by SQLite.
 type StoreManagementDatasource struct {
-	db              *Database
-	onRawBodyPruned func(index int) error
-	now             func() time.Time
+	db  *Database
+	now func() time.Time
 }
 
 // NewStoreManagementDatasource creates a new StoreManagementDatasource
@@ -138,6 +137,16 @@ func (d *StoreManagementDatasource) InspectBoundDrop(ctx context.Context) (appty
 	inspection, err := d.db.inspectBoundDropAt(ctx, d.db.Path())
 	if err != nil {
 		return apptypes.BoundDropInspection{}, xerrors.Errorf("failed to inspect bound drop: %w", err)
+	}
+	return inspection, nil
+}
+
+// InspectUnavailableRetention reports the preflight count, bounded sample and
+// sorted-id-set digest of unavailable_retention marker rows.
+func (d *StoreManagementDatasource) InspectUnavailableRetention(ctx context.Context) (apptypes.UnavailableRetentionInspection, error) {
+	inspection, err := d.db.inspectUnavailableRetentionAt(ctx, d.db.Path())
+	if err != nil {
+		return apptypes.UnavailableRetentionInspection{}, xerrors.Errorf("failed to inspect unavailable retention: %w", err)
 	}
 	return inspection, nil
 }
@@ -332,9 +341,10 @@ func (d *StoreManagementDatasource) RestoreBackup(ctx context.Context, inputPath
 	return nil
 }
 
-// CollectGarbage discards eligible event bodies and removes or decays other
-// store records older than the given time for the selected target. Stale auto-extracted memory candidates are transitioned
-// to expired (counted in the return value) rather than hard-deleted.
+// CollectGarbage removes or decays store records older than the given time for
+// the selected target. Event bodies are never discarded or rewritten. Stale
+// auto-extracted memory candidates are transitioned to expired (counted in the
+// return value) rather than hard-deleted.
 func (d *StoreManagementDatasource) CollectGarbage(
 	ctx context.Context,
 	before time.Time,
@@ -369,8 +379,7 @@ func (d *StoreManagementDatasource) CollectGarbage(
 		}
 	}()
 
-	discardedAt := formatTimestamp(d.now().UTC())
-	deleteCount, err := d.collectGarbageInTx(ctx, tx, before, target, discardedAt)
+	deleteCount, err := d.collectGarbageInTx(ctx, tx, before, target)
 	if err != nil {
 		return 0, xerrors.Errorf("failed to collect garbage: %w", err)
 	}
@@ -430,30 +439,7 @@ func (d *StoreManagementDatasource) countGarbageInTx(
 	beforeValue := formatTimestamp(before)
 	memoryEdgeBeforeValue := formatMemoryValidityTimestamp(before)
 	total := 0
-	matched := false
-
-	if target == apptypes.GarbageCollectionTargetEvents || target == apptypes.GarbageCollectionTargetAll {
-		matched = true
-		// A store older than the fold schema contributes no discard candidates,
-		// but the remaining targets still do. Skip only this branch, never the
-		// rest of the count, or the preview would disagree with the apply that
-		// follows it on every other target.
-		supported, err := discardPredicateSupported(ctx, tx)
-		if err != nil {
-			return 0, err
-		}
-		if supported {
-			countQuery, err := composeDiscardableEventBodiesQuery(countDiscardableEventBodiesQuery)
-			if err != nil {
-				return 0, err
-			}
-			count, err := queryCount(ctx, tx, countQuery, beforeValue)
-			if err != nil {
-				return 0, xerrors.Errorf("failed to count discardable event bodies: %w", err)
-			}
-			total += count
-		}
-	}
+	matched := target == apptypes.GarbageCollectionTargetEvents || target == apptypes.GarbageCollectionTargetAll
 	if target == apptypes.GarbageCollectionTargetSessions || target == apptypes.GarbageCollectionTargetAll {
 		matched = true
 		count, err := queryCount(ctx, tx, countEmptySessionsQuery, beforeValue)
@@ -549,7 +535,6 @@ func (d *StoreManagementDatasource) collectGarbageInTx(
 	},
 	before time.Time,
 	target apptypes.GarbageCollectionTarget,
-	discardedAt string,
 ) (int, error) {
 	beforeValue := formatTimestamp(before)
 	memoryEdgeBeforeValue := formatMemoryValidityTimestamp(before)
@@ -559,21 +544,7 @@ func (d *StoreManagementDatasource) collectGarbageInTx(
 	}
 
 	total := 0
-	matched := false
-	if target == apptypes.GarbageCollectionTargetEvents || target == apptypes.GarbageCollectionTargetAll {
-		matched = true
-		supported, err := discardPredicateSupported(ctx, tx)
-		if err != nil {
-			return 0, err
-		}
-		if supported {
-			count, err := discardEligibleEventBodies(ctx, tx, beforeValue, discardedAt)
-			if err != nil {
-				return 0, xerrors.Errorf("failed to discard eligible event bodies: %w", err)
-			}
-			total += count
-		}
-	}
+	matched := target == apptypes.GarbageCollectionTargetEvents || target == apptypes.GarbageCollectionTargetAll
 	if target == apptypes.GarbageCollectionTargetSessions || target == apptypes.GarbageCollectionTargetAll {
 		matched = true
 		count, err := execRowsAffected(ctx, tx, deleteEmptySessionsQuery, beforeValue)
@@ -632,20 +603,6 @@ func (d *StoreManagementDatasource) collectGarbageInTx(
 	}
 
 	return total, nil
-}
-
-func discardEligibleEventBodies(
-	ctx context.Context,
-	executor interface {
-		ExecContext(context.Context, string, ...any) (sql.Result, error)
-	},
-	beforeValue, discardedAt string,
-) (int, error) {
-	query, err := composeDiscardableEventBodiesQuery(discardEventBodiesQuery)
-	if err != nil {
-		return 0, err
-	}
-	return execRowsAffected(ctx, executor, query, types.EventBodyUnavailableRetentionMarker, discardedAt, beforeValue)
 }
 
 func execRowsAffected(
@@ -936,42 +893,4 @@ func reserveTempPath(dir string, pattern string) (string, error) {
 
 func quoteSQLiteStringLiteral(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
-}
-
-// discardPredicateSupported detects schema capabilities required by the canonical
-// predicate. Only read-only gc preview can open an older, unmigrated store.
-// discardPredicateSupported reports whether this store carries the schema the
-// discard predicate and the discard statement read. A store that predates the
-// fold schema simply holds no discard candidates, so both the preview and the
-// apply skip the events branch instead of failing: --dry-run deliberately runs
-// against an unmigrated store, and the two paths must agree on the answer.
-func discardPredicateSupported(
-	ctx context.Context,
-	tx interface {
-		QueryRowContext(context.Context, string, ...any) *sql.Row
-	},
-) (bool, error) {
-	for _, table := range []string{"sessions", "session_refinements"} {
-		var exists bool
-		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?)`, table).Scan(&exists); err != nil {
-			return false, xerrors.Errorf("inspect discard predicate table %s: %w", table, err)
-		}
-		if !exists {
-			return false, nil
-		}
-	}
-	// Only events needs a column check. Its body columns arrived over several
-	// migrations, so the table can exist without them; session_refinements has
-	// carried every column this predicate reads since the migration that
-	// created it, so its presence is already answered above.
-	for _, column := range []string{"body_availability"} {
-		var exists bool
-		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM pragma_table_info('events') WHERE name = ?)`, column).Scan(&exists); err != nil {
-			return false, xerrors.Errorf("inspect discard predicate column %s: %w", column, err)
-		}
-		if !exists {
-			return false, nil
-		}
-	}
-	return true, nil
 }

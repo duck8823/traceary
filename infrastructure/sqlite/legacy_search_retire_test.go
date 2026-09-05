@@ -220,11 +220,11 @@ func TestMigration052_StopsEventGarbageCollectionFromTouchingTheSearchIndex(t *t
 	if err != nil {
 		t.Fatalf("CollectGarbage() error = %v", err)
 	}
-	if discarded == 0 {
-		t.Fatal("CollectGarbage() discarded nothing; the fixture event must be eligible for this test to mean anything")
+	if discarded != 0 {
+		t.Fatalf("CollectGarbage() discarded %d bodies, want 0", discarded)
 	}
 	if got := countRows(t, dbPath, "event_search_fts_data"); got != before {
-		t.Fatalf("event_search_fts_data rows = %d after discarding %d bodies, want %d unchanged", got, discarded, before)
+		t.Fatalf("event_search_fts_data rows = %d after GC, want %d unchanged", got, before)
 	}
 }
 

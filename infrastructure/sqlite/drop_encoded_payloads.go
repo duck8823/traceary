@@ -40,14 +40,14 @@ var survivingEventsIndexNames = []string{
 	"idx_events_source_hook_created_at_norm_id_desc",
 }
 
-func verifyDropEncodedPayloads(ctx context.Context, sourceDB, candidateDB *sql.DB, candidatePath string) error {
+func verifyDropEncodedPayloads(ctx context.Context, sourceDB, candidateDB *sql.DB, candidatePath string, dropRetentionPending bool) error {
 	if err := verifyEncodedPayloadColumnsAbsent(ctx, candidateDB); err != nil {
 		return err
 	}
 	if err := verifyPayloadFamilyTablesAbsent(ctx, candidateDB); err != nil {
 		return err
 	}
-	if err := verifyEncodedPayloadsReaderState(ctx, candidateDB); err != nil {
+	if err := verifyEncodedPayloadsReaderState(ctx, candidateDB, dropRetentionPending); err != nil {
 		return err
 	}
 	if err := verifyEncodedPayloadRowCounts(ctx, sourceDB, candidateDB); err != nil {
@@ -59,7 +59,7 @@ func verifyDropEncodedPayloads(ctx context.Context, sourceDB, candidateDB *sql.D
 	if err := verifyNoPayloadFamilyReferences(ctx, candidateDB); err != nil {
 		return err
 	}
-	if err := verifyEncodedPayloadSurvivors(ctx, candidateDB); err != nil {
+	if err := verifyEncodedPayloadSurvivors(ctx, candidateDB, dropRetentionPending); err != nil {
 		return err
 	}
 	return verifyEncodedPayloadWriteProbe(ctx, candidatePath)
@@ -99,12 +99,16 @@ func verifyPayloadFamilyTablesAbsent(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
-func verifyEncodedPayloadsReaderState(ctx context.Context, db *sql.DB) error {
+func verifyEncodedPayloadsReaderState(ctx context.Context, db *sql.DB, dropRetentionPending bool) error {
 	var minimumReader int
 	if err := db.QueryRowContext(ctx, `SELECT minimum_reader_version FROM store_format_state WHERE singleton = 1`).Scan(&minimumReader); err != nil {
 		return fmt.Errorf("read candidate minimum_reader_version: %w", err)
 	}
-	if minimumReader != droppedEncodedPayloadsReaderVersion {
+	if dropRetentionPending {
+		if minimumReader < droppedEncodedPayloadsReaderVersion {
+			return fmt.Errorf("candidate minimum_reader_version = %d, want at least %d", minimumReader, droppedEncodedPayloadsReaderVersion)
+		}
+	} else if minimumReader != droppedEncodedPayloadsReaderVersion {
 		return fmt.Errorf("candidate minimum_reader_version = %d, want %d", minimumReader, droppedEncodedPayloadsReaderVersion)
 	}
 	columns, err := tableColumns(ctx, db, "store_format_state")
@@ -268,7 +272,7 @@ func verifyNoPayloadFamilyReferences(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
-func verifyEncodedPayloadSurvivors(ctx context.Context, db *sql.DB) error {
+func verifyEncodedPayloadSurvivors(ctx context.Context, db *sql.DB, dropRetentionPending bool) error {
 	wantTriggers := make(map[string]struct{}, len(survivingEventsTriggerNames)+len(survivingAuditTriggerNames))
 	for _, name := range survivingEventsTriggerNames {
 		wantTriggers[name] = struct{}{}
@@ -306,6 +310,9 @@ func verifyEncodedPayloadSurvivors(ctx context.Context, db *sql.DB) error {
 	wantIndexes := make(map[string]struct{}, len(survivingEventsIndexNames))
 	for _, name := range survivingEventsIndexNames {
 		wantIndexes[name] = struct{}{}
+	}
+	if dropRetentionPending {
+		delete(wantIndexes, bodyRetentionCandidateIndex)
 	}
 	idxRows, err := db.QueryContext(ctx, `SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='events' AND name NOT LIKE 'sqlite_%'`)
 	if err != nil {

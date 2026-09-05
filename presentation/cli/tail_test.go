@@ -99,6 +99,9 @@ func (tailStoreManagementStub) InspectOneOffRepairRetirement(context.Context) (a
 func (tailStoreManagementStub) InspectBoundDrop(context.Context) (apptypes.BoundDropInspection, error) {
 	return apptypes.BoundDropInspection{}, nil
 }
+func (tailStoreManagementStub) InspectUnavailableRetention(context.Context) (apptypes.UnavailableRetentionInspection, error) {
+	return apptypes.UnavailableRetentionInspection{}, nil
+}
 func (tailStoreManagementStub) CreateBackup(context.Context, string, bool) error {
 	return nil
 }

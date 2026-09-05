@@ -2,7 +2,6 @@ package application
 
 import (
 	"context"
-	"time"
 
 	"github.com/duck8823/traceary/domain"
 )
@@ -20,11 +19,6 @@ type StoreCompactionBuilder interface {
 	ClassifyCandidate(context.Context, string, string) (domain.CandidateCondition, error)
 	Sync(context.Context, string) error
 	VerifyPair(context.Context, string, string) error
-}
-
-// CompactBodyGateInspector classifies discardable-age bodies on the source.
-type CompactBodyGateInspector interface {
-	InspectBodyGate(ctx context.Context, source string, cutoff time.Time) (BodyGate, error)
 }
 
 // CommandBodyReclaimInspector measures duplicated command_executed bodies

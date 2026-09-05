@@ -136,9 +136,6 @@ func eventBodyForDisplay(event *model.Event) string {
 	if event == nil {
 		return ""
 	}
-	if !event.BodyAvailability().IsAvailable() {
-		return Localize("[body unavailable: retention]", "[本文は保持ポリシーにより利用できません]")
-	}
 	if body := apptypes.ExtractPlainBody(event.Body()); strings.TrimSpace(body) != "" {
 		return body
 	}

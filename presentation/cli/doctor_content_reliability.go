@@ -129,20 +129,50 @@ func contentEventReliabilityFindingsFromEvents(events []*model.Event, strict boo
 }
 
 // contentEventDedupeEligible reports whether event can participate in
-// duplicate grouping. Rows the retention pruner has emptied are excluded: the
-// pruner replaces the body with one fixed marker string for every row it
-// touches regardless of client or kind, so unrelated emptied rows would
-// otherwise hash to the same identity and collapse into one phantom group.
-// This mirrors dedupeEligibilityFilter in
-// infrastructure/sqlite/content_event_dedupe_datasource.go, which applies the
-// same "available" restriction at the SQL candidate stage; keep the two in
-// agreement so the diagnostic count and the repair dry-run count match. A nil
-// event is not eligible.
+// duplicate grouping. Legacy emptied-body marker rows share one well-known
+// string regardless of client or kind, so grouping them would invent a
+// phantom hook double-write. A nil event is not eligible.
 func contentEventDedupeEligible(event *model.Event) bool {
 	if event == nil {
 		return false
 	}
-	return event.BodyAvailability().IsAvailable()
+	return event.Body() != types.EventBodyUnavailableRetentionMarker
+}
+
+func (c *RootCLI) inspectUnavailableRetention(ctx context.Context) doctorCheck {
+	const name = "unavailable-retention"
+	if c.storeManagement == nil {
+		return doctorCheck{
+			Name:    name,
+			Status:  doctorStatusSkip,
+			Message: Localize("store management is not configured", "store management が設定されていません"),
+		}
+	}
+	inspection, err := c.storeManagement.InspectUnavailableRetention(ctx)
+	if err != nil {
+		return doctorCheck{
+			Name:    name,
+			Status:  doctorStatusWarn,
+			Message: localizef("failed to inspect unavailable_retention markers: %v", "unavailable_retention マーカーの確認に失敗しました: %v", err),
+		}
+	}
+	if inspection.RowCount == 0 {
+		return doctorCheck{
+			Name:    name,
+			Status:  doctorStatusPass,
+			Message: Localize("no unavailable_retention marker rows", "unavailable_retention マーカー行はありません"),
+		}
+	}
+	return doctorCheck{
+		Name:    name,
+		Status:  doctorStatusFail,
+		Message: apptypes.FormatUnavailableRetentionPreflight(inspection),
+		Hint: Localize(
+			"those bodies cannot be recovered by any binary, including 0.48.2; re-run doctor --fix with --approve-unavailable-retention N:<hex>",
+			"それらの本文は 0.48.2 を含むどの binary でも復元できません。doctor --fix --approve-unavailable-retention N:<hex> で再実行してください",
+		),
+		FixCommand: "traceary doctor --fix --approve-unavailable-retention " + fmt.Sprintf("%d:%s", inspection.RowCount, inspection.Digest),
+	}
 }
 
 func newContentEventDuplicateGroupKey(event *model.Event) contentEventDuplicateGroupKey {

@@ -2,7 +2,6 @@ package sqlite_test
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,20 +11,11 @@ import (
 	"database/sql"
 
 	"github.com/duck8823/traceary/application"
-	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/infrastructure/sqlite"
 )
-
-func coverReportFrom(result apptypes.OrphanConsolidationResult) application.CoverReport {
-	return application.CoverReport{
-		RefinementsProduced: result.ProducedCount(),
-		RangesAttempted:     result.Attempted(),
-		RangesSkipped:       result.Skipped(),
-	}
-}
 
 func TestVerifyPairRejectsEmptyEventsCandidateWhenSourceHasUniqueEvents(t *testing.T) {
 	t.Parallel()
@@ -188,379 +178,6 @@ func TestVerifyPairRejectsRewrittenAvailableCandidate(t *testing.T) {
 	}
 }
 
-func TestCompactDefaultCoverCompletesOnRealStore(t *testing.T) {
-	t.Parallel()
-	dbPath, events, store := prepareDiscardGCFixture(t)
-	_ = store
-	old := newGCEventFixture(t, "event-old", types.EventKindTranscript, "why-is-here", time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC))
-	if err := events.Save(context.Background(), old); err != nil {
-		t.Fatal(err)
-	}
-	db := openRetentionDB(t, dbPath)
-	insertGCSession(t, db, "session-1", true)
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	svc := usecase.NewStoreCompactionUsecase(
-		dbPath,
-		&sqlite.CompactionFileJournal{Dir: filepath.Join(t.TempDir(), "journal")},
-		&sqlite.SQLiteCompactionBuilder{},
-		sqlite.StoreReplacementFiles{CallerHoldsExclusiveLease: true},
-		sqlite.StoreLeaseCoordinator{},
-	)
-	migrations := onDiskSQLiteMigrations(t)
-	usecase.BindCompactionWorkCover(svc, func(ctx context.Context, work string, cutoff time.Time) (application.CoverReport, error) {
-		database := sqlite.NewDatabase(work, migrations)
-		refine := usecase.NewSessionRefinementUsecase(
-			sqlite.NewSessionDatasource(database),
-			sqlite.NewSessionRefinementDatasource(database),
-			sqlite.NewEventDatasource(database),
-			types.SystemClock{},
-		)
-		cover := usecase.NewOrphanConsolidationUsecase(
-			sqlite.NewSessionOrphanRangeDatasource(database),
-			refine,
-			types.SystemClock{},
-		)
-		result, err := cover.Consolidate(ctx, usecase.OrphanConsolidationInput{
-			StaleAfter: 24 * time.Hour,
-		})
-		if err != nil {
-			return application.CoverReport{}, fmt.Errorf("compact mechanical cover: %w", err)
-		}
-		if err := application.ForceCoverSafeToDelete(
-			result.HasMore(), result.EarliestUnprocessedEventTime(),
-			result.Skipped(), result.EarliestSkippedEventTime(),
-			cutoff,
-		); err != nil {
-			return application.CoverReport{}, fmt.Errorf("compact mechanical cover: %w", err)
-		}
-		return coverReportFrom(result), nil
-	})
-
-	got, err := svc.Compact(context.Background(), application.CompactInput{
-		Source:   dbPath,
-		KeepDays: 90,
-		Now:      time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
-	})
-	if err != nil {
-		t.Fatalf("Compact() error = %v", err)
-	}
-	if got.UnrefinedRemaining != 0 {
-		t.Fatalf("UnrefinedRemaining = %d, want 0 after completed mechanical cover", got.UnrefinedRemaining)
-	}
-	if !got.MechanicalSummaries {
-		t.Fatal("MechanicalSummaries = false, want true")
-	}
-	db = openRetentionDB(t, dbPath)
-	defer func() { _ = db.Close() }()
-	if avail := gcEventAvailability(t, db, "event-old"); avail != "unavailable_retention" {
-		t.Fatalf("covered body availability = %s, want unavailable_retention", avail)
-	}
-}
-
-// TestCompactDefaultCoverFoldsNeverEndingSessionsPreCutoffTail is the #1724
-// regression pin. A session that stays continuously active (recent activity,
-// ended_at always NULL) satisfies neither of the two discovery sources #1721
-// coordinates with: it is never "ended", and the 24h staleness rule never
-// fires because there is always recent activity.
-//
-// Before the third discovery source existed, such a session's old material
-// was never seen by any consolidation pass, no matter how old it got: repeated
-// cover passes here would report ProducedCount() == 0 and leave
-// session_refinements empty for it forever, so the material stayed unfolded
-// for as long as the session kept receiving occasional activity — even though
-// select_discardable_event_bodies.sql's own ended_at IS NOT NULL clause
-// already keeps its transcript bodies from being physically discarded while
-// active. Once the session eventually does end (or goes stale), the whole
-// accumulated backlog surfaces to source 2 at once with no prior folding
-// progress, which is exactly the large, all-at-once blast radius #1721's
-// bounded, oldest-first passes exist to avoid.
-//
-// This test wires the third source's RetentionCutoff through the same real
-// Compact() default-cover path the other #1721 tests use and asserts folding now
-// happens incrementally for the still-active session, with a terminus bounded
-// to the last event strictly before the retention cutoff — not the session's
-// true latest event.
-func TestCompactDefaultCoverFoldsNeverEndingSessionsPreCutoffTail(t *testing.T) {
-	t.Parallel()
-	dbPath, events, store := prepareDiscardGCFixture(t)
-	_ = store
-	old := newGCEventFixture(t, "event-old", types.EventKindTranscript, "why-is-here", time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC))
-	if err := events.Save(context.Background(), old); err != nil {
-		t.Fatal(err)
-	}
-	recent := newGCEventFixture(t, "event-recent", types.EventKindTranscript, "still-going", time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC))
-	if err := events.Save(context.Background(), recent); err != nil {
-		t.Fatal(err)
-	}
-
-	db := openRetentionDB(t, dbPath)
-	insertGCSession(t, db, "session-1", false) // never ends
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	svc := usecase.NewStoreCompactionUsecase(
-		dbPath,
-		&sqlite.CompactionFileJournal{Dir: filepath.Join(t.TempDir(), "journal")},
-		&sqlite.SQLiteCompactionBuilder{},
-		sqlite.StoreReplacementFiles{CallerHoldsExclusiveLease: true},
-		sqlite.StoreLeaseCoordinator{},
-	)
-	migrations := onDiskSQLiteMigrations(t)
-	// compactWorkCover in main.go always pairs a real-clock staleness rule
-	// with a real-now retention cutoff, so the two agree in production. This
-	// test fixes CompactInput.Now to a historical instant to keep the fixture
-	// deterministic, so the cover's own clock must be pinned to that same
-	// instant too — otherwise the 24h staleness rule would race the actual
-	// wall clock and classify session-1 as stale via source 2 (unbounded)
-	// well before the cutoff-bounded source 3 was meant to be exercised.
-	fixedNow := time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC)
-	var lastResult apptypes.OrphanConsolidationResult
-	usecase.BindCompactionWorkCover(svc, func(ctx context.Context, work string, cutoff time.Time) (application.CoverReport, error) {
-		database := sqlite.NewDatabase(work, migrations)
-		refine := usecase.NewSessionRefinementUsecase(
-			sqlite.NewSessionDatasource(database),
-			sqlite.NewSessionRefinementDatasource(database),
-			sqlite.NewEventDatasource(database),
-			fixedEventClock{at: fixedNow},
-		)
-		cover := usecase.NewOrphanConsolidationUsecase(
-			sqlite.NewSessionOrphanRangeDatasource(database),
-			refine,
-			fixedEventClock{at: fixedNow},
-		)
-		result, err := cover.Consolidate(ctx, usecase.OrphanConsolidationInput{
-			StaleAfter:      24 * time.Hour,
-			RetentionCutoff: cutoff,
-		})
-		if err != nil {
-			return application.CoverReport{}, fmt.Errorf("compact mechanical cover: %w", err)
-		}
-		lastResult = result
-		if err := application.ForceCoverSafeToDelete(
-			result.HasMore(), result.EarliestUnprocessedEventTime(),
-			result.Skipped(), result.EarliestSkippedEventTime(),
-			cutoff,
-		); err != nil {
-			return application.CoverReport{}, fmt.Errorf("compact mechanical cover: %w", err)
-		}
-		return coverReportFrom(result), nil
-	})
-
-	// MechanicalSummaries/UnrefinedRemaining are reported from a separate
-	// legacy body-gate query (unrefinedDiscardableSessionsQuery) that joins on
-	// sessions.ended_at IS NOT NULL and so never counts an always-on session
-	// either; that gate is out of scope for #1724 (see the responsibility
-	// table) and is not asserted on here.
-	if _, err := svc.Compact(context.Background(), application.CompactInput{
-		Source:   dbPath,
-		KeepDays: 10,
-		Now:      time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC),
-	}); err != nil {
-		t.Fatalf("Compact() error = %v, want the never-ending session's pre-cutoff tail to be folded by the third discovery source", err)
-	}
-	if lastResult.ProducedCount() != 1 {
-		t.Fatalf("ProducedCount = %d, want 1: the third discovery source must have folded session-1's pre-cutoff tail", lastResult.ProducedCount())
-	}
-
-	db = openRetentionDB(t, dbPath)
-	defer func() { _ = db.Close() }()
-
-	var coversTo string
-	if err := db.QueryRow(`SELECT covers_to_event_id FROM session_refinements WHERE session_id = 'session-1'`).Scan(&coversTo); err != nil {
-		t.Fatalf("query session_refinements: %v", err)
-	}
-	if coversTo != "event-old" {
-		t.Fatalf("covers_to_event_id = %s, want event-old: the fold must stop at the last pre-cutoff event, not the still-active session's latest event", coversTo)
-	}
-
-	// The transcript discard allowlist itself refuses any session whose
-	// ended_at is NULL (select_discardable_event_bodies.sql), independent of
-	// fold status, so neither event's body_availability changes here — that
-	// guard already keeps an active session's bodies from being physically
-	// discarded. What this test pins is that the fold happened at all, and
-	// that it stopped at the correct pre-cutoff terminus rather than either
-	// skipping the session (the pre-#1724 gap) or claiming coverage over the
-	// still-recent, post-cutoff activity.
-	if avail := gcEventAvailability(t, db, "event-old"); avail != "available" {
-		t.Fatalf("event-old body_availability = %s, want available (an active session's bodies are never discarded)", avail)
-	}
-	if avail := gcEventAvailability(t, db, "event-recent"); avail != "available" {
-		t.Fatalf("event-recent body_availability = %s, want available", avail)
-	}
-}
-
-// TestCompactDefaultCoverProceedsWhenLeftoverIsNewerThanCutoff pins the #1721
-// fix: an already-covered, discardable-age session must still be deleted even
-// though a bounded cover pass leaves part of the orphan backlog unfolded, as
-// long as that leftover is entirely newer than the retention cutoff.
-// Discovery orders oldest-first, so a Limit of 1 folds session-new-a and
-// leaves session-new-b (newer still) as the reported leftover; both are newer
-// than cutoff, so the safe lower bound the cover reports (session-new-a's
-// earliest event time) is newer than cutoff too.
-func TestCompactDefaultCoverProceedsWhenLeftoverIsNewerThanCutoff(t *testing.T) {
-	t.Parallel()
-	dbPath, events, store := prepareDiscardGCFixture(t)
-	_ = store
-	old := newGCEventFixture(t, "event-old", types.EventKindTranscript, "why-is-here", time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC))
-	if err := events.Save(context.Background(), old); err != nil {
-		t.Fatal(err)
-	}
-	newA := newGCEventFixture(t, "event-new-a", types.EventKindTranscript, "why-is-here", time.Date(2026, 7, 15, 0, 0, 0, 0, time.UTC))
-	if err := events.Save(context.Background(), newA); err != nil {
-		t.Fatal(err)
-	}
-	newB := newGCEventFixture(t, "event-new-b", types.EventKindTranscript, "why-is-here", time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC))
-	if err := events.Save(context.Background(), newB); err != nil {
-		t.Fatal(err)
-	}
-	db := openRetentionDB(t, dbPath)
-	insertGCSession(t, db, "session-covered", true)
-	insertGCSession(t, db, "session-new-a", true)
-	insertGCSession(t, db, "session-new-b", true)
-	insertGCFold(t, db, "session-covered", "event-old", "event-old")
-	if _, err := db.Exec(`UPDATE events SET session_id = 'session-covered' WHERE id = 'event-old'`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`UPDATE events SET session_id = 'session-new-a' WHERE id = 'event-new-a'`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`UPDATE events SET session_id = 'session-new-b' WHERE id = 'event-new-b'`); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	svc := usecase.NewStoreCompactionUsecase(
-		dbPath,
-		&sqlite.CompactionFileJournal{Dir: filepath.Join(t.TempDir(), "journal")},
-		&sqlite.SQLiteCompactionBuilder{},
-		sqlite.StoreReplacementFiles{CallerHoldsExclusiveLease: true},
-		sqlite.StoreLeaseCoordinator{},
-	)
-	migrations := onDiskSQLiteMigrations(t)
-	usecase.BindCompactionWorkCover(svc, func(ctx context.Context, work string, cutoff time.Time) (application.CoverReport, error) {
-		database := sqlite.NewDatabase(work, migrations)
-		refine := usecase.NewSessionRefinementUsecase(
-			sqlite.NewSessionDatasource(database),
-			sqlite.NewSessionRefinementDatasource(database),
-			sqlite.NewEventDatasource(database),
-			types.SystemClock{},
-		)
-		cover := usecase.NewOrphanConsolidationUsecase(
-			sqlite.NewSessionOrphanRangeDatasource(database),
-			refine,
-			types.SystemClock{},
-		)
-		result, err := cover.Consolidate(ctx, usecase.OrphanConsolidationInput{
-			StaleAfter: 24 * time.Hour,
-			Limit:      1,
-		})
-		if err != nil {
-			return application.CoverReport{}, fmt.Errorf("compact mechanical cover: %w", err)
-		}
-		if err := application.ForceCoverSafeToDelete(
-			result.HasMore(), result.EarliestUnprocessedEventTime(),
-			result.Skipped(), result.EarliestSkippedEventTime(),
-			cutoff,
-		); err != nil {
-			return application.CoverReport{}, fmt.Errorf("compact mechanical cover: %w", err)
-		}
-		return coverReportFrom(result), nil
-	})
-
-	if _, err := svc.Compact(context.Background(), application.CompactInput{
-		Source:   dbPath,
-		KeepDays: 10,
-		Now:      time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC),
-	}); err != nil {
-		t.Fatalf("Compact() error = %v, want compact to proceed: the unfolded leftover is newer than the cutoff", err)
-	}
-
-	db = openRetentionDB(t, dbPath)
-	defer func() { _ = db.Close() }()
-	if avail := gcEventAvailability(t, db, "event-old"); avail != "unavailable_retention" {
-		t.Fatalf("covered body availability = %s, want unavailable_retention for the already-covered pre-cutoff session", avail)
-	}
-}
-
-// TestCompactCoverLeavingPreCutoffLeftoverStillFails is the regression
-// pinned by #1721: a bounded cover pass that leaves behind a range whose
-// earliest event is older than the retention cutoff must refuse rather than
-// let CollectGarbage discard material no fold has ever seen.
-func TestCompactCoverLeavingPreCutoffLeftoverStillFails(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	fx := newOrphanFixture(t)
-
-	seedOrphanSession(ctx, t, fx, "session-old-1", []eventSeed{
-		{id: "evt-old-1", at: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)},
-	}, true)
-	seedOrphanSession(ctx, t, fx, "session-old-2", []eventSeed{
-		{id: "evt-old-2", at: time.Date(2026, 6, 5, 0, 0, 0, 0, time.UTC)},
-	}, true)
-
-	svc := usecase.NewStoreCompactionUsecase(
-		fx.dbPath,
-		&sqlite.CompactionFileJournal{Dir: filepath.Join(t.TempDir(), "journal")},
-		&sqlite.SQLiteCompactionBuilder{},
-		sqlite.StoreReplacementFiles{CallerHoldsExclusiveLease: true},
-		sqlite.StoreLeaseCoordinator{},
-	)
-	migrations := onDiskSQLiteMigrations(t)
-	usecase.BindCompactionWorkCover(svc, func(ctx context.Context, work string, cutoff time.Time) (application.CoverReport, error) {
-		database := sqlite.NewDatabase(work, migrations)
-		refine := usecase.NewSessionRefinementUsecase(
-			sqlite.NewSessionDatasource(database),
-			sqlite.NewSessionRefinementDatasource(database),
-			sqlite.NewEventDatasource(database),
-			types.SystemClock{},
-		)
-		cover := usecase.NewOrphanConsolidationUsecase(
-			sqlite.NewSessionOrphanRangeDatasource(database),
-			refine,
-			types.SystemClock{},
-		)
-		result, err := cover.Consolidate(ctx, usecase.OrphanConsolidationInput{
-			StaleAfter: 24 * time.Hour,
-			Limit:      1,
-		})
-		if err != nil {
-			return application.CoverReport{}, fmt.Errorf("compact mechanical cover: %w", err)
-		}
-		if err := application.ForceCoverSafeToDelete(
-			result.HasMore(), result.EarliestUnprocessedEventTime(),
-			result.Skipped(), result.EarliestSkippedEventTime(),
-			cutoff,
-		); err != nil {
-			return application.CoverReport{}, fmt.Errorf("compact mechanical cover: %w", err)
-		}
-		return coverReportFrom(result), nil
-	})
-
-	_, err := svc.Compact(ctx, application.CompactInput{
-		Source:   fx.dbPath,
-		KeepDays: 10,
-		Now:      time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC),
-	})
-	if err == nil {
-		t.Fatal("Compact() error = nil, want refusal: the unfolded leftover (session-old-2) is older than the cutoff")
-	}
-	if !strings.Contains(err.Error(), "may be older than the retention cutoff") {
-		t.Fatalf("Compact() error = %v, want it to name the retention cutoff as the reason", err)
-	}
-
-	db := openRetentionDB(t, fx.dbPath)
-	defer func() { _ = db.Close() }()
-	if avail := gcEventAvailability(t, db, "evt-old-1"); avail == "unavailable_retention" {
-		t.Fatal("evt-old-1 body_availability = unavailable_retention, want unchanged: a refused compact must not have touched the original store")
-	}
-}
-
 func TestCompactClearsDuplicatedCommandExecutedBodiesAndKeepsLogOnlyBodies(t *testing.T) {
 	t.Parallel()
 	dbPath, events, store := prepareDiscardGCFixture(t)
@@ -571,9 +188,7 @@ func TestCompactClearsDuplicatedCommandExecutedBodiesAndKeepsLogOnlyBodies(t *te
 
 	svc := newTestCompactionUsecase(t, dbPath)
 	got, err := svc.Compact(context.Background(), application.CompactInput{
-		Source:   dbPath,
-		KeepDays: 90,
-		Now:      time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
+		Source: dbPath,
 	})
 	if err != nil {
 		t.Fatalf("Compact() error = %v", err)
@@ -624,9 +239,7 @@ func TestCompactReportsStoredBlobBytes(t *testing.T) {
 	}
 
 	got, err := newTestCompactionUsecase(t, dbPath).Compact(context.Background(), application.CompactInput{
-		Source:   dbPath,
-		KeepDays: 90,
-		Now:      time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
+		Source: dbPath,
 	})
 	if err != nil {
 		t.Fatalf("Compact() error = %v", err)
@@ -727,13 +340,12 @@ func TestInspectReclaimableBytesUsesMetadataProjection(t *testing.T) {
 	got, err := (sqlite.SQLiteCompactionBuilder{}).InspectReclaimableBytes(
 		context.Background(),
 		dbPath,
-		time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
 	)
 	if err != nil {
 		t.Fatalf("InspectReclaimableBytes: %v", err)
 	}
-	if got < 4000 {
-		t.Fatalf("InspectReclaimableBytes = %d, want at least the discarded transcript bytes", got)
+	if got < 0 {
+		t.Fatalf("InspectReclaimableBytes = %d, want non-negative freelist estimate", got)
 	}
 }
 

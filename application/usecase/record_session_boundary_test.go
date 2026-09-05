@@ -334,6 +334,9 @@ func TestSessionUsecase_End(t *testing.T) {
 		if diff := cmp.Diff("session ended", got.Body()); diff != "" {
 			t.Fatalf("Body() mismatch (-want +got):\n%s", diff)
 		}
+		if stub.savedEvent != nil && stub.savedEvent.Kind() != types.EventKindSessionEnded {
+			t.Fatal("End rewrote a non-boundary event")
+		}
 	})
 
 	t.Run("session end inherits client/agent/repo from start", func(t *testing.T) {

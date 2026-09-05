@@ -155,67 +155,61 @@ Durable memory に紐づく artifact ref です。
 
 - migration は `schema/sqlite/migrations` からバイナリに埋め込みます
 - 通常コマンドの実行前に store initialization が走るため、upgrade 時も non-offline migration は自動適用されます
-- データ依存 offline migration（035, 045, 076, 078, 079）は暗黙には適用しません。`traceary doctor --fix` を使います
+- データ依存 offline migration（035, 045, 076, 078, 079, 080, 081, 082, 083）は暗黙には適用しません。`traceary doctor --fix` を使います
 - backup restore では、まず SQLite file をコピーし、その後に store initialization を再実行して newer non-offline migration を適用します
 - migration `000028` は不変な `run_lineages` と `usage_observation_runs` table を追加しました。v27 usage row は書き換えず、attribution 欠落は unknown のままです
 - migration `000079` は `usage_observation_runs` を FK なしで rebuild したあと `run_lineages` を DROP し、`minimum_reader_version` を 35 に上げます。非空 store は candidate 上で `traceary doctor --fix` が適用します。残行の DROP には `--approve-drop N:<hex>` が必要です
+- migration `000083` は `body_availability`、`raw_body_retention_*`、`session_orphan_ranges` を DROP し、`minimum_reader_version` を 39 に上げます。非空 store は candidate 上で `traceary doctor --fix` が適用します。`body_availability` が `unavailable_retention` だった行は 0.48.2 を含むどの binary でも復元できません。preflight と `traceary doctor` は件数、bounded sample、ソート済み id 集合の digest を報告します。件数が 1 以上のときは `--approve-unavailable-retention N:<hex>` が必要です。欠落・stale・drift した token では candidate は未変更のまま、live store にも触れません。件数 0 に approval は不要です。`events.body` に残る legacy marker 文字列 `[traceary:body-unavailable:retention]` は通常の本文です。search も display も verbatim に扱います。
 
 任意の手動 schema edit との後方互換は保証しません。持ち運べるコピーが必要な場合は、DB を直接編集する代わりに `traceary store backup create` を使ってください。
 
 ## `compact` の既定動作
 
 `traceary store compact` はストアファイルを書き換えます。copy の途中で退役済み
-検索インデックスと破棄可能な被覆済み transcript 本文を落とし、vacuum します。
-event 本文と `command_audits` の command / input / output テキストは書いたままの
-plaintext です。
+検索インデックスを落とし、vacuum します。event 本文と `command_audits` の
+command / input / output テキストは書いたままの plaintext です。compact は
+cover-free です。機械要約は書かず、transcript 本文も破棄せず、
+`--refuse-unrefined` フラグはありません。
 
-- 既定 retention: `90` 日 (`--keep-days 90`)
+- `--keep-days 90` は `--archive` の保持窓であり、本文破棄の cutoff ではない
 - 物理容量回収は書き換えそのもの。in-place `VACUUM` ではない
-- 未 refine の破棄対象には機械要約（`degraded=1`）を書いて本文を破棄する。止めたいときは `--refuse-unrefined`
+- `command_audits` 行がある履歴 `command_executed` body は空にすることがある（`released_command_body_bytes`）
 - archive / backup の file retention は `store compact --retention-plan` / `--retention-apply`。search-projection family は compact ではなく offline migration 80（非空 store では `traceary doctor --fix`）で DROP します。`--projection-rebuild` / `--projection-abort` は unknown flag です。
 
 **Reclaim warning。** hook 以外のコマンドの後、Traceary は stderr に `TRACEARY: ストアに回収できる領域が約 <size> あります。traceary store compact を実行してください` を、ストアごとに 24 時間に 1 回まで表示します（記録は `<db>.reclaim-warn`）。表示条件は、free page list — `PRAGMA freelist_count × PRAGMA page_size`、`traceary doctor` が `reclaimable=` として報告するのと同じ O(1) signal — が `compact.reclaim_warn_bytes`（既定 1 GiB）以上、**かつ** ストア全体の 10 % 以上であることです。ファイルサイズだけでは表示しません。freelist が空の 14 GiB ストアは、書き換えてもファイルシステムに返る領域がないため何も表示しません。`doctor` は同じ signal と同じ 10 % 比率を、より低い 256 MiB の floor で使うため、trailer が黙っている回収可能領域を報告することがあります（逆はありません）。`compact.reclaim_warn_bytes` を `0` にすると trailer を止められます。ストアを安価に読めない場合（writer が保持している、500 ms を超えたなど）は何も表示しません。store growth signal が不明であることの報告は `traceary doctor` の役割です。
 
-free page は `store compact` が回収できるバイト数と同じではありません。compact は被覆済み transcript 本文の破棄も行い、それはこの O(1) signal からは見えません。その見積もりは `traceary store compact --dry-run` の担当です。
+free page は rewrite が SQLite freelist からファイルシステムへ返せるバイト数です。compact は transcript 本文を破棄しないため、O(1) freelist signal が reclaim 見積もりです。`traceary store compact --dry-run` は `--archive` の plan/件数 surface であり、本文破棄の preview ではありません。
 
 ### Derived generation のディスク上限
 
 search-projection family は v0.49.0（#2319）で削除されました。世代 lifecycle も `--index-family-bytes` 予算も、doctor の `search-projection-terminal-rows` 検査もありません。compact JSON に encode step はありません。物理 DROP は offline migration 80 です。
 
-compact は最初に **orphan range** を機械要約します。orphan とは `session_refinements.covers_to` より先にあり、エージェントがもう畳めないイベント範囲です（セッション終了、24h 無活動の stale 扱い、または post-compact での前倒し記録）。session start/end 以外を含む、まだ畳まれていない各範囲に対し、`degraded=1` の refinement（`produced_by=gc:orphan-consolidation`）を書きます。内容はいつ・どの kind が何回・どのコマンドかだけで、エージェントの判断理由（なぜ）は復元しません。lifecycle だけの tail（正しく fold したあとに着く `session_ended` が典型）は `covers_to` だけ進め、機械的な脚注は付けません。`degraded` は「合成テキストを含む」意味のまま、wake 適格性のビットにはしません。wake injection は `has_agent_reasoning` を読むため、正しく fold されたセッションは reduction のあとも注入対象に残ります。この機械 refinement も破棄にとって**有効な被覆**です。破棄が失うのはテキストだけであり、残すと約束している bytes・timestamps・counts はまさにこの要約が保持するためです。出力は `steps.mechanical_cover` と `covered_sessions` を報告します。この処理に専用コマンドや `--target` はありません。
+`--archive` / GC の target ごとの policy（既定の compact rewrite ではない）:
 
-compact は先に fold し、同じ run で破棄します。だから `covered_sessions` と `discarded_body_bytes` は一緒に報告されます。機械要約の前に手元で fold したいときは `--refuse-unrefined` を渡します。
-
-target ごとの policy:
-
-- `events`: event row は削除しません。終了済み session で refinement に被覆された古い `transcript` 本文だけを不可逆に retention marker へ置換します。ここでの被覆とは、同一 session の refinement であり、その境界 event も同じ session に属し、範囲が対象 event に届いていることを指します。`created_at` が parse できない event は、年齢を判定できないため破棄しません。event skeleton、`prompt` 本文、他の kind、`command_audits.command_text` / `input_text` は常に残ります。この経路は retention ledger を書きません。review 可能かつ archive から復元可能な経路は `store retention` です。
+- `events`: event row は削除せず、event 本文も破棄・書き換えしません。event skeleton、`prompt` 本文、`transcript` 本文、他の kind、`command_audits.command_text` / `input_text` は残ります。
 - `sessions`: `COALESCE(ended_at, started_at) < cutoff` かつ surviving event から参照されていない終了済み session を削除します。active session (`ended_at IS NULL`) は常に保護されます。
 - `memories`: `updated_at < cutoff` の `expired` / `superseded` / `rejected` memory を物理削除します。`accepted` と `candidate` は age 削除しません。**例外:** 未レビューの auto-extracted candidate (`source IN (extracted, extracted-hidden, compact-summary)`) は 14 日超で **hard delete ではなく `expired` へ decay** し、keep-days の物理 GC まで restore 可能です（#1368）。物理削除時は evidence/artifact ref が cascade され、削除または decay 直前の行を指す `supersedes_memory_id` は先に NULL へ更新されます。
 - `memory_edges`: `valid_to < cutoff` の終了済み edge を削除します。endpoint の memory が削除される場合も edge は自動 cascade されます。
 - `all`: events、sessions、memories、memory_edges の順に依存関係を保って適用します。event row が残るため、`delete_empty_sessions.sql` は event 削除によって候補を得なくなります。
 
-fold schema より前の store には被覆の証跡が無いため、破棄候補も存在しません。store を read-only・未 migration で読む `--dry-run` は、そのような store の `events` target について失敗ではなく `0` を報告します。他の target は通常どおり数えます。
-
-将来の破棄理由は additive な sidecar column で表し、`body_availability` の値を増やしてはいけません。CHECK を広げるには `events` の再構築が必要で、additive-migration rollback 契約に反するためです。
-
 実務上の意味:
 
 - `store compact` は operator が手動で実行するもので、Traceary が background で自動的に履歴を破棄することはありません
-- `store compact` が破棄する kind は `transcript` 本文のみです。`prompt` 本文と `command_audits` のテキストは常に残ります。ただし `store compact` は audit テキストを再符号化することがあります
+- event 本文は、行そのものが削除されるまで書いたまま残ります（archive の `--delete-after-verify` または明示 delete）
 - 長期の監査履歴を残したい場合は、強めの cleanup の前に backup を取ってください
 - cold 行の export と **verify-before-delete** は [Archive-before-GC](./archive-before-gc.ja.md)（#1309）を参照。フルファイル backup は [バックアップガイド](../backup/README.ja.md)
 
 ## レコードごとのストレージ蓄積
 
-`store compact` が破棄できる部分を除き、各 event row は永続的にストレージを蓄積します。`select_discardable_event_bodies.sql` の allowlist は現時点では `{transcript}` のみです。終了済みかつ被覆済みセッションの `transcript` 本文だけが本文破棄の対象になります。
+各 event row は永続的にストレージを蓄積します。本文破棄パスはありません。compact はファイルを書き換え（freelist / `VACUUM INTO`）、`command_audits` 行がある履歴 `command_executed` body を空にすることがあります。transcript 本文を retention marker へ置換することはありません。
 
-以下は破棄パスの対象外であり、常に残ります。
+以下は常に残ります。
 
 - `command_audits.command_text`、`input_text`、`output_text` — `command_executed` event の構造化 audit 記録
-- `prompt` event の本文
+- `prompt` および `transcript` event の本文
 - すべての kind の event skeleton（id、kind、session_id、created_at など）
 
-参照コーパスでの実測値: 約 **2.67 KiB/event** が永続的に蓄積し、約 **0.35 KiB/event** が破棄可能（被覆済みの `transcript` 本文）で、上限の目安は約 **4 KiB/event** です。`store compact` は破棄可能な部分を削減しますが、ストアの総サイズを上限付きにするものではありません。永続的に蓄積する部分は、compact の実行頻度に関係なく event 数に比例して増加します。
+参照コーパスでの実測値: 約 **2.67 KiB/event** に加え、かつての破棄可能分である被覆済み `transcript` 本文 約 **0.35 KiB/event** も live store に残ります。上限の目安は約 **4 KiB/event** です。本文破棄ではこの上限に収束できません。永続的に蓄積する部分は、compact の実行頻度に関係なく event 数に比例して増加します。
 
 ## 履歴 content の可逆的な dedupe
 

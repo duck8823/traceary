@@ -68,32 +68,33 @@ type contextCommandInput struct {
 
 // doctorCommandInput is the resolved input to the `traceary doctor` command.
 type doctorCommandInput struct {
-	dbPath            string
-	archiveRoot       string
-	backupRoot        string
-	client            string
-	projectDir        string
-	currentVersion    string
-	asJSON            bool
-	fix               bool
-	dryRun            bool
-	strict            bool
-	warningsOK        bool
-	coverageThreshold float64
-	aliasAdd          bool
-	aliasRemove       bool
-	aliasList         bool
-	session           string
-	workspace         string
-	reviewedBy        string
-	note              string
-	approveDrop       string
-	fixSet            bool
-	dryRunSet         bool
-	sessionSet        bool
-	workspaceSet      bool
-	reviewedBySet     bool
-	noteSet           bool
+	dbPath                      string
+	archiveRoot                 string
+	backupRoot                  string
+	client                      string
+	projectDir                  string
+	currentVersion              string
+	asJSON                      bool
+	fix                         bool
+	dryRun                      bool
+	strict                      bool
+	warningsOK                  bool
+	coverageThreshold           float64
+	aliasAdd                    bool
+	aliasRemove                 bool
+	aliasList                   bool
+	session                     string
+	workspace                   string
+	reviewedBy                  string
+	note                        string
+	approveDrop                 string
+	approveUnavailableRetention string
+	fixSet                      bool
+	dryRunSet                   bool
+	sessionSet                  bool
+	workspaceSet                bool
+	reviewedBySet               bool
+	noteSet                     bool
 }
 
 // hooksPrintCommandInput is the resolved input to

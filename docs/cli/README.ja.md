@@ -695,7 +695,7 @@ v0.43.0 (#2122) で廃止されました。idle session は hook の opportunist
 
 Traceary は要約テキストを合成しません。渡された内容を保存し、generation / coverage の管理だけを所有します。同じ `--covers-to` 範囲の再実行は no-op です（行は 1 つのまま、generation もテキストも変わりません）。被覆が進んだときだけ既存行を `generation + 1` で置き換え、`covers-from` は earlier 側を保持します。
 
-`covers-from` は常に導出されます（初回はセッション最古イベント、supersede 時は既存の earlier を保持）。degraded 要約は `store compact --force` が use case 経由で書くため、この CLI では指定しません。
+`covers-from` は常に導出されます（初回はセッション最古イベント、supersede 時は既存の earlier を保持）。この CLI はエージェントが書いた refinement だけを保存します。compact は degraded 要約を書きません。
 
 必須 flag:
 
@@ -832,15 +832,12 @@ store 管理コマンドは `store` namespace に集約されています。旧 
 
 ストアファイルを書き換えます。実行した瞬間が同意です。Traceary はストアをコピーし、そのコピーを filter し、新しいファイルへ VACUUM INTO したあと atomic exchange します。旧 inode は rollback ファイルとして残ります。
 
-コピー中に、非 canonical な hook 重複本文、`--keep-days`（既定 90）を過ぎた covered 本文、退役済み search index family を落とします。残った本文は encode します。search-projection family 自体は compact ではなく offline migration 80 で DROP します。
-
-破棄対象の session がすべて未 refine なら compact は拒否し、`traceary-session-refine` を案内します。部分 fold は進み、その session が許可した分だけ回収します。`--force` は先に機械要約を書きます。エージェントの判断理由（なぜ）は復元しません。
+コピー中に、非 canonical な hook 重複本文と退役済み search index family を落とします。transcript 本文は破棄せず、機械要約も書かず、`--refuse-unrefined` フラグはありません。search-projection family 自体は compact ではなく offline migration 80 で DROP します。`--keep-days` は `--archive` の保持窓であり、本文破棄の cutoff ではありません。
 
 preview ではなく、in-place `VACUUM` でもありません。成功後は `traceary store compact rollback RUN_ID` で直前のファイルに戻せます。
 
 主な flag:
 
-- `--force`
 - `--keep-days`
 - `--db-path`
 - `--json`

@@ -16,7 +16,6 @@ import (
 	"os"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/duck8823/traceary/application"
 	"github.com/duck8823/traceary/domain"
@@ -71,9 +70,6 @@ func (b SQLiteCompactionBuilder) Build(ctx context.Context, source, candidate st
 		_ = os.Remove(work)
 		removeSQLiteSidecars(work)
 	}()
-	if err := runMechanicalCover(ctx, work, b.Filter, true); err != nil {
-		return err
-	}
 	if err := applyCopyFilters(ctx, work, b.Filter); err != nil {
 		return err
 	}
@@ -105,93 +101,6 @@ func (SQLiteCompactionBuilder) ClassifyCandidate(ctx context.Context, source, ca
 	// that way, SQLite validity is not an ownership signal: a valid database can
 	// still be an interrupted or otherwise incomplete VACUUM output.
 	return domain.CandidateConditionOwnedIncomplete, nil
-}
-
-func runMechanicalCover(ctx context.Context, path string, filter application.CompactFilter, replica bool) error {
-	if filter.AfterClone == nil {
-		return nil
-	}
-	var before application.BodyGate
-	if !filter.Cutoff.IsZero() {
-		var inspectErr error
-		before, inspectErr = inspectCoverGate(ctx, path, filter.Cutoff, replica)
-		if inspectErr != nil {
-			return fmt.Errorf("inspect work copy before mechanical cover: %w", inspectErr)
-		}
-	}
-	report, err := filter.AfterClone(ctx, path, filter.Cutoff)
-	if err != nil {
-		return fmt.Errorf("compact mechanical cover: %w", err)
-	}
-	if replica {
-		if err := checkpointSQLite(path); err != nil {
-			return err
-		}
-		removeSQLiteSidecars(path)
-	}
-	if filter.Cutoff.IsZero() {
-		return nil
-	}
-	after, inspectErr := inspectCoverGate(ctx, path, filter.Cutoff, replica)
-	if inspectErr != nil {
-		return fmt.Errorf("re-inspect work copy after mechanical cover: %w", inspectErr)
-	}
-	if replica && after.UnrefinedSessions > 0 {
-		return fmt.Errorf("compact mechanical cover left %d unrefined session(s)", after.UnrefinedSessions)
-	}
-	filter.Report(mechanicalCoverStep(before, after, report))
-	return nil
-}
-
-func inspectCoverGate(ctx context.Context, path string, cutoff time.Time, replica bool) (application.BodyGate, error) {
-	if replica {
-		return (SQLiteCompactionBuilder{}).InspectBodyGate(ctx, path, cutoff)
-	}
-	db, err := sql.Open("sqlite", directSQLiteRWDSN(path))
-	if err != nil {
-		return application.BodyGate{}, fmt.Errorf("open source for mechanical cover: %w", err)
-	}
-	db.SetMaxOpenConns(1)
-	defer func() { _ = db.Close() }()
-	if err := db.PingContext(ctx); err != nil {
-		return application.BodyGate{}, fmt.Errorf("open source for mechanical cover: %w", err)
-	}
-	return inspectBodyGateOn(ctx, db, cutoff)
-}
-
-func checkpointSQLite(path string) error {
-	db, err := sql.Open("sqlite", directSQLiteRWDSN(path))
-	if err != nil {
-		return fmt.Errorf("open work copy for wal checkpoint: %w", err)
-	}
-	db.SetMaxOpenConns(1)
-	defer func() { _ = db.Close() }()
-	if _, err := db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
-		return fmt.Errorf("checkpoint compact work copy: %w", err)
-	}
-	return nil
-}
-
-func mechanicalCoverStep(before, after application.BodyGate, report application.CoverReport) application.CompactStep {
-	rows := int64(before.UnrefinedSessions - after.UnrefinedSessions)
-	if rows < 0 {
-		rows = 0
-	}
-	return application.CompactStep{
-		Name:           application.CompactStepMechanicalCover,
-		Rows:           rows,
-		BytesBefore:    before.UnrefinedBytes,
-		BytesAfter:     after.UnrefinedBytes,
-		BytesReclaimed: 0,
-		Detail: map[string]int64{
-			"sessions_before":      int64(before.UnrefinedSessions),
-			"sessions_after":       int64(after.UnrefinedSessions),
-			"refinements_produced": int64(report.RefinementsProduced),
-			"ranges_attempted":     int64(report.RangesAttempted),
-			"ranges_skipped":       int64(report.RangesSkipped),
-			"discarded_body_bytes": after.CoveredBytes,
-		},
-	}
 }
 
 func (SQLiteCompactionBuilder) Sync(_ context.Context, candidate string) error {
@@ -288,16 +197,11 @@ func verifyFilteredCandidate(ctx context.Context, sourceDB, candidateDB *sql.DB,
 		if got.ident != want.ident {
 			return fmt.Errorf("candidate changed identity of event %s", id)
 		}
-		if got.availability == "available" {
-			if want.availability != "available" {
-				return fmt.Errorf("candidate revived event %s", id)
+		if !bytes.Equal(want.body, got.body) {
+			if _, cleared := permittedClears[id]; cleared && len(got.body) == 0 {
+				continue
 			}
-			if !bytes.Equal(want.body, got.body) {
-				if _, cleared := permittedClears[id]; cleared && len(got.body) == 0 {
-					continue
-				}
-				return fmt.Errorf("candidate rewrote body of event %s", id)
-			}
+			return fmt.Errorf("candidate rewrote body of event %s", id)
 		}
 	}
 	for id := range sourceEvents {
@@ -324,16 +228,11 @@ type eventIdentity struct {
 }
 
 type eventVerifyRecord struct {
-	ident        eventIdentity
-	availability string
-	body         []byte
+	ident eventIdentity
+	body  []byte
 }
 
 func eventVerifyMap(ctx context.Context, db *sql.DB) (map[string]eventVerifyRecord, error) {
-	hasAvail, err := databaseColumnExists(ctx, db, "events", "body_availability")
-	if err != nil {
-		return nil, err
-	}
 	hasHook, err := databaseColumnExists(ctx, db, "events", "source_hook")
 	if err != nil {
 		return nil, err
@@ -352,11 +251,6 @@ func eventVerifyMap(ctx context.Context, db *sql.DB) (map[string]eventVerifyReco
 		query += `COALESCE(created_at_norm,''), `
 	} else {
 		query += `'', `
-	}
-	if hasAvail {
-		query += `COALESCE(body_availability,'available'), `
-	} else {
-		query += `'available', `
 	}
 	query += `body FROM events`
 	rows, err := db.QueryContext(ctx, query)
@@ -378,7 +272,6 @@ func eventVerifyMap(ctx context.Context, db *sql.DB) (map[string]eventVerifyReco
 			&rec.ident.Workspace,
 			&rec.ident.SourceHook,
 			&rec.ident.CreatedAtNorm,
-			&rec.availability,
 			&rec.body,
 		); err != nil {
 			return nil, err

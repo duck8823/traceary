@@ -676,7 +676,7 @@ func TestStoreCompactionAbandonsStaleCandidatePreparedAndReplans(t *testing.T) {
 		t.Fatal(err)
 	}
 	svc := usecase.NewStoreCompactionUsecase(source, journal, SQLiteCompactionBuilder{}, StoreReplacementFiles{CallerHoldsExclusiveLease: true}, StoreLeaseCoordinator{})
-	result, err := svc.Compact(ctx, application.CompactInput{Source: source, Now: time.Now()})
+	result, err := svc.Compact(ctx, application.CompactInput{Source: source})
 	if err != nil {
 		t.Fatalf("Compact after stale candidate_prepared: %v", err)
 	}

@@ -703,7 +703,7 @@ Store an agent-authored session refinement (L2 summary).
 
 Traceary never composes the summary text: it stores what you hand it and owns only generation and coverage bookkeeping. Replaying the same `--covers-to` range is a no-op (same row, same generation, text unchanged). When coverage advances, the existing row is replaced with `generation + 1` while `covers-from` is kept as the earlier bound.
 
-`covers-from` is always derived (the session's earliest event on first write; kept on supersede). Degraded refinements are written only by `store compact --force` through the use case, not this CLI.
+`covers-from` is always derived (the session's earliest event on first write; kept on supersede). This CLI stores agent-authored refinements only. Compact does not write degraded refinements.
 
 Required flags:
 
@@ -842,15 +842,12 @@ Useful flags:
 
 Rewrite the store file. Running the command is the consent: Traceary copies the store, filters the copy, vacuums into a new file, and atomically exchanges it. The old inode stays as the rollback file.
 
-While copying, compact drops non-canonical duplicate hook bodies, discards covered bodies past `--keep-days` (default 90), encodes remaining bodies, and does not copy the retired search-index family. The search-projection family itself is dropped by offline migration 80, not by compact.
-
-If every discardable-age session is still unrefined, compact refuses and names `traceary-session-refine`. Partial folds proceed and reclaim what those sessions authorize. `--force` writes mechanical summaries first; the agent's reasoning (why) is not recovered.
+While copying, compact drops non-canonical duplicate hook bodies and does not copy the retired search-index family. It does not discard transcript bodies, does not write mechanical summaries, and has no `--refuse-unrefined` flag. The search-projection family itself is dropped by offline migration 80, not by compact. `--keep-days` is the `--archive` keep window, not a body-discard cutoff.
 
 This is not a preview and not an in-place `VACUUM`. After a successful rewrite, `traceary store compact rollback RUN_ID` restores the previous file.
 
 Useful flags:
 
-- `--force`
 - `--keep-days`
 - `--db-path`
 - `--json`

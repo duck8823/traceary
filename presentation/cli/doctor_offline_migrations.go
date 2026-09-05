@@ -90,6 +90,11 @@ func (c *RootCLI) applyAuthorizedStoreInit(ctx context.Context, input doctorComm
 		log.Error = err.Error()
 		return log, true
 	}
+	unavailableApproval, err := unavailableRetentionApprovalForFix(ctx, c.storeManagement, input.approveUnavailableRetention)
+	if err != nil {
+		log.Error = err.Error()
+		return log, true
+	}
 	if input.dryRun {
 		log.Action = "dry-run: would apply data-dependent migrations " + versions
 		return log, true
@@ -105,10 +110,11 @@ func (c *RootCLI) applyAuthorizedStoreInit(ctx context.Context, input doctorComm
 	}
 	svc := c.preparedStoreUpgradeFactory(resolved)
 	receipt, err := svc.RunUpgrade(ctx, application.PreparedStoreUpgradeCommand{
-		Operation:         domain.PreparedStoreUpgradeOperationOfflineMigrationUpgrade,
-		TargetPath:        resolved,
-		ConsumerBinding:   "traceary-doctor-offline-upgrade",
-		BoundDropApproval: approval,
+		Operation:                    domain.PreparedStoreUpgradeOperationOfflineMigrationUpgrade,
+		TargetPath:                   resolved,
+		ConsumerBinding:              "traceary-doctor-offline-upgrade",
+		BoundDropApproval:            approval,
+		UnavailableRetentionApproval: unavailableApproval,
 		Budget: domain.PreparedStoreUpgradeBudget{
 			WallTimeLimit:      time.Hour,
 			PublishLockLimit:   time.Hour,
@@ -148,6 +154,37 @@ func boundDropApprovalForFix(ctx context.Context, store usecase.StoreManagementU
 	}
 	if !approval.Matches(inspection.RowCount, inspection.Digest) {
 		return nil, &apptypes.BoundDropApprovalRequiredError{RowCount: inspection.RowCount, Digest: inspection.Digest}
+	}
+	return &approval, nil
+}
+
+func unavailableRetentionApprovalForFix(ctx context.Context, store usecase.StoreManagementUsecase, token string) (*domain.UnavailableRetentionApproval, error) {
+	inspection, err := store.InspectUnavailableRetention(ctx)
+	if err != nil {
+		return nil, xerrors.Errorf("inspect unavailable retention: %w", err)
+	}
+	if inspection.RowCount == 0 {
+		return nil, nil
+	}
+	required := &apptypes.UnavailableRetentionApprovalRequiredError{
+		RowCount:      inspection.RowCount,
+		Digest:        inspection.Digest,
+		Sample:        inspection.Sample,
+		SchemaVersion: inspection.SchemaVersion,
+	}
+	if token == "" {
+		return nil, required
+	}
+	count, digest, err := apptypes.ParseUnavailableRetentionApprovalToken(token)
+	if err != nil {
+		return nil, xerrors.Errorf("parse unavailable retention approval: %w", err)
+	}
+	if count != inspection.RowCount || digest != inspection.Digest {
+		return nil, required
+	}
+	approval, err := domain.NewUnavailableRetentionApproval(inspection.RowCount, inspection.Digest, inspection.SchemaVersion)
+	if err != nil {
+		return nil, xerrors.Errorf("unavailable retention approval: %w", err)
 	}
 	return &approval, nil
 }

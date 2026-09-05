@@ -254,20 +254,18 @@ func mustEventWithClient(t *testing.T, eventID, client string, kind types.EventK
 }
 
 // mustUnavailableRetentionEvent builds a hook prompt/transcript event whose
-// raw body has been emptied by the retention pruner, mirroring the row shape
-// event_datasource.go produces on read (body="" once body_availability is
-// unavailable_retention).
+// body is the well-known emptied-body marker. Duplicate grouping excludes
+// that literal so marker rows do not form a phantom hook group.
 func mustUnavailableRetentionEvent(t *testing.T, eventID string, kind types.EventKind, sessionID, workspace, sourceHook string, createdAt time.Time) *model.Event {
 	t.Helper()
-	return model.EventOfWithBodyAvailabilityAndSourceHook(
+	return model.EventOfWithSourceHook(
 		types.EventID(eventID),
 		kind,
 		types.Client("hook"),
 		types.Agent("codex"),
 		types.SessionID(sessionID),
 		types.Workspace(workspace),
-		"",
-		types.BodyAvailabilityUnavailableRetention,
+		types.EventBodyUnavailableRetentionMarker,
 		createdAt,
 		sourceHook,
 	)

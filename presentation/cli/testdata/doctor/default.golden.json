@@ -125,6 +125,16 @@
       "auto_fix_available": false
     },
     {
+      "name": "unavailable-retention",
+      "status": "pass",
+      "severity": "PASS",
+      "section": "Database",
+      "message": "no unavailable_retention marker rows",
+      "hint": "",
+      "fix_command": "",
+      "auto_fix_available": false
+    },
+    {
       "name": "one-off-repairs",
       "status": "pass",
       "severity": "PASS",
@@ -405,6 +415,16 @@
           "auto_fix_available": false
         },
         {
+          "name": "unavailable-retention",
+          "status": "pass",
+          "severity": "PASS",
+          "section": "Database",
+          "message": "no unavailable_retention marker rows",
+          "hint": "",
+          "fix_command": "",
+          "auto_fix_available": false
+        },
+        {
           "name": "one-off-repairs",
           "status": "pass",
           "severity": "PASS",
@@ -587,7 +607,7 @@
     }
   ],
   "summary": {
-    "pass": 27,
+    "pass": 28,
     "warn": 1,
     "fail": 0
   },

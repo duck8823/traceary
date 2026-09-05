@@ -45,5 +45,5 @@ WITH selected AS (
      LIMIT 1
 )
 SELECT e.id, e.kind, e.client, e.agent, e.session_id, e.workspace,
-       e.body, e.body_availability, e.source_hook, e.created_at
+       e.body, e.source_hook, e.created_at
   FROM selected JOIN events e ON e.id = selected.id

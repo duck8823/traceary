@@ -4,8 +4,6 @@ import (
 	"unicode/utf8"
 
 	"golang.org/x/xerrors"
-
-	domtypes "github.com/duck8823/traceary/domain/types"
 )
 
 // BoundedEvent is the read model for event content whose visible-text body was
@@ -17,7 +15,6 @@ type BoundedEvent struct {
 	body              string
 	bodyRuneLimit     int
 	visibleBodyRunes  int
-	bodyAvailability  domtypes.BodyAvailability
 	canonicalEnvelope bool
 	bodyBlocks        []EventBodyBlock
 }
@@ -28,7 +25,6 @@ func BoundedEventOf(
 	body string,
 	bodyRuneLimit int,
 	visibleBodyRunes int,
-	bodyAvailability domtypes.BodyAvailability,
 	canonicalEnvelope bool,
 ) (BoundedEvent, error) {
 	if bodyRuneLimit <= 0 {
@@ -43,23 +39,11 @@ func BoundedEventOf(
 	if utf8.RuneCountInString(body) > visibleBodyRunes {
 		return BoundedEvent{}, xerrors.Errorf("bounded body exceeds its visible body length")
 	}
-	if _, err := domtypes.BodyAvailabilityFrom(bodyAvailability.String()); err != nil {
-		return BoundedEvent{}, xerrors.Errorf("invalid body availability: %w", err)
-	}
-	if !bodyAvailability.IsAvailable() {
-		if body != "" || visibleBodyRunes != 0 {
-			return BoundedEvent{}, xerrors.Errorf("unavailable body must not expose content or length")
-		}
-		if canonicalEnvelope {
-			return BoundedEvent{}, xerrors.Errorf("unavailable body must not be marked as a canonical envelope")
-		}
-	}
 	return BoundedEvent{
 		metadata:          metadata,
 		body:              body,
 		bodyRuneLimit:     bodyRuneLimit,
 		visibleBodyRunes:  visibleBodyRunes,
-		bodyAvailability:  bodyAvailability,
 		canonicalEnvelope: canonicalEnvelope,
 	}, nil
 }
@@ -77,16 +61,10 @@ func (e BoundedEvent) BodyRuneLimit() int { return e.bodyRuneLimit }
 // response truncation.
 func (e BoundedEvent) VisibleBodyRunes() int { return e.visibleBodyRunes }
 
-// BodyAvailability reports whether the raw event body remains available.
-func (e BoundedEvent) BodyAvailability() domtypes.BodyAvailability {
-	return e.bodyAvailability
-}
-
 // BodyResponseTruncated reports whether the current projection omitted visible
 // body runes. It is independent from ingest/storage truncation.
 func (e BoundedEvent) BodyResponseTruncated() bool {
-	return e.bodyAvailability.IsAvailable() &&
-		utf8.RuneCountInString(e.body) < e.visibleBodyRunes
+	return utf8.RuneCountInString(e.body) < e.visibleBodyRunes
 }
 
 // CanonicalEnvelope reports whether the stored body was recognized as the
@@ -100,12 +78,9 @@ func (e BoundedEvent) BodyBlocks() []EventBodyBlock {
 }
 
 // WithCanonicalBodyBlocks attaches an explicitly loaded canonical envelope.
-// Full blocks are permitted only when the visible-text response is available
-// and untruncated, so blocks cannot bypass the bounded response contract.
+// Full blocks are permitted only when the visible-text response is
+// untruncated, so blocks cannot bypass the bounded response contract.
 func (e BoundedEvent) WithCanonicalBodyBlocks(blocks []EventBodyBlock) (BoundedEvent, error) {
-	if !e.bodyAvailability.IsAvailable() {
-		return BoundedEvent{}, xerrors.Errorf("cannot attach blocks to an unavailable body")
-	}
 	if !e.canonicalEnvelope {
 		return BoundedEvent{}, xerrors.Errorf("cannot attach blocks to a non-canonical body")
 	}

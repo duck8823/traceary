@@ -1224,6 +1224,9 @@ func (s *spoolStoreManagementStub) InspectOneOffRepairRetirement(context.Context
 func (s *spoolStoreManagementStub) InspectBoundDrop(context.Context) (apptypes.BoundDropInspection, error) {
 	return apptypes.BoundDropInspection{}, nil
 }
+func (s *spoolStoreManagementStub) InspectUnavailableRetention(context.Context) (apptypes.UnavailableRetentionInspection, error) {
+	return apptypes.UnavailableRetentionInspection{}, nil
+}
 func (s *spoolStoreManagementStub) CreateBackup(context.Context, string, bool) error {
 	return nil
 }

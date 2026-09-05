@@ -142,7 +142,7 @@ func decodeLaneRows(ctx context.Context, db *sql.DB, lane decodeLane) error {
 
 // checkpointDecodeCandidateWAL folds the current WAL into the candidate and
 // truncates it. PASSIVE would leave the WAL file growing; TRUNCATE matches
-// prepared_migration_recipe.Build and compaction_sqlite.checkpointSQLite.
+// prepared_migration_recipe.Build.
 func checkpointDecodeCandidateWAL(ctx context.Context, db *sql.DB) error {
 	if _, err := db.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
 		return fmt.Errorf("checkpoint decode candidate WAL: %w", err)

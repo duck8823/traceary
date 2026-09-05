@@ -28,8 +28,8 @@ excluded from the bounded report.
 
 - **Capacity:** the warning says the live store is large. It is not a 1 GiB
   limit and it does not delete anything. Start with
-  `traceary store compact`. Fold sessions you want to reclaim first; `--force`
-  writes mechanical summaries and states the loss of agent reasoning.
+  `traceary store compact`. Fold sessions you want to reclaim first. Compact
+  does not write mechanical summaries and does not discard event bodies.
 - **Lock contention:** the metadata-only result deliberately does not claim
   that the database is unlocked. Stop or isolate competing writers before a
   content-level investigation. Do not keep rerunning `doctor --fix` during a

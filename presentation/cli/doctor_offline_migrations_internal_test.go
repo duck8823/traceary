@@ -15,7 +15,8 @@ import (
 )
 
 type offlineMigrationStoreStub struct {
-	pending []int64
+	pending     []int64
+	unavailable apptypes.UnavailableRetentionInspection
 }
 
 func (s *offlineMigrationStoreStub) Initialize(context.Context) error { return nil }
@@ -27,6 +28,9 @@ func (s *offlineMigrationStoreStub) InspectOneOffRepairRetirement(context.Contex
 }
 func (s *offlineMigrationStoreStub) InspectBoundDrop(context.Context) (apptypes.BoundDropInspection, error) {
 	return apptypes.BoundDropInspection{}, nil
+}
+func (s *offlineMigrationStoreStub) InspectUnavailableRetention(context.Context) (apptypes.UnavailableRetentionInspection, error) {
+	return s.unavailable, nil
 }
 func (s *offlineMigrationStoreStub) CreateBackup(context.Context, string, bool) error {
 	return nil

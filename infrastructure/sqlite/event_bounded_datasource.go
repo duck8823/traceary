@@ -16,8 +16,10 @@ import (
 	"github.com/duck8823/traceary/domain/types"
 )
 
-//go:embed sql/select_bounded_event_bodies.sql
-var selectBoundedEventBodiesQuery string
+const selectBoundedEventIDsQuery = `
+SELECT e.id
+  FROM events e
+ WHERE e.id IN (SELECT CAST(value AS TEXT) FROM json_each(?))`
 
 //go:embed sql/select_canonical_event_bodies.sql
 var selectCanonicalEventBodiesQuery string
@@ -232,7 +234,6 @@ func validateBoundedBodyLimit(bodyRuneLimit int) error {
 type boundedEventBodyRow struct {
 	body              string
 	visibleBodyRunes  int
-	bodyAvailability  types.BodyAvailability
 	canonicalEnvelope bool
 }
 
@@ -256,7 +257,7 @@ func hydrateBoundedEvents(
 	if err != nil {
 		return nil, err
 	}
-	rows, err := queryer.QueryContext(ctx, selectBoundedEventBodiesQuery, encoded)
+	rows, err := queryer.QueryContext(ctx, selectBoundedEventIDsQuery, encoded)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to query bounded event bodies: %w", err)
 	}
@@ -264,29 +265,19 @@ func hydrateBoundedEvents(
 
 	bodyRows := make(map[types.EventID]boundedEventBodyRow, len(metadata))
 	for rows.Next() {
-		var (
-			eventIDValue      string
-			availabilityValue string
-		)
-		if err := rows.Scan(
-			&eventIDValue,
-			&availabilityValue,
-		); err != nil {
+		var eventIDValue string
+		if err := rows.Scan(&eventIDValue); err != nil {
 			return nil, xerrors.Errorf("failed to scan bounded event body: %w", err)
 		}
 		eventID, err := types.EventIDFrom(eventIDValue)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to restore bounded event ID: %w", err)
 		}
-		availability, err := types.BodyAvailabilityFrom(availabilityValue)
-		if err != nil {
-			return nil, xerrors.Errorf("failed to restore bounded body availability: %w", err)
-		}
 		plain, err := loadEventPlaintext(ctx, queryer, eventID.String())
 		if err != nil {
 			return nil, err
 		}
-		body, canonicalEnvelope := visibleEventBody(string(plain), availability)
+		body, canonicalEnvelope := visibleEventBody(string(plain))
 		bodyRunes := []rune(body)
 		visibleRunes := len(bodyRunes)
 		if len(bodyRunes) > bodyRuneLimit {
@@ -295,7 +286,6 @@ func hydrateBoundedEvents(
 		bodyRows[eventID] = boundedEventBodyRow{
 			body:              body,
 			visibleBodyRunes:  visibleRunes,
-			bodyAvailability:  availability,
 			canonicalEnvelope: canonicalEnvelope,
 		}
 	}
@@ -316,8 +306,7 @@ func hydrateBoundedEvents(
 		// Decode the retained audit command through the codec boundary (same
 		// guards as full hydrate) and apply the same rune limit as the SQL path.
 		if strings.TrimSpace(body) == "" &&
-			eventMetadata.Kind() == types.EventKindCommandExecuted &&
-			bodyRow.bodyAvailability.IsAvailable() {
+			eventMetadata.Kind() == types.EventKindCommandExecuted {
 			command, err := hydrateAuditPayload(ctx, queryer, eventMetadata.EventID().String(), "command")
 			if err != nil {
 				return nil, xerrors.Errorf("hydrate bounded command body for %s: %w", eventMetadata.EventID(), err)
@@ -337,7 +326,6 @@ func hydrateBoundedEvents(
 			body,
 			bodyRuneLimit,
 			visibleRunes,
-			bodyRow.bodyAvailability,
 			bodyRow.canonicalEnvelope,
 		)
 		if err != nil {
@@ -348,10 +336,7 @@ func hydrateBoundedEvents(
 	return events, nil
 }
 
-func visibleEventBody(body string, availability types.BodyAvailability) (string, bool) {
-	if !availability.IsAvailable() {
-		return "", false
-	}
+func visibleEventBody(body string) (string, bool) {
 	_, canonical := apptypes.DecodeCanonicalEnvelope(body)
 	return apptypes.ExtractPlainBody(body), canonical
 }

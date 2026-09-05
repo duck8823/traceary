@@ -157,7 +157,7 @@ func TestEventSearchFTS_PreservesLiteralVisibleTextSemantics(t *testing.T) {
 	}
 	if _, err := db.ExecContext(ctx, `
 		UPDATE events
-		   SET body = ?, body_availability = 'unavailable_retention'
+		   SET body = ?
 		 WHERE id = ?`,
 		types.EventBodyUnavailableRetentionMarker,
 		"event-literal",

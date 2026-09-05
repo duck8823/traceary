@@ -106,7 +106,7 @@ func TestPreparedMigrationPublishesAndRollsBackOwnedCopy(t *testing.T) {
 		t.Fatal(err)
 	}
 	var maxVersion int
-	if err = currentDB.QueryRow(`SELECT max(version) FROM schema_migrations`).Scan(&maxVersion); err != nil || maxVersion != 82 {
+	if err = currentDB.QueryRow(`SELECT max(version) FROM schema_migrations`).Scan(&maxVersion); err != nil || maxVersion != 83 {
 		t.Fatalf("published version=%d err=%v", maxVersion, err)
 	}
 	if _, err = currentDB.Exec(`CREATE TABLE post_publish_write(id INTEGER PRIMARY KEY, body BLOB)`); err != nil {

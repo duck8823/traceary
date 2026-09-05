@@ -57,7 +57,7 @@ func TestCompact_ReportsPreCopyWindows(t *testing.T) {
 	svc := NewStoreCompactionUsecase(source, &faultJournal{run: compactionRunAt(domain.CompactionCommitted)}, faultBuilder{}, faultFiles{}, faultLease{})
 	BindCompactionProgress(svc, progress)
 	_, _ = svc.Compact(context.Background(), application.CompactInput{Source: source})
-	want := []string{"inspect_gate", "exclusive_lease", "inspect_reclaim", "plan"}
+	want := []string{"exclusive_lease", "inspect_reclaim", "plan"}
 	if len(progress.windows) < len(want) {
 		t.Fatalf("windows=%v, want at least %v", progress.windows, want)
 	}

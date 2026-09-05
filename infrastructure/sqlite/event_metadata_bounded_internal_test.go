@@ -263,8 +263,8 @@ func TestMetadataRangeAndLegacyFallbackPlansUseProductionMigrationIndexes(t *tes
 		{"tagged", "session_ended", "subagent_stop", "tagged", "2026-07-25T00:00:02Z"},
 		{"legacy", "session_ended", "", "[phase:subagent] legacy", "2026-07-25T00:00:01Z"},
 	} {
-		if _, err := db.ExecContext(ctx, `INSERT INTO events(id, kind, client, agent, session_id, workspace, body, created_at, source_hook, body_availability)
-			VALUES (?, ?, 'hook', 'codex', 'session-1', 'repo-current', ?, ?, NULLIF(?, ''), 'available')`, row.id, row.kind, row.body, row.createdAt, row.sourceHook); err != nil {
+		if _, err := db.ExecContext(ctx, `INSERT INTO events(id, kind, client, agent, session_id, workspace, body, created_at, source_hook)
+			VALUES (?, ?, 'hook', 'codex', 'session-1', 'repo-current', ?, ?, NULLIF(?, ''))`, row.id, row.kind, row.body, row.createdAt, row.sourceHook); err != nil {
 			t.Fatalf("insert %s: %v", row.id, err)
 		}
 	}
@@ -324,8 +324,8 @@ func TestMetadataRangeQueryP95OnLargeMigratedStore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BeginTx() error = %v", err)
 	}
-	statement, err := tx.PrepareContext(ctx, `INSERT INTO events(id, kind, client, agent, session_id, workspace, body, created_at, body_availability)
-		VALUES (?, 'note', 'hook', 'codex', 'session-1', 'repo-current', '', ?, 'available')`)
+	statement, err := tx.PrepareContext(ctx, `INSERT INTO events(id, kind, client, agent, session_id, workspace, body, created_at)
+		VALUES (?, 'note', 'hook', 'codex', 'session-1', 'repo-current', '', ?)`)
 	if err != nil {
 		t.Fatalf("PrepareContext() error = %v", err)
 	}
@@ -413,8 +413,8 @@ func BenchmarkMetadataDirectRangeMultiGiB(b *testing.B) {
 	if err != nil {
 		b.Fatalf("BeginTx() error = %v", err)
 	}
-	statement, err := tx.PrepareContext(ctx, `INSERT INTO events(id, kind, client, agent, session_id, workspace, body, created_at, body_availability)
-		VALUES (?, 'note', 'hook', 'codex', 'session-1', 'repo-current', zeroblob(?), ?, 'unavailable_retention')`)
+	statement, err := tx.PrepareContext(ctx, `INSERT INTO events(id, kind, client, agent, session_id, workspace, body, created_at)
+		VALUES (?, 'note', 'hook', 'codex', 'session-1', 'repo-current', zeroblob(?), ?)`)
 	if err != nil {
 		_ = tx.Rollback()
 		b.Fatalf("PrepareContext() error = %v", err)

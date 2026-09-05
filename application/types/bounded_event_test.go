@@ -18,7 +18,6 @@ func TestBoundedEventOf_PreservesSeparateResponseAndPersistenceTruncation(t *tes
 		"visible",
 		7,
 		20,
-		types.BodyAvailabilityAvailable,
 		true,
 	)
 	if err != nil {
@@ -48,30 +47,16 @@ func TestBoundedEventOf_RejectsImpossibleBodyProjection(t *testing.T) {
 		name         string
 		body         string
 		visibleRunes int
-		availability types.BodyAvailability
 		canonical    bool
 	}{
 		{
 			name:         "prefix exceeds visible length",
 			body:         "too long",
 			visibleRunes: 2,
-			availability: types.BodyAvailabilityAvailable,
 		},
 		{
 			name:         "negative visible length",
 			visibleRunes: -1,
-			availability: types.BodyAvailabilityAvailable,
-		},
-		{
-			name:         "retention unavailable body contains content",
-			body:         "hidden",
-			visibleRunes: 6,
-			availability: types.BodyAvailabilityUnavailableRetention,
-		},
-		{
-			name:         "retention unavailable row marked canonical",
-			availability: types.BodyAvailabilityUnavailableRetention,
-			canonical:    true,
 		},
 	}
 	for _, tt := range tests {
@@ -83,7 +68,6 @@ func TestBoundedEventOf_RejectsImpossibleBodyProjection(t *testing.T) {
 				tt.body,
 				max(1, len([]rune(tt.body))),
 				tt.visibleRunes,
-				tt.availability,
 				tt.canonical,
 			); err == nil {
 				t.Fatal("BoundedEventOf() error = nil")
@@ -103,7 +87,6 @@ func TestBoundedEvent_WithCanonicalBodyBlocksRequiresUntruncatedCanonicalBody(t 
 		"visible",
 		7,
 		7,
-		types.BodyAvailabilityAvailable,
 		true,
 	)
 	if err != nil {
@@ -122,7 +105,6 @@ func TestBoundedEvent_WithCanonicalBodyBlocksRequiresUntruncatedCanonicalBody(t 
 		"vis",
 		3,
 		7,
-		types.BodyAvailabilityAvailable,
 		true,
 	)
 	if err != nil {
@@ -137,7 +119,6 @@ func TestBoundedEvent_WithCanonicalBodyBlocksRequiresUntruncatedCanonicalBody(t 
 		"visible",
 		7,
 		7,
-		types.BodyAvailabilityAvailable,
 		false,
 	)
 	if err != nil {

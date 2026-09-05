@@ -6,10 +6,8 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"time"
 
 	"github.com/duck8823/traceary/application"
-	apptypes "github.com/duck8823/traceary/application/types"
 )
 
 func copyRegularFile(src, dst string) error {
@@ -42,7 +40,7 @@ func removeSQLiteSidecars(path string) {
 	_ = os.Remove(path + "-shm")
 }
 
-func applyCopyFilters(ctx context.Context, work string, filter application.CompactFilter) error {
+func applyCopyFilters(ctx context.Context, work string, _ application.CompactFilter) error {
 	db, err := sql.Open("sqlite", directSQLiteRWDSN(work))
 	if err != nil {
 		return fmt.Errorf("open compaction work copy: %w", err)
@@ -74,21 +72,6 @@ func applyCopyFilters(ctx context.Context, work string, filter application.Compa
 		return err
 	}
 
-	if !filter.Cutoff.IsZero() {
-		tx, txErr := db.BeginTx(ctx, nil)
-		if txErr != nil {
-			return fmt.Errorf("begin work-copy gc: %w", txErr)
-		}
-		discardedAt := formatTimestamp(time.Now().UTC())
-		if _, err := (&StoreManagementDatasource{}).collectGarbageInTx(ctx, tx, filter.Cutoff, apptypes.GarbageCollectionTargetAll, discardedAt); err != nil {
-			_ = tx.Rollback()
-			return fmt.Errorf("apply work-copy discard: %w", err)
-		}
-		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("commit work-copy discard: %w", err)
-		}
-	}
-
 	if _, err := db.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
 		_ = err
 	}
@@ -118,49 +101,6 @@ func tableExists(ctx context.Context, db *sql.DB, name string) (bool, error) {
 	return exists != 0, nil
 }
 
-// InspectBodyGate counts discardable-age covered bodies versus unrefined
-// sessions on the source.
-func (b SQLiteCompactionBuilder) InspectBodyGate(ctx context.Context, source string, cutoff time.Time) (application.BodyGate, error) {
-	db, err := openDirectReadOnly(ctx, source)
-	if err != nil {
-		return application.BodyGate{}, fmt.Errorf("open source for body gate: %w", err)
-	}
-	defer func() { _ = db.Close() }()
-	return inspectBodyGateOn(ctx, db, cutoff)
-}
-
-func inspectBodyGateOn(ctx context.Context, db *sql.DB, cutoff time.Time) (application.BodyGate, error) {
-	hasEvents, err := tableExists(ctx, db, "events")
-	if err != nil {
-		return application.BodyGate{}, err
-	}
-	if !hasEvents {
-		return application.BodyGate{}, nil
-	}
-	supported, err := discardPredicateSupported(ctx, db)
-	if err != nil || !supported {
-		return application.BodyGate{}, err
-	}
-	countQuery, err := composeDiscardableEventBodiesQuery(`
-SELECT COUNT(*), COALESCE(SUM(length(CAST(body AS BLOB))), 0)
-  FROM events
- WHERE id IN (
--- discardable-event-bodies
-)`)
-	if err != nil {
-		return application.BodyGate{}, err
-	}
-	var gate application.BodyGate
-	before := formatTimestamp(cutoff.UTC())
-	if err := db.QueryRowContext(ctx, countQuery, before).Scan(&gate.CoveredCount, &gate.CoveredBytes); err != nil {
-		return application.BodyGate{}, fmt.Errorf("count covered discardable bodies: %w", err)
-	}
-	if err := db.QueryRowContext(ctx, unrefinedDiscardableSessionsQuery, before).Scan(&gate.UnrefinedSessions, &gate.UnrefinedBytes); err != nil {
-		return application.BodyGate{}, fmt.Errorf("count unrefined discardable sessions: %w", err)
-	}
-	return gate, nil
-}
-
 func duplicatedCommandExecutedBodyPredicate() string {
 	return `
 kind = 'command_executed'
@@ -169,13 +109,12 @@ AND length(CAST(body AS BLOB)) > 0`
 }
 
 // InspectReclaimableBytes is a bounded metadata-only estimate of bytes
-// compact can drop: discardable projection rows older than cutoff plus
-// free pages. It does not walk event bodies.
-func (SQLiteCompactionBuilder) InspectReclaimableBytes(ctx context.Context, source string, cutoff time.Time) (int64, error) {
-	return inspectReclaimableBytes(ctx, source, cutoff)
+// compact can drop: currently free pages. It does not walk event bodies.
+func (SQLiteCompactionBuilder) InspectReclaimableBytes(ctx context.Context, source string) (int64, error) {
+	return inspectReclaimableBytes(ctx, source)
 }
 
-func inspectReclaimableBytes(ctx context.Context, source string, cutoff time.Time) (int64, error) {
+func inspectReclaimableBytes(ctx context.Context, source string) (int64, error) {
 	db, err := openDirectReadOnly(ctx, source)
 	if err != nil {
 		return 0, fmt.Errorf("open source for reclaimable estimate: %w", err)
@@ -188,31 +127,12 @@ func inspectReclaimableBytes(ctx context.Context, source string, cutoff time.Tim
 	if err := db.QueryRowContext(ctx, `PRAGMA freelist_count`).Scan(&freePages); err != nil {
 		return 0, fmt.Errorf("read freelist for reclaimable estimate: %w", err)
 	}
-	var discarded int64
-	if !cutoff.IsZero() {
-		var exists int
-		if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_schema WHERE type='table' AND name='event_metadata_projection'`).Scan(&exists); err != nil {
-			return 0, fmt.Errorf("inspect metadata projection for reclaimable estimate: %w", err)
-		}
-		if exists > 0 {
-			if err := db.QueryRowContext(ctx, `
-SELECT COALESCE(SUM(body_stored_bytes), 0)
-  FROM event_metadata_projection
- WHERE created_at_norm < ?
-   AND kind IN ('transcript', 'compact_summary')`, formatTimestamp(cutoff)).Scan(&discarded); err != nil {
-				return 0, fmt.Errorf("sum discardable projection bytes: %w", err)
-			}
-		}
-	}
-	return discarded + pageSize*freePages, nil
+	return pageSize * freePages, nil
 }
 
 // CompactInPlace applies the copy-filter on the leased source and runs
 // incremental_vacuum so a dest replica is not required.
 func (b SQLiteCompactionBuilder) CompactInPlace(ctx context.Context, source string, filter application.CompactFilter) error {
-	if err := runMechanicalCover(ctx, source, filter, false); err != nil {
-		return err
-	}
 	if err := applyCopyFilters(ctx, source, filter); err != nil {
 		return err
 	}
@@ -280,33 +200,3 @@ func commandBodyReclaimReady(ctx context.Context, db *sql.DB) (bool, error) {
 	}
 	return true, nil
 }
-
-const unrefinedDiscardableSessionsQuery = `
-SELECT COUNT(DISTINCT e.session_id), COALESCE(SUM(length(CAST(e.body AS BLOB))), 0)
-  FROM events AS e
-  JOIN sessions AS s
-    ON s.session_id = e.session_id
-   AND s.ended_at IS NOT NULL
- WHERE e.kind = 'transcript'
-   AND e.body_availability = 'available'
-   AND e.session_id IS NOT NULL
-   AND ts_valid(e.created_at)
-   AND ts_norm(e.created_at) < ts_norm(?)
-   AND NOT EXISTS (
-       SELECT 1
-         FROM session_refinements AS r
-         JOIN events AS lo
-           ON lo.id = r.covers_from_event_id
-          AND lo.session_id = r.session_id
-         JOIN events AS hi
-           ON hi.id = r.covers_to_event_id
-          AND hi.session_id = r.session_id
-        WHERE r.session_id = e.session_id
-          AND r.covers_from_event_id IS NOT NULL
-          AND r.covers_to_event_id IS NOT NULL
-          AND ts_valid(lo.created_at)
-          AND ts_valid(hi.created_at)
-          AND (ts_norm(lo.created_at), lo.id) <= (ts_norm(e.created_at), e.id)
-          AND (ts_norm(e.created_at), e.id) <= (ts_norm(hi.created_at), hi.id)
-   )
-`

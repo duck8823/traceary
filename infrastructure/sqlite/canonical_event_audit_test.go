@@ -71,7 +71,7 @@ func TestCanonicalEventAuditDigestGolden(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const want = "4e710ab43d42010b73b864d04752f0f0ba1b7ea96970867400e18739cc7de68e"
+	const want = "92e3106c2946efea93757935fb7c7ef4ad8327893bf8a7176c581b1ae733b90a"
 	if evidence.EventCount != 1 || evidence.AuditCount != 1 || evidence.Digest != want {
 		t.Fatalf("canonical evidence = %+v; update golden %q", evidence, evidence.Digest)
 	}
@@ -92,7 +92,7 @@ func TestCanonicalEventAuditDigestEmptyGolden(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const want = "7d3f6abe1a6cdbd221479f844579f1e3875e4fd0643b8827a5b272d88bd98989"
+	const want = "6bcbcc39a4dc26ee928cbd2b10fed1e98b6d876b895e1523962ef3198a33263a"
 	if evidence.EventCount != 0 || evidence.AuditCount != 0 || evidence.Digest != want {
 		t.Fatalf("empty canonical evidence = %+v; update golden %q", evidence, evidence.Digest)
 	}

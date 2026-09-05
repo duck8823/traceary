@@ -101,25 +101,26 @@ func (e doctorExitError) ExitCode() int { return e.exitCode }
 
 func (c *RootCLI) newDoctorCommand() *cobra.Command {
 	var (
-		dbPath            string
-		archiveRoot       string
-		backupRoot        string
-		client            string
-		projectDir        string
-		asJSON            bool
-		fix               bool
-		dryRun            bool
-		strict            bool
-		warningsOK        bool
-		coverageThreshold float64
-		aliasAdd          bool
-		aliasRemove       bool
-		aliasList         bool
-		session           string
-		workspace         string
-		reviewedBy        string
-		note              string
-		approveDrop       string
+		dbPath                      string
+		archiveRoot                 string
+		backupRoot                  string
+		client                      string
+		projectDir                  string
+		asJSON                      bool
+		fix                         bool
+		dryRun                      bool
+		strict                      bool
+		warningsOK                  bool
+		coverageThreshold           float64
+		aliasAdd                    bool
+		aliasRemove                 bool
+		aliasList                   bool
+		session                     string
+		workspace                   string
+		reviewedBy                  string
+		note                        string
+		approveDrop                 string
+		approveUnavailableRetention string
 	)
 
 	doctorCmd := &cobra.Command{
@@ -133,32 +134,33 @@ func (c *RootCLI) newDoctorCommand() *cobra.Command {
 		Args: noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.runDoctor(cmd.Context(), cmd.OutOrStdout(), doctorCommandInput{
-				dbPath:            dbPath,
-				archiveRoot:       archiveRoot,
-				backupRoot:        backupRoot,
-				client:            client,
-				projectDir:        projectDir,
-				currentVersion:    cmd.Root().Version,
-				asJSON:            asJSON,
-				fix:               fix,
-				dryRun:            dryRun,
-				strict:            strict,
-				warningsOK:        warningsOK,
-				coverageThreshold: coverageThreshold,
-				aliasAdd:          aliasAdd,
-				aliasRemove:       aliasRemove,
-				aliasList:         aliasList,
-				session:           session,
-				workspace:         workspace,
-				reviewedBy:        reviewedBy,
-				note:              note,
-				approveDrop:       approveDrop,
-				fixSet:            cmd.Flags().Changed("fix"),
-				dryRunSet:         cmd.Flags().Changed("dry-run"),
-				sessionSet:        cmd.Flags().Changed("session"),
-				workspaceSet:      cmd.Flags().Changed("workspace"),
-				reviewedBySet:     cmd.Flags().Changed("reviewed-by"),
-				noteSet:           cmd.Flags().Changed("note"),
+				dbPath:                      dbPath,
+				archiveRoot:                 archiveRoot,
+				backupRoot:                  backupRoot,
+				client:                      client,
+				projectDir:                  projectDir,
+				currentVersion:              cmd.Root().Version,
+				asJSON:                      asJSON,
+				fix:                         fix,
+				dryRun:                      dryRun,
+				strict:                      strict,
+				warningsOK:                  warningsOK,
+				coverageThreshold:           coverageThreshold,
+				aliasAdd:                    aliasAdd,
+				aliasRemove:                 aliasRemove,
+				aliasList:                   aliasList,
+				session:                     session,
+				workspace:                   workspace,
+				reviewedBy:                  reviewedBy,
+				note:                        note,
+				approveDrop:                 approveDrop,
+				approveUnavailableRetention: approveUnavailableRetention,
+				fixSet:                      cmd.Flags().Changed("fix"),
+				dryRunSet:                   cmd.Flags().Changed("dry-run"),
+				sessionSet:                  cmd.Flags().Changed("session"),
+				workspaceSet:                cmd.Flags().Changed("workspace"),
+				reviewedBySet:               cmd.Flags().Changed("reviewed-by"),
+				noteSet:                     cmd.Flags().Changed("note"),
 			})
 		},
 	}
@@ -181,6 +183,7 @@ func (c *RootCLI) newDoctorCommand() *cobra.Command {
 	doctorCmd.Flags().StringVar(&reviewedBy, "reviewed-by", "", Localize("with --alias-add, reviewer identity", "--alias-add 時の reviewer identity"))
 	doctorCmd.Flags().StringVar(&note, "note", "", Localize("with --alias-add, optional review note", "--alias-add 時の任意の review note"))
 	doctorCmd.Flags().StringVar(&approveDrop, "approve-drop", "", Localize("approve dropping N rows of a retired table; token is N:<hex> from the preflight message", "退役 table の N 行削除を承認する。token は preflight の N:<hex>"))
+	doctorCmd.Flags().StringVar(&approveUnavailableRetention, "approve-unavailable-retention", "", Localize("approve dropping N unavailable_retention marker rows; token is N:<hex> from the preflight message", "unavailable_retention マーカー N 行の削除を承認する。token は preflight の N:<hex>"))
 	doctorCmd.MarkFlagsMutuallyExclusive("alias-add", "alias-remove", "alias-list")
 
 	return doctorCmd
@@ -444,6 +447,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 			Message: localizef("failed to initialize the SQLite store: %v", "SQLite ストアの初期化に失敗しました: %v", err),
 		})
 		report.Checks = append(report.Checks, c.inspectOfflineMigrations(ctx))
+		report.Checks = append(report.Checks, c.inspectUnavailableRetention(ctx))
 		report.Checks = append(report.Checks, c.inspectOneOffRepairs(ctx))
 	} else {
 		report.Checks = append(report.Checks, doctorCheck{
@@ -454,6 +458,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		report.Checks = append(report.Checks, c.inspectStaleActiveSessions(ctx))
 		report.Checks = append(report.Checks, c.inspectArchiveRetention(ctx, resolvedDBPath))
 		report.Checks = append(report.Checks, c.inspectOfflineMigrations(ctx))
+		report.Checks = append(report.Checks, c.inspectUnavailableRetention(ctx))
 		report.Checks = append(report.Checks, c.inspectOneOffRepairs(ctx))
 		if c.workspaceIdentity != nil {
 			report.Checks = append(report.Checks, c.inspectWorkspaceAliases(ctx, report))

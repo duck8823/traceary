@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"log"
 	"log/slog"
 	"os"
@@ -23,7 +22,6 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/duck8823/traceary/application"
-	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain"
 	"github.com/duck8823/traceary/domain/types"
@@ -147,7 +145,6 @@ func run() error {
 	sessionDatasource := sqlite.NewSessionDatasource(db)
 	sessionRefinementDatasource := sqlite.NewSessionRefinementDatasource(db)
 	sessionWakeSummaryDatasource := sqlite.NewSessionWakeSummaryDatasource(db)
-	sessionOrphanRangeDatasource := sqlite.NewSessionOrphanRangeDatasource(db)
 	memoryDatasource := sqlite.NewMemoryDatasource(db)
 	storeManagementDatasource := sqlite.NewStoreManagementDatasource(db)
 	workspaceIdentityDatasource := sqlite.NewWorkspaceIdentityDatasource(db)
@@ -171,8 +168,6 @@ func run() error {
 	sessionUsecase := usecase.NewSessionUsecase(eventDatasource, sessionDatasource, sessionDatasource, eventDatasource, usecase.SessionUsecaseDependencies{
 		Refinement: sessionRefinementUsecase,
 	})
-	sessionOrphanRangeUsecase := usecase.NewSessionOrphanRangeUsecase(sessionOrphanRangeDatasource, sessionRefinementDatasource, eventDatasource, types.SystemClock{})
-	orphanConsolidationUsecase := usecase.NewOrphanConsolidationUsecase(sessionOrphanRangeDatasource, sessionRefinementUsecase, types.SystemClock{})
 	consolidationRequestDatasource := sqlite.NewConsolidationRequestDatasource(db)
 	consolidationPressureUsecase := usecase.NewConsolidationPressureUsecase(
 		eventDatasource, sessionRefinementDatasource, sessionDatasource, consolidationRequestDatasource,
@@ -227,8 +222,6 @@ func run() error {
 		cli.WithCodexCaptureDiagnostic(codexCaptureDiagnosticUsecase),
 		cli.WithSession(sessionUsecase),
 		cli.WithSessionRefinement(sessionRefinementUsecase),
-		cli.WithSessionOrphanRange(sessionOrphanRangeUsecase),
-		cli.WithOrphanConsolidation(orphanConsolidationUsecase),
 		cli.WithConsolidationPressure(consolidationPressureUsecase),
 		cli.WithConsolidationRequest(consolidationRequestUsecase),
 		cli.WithConsolidationConversion(consolidationRequestDatasource),
@@ -273,7 +266,6 @@ func run() error {
 				_, _ = fmt.Fprintf(os.Stderr, "traceary: waiting for shared store lease (%s) on %s\n", waited.Round(time.Second), lockPath)
 			})
 			svc := usecase.NewStoreCompactionUsecase(path, journal, builder, sqlite.StoreReplacementFiles{CallerHoldsExclusiveLease: true}, sqlite.StoreLeaseCoordinator{})
-			usecase.BindCompactionWorkCover(svc, compactWorkCover(migrationsSubFS))
 			return svc
 		}),
 		cli.WithFileRetention(fileRetentionUsecase),
@@ -468,53 +460,4 @@ func writeCLIError(output io.Writer, err error) error {
 	}
 
 	return nil
-}
-
-// compactWorkCover runs the mechanical cover on the compact work copy.
-// Discovery folds the oldest orphan ranges first (#1721), so a bounded
-// pass is used instead of draining the whole backlog: CollectGarbage only
-// needs every range at or past the cutoff folded, not every range that
-// exists. ForceCoverSafeToDelete checks that condition against what the pass
-// left unprocessed or skipped.
-func compactWorkCover(migrations fs.FS) func(context.Context, string, time.Time) (application.CoverReport, error) {
-	return func(ctx context.Context, work string, cutoff time.Time) (application.CoverReport, error) {
-		db := sqlite.NewDatabase(work, migrations)
-		sessionDatasource := sqlite.NewSessionDatasource(db)
-		refinementDatasource := sqlite.NewSessionRefinementDatasource(db)
-		eventDatasource := sqlite.NewEventDatasource(db)
-		orphanDatasource := sqlite.NewSessionOrphanRangeDatasource(db)
-		refine := usecase.NewSessionRefinementUsecase(sessionDatasource, refinementDatasource, eventDatasource, types.SystemClock{})
-		cover := usecase.NewOrphanConsolidationUsecase(orphanDatasource, refine, types.SystemClock{})
-		// One read-only handle for the whole pass: DiscoverCandidates and every
-		// per-candidate LoadMaterial call inherit it instead of each paying
-		// setup+ping+compat on its own (#1722). Bounded (not Unlimited): oldest
-		// first so CollectGarbage only needs pre-cutoff ranges folded (#1721).
-		var result apptypes.OrphanConsolidationResult
-		err := orphanDatasource.WithReadScope(ctx, func(scopedCtx context.Context) error {
-			var consolidateErr error
-			result, consolidateErr = cover.Consolidate(scopedCtx, usecase.OrphanConsolidationInput{
-				StaleAfter:      24 * time.Hour,
-				RetentionCutoff: cutoff,
-			})
-			if consolidateErr != nil {
-				return xerrors.Errorf("consolidate orphan ranges: %w", consolidateErr)
-			}
-			return nil
-		})
-		if err != nil {
-			return application.CoverReport{}, xerrors.Errorf("compact mechanical cover: %w", err)
-		}
-		if err := application.ForceCoverSafeToDelete(
-			result.HasMore(), result.EarliestUnprocessedEventTime(),
-			result.Skipped(), result.EarliestSkippedEventTime(),
-			cutoff,
-		); err != nil {
-			return application.CoverReport{}, xerrors.Errorf("compact mechanical cover: %w", err)
-		}
-		return application.CoverReport{
-			RefinementsProduced: result.ProducedCount(),
-			RangesAttempted:     result.Attempted(),
-			RangesSkipped:       result.Skipped(),
-		}, nil
-	}
 }

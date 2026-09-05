@@ -159,6 +159,9 @@ func (s *minimalStoreStub) InspectOneOffRepairRetirement(context.Context) (appty
 func (s *minimalStoreStub) InspectBoundDrop(context.Context) (apptypes.BoundDropInspection, error) {
 	return apptypes.BoundDropInspection{}, nil
 }
+func (s *minimalStoreStub) InspectUnavailableRetention(context.Context) (apptypes.UnavailableRetentionInspection, error) {
+	return apptypes.UnavailableRetentionInspection{}, nil
+}
 func (s *minimalStoreStub) CreateBackup(context.Context, string, bool) error {
 	return nil
 }
