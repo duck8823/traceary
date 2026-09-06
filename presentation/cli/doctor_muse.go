@@ -118,15 +118,45 @@ func applyMusePluginsList(state *museDoctorState, listOutput []byte) error {
 		} else {
 			state.NativeHooks = true
 		}
+		if state.PluginVersion == "" {
+			state.PluginVersion = musePluginEntryField(entry, "version")
+		}
 		return nil
 	}
 	return nil
 }
 
+func musePluginNestedMaps(entry map[string]any) []map[string]any {
+	var nested []map[string]any
+	for _, key := range []string{"record", "plugin"} {
+		if nestedMap, ok := entry[key].(map[string]any); ok && len(nestedMap) > 0 {
+			nested = append(nested, nestedMap)
+		}
+	}
+	return nested
+}
+
+// musePluginEntryField reads a string field from the entry top level first,
+// then from the record/plugin nested objects that current Muse Code
+// `plugins list --json` output uses (#2362).
+func musePluginEntryField(entry map[string]any, key string) string {
+	if value, _ := entry[key].(string); strings.TrimSpace(value) != "" {
+		return value
+	}
+	for _, nested := range musePluginNestedMaps(entry) {
+		if value, _ := nested[key].(string); strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
 func musePluginEntryIsTraceary(entry map[string]any) bool {
-	for _, key := range []string{"id", "name", "plugin", "pluginId"} {
-		value, _ := entry[key].(string)
-		lower := strings.ToLower(strings.TrimSpace(value))
+	for _, key := range []string{"id", "name", "display_name", "plugin", "pluginId"} {
+		lower := strings.ToLower(strings.TrimSpace(musePluginEntryField(entry, key)))
+		if lower == "" {
+			continue
+		}
 		if strings.Contains(lower, "traceary") || lower == "muse-plugin" {
 			return true
 		}
@@ -138,6 +168,11 @@ func musePluginEntryEnabled(entry map[string]any) bool {
 	if enabled, ok := entry["enabled"].(bool); ok {
 		return enabled
 	}
+	for _, nested := range musePluginNestedMaps(entry) {
+		if enabled, ok := nested["enabled"].(bool); ok {
+			return enabled
+		}
+	}
 	return true
 }
 
@@ -146,6 +181,16 @@ func musePluginEntryRoot(entry map[string]any) string {
 		value, _ := entry[key].(string)
 		if strings.TrimSpace(value) != "" {
 			return value
+		}
+	}
+	for _, nested := range musePluginNestedMaps(entry) {
+		if value, _ := nested["cache_path"].(string); strings.TrimSpace(value) != "" {
+			return value
+		}
+		if source, ok := nested["source"].(map[string]any); ok {
+			if value, _ := source["path"].(string); strings.TrimSpace(value) != "" {
+				return value
+			}
 		}
 	}
 	return ""

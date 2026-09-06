@@ -113,6 +113,26 @@ func TestProbeMuseDoctorState(t *testing.T) {
 		}
 	})
 
+	t.Run("record-nested plugins list", func(t *testing.T) {
+		museDoctorLookPath = func(string) (string, error) { return "/usr/bin/muse", nil }
+		museDoctorOutput = func(_ context.Context, args ...string) ([]byte, error) {
+			if len(args) == 1 && args[0] == "--version" {
+				return []byte("Muse Code 1.0.3\n"), nil
+			}
+			return []byte(`{"plugins":[{"record":{"id":"traceary-muse","display_name":"Traceary Muse","version":"0.50.0","enabled":true},"plugin":{"id":"traceary-muse"},"valid":true,"active":true,"active_scope":"user"}]}`), nil
+		}
+		state, err := probeMuseDoctorState(context.Background(), t.TempDir())
+		if err != nil {
+			t.Fatalf("probeMuseDoctorState() error = %v", err)
+		}
+		if !state.PluginInstalled || !state.PluginEnabled || !state.PluginRecordKnown {
+			t.Fatalf("state = %+v, want installed+enabled+known", state)
+		}
+		if state.PluginVersion != "0.50.0" {
+			t.Fatalf("PluginVersion = %q, want 0.50.0", state.PluginVersion)
+		}
+	})
+
 	t.Run("malformed JSON", func(t *testing.T) {
 		museDoctorLookPath = func(string) (string, error) { return "/usr/bin/muse", nil }
 		museDoctorOutput = func(_ context.Context, args ...string) ([]byte, error) {
