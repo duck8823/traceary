@@ -2,7 +2,7 @@
 
 [English](./README.md)
 
-Traceary は、Claude Code / Codex / Gemini CLI（レガシー）/ Antigravity / Grok Build / Kimi Code 向けにネイティブ連携パッケージを用意しています。
+Traceary は、Claude Code / Codex / Gemini CLI（レガシー）/ Antigravity / Grok Build / Kimi Code / Muse Code 向けにネイティブ連携パッケージを用意しています。
 
 > **v0.21.1 注記:** Gemini CLI はレガシーの Google AI エージェントホストです。**Antigravity**（`/Applications/Antigravity.app`）が後継ホストです。v0.21.1 以降、Traceary は Antigravity を実際の hook client としてサポートし、文書化された公開 hook surface に対する packaged plugin を提供します。詳細は [Antigravity hooks / plugin ガイド](./antigravity.ja.md) を参照してください。
 
@@ -32,6 +32,7 @@ Traceary は、Claude Code / Codex / Gemini CLI（レガシー）/ Antigravity /
 | Antigravity | `integrations/antigravity-plugin/` | v0.21.1 でサポート。hook の直接設定は `<project>/.agents/hooks.json` または `~/.gemini/config/hooks.json` を対象とします。同梱 plugin は version 付き manifest と共有 skill 4 件（[skills](./skills.ja.md)）を追加します。`traceary doctor --client antigravity --json` で hook 経路と plugin version の一致を確認できます。 |
 | Grok Build | `integrations/grok-plugin/` | v0.23.0 でサポート。ネイティブ plugin は lifecycle hook 7 件と共有 skill 4 件（[skills](./skills.ja.md)）を宣言します。Grok Build 1.0.5 は plugin 由来 hook を dispatch しないため `grok-hooks` は WARN。記録は `~/.grok/hooks/traceary.json`（`traceary hooks install --client grok --global`。`scripts/install-grok-plugin.sh` も実行する）。確認は `traceary doctor --client grok --json` で `grok-plugin` と `grok-hooks-user` が pass。 |
 | Kimi Code | `integrations/kimi-plugin/` | v0.29.0 でサポート。ネイティブ plugin は 1 つの `kimi.plugin.json` manifest に、lifecycle hook 10 件（session / prompt / tool audit（失敗含む）/ transcript / compact marker / subagent）と共有 skill 4 件（[skills](./skills.ja.md)）を宣言します。SessionEnd は宣言されていますが、0.38.0 の隔離 `-p` probe（2026-08-21）では dispatch されなかったため、host が dispatch しない箇所は `traceary doctor --client kimi --json` が `kimi-hooks` を WARN として報告します。`scripts/install-kimi-plugin.sh` で導入し、`traceary doctor --client kimi --json` で確認します。 |
+| Muse Code | `integrations/muse-plugin/` | v0.50.0 でサポート。ネイティブ plugin は lifecycle hook 8 件（SessionStart / UserPromptSubmit / PreToolUse / PostToolUse / PostToolUseFailure / Stop / PreCompact / PostCompact）と共有 skill 4 件（[skills](./skills.ja.md)）を宣言します。SessionEnd は購読しません。compact と tool dispatch は宣言済みですが未観測です。確認は `traceary doctor --client muse --json`。[Muse Code プラグイン](./muse.ja.md) を参照。 |
 
 ## host 別ガイド
 
@@ -41,6 +42,7 @@ Traceary は、Claude Code / Codex / Gemini CLI（レガシー）/ Antigravity /
 - [Antigravity hooks / plugin](./antigravity.ja.md)
 - [Grok Build plugin](./grok-plugin.ja.md)
 - [Kimi Code plugin](./kimi.ja.md)
+- [Muse Code プラグイン](./muse.ja.md)
 - [共有 skill](./skills.ja.md)
 - [Anthropic native memory tool (experimental)](./anthropic-memory-tool.ja.md)
 
