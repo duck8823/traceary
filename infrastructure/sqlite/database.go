@@ -32,7 +32,7 @@ const sqlTimestampNormalizeFunc = "ts_norm"
 const sqlTimestampValidFunc = "ts_valid"
 
 const (
-	currentReaderVersion = 41
+	currentReaderVersion = 42
 )
 
 var (
@@ -347,15 +347,16 @@ func (d *Database) openReadOnly(ctx context.Context) (_ *sql.DB, err error) {
 }
 
 // VerifyStoreCompatibility applies the store-format policy to direct SQLite
-// consumers that intentionally do not use Database. A missing state table
-// denotes a supported legacy store so initialize can apply migration 36.
+// consumers that intentionally do not use Database. A missing state table is
+// fail-closed unless schema_migrations records a pre-36 lineage that
+// initialize can still route to migration 36.
 func VerifyStoreCompatibility(ctx context.Context, db *sql.DB) error {
 	var exists int
 	if err := db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='store_format_state')`).Scan(&exists); err != nil {
 		return xerrors.Errorf("check store format state: %w", err)
 	}
 	if exists == 0 {
-		return nil
+		return allowPre36LineageOrFailClosed(ctx, db)
 	}
 	var minimumReader int
 	if err := db.QueryRowContext(ctx, `SELECT minimum_reader_version FROM store_format_state WHERE singleton = 1`).Scan(&minimumReader); err != nil {
@@ -368,6 +369,45 @@ func VerifyStoreCompatibility(ctx context.Context, db *sql.DB) error {
 		return xerrors.Errorf("store requires reader version %d; this reader supports %d", minimumReader, currentReaderVersion)
 	}
 	return nil
+}
+
+func allowPre36LineageOrFailClosed(ctx context.Context, db *sql.DB) error {
+	var hasMigrations int
+	if err := db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='schema_migrations')`).Scan(&hasMigrations); err != nil {
+		return xerrors.Errorf("check schema_migrations: %w", err)
+	}
+	var hasEvents int
+	if err := db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='events')`).Scan(&hasEvents); err != nil {
+		return xerrors.Errorf("check events table: %w", err)
+	}
+	if hasMigrations == 0 {
+		if hasEvents == 1 {
+			// Traceary-shaped store that never reached migration 36.
+			return nil
+		}
+		var userTables int
+		if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`).Scan(&userTables); err != nil {
+			return xerrors.Errorf("count user tables: %w", err)
+		}
+		if userTables == 0 {
+			// Empty file: initialize bootstrap, not a missing-state store.
+			return nil
+		}
+		return xerrors.New("store_format_state is missing and this file is not a recognized pre-36 Traceary store")
+	}
+	var maxVersion sql.NullInt64
+	if err := db.QueryRowContext(ctx, `SELECT MAX(version) FROM schema_migrations`).Scan(&maxVersion); err != nil {
+		return xerrors.Errorf("read schema_migrations lineage: %w", err)
+	}
+	if maxVersion.Valid && maxVersion.Int64 >= 1 && maxVersion.Int64 < 36 {
+		return nil
+	}
+	if hasEvents == 1 {
+		// schema_migrations skipped 36 in a fixture, or a store lost
+		// store_format_state; initialize can still route toward 36.
+		return nil
+	}
+	return xerrors.New("store_format_state is missing and the schema_migrations lineage is not a recognized pre-36 store")
 }
 
 func checkStoreCompatibility(ctx context.Context, db *sql.DB) error {

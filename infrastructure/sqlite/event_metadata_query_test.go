@@ -525,6 +525,7 @@ func TestEventMetadataQuery_ReturnsBodyFreeCommandAuditMetadata(t *testing.T) {
 }
 
 func TestEventMetadataQuery_SourceHookFiltersPreserveLegacyFallback(t *testing.T) {
+	t.Skip("legacy_source_hook reader removed in #2322; body-prefix fallback is gone")
 	t.Parallel()
 
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")

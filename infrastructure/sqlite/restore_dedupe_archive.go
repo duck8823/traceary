@@ -47,6 +47,8 @@ func restoreDedupeArchiveOrRefuse(ctx context.Context, db *sql.DB) error {
 		}
 	}()
 
+	// 081 runs before 082, so the candidate still carries body_codec at
+	// restore time. Removing this probe would break codec-era restores.
 	hasCodec, err := transactionColumnExists(ctx, tx, "events", "body_codec")
 	if err != nil {
 		return err

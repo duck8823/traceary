@@ -159,6 +159,29 @@ func TestPreparedManifestClassifies085AsOfflineDropMemoryEdges(t *testing.T) {
 	}
 }
 
+func TestPreparedManifestClassifies086AsOfflineDropCompatSurface(t *testing.T) {
+	t.Parallel()
+	entry, ok := preparedMigrationManifest[86]
+	if !ok {
+		t.Fatal("missing 086 manifest entry")
+	}
+	if entry.Class != MigrationDataDependentOffline {
+		t.Fatalf("class = %q, want data_dependent_offline", entry.Class)
+	}
+	if entry.ConservationLawID != ConservationLawBaseConserving {
+		t.Fatalf("law = %q, want base_conserving", entry.ConservationLawID)
+	}
+	if entry.SemanticVerifierID != SemanticVerifierDropCompatSurface {
+		t.Fatalf("verifier = %q, want %q", entry.SemanticVerifierID, SemanticVerifierDropCompatSurface)
+	}
+	if entry.OwnerIssue != "2322" {
+		t.Fatalf("owner = %q, want 2322", entry.OwnerIssue)
+	}
+	if entry.Name != "000086_drop_legacy_source_hook.sql" {
+		t.Fatalf("name = %q", entry.Name)
+	}
+}
+
 func TestPreparedManifestClassifies083AsOfflineDropBodyRetention(t *testing.T) {
 	t.Parallel()
 	entry, ok := preparedMigrationManifest[83]
@@ -194,7 +217,7 @@ func TestBuildPreparedMigrationPlanClassifiesExactSuffix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.Current != 34 || plan.Latest != 85 || len(plan.Pending) != 50 || !plan.Offline || len(plan.Digest) != 64 {
+	if plan.Current != 34 || plan.Latest != 86 || len(plan.Pending) != 51 || !plan.Offline || len(plan.Digest) != 64 {
 		t.Fatalf("plan = %+v", plan)
 	}
 	want := map[int64]MigrationExecutionClass{
@@ -248,6 +271,7 @@ func TestBuildPreparedMigrationPlanClassifiesExactSuffix(t *testing.T) {
 		83: MigrationDataDependentOffline,
 		84: MigrationDataDependentOffline,
 		85: MigrationDataDependentOffline,
+		86: MigrationDataDependentOffline,
 	}
 	for _, migration := range plan.Pending {
 		if migration.Class != want[migration.Version] {

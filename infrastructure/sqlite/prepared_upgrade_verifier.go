@@ -60,11 +60,12 @@ func (v PreparedMigrationVerifier) VerifyUpgradePair(ctx context.Context, source
 	dropRetentionPending := pendingDropsBodyRetentionObjects(plan)
 	dropArchivePending := pendingDropsArchiveSegments(plan)
 	dropMemoryEdgesPending := pendingDropsMemoryEdges(plan)
+	dropCompatPending := pendingDropsCompatSurface(plan)
 	if err = verifyFiveTableConservation(ctx, sourceDB, candidateDB, skipEvents, skipCodecRewrite, dropRetentionPending); err != nil {
 		return domain.PreparedCandidateEvidence{}, err
 	}
 	for _, migration := range plan.Pending {
-		if err = evaluateConservationLaw(ctx, sourceDB, candidateDB, migration.Version, skipCodecRewrite, dropRetentionPending); err != nil {
+		if err = evaluateConservationLaw(ctx, sourceDB, candidateDB, migration.Version, skipCodecRewrite, dropRetentionPending, dropCompatPending); err != nil {
 			return domain.PreparedCandidateEvidence{}, err
 		}
 		switch semanticVerifierFor(migration.Version) {
@@ -101,7 +102,11 @@ func (v PreparedMigrationVerifier) VerifyUpgradePair(ctx context.Context, source
 				return domain.PreparedCandidateEvidence{}, err
 			}
 		case SemanticVerifierDropMemoryEdges:
-			if err = verifyDropMemoryEdges(ctx, candidateDB); err != nil {
+			if err = verifyDropMemoryEdges(ctx, candidateDB, dropCompatPending); err != nil {
+				return domain.PreparedCandidateEvidence{}, err
+			}
+		case SemanticVerifierDropCompatSurface:
+			if err = verifyDropCompatSurface(ctx, candidateDB); err != nil {
 				return domain.PreparedCandidateEvidence{}, err
 			}
 		}
@@ -178,7 +183,7 @@ func verifyTableCountAndDigestExcluding(ctx context.Context, sourceDB, candidate
 	return nil
 }
 
-func evaluateConservationLaw(ctx context.Context, sourceDB, candidateDB *sql.DB, version int64, decodePending bool, dropRetentionPending bool) error {
+func evaluateConservationLaw(ctx context.Context, sourceDB, candidateDB *sql.DB, version int64, decodePending bool, dropRetentionPending bool, dropCompatPending bool) error {
 	law := conservationLawFor(version)
 	switch law {
 	case ConservationLawBaseConserving:
@@ -204,7 +209,11 @@ func evaluateConservationLaw(ctx context.Context, sourceDB, candidateDB *sql.DB,
 				return err
 			}
 			if sourceHas && candidateHas {
-				if err = verifyTableCountAndDigest(ctx, sourceDB, candidateDB, spec.BaseTable); err != nil {
+				if dropCompatPending && spec.BaseTable == "event_metadata_projection" {
+					if err = verifyTableCountAndDigestExcluding(ctx, sourceDB, candidateDB, spec.BaseTable, droppedLegacySourceHookColumn); err != nil {
+						return err
+					}
+				} else if err = verifyTableCountAndDigest(ctx, sourceDB, candidateDB, spec.BaseTable); err != nil {
 					return err
 				}
 			}

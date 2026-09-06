@@ -155,6 +155,9 @@ func persistEventDelivery(
 }
 
 func insertHookDeliveryAttempt(ctx context.Context, tx *sql.Tx, event *model.Event, deliveryRecordID, outcome string) error {
+	// Keep: focused fixtures may omit migration 23. This is a fixture-integrity
+	// skip, not a version-era probe; production initialize still applies 23
+	// before writes. Recorded in the item-1 allow-list.
 	enabled, err := tableExistsInTransaction(ctx, tx, "hook_delivery_attempts")
 	if err != nil {
 		return err

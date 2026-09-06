@@ -9,10 +9,10 @@ import (
 
 func TestCurrentReaderVersionIsTheRaisedGate(t *testing.T) {
 	t.Parallel()
-	if currentReaderVersion != 41 {
-		t.Fatalf("currentReaderVersion = %d, want 41", currentReaderVersion)
+	if currentReaderVersion != 42 {
+		t.Fatalf("currentReaderVersion = %d, want 42", currentReaderVersion)
 	}
-	const previousReader = 40
+	const previousReader = 41
 	if currentReaderVersion <= previousReader {
 		t.Fatal("raised reader version would not fail previous binaries")
 	}
@@ -33,11 +33,11 @@ func TestVerifyStoreCompatibilityRejectsReaderBelowMinimum(t *testing.T) {
 		t.Fatal(err)
 	}
 	previous := currentReaderVersion
-	// The live binary speaks 41, so min=39 is accepted. A 40 binary would
-	// compare 41 > 40. Pin that inequality here; the error string is covered
-	// by the future-reader tests with min=42.
-	if previous != 41 || 41 <= 40 {
-		t.Fatal("previous reader 40 would not be rejected by min=41")
+	// The live binary speaks 42, so min=39 is accepted. A 41 binary would
+	// compare 42 > 41. Pin that inequality here; the error string is covered
+	// by the future-reader tests with min=43.
+	if previous != 42 || 42 <= 41 {
+		t.Fatal("previous reader 41 would not be rejected by min=42")
 	}
 	if err = VerifyStoreCompatibility(context.Background(), db); err != nil {
 		t.Fatalf("current reader must open min=39: %v", err)

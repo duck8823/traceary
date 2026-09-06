@@ -116,7 +116,7 @@ func TestDropMemoryEdges_EmptyTableUpgradeDropsAndRaisesReader(t *testing.T) {
 	if tablePresent(t, path, "memory_edges") {
 		t.Fatal("memory_edges survived empty drop")
 	}
-	assertMinimumReaderVersion(t, path, 41)
+	assertMinimumReaderVersion(t, path, 42)
 }
 
 func TestDropMemoryEdges_LiveOpenDefersEmptyPopulatedStore(t *testing.T) {

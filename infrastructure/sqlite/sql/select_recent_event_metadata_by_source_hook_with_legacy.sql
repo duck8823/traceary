@@ -5,11 +5,7 @@ SELECT e.id, e.kind, e.client, e.agent, e.session_id, e.workspace,
        e.body_metadata_version,
        e.command_audit_event_id, e.command_exit_code, e.command_failed
   FROM event_metadata_projection e
- WHERE (
-       e.source_hook = ?
-    OR (? = 'subagent_stop' AND e.legacy_source_hook = 'subagent_stop')
-    OR (? = 'pre_compact' AND e.legacy_source_hook = 'pre_compact')
- )
+ WHERE e.source_hook = ?
    AND (? = '' OR e.kind = ?)
    AND (? = '' OR e.client = ?)
    AND (? = '' OR e.agent = ?)

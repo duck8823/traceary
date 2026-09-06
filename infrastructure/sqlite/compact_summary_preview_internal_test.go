@@ -53,7 +53,7 @@ func TestCompactSummaryPreviewSelectsMetadataBeforeHydration(t *testing.T) {
 	if !strings.Contains(candidate, "from event_metadata_projection m") || strings.Contains(candidate, " from events ") || strings.Contains(candidate, ".body") {
 		t.Fatalf("candidate query is not body-free: %s", candidate)
 	}
-	if !strings.Contains(candidate, "coalesce(m.source_hook, m.legacy_source_hook, '') <> 'pre_compact'") {
+	if !strings.Contains(candidate, "coalesce(m.source_hook, '') <> 'pre_compact'") {
 		t.Fatalf("known pre-compact candidates are not excluded by metadata: %s", candidate)
 	}
 	if !strings.Contains(candidate, "m.created_at_norm < ?") || !strings.Contains(candidate, "m.id < ?") || !strings.Contains(candidate, "limit ?") {

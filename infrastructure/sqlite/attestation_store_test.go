@@ -137,6 +137,7 @@ func TestVerifyAttestationChain_CommandTextTamperFailsAndOutputDoesNot(t *testin
 }
 
 func TestVerifyAttestationChain_ZstdCommandMatchesPlaintextDigest(t *testing.T) {
+	t.Skip("082 dropped codec columns; attestation verify is plaintext-only (#2322)")
 	t.Parallel()
 	ctx := context.Background()
 	path, events := newAttestationTestStore(t)

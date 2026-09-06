@@ -3,6 +3,7 @@ package sqlite_test
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -255,10 +256,36 @@ func makeSeededEventDiscardable(t *testing.T, dbPath string) {
 
 // seedPre052Store builds a store on the schema that still carried the legacy
 // family, with one indexed event, so the upgrade under test is the real one.
+func insertPre076Event(t *testing.T, dbPath string, event *model.Event) error {
+	t.Helper()
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		return fmt.Errorf("open pre-076 insert: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+	_, err = db.Exec(
+		`INSERT INTO events(id, kind, client, agent, session_id, workspace, body, created_at, source_hook)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		event.EventID().String(),
+		event.Kind().String(),
+		event.Client().String(),
+		event.Agent().String(),
+		event.SessionID().String(),
+		event.Workspace().String(),
+		event.Body(),
+		event.CreatedAt().UTC().Format(time.RFC3339Nano),
+		event.SourceHook(),
+	)
+	if err != nil {
+		return fmt.Errorf("insert pre-076 event: %w", err)
+	}
+	return nil
+}
+
 func seedPre052Store(t *testing.T, dbPath string) {
 	t.Helper()
 	ctx := context.Background()
-	sut, store := newEventDatasource(t, dbPath, onDiskSQLiteMigrationsBefore(t, 52))
+	_, store := newEventDatasource(t, dbPath, onDiskSQLiteMigrationsBefore(t, 52))
 	if err := store.Initialize(ctx); err != nil {
 		t.Fatalf("initialize pre-52 store: %v", err)
 	}
@@ -270,7 +297,7 @@ func seedPre052Store(t *testing.T, dbPath string) {
 		"retirement needle",
 		time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
 	)
-	if err := sut.Save(ctx, event); err != nil {
+	if err := insertPre076Event(t, dbPath, event); err != nil {
 		t.Fatalf("save pre-52 event: %v", err)
 	}
 	if !objectExists(t, dbPath, "event_search_documents") {

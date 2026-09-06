@@ -131,7 +131,7 @@ func TestGeneralMetadataListAndContextQueryPlansUseNormalizedTimestampIndexes(t 
 		CREATE TABLE event_metadata_projection (
 			id TEXT PRIMARY KEY, kind TEXT NOT NULL, client TEXT NOT NULL,
 			agent TEXT NOT NULL, session_id TEXT NOT NULL, workspace TEXT NOT NULL,
-			source_hook TEXT, legacy_source_hook TEXT, created_at TEXT NOT NULL, created_at_norm TEXT NOT NULL, body_original_bytes INTEGER,
+			source_hook TEXT, created_at TEXT NOT NULL, created_at_norm TEXT NOT NULL, body_original_bytes INTEGER,
 			body_stored_bytes INTEGER NOT NULL, body_ingest_truncated BOOLEAN,
 			body_storage_truncated BOOLEAN, body_metadata_version INTEGER,
 			command_audit_event_id TEXT, command_exit_code INTEGER, command_failed BOOLEAN
@@ -279,14 +279,14 @@ func TestMetadataRangeAndLegacyFallbackPlansUseProductionMigrationIndexes(t *tes
 	query, args := scopedRecentEventMetadataQuery(criteria, 0, from, to, 25, 0)
 	assertPlanUsesDirectRangeIndex(t, explainQueryPlan(t, db, query, args...), "idx_event_metadata_workspace_created_at_norm_id_desc")
 
-	legacyQuery := metadataPageQuery(
-		metadataTimeRangeQuery(selectRecentEventMetadataBySourceHookWithLegacyQuery, from, to),
+	hookQuery := metadataPageQuery(
+		metadataTimeRangeQuery(selectRecentEventMetadataBySourceHookQuery, from, to),
 		apptypes.EventPageAnchor{},
 	)
-	legacyArgs := metadataSourceHookLegacyQueryArgs(
+	hookArgs := metadataSourceHookPrimaryQueryArgs(
 		"subagent_stop", "", "", "", "", "", 0, from, to, apptypes.EventPageAnchor{}, 25, 0,
 	)
-	assertPlanUsesDirectRangeIndex(t, explainQueryPlan(t, db, legacyQuery, legacyArgs...), "idx_event_metadata_created_at_norm_id_desc")
+	assertPlanUsesDirectRangeIndex(t, explainQueryPlan(t, db, hookQuery, hookArgs...), "idx_event_metadata_source_hook_created_at_norm_id_desc")
 }
 
 func assertPlanUsesOrderedIndex(t *testing.T, plan []string, index string) {

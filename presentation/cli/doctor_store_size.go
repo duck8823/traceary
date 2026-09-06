@@ -191,8 +191,11 @@ func fixAcceptedCompactRollbackCopies(ctx context.Context, dbPath string, dryRun
 
 // inspectStoreGrowthBudgetWithClock returns the store-size check and, when the
 // retired migration-032 family is still resident, a legacy-search-index check.
-// Both come from one capacity report: the object traversal is the expensive
-// part, and inspecting twice would double the cost of the whole doctor run.
+// Keep: integrity-class O(1) name match on the small-store path; it detects
+// the migration-032 family on operator stores and routes to
+// RetireLegacySearchFamily. The version gate cannot replace that doctor
+// repair. Both checks share one capacity report so the object traversal
+// is not doubled.
 func (c *RootCLI) inspectStoreGrowthBudgetWithClock(ctx context.Context, dbPath string, snapshot storeFileSnapshot, now func() time.Time) []doctorCheck {
 	if snapshot.Err != nil {
 		return []doctorCheck{

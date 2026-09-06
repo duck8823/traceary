@@ -58,11 +58,10 @@ func TestMigrations_EventMetadataProjectionBackfillsAndMaintainsRows(t *testing.
 	assertMigrationApplied(t, db, 34)
 	assertProjectionSchemaIsPayloadFree(t, db)
 	assertProjectionRow(t, db, "projection-a", projectionRowExpectation{
-		kind:             "session_ended",
-		workspace:        "workspace-a",
-		createdAtNorm:    "2026-07-26T00:00:00.000000000Z",
-		storedBodyBytes:  int64(len("[phase:subagent] complete")),
-		legacySourceHook: "subagent_stop",
+		kind:            "session_ended",
+		workspace:       "workspace-a",
+		createdAtNorm:   "2026-07-26T00:00:00.000000000Z",
+		storedBodyBytes: int64(len("[phase:subagent] complete")),
 	})
 	assertProjectionRow(t, db, "projection-b", projectionRowExpectation{
 		kind:            "note",
@@ -89,11 +88,10 @@ func TestMigrations_EventMetadataProjectionBackfillsAndMaintainsRows(t *testing.
 		t.Fatalf("update authoritative rows: %v", err)
 	}
 	assertProjectionRow(t, db, "projection-a", projectionRowExpectation{
-		kind:             "compact_summary",
-		workspace:        "workspace-updated",
-		createdAtNorm:    "2026-07-26T00:00:02.250000000Z",
-		storedBodyBytes:  int64(len("[phase:pre-compact] complete")),
-		legacySourceHook: "pre_compact",
+		kind:            "compact_summary",
+		workspace:       "workspace-updated",
+		createdAtNorm:   "2026-07-26T00:00:02.250000000Z",
+		storedBodyBytes: int64(len("[phase:pre-compact] complete")),
 	})
 	assertStoredBodyBytesParity(t, db, "projection-a", int64(len("[phase:pre-compact] complete")))
 	assertProjectionRow(t, db, "projection-b", projectionRowExpectation{
@@ -533,14 +531,13 @@ func assertProjectionSchemaIsPayloadFree(t *testing.T, db *sql.DB) {
 }
 
 type projectionRowExpectation struct {
-	kind             string
-	workspace        string
-	createdAtNorm    string
-	storedBodyBytes  int64
-	legacySourceHook string
-	auditPresent     bool
-	exitCode         int64
-	failed           bool
+	kind            string
+	workspace       string
+	createdAtNorm   string
+	storedBodyBytes int64
+	auditPresent    bool
+	exitCode        int64
+	failed          bool
 }
 
 func assertProjectionRow(t *testing.T, db *sql.DB, id string, want projectionRowExpectation) {
@@ -548,14 +545,13 @@ func assertProjectionRow(t *testing.T, db *sql.DB, id string, want projectionRow
 	var (
 		kind, workspace, createdAtNorm string
 		storedBodyBytes                int64
-		legacySourceHook               sql.NullString
 		auditEventID                   sql.NullString
 		exitCode                       sql.NullInt64
 		failed                         sql.NullBool
 	)
 	if err := db.QueryRow(`
 		SELECT kind, workspace, created_at_norm, body_stored_bytes,
-		       legacy_source_hook, command_audit_event_id,
+		       command_audit_event_id,
 		       command_exit_code, command_failed
 		  FROM event_metadata_projection
 		 WHERE id = ?
@@ -564,7 +560,6 @@ func assertProjectionRow(t *testing.T, db *sql.DB, id string, want projectionRow
 		&workspace,
 		&createdAtNorm,
 		&storedBodyBytes,
-		&legacySourceHook,
 		&auditEventID,
 		&exitCode,
 		&failed,
@@ -575,17 +570,15 @@ func assertProjectionRow(t *testing.T, db *sql.DB, id string, want projectionRow
 		workspace != want.workspace ||
 		createdAtNorm != want.createdAtNorm ||
 		storedBodyBytes != want.storedBodyBytes ||
-		legacySourceHook.String != want.legacySourceHook ||
 		auditEventID.Valid != want.auditPresent ||
 		exitCode.Int64 != want.exitCode ||
 		failed.Bool != want.failed {
 		t.Fatalf(
-			"projection row = kind:%q workspace:%q normalized:%q stored:%d legacy:%q audit:%v exit:%d failed:%v",
+			"projection row = kind:%q workspace:%q normalized:%q stored:%d audit:%v exit:%d failed:%v",
 			kind,
 			workspace,
 			createdAtNorm,
 			storedBodyBytes,
-			legacySourceHook.String,
 			auditEventID.Valid,
 			exitCode.Int64,
 			failed.Bool,

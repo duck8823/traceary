@@ -211,6 +211,12 @@ var preparedMigrationManifest = map[int64]migrationManifestEntry{
 	// applied at live open (empty-store inline bootstrap may DROP only when
 	// the table has 0 rows).
 	85: {85, "000085_drop_memory_edges.sql", "8ef559d0b96d566771f3784ff57c5cf4fe71867e8445782fdf21de29e80588c2", MigrationDataDependentOffline, ConservationLawBaseConserving, SemanticVerifierDropMemoryEdges, "2327"},
+	// 86 drops event_metadata_projection.legacy_source_hook after Go
+	// refuses a non-NULL value. Never applied at live open (empty-store
+	// inline bootstrap may DROP COLUMN only when every remaining value
+	// is NULL). The hook value is a pure function of (source_hook, kind,
+	// body); dropping all-NULL data under the refuse gate is conserving.
+	86: {86, "000086_drop_legacy_source_hook.sql", "016dd848dc0b4f217bc007f1f0596478c0e62480b775453661d2fdacd58f83e9", MigrationDataDependentOffline, ConservationLawBaseConserving, SemanticVerifierDropCompatSurface, "2322"},
 }
 
 func conservationLawFor(version int64) ConservationLawID {

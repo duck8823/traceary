@@ -357,6 +357,7 @@ CREATE TABLE command_audits (
 }
 
 func TestDatasource_ListRecent_SourceHookFilterIncludesLegacyPrefixRows(t *testing.T) {
+	t.Skip("legacy_source_hook reader removed in #2322; body-prefix fallback is gone")
 	t.Parallel()
 
 	// The legacy branch used to infer the hook from the body prefix in SQL, so
