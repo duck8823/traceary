@@ -7,11 +7,13 @@ VERIFY="${ROOT_DIR}/scripts/verify-post-upgrade-live-capture.sh"
 REFRESH_TEST="${ROOT_DIR}/scripts/test-verify-post-upgrade-plugin-refresh.sh"
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/traceary-live-capture-test.XXXXXX")"
 trap 'rm -rf "${TMP_DIR}"' EXIT
-HOSTS=(claude codex gemini antigravity grok kimi)
+HOSTS=(claude codex gemini antigravity grok kimi muse)
 
 check_name_for() {
   if [[ "$1" == grok ]]; then
     printf '%s\n' 'grok-plugin'
+  elif [[ "$1" == muse ]]; then
+    printf '%s\n' 'muse-plugin'
   else
     printf '%s-plugin-version\n' "$1"
   fi

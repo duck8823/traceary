@@ -6,7 +6,7 @@ set -euo pipefail
 
 TRACEARY_BIN="${TRACEARY_BIN:-traceary}"
 PROJECT_DIR="${PWD}"
-HOSTS=(claude codex gemini antigravity grok kimi)
+HOSTS=(claude codex gemini antigravity grok kimi muse)
 SKIP_HOSTS=()
 SKIP_REASONS=()
 REPORT_HOSTS=()
@@ -17,7 +17,7 @@ usage() {
 Usage: scripts/verify-post-upgrade-plugin-refresh.sh [options]
 
 Run body-free plugin-version verification for Claude, Codex, Gemini legacy,
-Antigravity, Grok, and Kimi after upgrading a released Traceary binary.
+Antigravity, Grok, Kimi, and Muse after upgrading a released Traceary binary.
 
 Options:
   --traceary PATH            Traceary binary to inspect (default: traceary)
@@ -27,7 +27,7 @@ Options:
                              TRACEARY_PLUGIN_REFRESH_TEST_MODE=1.
   -h, --help                 Show this help.
 
-Claude, Codex, Gemini, Grok, and Kimi require a pass result. Antigravity
+Claude, Codex, Gemini, Grok, Kimi, and Muse require a pass result. Antigravity
 requires at least one pass and permits additional skip results for its known
 incomplete dual-path twin. warn/fail (including a package behind the running
 binary) fails. The script reads only JSON check name/status, never messages,
@@ -126,7 +126,12 @@ import json
 import sys
 
 host, report_path, pass_marker = sys.argv[1:]
-expected = "grok-plugin" if host == "grok" else f"{host}-plugin-version"
+if host == "grok":
+    expected = "grok-plugin"
+elif host == "muse":
+    expected = "muse-plugin"
+else:
+    expected = f"{host}-plugin-version"
 try:
     with open(report_path, encoding="utf-8") as source:
         report = json.load(source)
