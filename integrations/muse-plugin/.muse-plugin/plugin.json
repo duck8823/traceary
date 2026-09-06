@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "name": "traceary-muse",
   "displayName": "Traceary Muse",
-  "version": "0.50.0",
+  "version": "0.50.1",
   "description": "Local-first Traceary integration for Muse Code with native session, audit, transcript, and compact hooks.",
   "compat": {
     "source": "native",
