@@ -7,6 +7,18 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ## [Unreleased]
 
+## [v0.50.1] - 2026-09-07
+
+v0.50.1 is a patch release. Real-sized dogfood runs are not release gates; the per-release guarantee is three scripted gates (plugin refresh identity, live capture, and the new synthetic record/search/refine matrix).
+
+### Fixed
+- **Compact rollback guard (#2329).** `store compact rollback` now refuses the swap when the published store holds records the retained rollback inode never saw, naming the at-risk count instead of discarding acknowledged events silently.
+- **Doctor muse-plugin shape (#2362).** The `muse-plugin` check reads identity, enabled state, version, and package root from the record-nested `plugins list --json` shape.
+
+### Changed
+- **Dogfooding policy (#2349).** Policy docs state plainly that real-sized runs are not gates and point at the three scripted gates. New `scripts/verify-record-search-refine.sh` proves record/search/session-refine/memory on a bounded throwaway store.
+- **Dependencies.** actions/deploy-pages 5.0.0 to 5.0.1; go_modules group with 7 updates including modernc.org/sqlite 1.58.0 and anthropic-sdk-go 1.69.0 (#2337, #2338).
+
 ## [v0.50.0] - 2026-09-06
 
 v0.50.0 pins the Traceary CLI and every packaged host plugin to **0.50.0**. It adds Muse Code as a native host and keeps the per-host plugin-version guarantee. Dogfooding a real-sized operator store is **not** a release gate (owner decision 2026-09-06). Post-merge work (git tag, GitHub Release workflow watch, Homebrew formula PR, live plugin refresh) is listed here with owners and is **not** performed in the release-preparation PR.

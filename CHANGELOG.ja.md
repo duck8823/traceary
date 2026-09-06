@@ -7,6 +7,18 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 
 ## [Unreleased]
 
+## [v0.50.1] - 2026-09-07
+
+v0.50.1 は patch release です。実サイズの dogfood 実行はリリースゲートではありません。リリースごとの保証は 3 つの scripted gate（plugin refresh identity、live capture、新規 synthetic record/search/refine マトリクス）です。
+
+### Fixed
+- **Compact rollback guard（#2329）。** 公開 store が rollback inode の知らないレコードを持っている場合、`store compact rollback` は swap を拒否し、破棄リスク件数を明示します。ack 済みイベントの silent な消失を防ぎます。
+- **Doctor muse-plugin 形状（#2362）。** `muse-plugin` チェックは record-nested な `plugins list --json` 形状から identity、有効状態、版、package root を読み取ります。
+
+### Changed
+- **Dogfooding 方針（#2349）。** 方針文書は実サイズ実行がゲートではないことを明記し、3 つの scripted gate を指します。新規 `scripts/verify-record-search-refine.sh` が境界付き使い捨て store 上で record / search / session-refine / memory を証明します。
+- **依存更新。** actions/deploy-pages 5.0.0 から 5.0.1、modernc.org/sqlite 1.58.0 と anthropic-sdk-go 1.69.0 を含む go_modules 7 件（#2337、#2338）。
+
 ## [v0.50.0] - 2026-09-06
 
 v0.50.0 は Traceary CLI とパッケージ済みホスト plugin をすべて **0.50.0** にピンします。Muse Code を native ホストとして追加し、ホストごとの plugin 版保証を維持します。実サイズの operator store での dogfooding はリリースゲートではありません（owner 決定 2026-09-06）。merge 後作業（git tag、GitHub Release workflow 監視、Homebrew formula PR、live plugin refresh）はここに owner 付きで列挙し、リリース準備 PR では実行しません。
