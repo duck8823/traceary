@@ -156,6 +156,59 @@ func TestLoad_ConsolidationRequestRow(t *testing.T) {
 	}
 }
 
+func TestLoad_MuseColumn(t *testing.T) {
+	t.Parallel()
+
+	m, err := hostcoverage.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	host, ok := m.HostByDoctorClient("muse")
+	if !ok {
+		t.Fatal("missing muse host")
+	}
+	want := map[string]hostcoverage.Status{
+		"session_started":       hostcoverage.StatusWired,
+		"prompt":                hostcoverage.StatusWired,
+		"transcript":            hostcoverage.StatusWired,
+		"command_executed":      hostcoverage.StatusAvailable,
+		"compact_summary":       hostcoverage.StatusAvailable,
+		"session_ended":         hostcoverage.StatusAvailable,
+		"consolidation_request": hostcoverage.StatusUnsupported,
+	}
+	for id, status := range want {
+		cell := host.Events[id]
+		if cell.Status != status {
+			t.Fatalf("muse %s status = %q, want %q", id, cell.Status, status)
+		}
+		if strings.TrimSpace(cell.Summary.EN) == "" || strings.TrimSpace(cell.Summary.JA) == "" {
+			t.Fatalf("muse %s missing bilingual summary: %+v", id, cell.Summary)
+		}
+	}
+	if !strings.Contains(host.Events["consolidation_request"].Summary.EN, "unknown") {
+		t.Fatalf("consolidation_request summary must mark unknown: %q", host.Events["consolidation_request"].Summary.EN)
+	}
+	wired := m.WiredLifecycleEvents("muse")
+	wiredSet := map[string]bool{}
+	for _, id := range wired {
+		wiredSet[id] = true
+	}
+	for _, id := range []string{"session_started", "prompt", "transcript"} {
+		if !wiredSet[id] {
+			t.Fatalf("WiredLifecycleEvents(muse) missing %s: %v", id, wired)
+		}
+	}
+	if m.ExpectsSessionEnrichment("muse") {
+		t.Fatal("muse must not expect session enrichment until a live corpus exists")
+	}
+	if !strings.Contains(m.RenderMatrixTable("en"), "Muse Code") {
+		t.Fatalf("EN table missing Muse Code:\n%s", m.RenderMatrixTable("en"))
+	}
+	if !strings.Contains(m.RenderMatrixTable("ja"), "Muse Code") {
+		t.Fatalf("JA table missing Muse Code:\n%s", m.RenderMatrixTable("ja"))
+	}
+}
+
 func TestLoad_KimiSessionEndedIsNotWired(t *testing.T) {
 	t.Parallel()
 
