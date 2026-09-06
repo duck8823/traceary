@@ -7,6 +7,25 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 
 ## [Unreleased]
 
+## [v0.50.0] - 2026-09-06
+
+v0.50.0 は Traceary CLI とパッケージ済みホスト plugin をすべて **0.50.0** にピンします。Muse Code を native ホストとして追加し、ホストごとの plugin 版保証を維持します。実サイズの operator store での dogfooding はリリースゲートではありません（owner 決定 2026-09-06）。merge 後作業（git tag、GitHub Release workflow 監視、Homebrew formula PR、live plugin refresh）はここに owner 付きで列挙し、リリース準備 PR では実行しません。
+
+### Added
+- **Muse Code plugin（#2352, #2353）。** `integrations/muse-plugin/` を同梱します。SessionStart / UserPromptSubmit / PreToolUse / PostToolUse / PostToolUseFailure / Stop / PreCompact / PostCompact と 4 つの共有 skill。`traceary doctor --client muse` は `muse-plugin`（版揃え）に加え `muse-cli` / `muse-hooks` / `muse-skills` を報告します。SessionEnd は購読しません。compact と tool dispatch は宣言のみで未観測 — それらのセルは available / unsupported のままであり、wired の主張ではありません。[Muse Code plugin](./docs/integrations/muse.ja.md) と host coverage matrix を参照してください。
+
+### Changed
+- **ホストごとの plugin 保証。** 0.50.0 binary へ upgrade したあと、対応ホスト（Claude, Codex, Gemini legacy, Antigravity, Grok, Kimi, Muse）は版が揃った plugin check を報告するか、明示的な unused-host skip でなければなりません。`scripts/verify-post-upgrade-plugin-refresh.sh` は Muse を含めます。Grok は引き続き `grok-plugin`、Muse は `muse-plugin`（`muse-plugin-version` ではない）を使います。pass+skip の dual-path 許容は Antigravity だけです。古い installed package（`warn`）はゲート FAIL です。
+
+### Docs
+- **unsupported と unknown は fail-closed のままです。** このリリースが配線しない、またはもう出荷しないホスト・flag・command は unknown です（非ゼロ、隠れた no-op なし）。matrix の unsupported / available は capture の主張ではありません。CLI **0.50.0** と対応する plugin manifest を揃えてください。古い plugin とこの binary（またはその逆）の混在は doctor WARN かつ plugin-refresh ゲート FAIL です。
+
+### Release operations (not in this PR)
+- `v0.50.0` を tag して push — merge 後の release workflow owner。
+- tagged release workflow を監視し `gh release view v0.50.0` を確認 — 同じ owner。
+- Homebrew formula PR（`maintenance/homebrew-v0.50.0`）を merge し `brew upgrade traceary` が 0.50.0 を出すことを確認 — 同じ owner。
+- 公開 binary が PATH に乗ったあとの live plugin refresh — 同じ owner。
+
 ## [v0.49.0] - 2026-09-06
 
 v0.49.0 は削除リリースです。search、archive / retention-plan、memory graph、degraded refinement、およびそれらが連れていく flag のユーザー可視な振る舞いが変わります。store の upgrade は明示的な offline 経路だけです（review 済み copy への `traceary doctor --fix`）：candidate rewrite、catalog 順 suffix 078–086、verification、atomic publish、rollback 保持。通常の store open は pending を報告して戻り、この作業は行いません。

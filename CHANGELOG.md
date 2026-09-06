@@ -7,6 +7,25 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ## [Unreleased]
 
+## [v0.50.0] - 2026-09-06
+
+v0.50.0 pins the Traceary CLI and every packaged host plugin to **0.50.0**. It adds Muse Code as a native host and keeps the per-host plugin-version guarantee. Dogfooding a real-sized operator store is **not** a release gate (owner decision 2026-09-06). Post-merge work (git tag, GitHub Release workflow watch, Homebrew formula PR, live plugin refresh) is listed here with owners and is **not** performed in the release-preparation PR.
+
+### Added
+- **Muse Code plugin (#2352, #2353).** Traceary ships `integrations/muse-plugin/` with SessionStart / UserPromptSubmit / PreToolUse / PostToolUse / PostToolUseFailure / Stop / PreCompact / PostCompact hooks and the four shared skills. `traceary doctor --client muse` reports `muse-plugin` (version alignment), plus `muse-cli` / `muse-hooks` / `muse-skills`. SessionEnd is not subscribed; compact and tool dispatch are declared but unobserved — those cells stay available/unsupported, not wired claims. See [Muse Code plugin](./docs/integrations/muse.md) and the host coverage matrix.
+
+### Changed
+- **Per-host plugin guarantee.** After upgrading the 0.50.0 binary, every supported host (Claude, Codex, Gemini legacy, Antigravity, Grok, Kimi, Muse) must report a version-aligned plugin check, or the host must be an explicit unused-host skip. `scripts/verify-post-upgrade-plugin-refresh.sh` now includes Muse. Grok still uses the `grok-plugin` check name; Muse uses `muse-plugin` (not `muse-plugin-version`). Only Antigravity keeps pass+skip dual-path tolerance. A stale installed package (`warn`) fails the gate.
+
+### Docs
+- **Unsupported and unknown stay fail-closed.** Hosts, flags, and commands that this release does not wire or no longer ships remain unknown (non-zero, no hidden no-op). Matrix cells marked unsupported/available are not capture claims. Pin CLI **0.50.0** with the matching plugin manifests; mixing an older plugin against this binary (or the reverse) is a doctor WARN and a plugin-refresh gate FAIL.
+
+### Release operations (not in this PR)
+- Tag `v0.50.0` and push — release workflow owner after merge.
+- Watch the tagged release workflow and verify `gh release view v0.50.0` — same owner.
+- Merge the Homebrew formula PR (`maintenance/homebrew-v0.50.0`) and confirm `brew upgrade traceary` reports 0.50.0 — same owner.
+- Live plugin refresh after the published binary is on PATH — same owner.
+
 ## [v0.49.0] - 2026-09-06
 
 v0.49.0 is a removal release. User-visible behaviour changes in search, archive/retention-plan, the memory graph, degraded refinements, and the flags those removals take with them. Store upgrades run only on the explicit offline path (`traceary doctor --fix` on a reviewed copy): candidate rewrite, catalog-order suffixes 078–086, verification, atomic publish, rollback retained. A normal store open reports pending work and returns; it never performs this work.
