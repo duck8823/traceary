@@ -7,7 +7,7 @@ set -euo pipefail
 
 TRACEARY_BIN="${TRACEARY_BIN:-traceary}"
 PROJECT_DIR="${PWD}"
-HOSTS=(claude codex gemini antigravity grok kimi)
+HOSTS=(claude codex gemini antigravity grok kimi muse)
 SKIP_HOSTS=()
 SKIP_REASONS=()
 DOCTOR_HOSTS=()
@@ -263,6 +263,15 @@ probe_host() {
       TRACEARY_DB_PATH="${db}" codex exec -C "${PROJECT_DIR}" -s read-only \
         'Reply with the single word ok.' >"${log}" 2>"${err}" </dev/null
       ;;
+    muse)
+      # Trivial prompt stays tool-free; run_with_timeout bounds the
+      # headless approval stall (#2350) into the designed 124 FAIL.
+      # No --yolo / approval bypass: a stall is a finding, not noise.
+      ( cd "${PROJECT_DIR}" && run_with_timeout "${PROBE_TIMEOUT_SECONDS}" \
+          env "${PROBE_ENV_COMMON[@]}" \
+              TRACEARY_DB_PATH="${db}" TRACEARY_HOOK_STATE_DIR="${state}" \
+              muse exec 'Reply with the single word ok.' ) >"${log}" 2>"${err}" </dev/null
+      ;;
   esac
 }
 
@@ -315,7 +324,7 @@ for host in "${HOSTS[@]}"; do
     fi
   else
     case "${host}" in
-      claude|antigravity|grok|kimi|codex) ;;
+      claude|antigravity|grok|kimi|codex|muse) ;;
       gemini)
         echo "FAIL gemini: IneligibleTierError must not count as capture; use --skip gemini='IneligibleTierError' or another explicit reason" >&2
         exit 1
