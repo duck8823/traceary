@@ -67,6 +67,9 @@ jobs:
       - name: Verify post-upgrade live-capture gate
         run: ./scripts/smoke_test_integrations.sh post-upgrade-live-capture
 
+      - name: Verify record/search/refine matrix
+        run: ./scripts/smoke_test_integrations.sh record-search-refine
+
   test:
     name: Test
     runs-on: ubuntu-latest

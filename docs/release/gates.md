@@ -39,6 +39,18 @@ Corpus: **maintainer store 2026-08-11 uncompressed #1620**.
 | Session-tier coefficient | `<= 64 KiB` / session |
 | Resident store | `<= 13 KiB` / canonical operation |
 
+## Dogfooding policy
+
+Real-sized dogfood runs are **not** release gates (owner decision 2026-09-06, #2349). The v0.49.0 offline-upgrade dogfood on a 12 GiB operator copy needed ~40 GiB transient space, took ~1 h, and failed with SQLITE_FULL on a typical maintainer machine (#2347). It was effectively a manual e2e test with no reproducibility or provisioning story.
+
+What MUST hold instead, per release:
+
+1. Plugin identity: `scripts/verify-post-upgrade-plugin-refresh.sh` — every installed host package matches the released binary.
+2. Live record: `scripts/verify-post-upgrade-live-capture.sh` — every unskipped host records `session_started` + `prompt` into a throwaway store.
+3. Read-side guarantee: `scripts/verify-record-search-refine.sh` — synthetic record / search / session-refine / memory round-trip on a bounded throwaway store (under 64 MiB, removed on exit).
+
+A real-sized run is opt-in only: provisioned disk, recorded evidence, never a gate. See [post-upgrade plugin refresh](./post-upgrade-plugins.md).
+
 ## Rebuild
 
 The search-projection family was deleted in v0.49.0 (#2319). `store compact --projection-rebuild` / `--projection-abort` are unknown flags. Search uses the two-tier read path. Offline DROP + VACUUM of the old family is `traceary doctor --fix` (verified candidate, never at store open). See [search projection rebuild](../search-projection-rebuild.md).

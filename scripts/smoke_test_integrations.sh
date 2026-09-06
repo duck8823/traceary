@@ -126,6 +126,11 @@ run_post_upgrade_live_capture() {
   echo 'ok: post-upgrade live capture gate behavior passed'
 }
 
+run_record_search_refine() {
+  "${ROOT_DIR}/scripts/test-verify-record-search-refine.sh"
+  echo 'ok: record/search/refine matrix behavior passed'
+}
+
 case "${TARGET}" in
   all)
     run_claude
@@ -134,6 +139,7 @@ case "${TARGET}" in
     run_grok
     run_post_upgrade_plugin_refresh
     run_post_upgrade_live_capture
+    run_record_search_refine
     ;;
   claude)
     run_claude
@@ -153,8 +159,11 @@ case "${TARGET}" in
   post-upgrade-live-capture)
     run_post_upgrade_live_capture
     ;;
+  record-search-refine)
+    run_record_search_refine
+    ;;
   *)
-    echo "usage: $0 [all|claude|codex|gemini|grok|post-upgrade-plugin-refresh|post-upgrade-live-capture]" >&2
+    echo "usage: $0 [all|claude|codex|gemini|grok|post-upgrade-plugin-refresh|post-upgrade-live-capture|record-search-refine]" >&2
     exit 64
     ;;
 esac
