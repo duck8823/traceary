@@ -40,7 +40,7 @@ var recordedCapabilityProbes = map[string]probeAllowEntry{
 	"infrastructure/sqlite/canonical_event_audit.go:195":         {class: "integrity", site: "offline 082", verdict: "kept", reason: "canonicalAudits codec metadata slice"},
 	"infrastructure/sqlite/canonical_event_audit.go:289":         {class: "integrity", site: "definition", verdict: "kept", reason: "tableHasColumn helper definition"},
 	"infrastructure/sqlite/compaction_copy_filter.go:100":        {class: "integrity", site: "definition", verdict: "kept", reason: "tableExists helper definition"},
-	"infrastructure/sqlite/compaction_rollback_guard.go:39":     {class: "integrity", site: "rollback guard", verdict: "kept", reason: "rollback guard reads only the events table presence on both inodes; no schema-version branch"},
+	"infrastructure/sqlite/compaction_rollback_guard.go:39":      {class: "integrity", site: "rollback guard", verdict: "kept", reason: "rollback guard reads only the events table presence on both inodes; no schema-version branch"},
 	"infrastructure/sqlite/compaction_copy_filter.go:199":        {class: "integrity", site: "offline copy", verdict: "kept", reason: "copy-path structural invariant: events table"},
 	"infrastructure/sqlite/compaction_copy_filter.go:203":        {class: "integrity", site: "offline copy", verdict: "kept", reason: "copy-path structural invariant: command_audits table"},
 	"infrastructure/sqlite/compaction_copy_filter.go:67":         {class: "integrity", site: "offline copy", verdict: "kept", reason: "copy-path structural invariant: source may not be a Traceary store"},
