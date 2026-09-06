@@ -6,11 +6,13 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VERIFY="${ROOT_DIR}/scripts/verify-post-upgrade-plugin-refresh.sh"
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/traceary-plugin-refresh-test.XXXXXX")"
 trap 'rm -rf "${TMP_DIR}"' EXIT
-HOSTS=(claude codex gemini antigravity grok kimi)
+HOSTS=(claude codex gemini antigravity grok kimi muse)
 
 check_name_for() {
   if [[ "$1" == grok ]]; then
     printf '%s\n' 'grok-plugin'
+  elif [[ "$1" == muse ]]; then
+    printf '%s\n' 'muse-plugin'
   else
     printf '%s-plugin-version\n' "$1"
   fi
@@ -42,6 +44,15 @@ if run_fixture "${args[@]}" >/dev/null 2>&1; then
 fi
 echo 'ok: rejects a stale installed package'
 
+for host in "${HOSTS[@]}"; do write_report "${host}" pass; done
+write_report muse warn
+if run_fixture "${args[@]}" >/dev/null 2>&1; then
+  echo 'error: stale Muse package unexpectedly passed' >&2
+  exit 1
+fi
+echo 'ok: rejects a stale Muse package'
+
+for host in "${HOSTS[@]}"; do write_report "${host}" pass; done
 skipped_args=(--skip 'grok=intentionally not installed on this release-QA machine')
 for host in "${HOSTS[@]}"; do skipped_args+=(--doctor-json "${host}=${TMP_DIR}/${host}.json"); done
 run_fixture "${skipped_args[@]}" >/dev/null
@@ -63,7 +74,7 @@ fi
 echo 'ok: rejects all explicit skips without an actual pass'
 
 write_report claude skip
-for host in codex gemini antigravity grok kimi; do write_report "${host}" pass; done
+for host in codex gemini antigravity grok kimi muse; do write_report "${host}" pass; done
 if run_fixture "${args[@]}" >/dev/null 2>&1; then
   echo 'error: non-Antigravity skip unexpectedly passed' >&2
   exit 1
@@ -88,3 +99,17 @@ if run_fixture "${args[@]}" >/dev/null 2>&1; then
   exit 1
 fi
 echo 'ok: rejects a legacy grok-plugin-version report'
+
+for host in "${HOSTS[@]}"; do write_report "${host}" pass; done
+printf '{"checks":[{"name":"muse-plugin-version","status":"pass","message":"must not be parsed"}]}\n' >"${TMP_DIR}/muse.json"
+if run_fixture "${args[@]}" >/dev/null 2>&1; then
+  echo 'error: default muse-plugin-version check unexpectedly passed' >&2
+  exit 1
+fi
+echo 'ok: rejects a default muse-plugin-version report'
+
+if ! grep -E 'HOSTS=\(.*\bmuse\b' "${VERIFY}" >/dev/null; then
+  echo 'error: verify script HOSTS does not include muse' >&2
+  exit 1
+fi
+echo 'ok: verify script HOSTS includes muse'
