@@ -33,6 +33,51 @@ CREATE TABLE events (
     source_hook TEXT
 );`),
 		},
+		"000003_sessions_and_observations.sql": {
+			Data: []byte(`
+CREATE TABLE sessions (
+    session_id TEXT PRIMARY KEY,
+    started_at TEXT NOT NULL,
+    ended_at TEXT,
+    client TEXT NOT NULL DEFAULT '',
+    agent TEXT NOT NULL DEFAULT '',
+    workspace TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE session_workspace_observations (
+    session_id TEXT NOT NULL,
+    workspace TEXT NOT NULL,
+    observed_relationship TEXT NOT NULL,
+    source_client TEXT NOT NULL DEFAULT '',
+    source_hook TEXT NOT NULL DEFAULT '',
+    observation_kind TEXT NOT NULL,
+    observation_count INTEGER NOT NULL DEFAULT 1,
+    first_observed_at TEXT NOT NULL,
+    last_observed_at TEXT NOT NULL,
+    observed_event_id TEXT,
+    raw_workspace TEXT,
+    delivery_record_id TEXT,
+    attribution_fingerprint TEXT NOT NULL,
+    diagnostic_reason TEXT NOT NULL DEFAULT '',
+    observation_origin TEXT NOT NULL,
+    PRIMARY KEY (session_id, workspace, observed_relationship, source_client, source_hook, observation_kind)
+);
+CREATE TABLE hook_delivery_attempts (
+    delivery_record_id TEXT NOT NULL,
+    attempted_event_id TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    attempt_origin TEXT NOT NULL,
+    observed_at TEXT NOT NULL,
+    PRIMARY KEY (delivery_record_id, attempted_event_id)
+);
+CREATE TABLE session_workspace_aliases (
+    session_id TEXT NOT NULL,
+    alias_workspace TEXT NOT NULL,
+    reviewed_at TEXT NOT NULL,
+    reviewed_by TEXT NOT NULL DEFAULT '',
+    note TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (session_id, alias_workspace)
+);`),
+		},
 		"000002_add_event_metadata.sql": {
 			Data: []byte(`
 ALTER TABLE events ADD COLUMN client TEXT NOT NULL DEFAULT '';

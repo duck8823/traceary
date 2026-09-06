@@ -32,7 +32,6 @@ func TestPayloadCodecMechanicalInventory(t *testing.T) {
 	wantCodecColumns := map[string]struct{}{
 		"infrastructure/sqlite/restore_dedupe_archive.go": {},
 		"infrastructure/sqlite/canonical_event_audit.go":  {},
-		"infrastructure/sqlite/attestation_store.go":      {},
 	}
 	columnHits := grepLive(t, root, regexp.MustCompile(`body_codec|command_codec`), []string{"domain", "application", "presentation", "infrastructure"})
 	got := map[string]struct{}{}

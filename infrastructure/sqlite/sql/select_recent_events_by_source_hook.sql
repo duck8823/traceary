@@ -2,12 +2,8 @@
 -- is the top-level conjunct so hook-specific filtering stays out of the
 -- general recent-events path.
 --
--- Used for hook names that have no legacy body-prefix equivalent
--- (everything except subagent_stop / pre_compact). For those two names
--- the datasource dispatches to
--- `select_recent_events_by_source_hook_with_legacy.sql` instead so
--- pre-#672 rows that lack source_hook but carry the `[phase:*]` body
--- prefix stay reachable. See #683.
+-- Filtering is source_hook only; pre-#672 body-prefix UNION readers
+-- were removed with #2322.
 SELECT e.id, e.kind, e.client, e.agent, e.session_id, e.workspace, e.body, e.source_hook, e.created_at,
        ca.command_wrapper, ca.command_name,
        ca.input_truncated, ca.output_truncated,

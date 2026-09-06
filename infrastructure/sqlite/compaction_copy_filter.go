@@ -60,6 +60,10 @@ func applyCopyFilters(ctx context.Context, work string, _ application.CompactFil
 		return err
 	}
 
+	// Offline copy-path structural invariant: the source file may not be a
+	// Traceary store at all (wrong --db-path). Absence must be a clear
+	// corruption/empty error, not a nil-deref. Integrity-class, not version
+	// compatibility; the version gate cannot replace it.
 	hasEvents, err := tableExists(ctx, db, "events")
 	if err != nil {
 		return err
@@ -190,6 +194,8 @@ func clearDuplicatedCommandExecutedBodies(ctx context.Context, db *sql.DB) (appl
 }
 
 func commandBodyReclaimReady(ctx context.Context, db *sql.DB) (bool, error) {
+	// Same copy-path structural invariant as filterEventsForCopy: source
+	// may lack canonical tables. Integrity-class, not compatibility.
 	hasEvents, err := tableExists(ctx, db, "events")
 	if err != nil || !hasEvents {
 		return false, err

@@ -116,6 +116,8 @@ func (a canonicalAccumulator) tableDigest(table string, columns []string) [32]by
 // CanonicalEventAuditDigest streams the exact versioned logical event/audit
 // contract without retaining row identifiers or payloads in evidence.
 func CanonicalEventAuditDigest(ctx context.Context, db *sql.DB) (domain.CanonicalEventAuditEvidence, error) {
+	// 082 upgrade verification reads the source while body_codec still
+	// exists. Removing this probe would hash encoded bytes as plaintext.
 	hasCodec, err := tableHasColumn(ctx, db, "events", "body_codec")
 	if err != nil {
 		return domain.CanonicalEventAuditEvidence{}, err

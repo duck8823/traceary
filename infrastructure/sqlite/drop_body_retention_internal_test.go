@@ -58,10 +58,10 @@ func TestEvaluateConservationLawSkipsRawBodyRetentionWhen083Pends(t *testing.T) 
 	}
 	defer func() { _ = candidateDB.Close() }()
 
-	if err := evaluateConservationLaw(ctx, sourceDB, candidateDB, 45, false, true); err != nil {
+	if err := evaluateConservationLaw(ctx, sourceDB, candidateDB, 45, false, true, false); err != nil {
 		t.Fatalf("evaluateConservationLaw(45, dropRetentionPending=true) = %v, want nil", err)
 	}
-	err = evaluateConservationLaw(ctx, sourceDB, candidateDB, 45, false, false)
+	err = evaluateConservationLaw(ctx, sourceDB, candidateDB, 45, false, false, false)
 	if err == nil {
 		t.Fatal("evaluateConservationLaw(45, dropRetentionPending=false) = nil, want missing-index")
 	}

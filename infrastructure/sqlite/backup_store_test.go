@@ -10,17 +10,13 @@ import (
 	"time"
 
 	_ "modernc.org/sqlite"
-
-	"github.com/duck8823/traceary/infrastructure/sqlite"
 )
 
 func TestDatasource_CreateBackup(t *testing.T) {
 	t.Parallel()
 
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")
-	db := sqlite.NewDatabase(dbPath, backupTestMigrations())
-	eventDS := sqlite.NewEventDatasource(db)
-	storeManager := sqlite.NewStoreManagementDatasource(db)
+	eventDS, storeManager := newEventDatasource(t, dbPath, backupTestMigrations())
 	if err := storeManager.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}
@@ -118,9 +114,7 @@ func TestDatasource_RestoreBackup(t *testing.T) {
 	t.Parallel()
 
 	sourceDBPath := filepath.Join(t.TempDir(), "source", "traceary.db")
-	sourceDB := sqlite.NewDatabase(sourceDBPath, backupTestMigrations())
-	sut := sqlite.NewStoreManagementDatasource(sourceDB)
-	eventDS := sqlite.NewEventDatasource(sourceDB)
+	eventDS, sut := newEventDatasource(t, sourceDBPath, backupTestMigrations())
 	if err := sut.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
 	}

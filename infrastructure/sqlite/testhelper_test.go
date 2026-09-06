@@ -153,7 +153,7 @@ func newEventDatasource(
 	migrations fs.FS,
 ) (*sqlite.EventDatasource, *sqlite.StoreManagementDatasource) {
 	t.Helper()
-	db := sqlite.NewDatabase(dbPath, migrations)
+	db := sqlite.NewDatabase(dbPath, withEventWriteSchema(t, migrations))
 	return sqlite.NewEventDatasource(db), sqlite.NewStoreManagementDatasource(db)
 }
 
@@ -166,8 +166,85 @@ func newFullDatasources(
 	migrations fs.FS,
 ) (*sqlite.EventDatasource, *sqlite.SessionDatasource, *sqlite.StoreManagementDatasource) {
 	t.Helper()
-	db := sqlite.NewDatabase(dbPath, migrations)
+	db := sqlite.NewDatabase(dbPath, withEventWriteSchema(t, migrations))
 	return sqlite.NewEventDatasource(db), sqlite.NewSessionDatasource(db), sqlite.NewStoreManagementDatasource(db)
+}
+
+// withEventWriteSchema appends Save-path tables onto skip-ahead MapFS
+// that never create sessions. Catalogs that already DDL sessions (on-disk
+// lineage or list-sessions fixtures) are left unchanged.
+func withEventWriteSchema(t testing.TB, migrations fs.FS) fs.FS {
+	t.Helper()
+	out := fstest.MapFS{}
+	hasSessionsDDL := false
+	initPath := ""
+	err := fs.WalkDir(migrations, ".", func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if d.IsDir() {
+			return nil
+		}
+		data, readErr := fs.ReadFile(migrations, path)
+		if readErr != nil {
+			return fmt.Errorf("read %s: %w", path, readErr)
+		}
+		out[path] = &fstest.MapFile{Data: data}
+		base := filepath.Base(path)
+		if strings.Contains(string(data), "CREATE TABLE sessions") || strings.Contains(string(data), "CREATE TABLE IF NOT EXISTS sessions") {
+			hasSessionsDDL = true
+		}
+		if strings.HasPrefix(base, "000001_") {
+			initPath = path
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("copy migrations: %v", err)
+	}
+	if hasSessionsDDL || initPath == "" {
+		return migrations
+	}
+	extra := []byte(`
+CREATE TABLE IF NOT EXISTS sessions (
+    session_id TEXT PRIMARY KEY,
+    started_at TEXT NOT NULL,
+    ended_at TEXT,
+    client TEXT NOT NULL DEFAULT '',
+    agent TEXT NOT NULL DEFAULT '',
+    workspace TEXT NOT NULL DEFAULT '',
+    label TEXT NOT NULL DEFAULT '',
+    summary TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS hook_delivery_attempts (
+    delivery_record_id TEXT NOT NULL,
+    attempted_event_id TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    attempt_origin TEXT NOT NULL,
+    observed_at TEXT NOT NULL,
+    PRIMARY KEY (delivery_record_id, attempted_event_id)
+);
+CREATE TABLE IF NOT EXISTS session_workspace_observations (
+    session_id TEXT NOT NULL,
+    workspace TEXT NOT NULL,
+    observed_relationship TEXT NOT NULL,
+    source_client TEXT NOT NULL DEFAULT '',
+    source_hook TEXT NOT NULL DEFAULT '',
+    observation_kind TEXT NOT NULL,
+    observation_count INTEGER NOT NULL DEFAULT 1,
+    first_observed_at TEXT NOT NULL,
+    last_observed_at TEXT NOT NULL,
+    observed_event_id TEXT,
+    raw_workspace TEXT,
+    delivery_record_id TEXT,
+    attribution_fingerprint TEXT NOT NULL,
+    diagnostic_reason TEXT NOT NULL DEFAULT '',
+    observation_origin TEXT NOT NULL,
+    PRIMARY KEY (session_id, workspace, observed_relationship, source_client, source_hook, observation_kind)
+);
+`)
+	out[initPath] = &fstest.MapFile{Data: append(append([]byte{}, out[initPath].Data...), extra...)}
+	return out
 }
 
 // newStoreManagementDatasource returns a StoreManagementDatasource.

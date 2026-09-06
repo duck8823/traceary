@@ -24,6 +24,7 @@ func TestSQLiteCompactionBuilderBuildAndVerifyPair(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	stampTestStoreFormat(t, db)
 	if _, err := db.Exec(`CREATE TABLE sample(id TEXT PRIMARY KEY, body BLOB); INSERT INTO sample VALUES('a',x'0001'),('b','text')`); err != nil {
 		t.Fatal(err)
 	}
@@ -75,6 +76,7 @@ func TestSQLiteCompactionVerificationDoesNotCreateSidecars(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	stampTestStoreFormat(t, db)
 	if _, err = db.Exec(`PRAGMA journal_mode=WAL; CREATE TABLE sample(id INTEGER PRIMARY KEY, body TEXT); INSERT INTO sample(body) VALUES('value'); PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
 		t.Fatal(err)
 	}
@@ -109,6 +111,7 @@ func TestStoreCompactionSmallAllocatedShapeE2E(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	stampTestStoreFormat(t, db)
 	if _, err := db.Exec(`CREATE TABLE sample(id INTEGER PRIMARY KEY, body BLOB); INSERT INTO sample(body) VALUES(zeroblob(1048576)),('queryable')`); err != nil {
 		t.Fatal(err)
 	}
@@ -186,6 +189,7 @@ func TestCompact_CompletesWhileOtherProcessWaitsForSharedLease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	stampTestStoreFormat(t, db)
 	if _, err := db.Exec(`CREATE TABLE sample(id INTEGER PRIMARY KEY, body BLOB); INSERT INTO sample(body) VALUES(zeroblob(65536)),('queryable')`); err != nil {
 		t.Fatal(err)
 	}
@@ -227,6 +231,7 @@ func TestStoreCompactionResumeReplacesRunOwnedNearCapacityPartialCandidate(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
+	stampTestStoreFormat(t, db)
 	if _, err := db.Exec(`CREATE TABLE payloads(id INTEGER PRIMARY KEY, body BLOB); INSERT INTO payloads(body) VALUES(zeroblob(16777216)); CREATE TABLE probe(v TEXT); INSERT INTO probe VALUES('intact')`); err != nil {
 		t.Fatal(err)
 	}
@@ -309,6 +314,7 @@ func TestStoreCompactionResumePreservesUnknownValidCandidate(t *testing.T) {
 	dir := t.TempDir()
 	source := filepath.Join(dir, "source.db")
 	db, _ := sql.Open("sqlite", directSQLiteRWDSNCreate(source))
+	stampTestStoreFormat(t, db)
 	_, _ = db.Exec(`CREATE TABLE expected(v TEXT); INSERT INTO expected VALUES('source')`)
 	_ = db.Close()
 	plannerJournal := &CompactionFileJournal{Dir: filepath.Join(dir, "planner")}
@@ -358,6 +364,7 @@ func TestStoreCompactionResumeDoesNotAdoptCrashGapEmptyCandidate(t *testing.T) {
 	dir := t.TempDir()
 	source := filepath.Join(dir, "source.db")
 	db, _ := sql.Open("sqlite", directSQLiteRWDSNCreate(source))
+	stampTestStoreFormat(t, db)
 	_, _ = db.Exec(`CREATE TABLE expected(v TEXT)`)
 	_ = db.Close()
 	planning := &CompactionFileJournal{Dir: filepath.Join(dir, "planning")}
@@ -408,6 +415,7 @@ func TestStoreCompactionResumeRejectsReplacedPreparedCandidateInode(t *testing.T
 	dir := t.TempDir()
 	source := filepath.Join(dir, "source.db")
 	db, _ := sql.Open("sqlite", directSQLiteRWDSNCreate(source))
+	stampTestStoreFormat(t, db)
 	_, _ = db.Exec(`CREATE TABLE expected(v TEXT)`)
 	_ = db.Close()
 	run, journal := prepareCompactionCandidateForResumeTest(ctx, t, source, dir)
@@ -443,6 +451,7 @@ func TestStoreCompactionResumeRebuildsValidIncompletePreparedCandidate(t *testin
 	dir := t.TempDir()
 	source := filepath.Join(dir, "source.db")
 	db, _ := sql.Open("sqlite", directSQLiteRWDSNCreate(source))
+	stampTestStoreFormat(t, db)
 	_, _ = db.Exec(`CREATE TABLE expected(v TEXT); INSERT INTO expected VALUES('source')`)
 	_ = db.Close()
 	run, journal := prepareCompactionCandidateForResumeTest(ctx, t, source, dir)
@@ -477,6 +486,7 @@ func TestStoreCompactionApplyRejectsSameContentReplacementAfterVerification(t *t
 	dir := t.TempDir()
 	source := filepath.Join(dir, "source.db")
 	db, _ := sql.Open("sqlite", directSQLiteRWDSNCreate(source))
+	stampTestStoreFormat(t, db)
 	_, _ = db.Exec(`CREATE TABLE expected(v TEXT); INSERT INTO expected VALUES('source')`)
 	_ = db.Close()
 	journal := &CompactionFileJournal{Dir: filepath.Join(dir, "journal")}
@@ -661,6 +671,7 @@ func TestStoreCompactionAbandonsStaleCandidatePreparedAndReplans(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	stampTestStoreFormat(t, db)
 	if _, err := db.Exec(`CREATE TABLE sample(id INTEGER PRIMARY KEY, body TEXT); INSERT INTO sample(body) VALUES('keep')`); err != nil {
 		t.Fatal(err)
 	}
@@ -722,6 +733,19 @@ func TestStoreCompactionDoesNotAbandonSwapIntent(t *testing.T) {
 	}
 	if journal.run.Phase != domain.CompactionSwapIntent {
 		t.Fatalf("phase=%s, swap_intent must stay", journal.run.Phase)
+	}
+}
+
+func stampTestStoreFormat(t *testing.T, db *sql.DB) {
+	t.Helper()
+	if _, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS store_format_state (
+			singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+			minimum_reader_version INTEGER NOT NULL
+		);
+		INSERT OR IGNORE INTO store_format_state(singleton, minimum_reader_version) VALUES (1, 42);
+	`); err != nil {
+		t.Fatal(err)
 	}
 }
 

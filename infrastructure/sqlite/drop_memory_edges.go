@@ -47,7 +47,7 @@ func refuseMemoryEdgesIfNonEmpty(ctx context.Context, db *sql.DB) error {
 	return &apptypes.MemoryEdgesNonEmptyError{RowCount: rowCount}
 }
 
-func verifyDropMemoryEdges(ctx context.Context, candidateDB *sql.DB) error {
+func verifyDropMemoryEdges(ctx context.Context, candidateDB *sql.DB, laterReaderRaisePending bool) error {
 	exists, err := tableExists(ctx, candidateDB, memoryEdgesTable)
 	if err != nil {
 		return err
@@ -59,7 +59,11 @@ func verifyDropMemoryEdges(ctx context.Context, candidateDB *sql.DB) error {
 	if err := candidateDB.QueryRowContext(ctx, `SELECT minimum_reader_version FROM store_format_state WHERE singleton = 1`).Scan(&minimumReader); err != nil {
 		return fmt.Errorf("read candidate minimum_reader_version: %w", err)
 	}
-	if minimumReader != droppedMemoryEdgesReaderVersion {
+	if laterReaderRaisePending {
+		if minimumReader < droppedMemoryEdgesReaderVersion {
+			return fmt.Errorf("candidate minimum_reader_version = %d, want at least %d", minimumReader, droppedMemoryEdgesReaderVersion)
+		}
+	} else if minimumReader != droppedMemoryEdgesReaderVersion {
 		return fmt.Errorf("candidate minimum_reader_version = %d, want %d", minimumReader, droppedMemoryEdgesReaderVersion)
 	}
 	return nil

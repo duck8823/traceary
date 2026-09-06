@@ -43,9 +43,6 @@ var selectLatestEventTimestampKindQuery string
 //go:embed sql/select_recent_event_metadata_by_source_hook.sql
 var selectRecentEventMetadataBySourceHookQuery string
 
-//go:embed sql/select_recent_event_metadata_by_source_hook_with_legacy.sql
-var selectRecentEventMetadataBySourceHookWithLegacyQuery string
-
 //go:embed sql/get_context_event_metadata.sql
 var getContextEventMetadataQuery string
 
@@ -527,34 +524,6 @@ func queryRecentEventMetadataWith(
 		}
 		return rows, nil
 	}
-	if sourceHookHasLegacyPrefix(sourceHook) {
-		queryText := metadataPageQuery(
-			metadataTimeRangeQuery(selectRecentEventMetadataBySourceHookWithLegacyQuery, fromValue, toValue),
-			criteria.PageAnchor(),
-		)
-		rows, err := query(
-			ctx,
-			queryText,
-			metadataSourceHookLegacyQueryArgs(
-				sourceHook,
-				criteria.Kind(),
-				criteria.Client(),
-				criteria.Agent(),
-				criteria.SessionID(),
-				criteria.Workspace(),
-				failuresFlag,
-				fromValue,
-				toValue,
-				criteria.PageAnchor(),
-				limit,
-				offset,
-			)...,
-		)
-		if err != nil {
-			return nil, xerrors.Errorf("query recent event metadata by source hook with legacy: %w", err)
-		}
-		return rows, nil
-	}
 	queryText := metadataPageQuery(
 		metadataTimeRangeQuery(selectRecentEventMetadataBySourceHookQuery, fromValue, toValue),
 		criteria.PageAnchor(),
@@ -718,20 +687,6 @@ func metadataSourceHookPrimaryQueryArgs(
 	limit, offset int,
 ) []any {
 	args := []any{sourceHook, kind.String(), kind.String(), client.String(), client.String(), agent.String(), agent.String(), sessionID.String(), sessionID.String(), workspace.String(), workspace.String(), failuresFlag}
-	args = append(args, metadataTimeRangeArgs(fromValue, toValue)...)
-	args = append(args, metadataPageAnchorArgs(pageAnchor)...)
-	return append(args, metadataLimitOffsetArgs(pageAnchor, limit, offset)...)
-}
-
-func metadataSourceHookLegacyQueryArgs(
-	sourceHook string,
-	kind types.EventKind, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace,
-	failuresFlag int,
-	fromValue, toValue string,
-	pageAnchor apptypes.EventPageAnchor,
-	limit, offset int,
-) []any {
-	args := []any{sourceHook, sourceHook, sourceHook, kind.String(), kind.String(), client.String(), client.String(), agent.String(), agent.String(), sessionID.String(), sessionID.String(), workspace.String(), workspace.String(), failuresFlag}
 	args = append(args, metadataTimeRangeArgs(fromValue, toValue)...)
 	args = append(args, metadataPageAnchorArgs(pageAnchor)...)
 	return append(args, metadataLimitOffsetArgs(pageAnchor, limit, offset)...)

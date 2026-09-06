@@ -120,7 +120,14 @@ func createCompactableStore(t *testing.T, path string) {
 		t.Fatalf("sql.Open() error = %v", err)
 	}
 	defer func() { _ = db.Close() }()
-	if _, err := db.Exec(`CREATE TABLE sample(id INTEGER PRIMARY KEY, body BLOB); INSERT INTO sample(body) VALUES(zeroblob(1048576))`); err != nil {
+	if _, err := db.Exec(`
+		CREATE TABLE store_format_state (
+			singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+			minimum_reader_version INTEGER NOT NULL
+		);
+		INSERT INTO store_format_state(singleton, minimum_reader_version) VALUES (1, 42);
+		CREATE TABLE sample(id INTEGER PRIMARY KEY, body BLOB);
+		INSERT INTO sample(body) VALUES(zeroblob(1048576))`); err != nil {
 		t.Fatalf("seed compactable store: %v", err)
 	}
 }

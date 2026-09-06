@@ -116,7 +116,7 @@ func TestDropArchiveSegments_EmptyTableUpgradeDropsAndRaisesReader(t *testing.T)
 	if tablePresent(t, path, "archive_segments") {
 		t.Fatal("archive_segments survived empty drop")
 	}
-	assertMinimumReaderVersion(t, path, 41)
+	assertMinimumReaderVersion(t, path, 42)
 }
 
 func TestDropArchiveSegments_LiveOpenDefersEmptyPopulatedStore(t *testing.T) {

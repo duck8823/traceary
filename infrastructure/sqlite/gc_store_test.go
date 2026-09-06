@@ -197,8 +197,34 @@ CREATE TABLE command_audits (
 			Data: []byte(`
 ALTER TABLE events ADD COLUMN body_pruned_at TEXT;
 ALTER TABLE events ADD COLUMN body_pruned_plan_id TEXT;
-CREATE TABLE sessions (session_id TEXT PRIMARY KEY, ended_at TEXT);
-CREATE TABLE session_refinements (session_id TEXT PRIMARY KEY, covers_from_event_id TEXT NOT NULL, covers_to_event_id TEXT NOT NULL);`),
+CREATE TABLE sessions (session_id TEXT PRIMARY KEY, ended_at TEXT, workspace TEXT NOT NULL DEFAULT '');
+CREATE TABLE session_refinements (session_id TEXT PRIMARY KEY, covers_from_event_id TEXT NOT NULL, covers_to_event_id TEXT NOT NULL);
+CREATE TABLE hook_delivery_attempts (
+    delivery_record_id TEXT NOT NULL,
+    attempted_event_id TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    attempt_origin TEXT NOT NULL,
+    observed_at TEXT NOT NULL,
+    PRIMARY KEY (delivery_record_id, attempted_event_id)
+);
+CREATE TABLE session_workspace_observations (
+    session_id TEXT NOT NULL,
+    workspace TEXT NOT NULL,
+    observed_relationship TEXT NOT NULL,
+    source_client TEXT NOT NULL DEFAULT '',
+    source_hook TEXT NOT NULL DEFAULT '',
+    observation_kind TEXT NOT NULL,
+    observation_count INTEGER NOT NULL DEFAULT 1,
+    first_observed_at TEXT NOT NULL,
+    last_observed_at TEXT NOT NULL,
+    observed_event_id TEXT,
+    raw_workspace TEXT,
+    delivery_record_id TEXT,
+    attribution_fingerprint TEXT NOT NULL,
+    diagnostic_reason TEXT NOT NULL DEFAULT '',
+    observation_origin TEXT NOT NULL,
+    PRIMARY KEY (session_id, workspace, observed_relationship, source_client, source_hook, observation_kind)
+);`),
 		},
 	}
 	dbPath := filepath.Join(t.TempDir(), "traceary", "traceary.db")

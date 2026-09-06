@@ -16,7 +16,14 @@ func TestCapacityInspectorDBStatFallbackClassification(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := raw.Exec(`CREATE TABLE events(id TEXT, body TEXT); CREATE TABLE event_metadata_projection(id TEXT, body_stored_bytes INTEGER)`); err != nil {
+	if _, err := raw.Exec(`
+		CREATE TABLE store_format_state (
+			singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+			minimum_reader_version INTEGER NOT NULL
+		);
+		INSERT INTO store_format_state(singleton, minimum_reader_version) VALUES (1, 42);
+		CREATE TABLE events(id TEXT, body TEXT);
+		CREATE TABLE event_metadata_projection(id TEXT, body_stored_bytes INTEGER)`); err != nil {
 		t.Fatal(err)
 	}
 	if err := raw.Close(); err != nil {

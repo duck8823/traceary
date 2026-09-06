@@ -115,6 +115,13 @@ UPDATE sessions SET terminal_reason = 'legacy_unknown' WHERE ended_at IS NOT NUL
 			Data: []byte(`ALTER TABLE events ADD COLUMN created_at_norm TEXT;
 UPDATE events SET created_at_norm = ts_norm(created_at);`),
 		},
+		"000036_add_store_format_state.sql": {
+			Data: []byte(`CREATE TABLE store_format_state (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    minimum_reader_version INTEGER NOT NULL
+);
+INSERT INTO store_format_state(singleton, minimum_reader_version) VALUES (1, 34);`),
+		},
 		"000034_create_event_metadata_projection.sql": {
 			Data: []byte(`CREATE TABLE event_metadata_projection (
     id TEXT PRIMARY KEY, kind TEXT NOT NULL, client TEXT NOT NULL, agent TEXT NOT NULL,
@@ -129,6 +136,44 @@ CREATE INDEX idx_event_metadata_kind_created_at_norm_id_desc ON event_metadata_p
 CREATE TRIGGER event_metadata_projection_events_after_insert AFTER INSERT ON events BEGIN
     INSERT INTO event_metadata_projection VALUES (NEW.id, NEW.kind, NEW.client, NEW.agent, NEW.session_id, NEW.workspace, NEW.created_at, ts_norm(NEW.created_at));
 END;`),
+		},
+		"000023_hook_delivery_attempts.sql": {
+			Data: []byte(`CREATE TABLE hook_delivery_attempts (
+    delivery_record_id TEXT NOT NULL,
+    attempted_event_id TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    attempt_origin TEXT NOT NULL,
+    observed_at TEXT NOT NULL,
+    PRIMARY KEY (delivery_record_id, attempted_event_id)
+);`),
+		},
+		"000076_session_workspace_observations.sql": {
+			Data: []byte(`CREATE TABLE session_workspace_observations (
+    session_id TEXT NOT NULL,
+    workspace TEXT NOT NULL,
+    observed_relationship TEXT NOT NULL,
+    source_client TEXT NOT NULL DEFAULT '',
+    source_hook TEXT NOT NULL DEFAULT '',
+    observation_kind TEXT NOT NULL,
+    observation_count INTEGER NOT NULL DEFAULT 1,
+    first_observed_at TEXT NOT NULL,
+    last_observed_at TEXT NOT NULL,
+    observed_event_id TEXT,
+    raw_workspace TEXT,
+    delivery_record_id TEXT,
+    attribution_fingerprint TEXT NOT NULL,
+    diagnostic_reason TEXT NOT NULL DEFAULT '',
+    observation_origin TEXT NOT NULL,
+    PRIMARY KEY (session_id, workspace, observed_relationship, source_client, source_hook, observation_kind)
+);
+CREATE TABLE session_workspace_aliases (
+    session_id TEXT NOT NULL,
+    alias_workspace TEXT NOT NULL,
+    reviewed_at TEXT NOT NULL,
+    reviewed_by TEXT NOT NULL DEFAULT '',
+    note TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (session_id, alias_workspace)
+);`),
 		},
 		"000046_create_session_refinements.sql": {
 			Data: []byte(`CREATE TABLE session_refinements (

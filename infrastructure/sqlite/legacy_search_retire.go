@@ -12,8 +12,11 @@ import (
 	"github.com/duck8823/traceary/domain"
 )
 
-// legacySearchFamilyTables are the large migration-032 objects removed by
-// store search-retire. Migration 052 already dropped writers/control.
+// legacySearchFamilyTables are the large migration-032 family objects
+// (not the 080-dropped search-projection family). Doctor still needs
+// this retire path for operator stores that carry the family: the live
+// caller is presentation/cli/doctor_store_size.go (isLegacySearchIndexObject).
+// Keep: integrity-class, not a version-era compatibility probe.
 var legacySearchFamilyTables = []string{
 	"event_search_documents",
 	"event_search_fts",

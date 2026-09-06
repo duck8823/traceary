@@ -101,11 +101,6 @@ func verifyAttestationChainSnapshotOnce(ctx context.Context, db *sql.DB) (attest
 		return attestationChainSnapshot{}, nil
 	}
 
-	codec, err := detectAttestedCodecColumns(ctx, db)
-	if err != nil {
-		return attestationChainSnapshot{}, err
-	}
-
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return attestationChainSnapshot{}, xerrors.Errorf("begin attestation verify: %w", err)
@@ -163,7 +158,7 @@ func verifyAttestationChainSnapshotOnce(ctx context.Context, db *sql.DB) (attest
 		if item.prevHex != prevHex {
 			return attestationChainSnapshot{}, xerrors.Errorf("attestation link %d predecessor mismatch", item.seq)
 		}
-		recomputedContent, err := recomputeAttestationContent(ctx, tx, item.eventID, item.kind, codec)
+		recomputedContent, err := recomputeAttestationContent(ctx, tx, item.eventID, item.kind)
 		if err != nil {
 			return attestationChainSnapshot{}, err
 		}
@@ -206,6 +201,9 @@ func appendAttestationLink(ctx context.Context, tx *sql.Tx, event *model.Event, 
 	if event == nil {
 		return nil, xerrors.Errorf("event must not be nil")
 	}
+	// attestation_links is an optional feature facet: absence means
+	// attestation is not initialized and skip is specified behavior, not
+	// a version-era compatibility probe. The version gate cannot replace it.
 	enabled, err := tableExistsInTransaction(ctx, tx, "attestation_links")
 	if err != nil {
 		return nil, err
@@ -288,46 +286,10 @@ func appendAttestationLink(ctx context.Context, tx *sql.Tx, event *model.Event, 
 	}, nil
 }
 
-type attestedCodecColumns struct {
-	eventBody bool
-	audit     bool
-}
-
-func detectAttestedCodecColumns(ctx context.Context, db *sql.DB) (attestedCodecColumns, error) {
-	var columns attestedCodecColumns
-	hasBody, err := tableHasColumn(ctx, db, "events", "body_codec")
-	if err != nil {
-		return attestedCodecColumns{}, err
-	}
-	columns.eventBody = hasBody
-	hasAudit, err := tableHasColumn(ctx, db, "command_audits", "command_codec")
-	if err != nil {
-		return attestedCodecColumns{}, err
-	}
-	columns.audit = hasAudit
-	return columns, nil
-}
-
-func decodeAttestedStored(stored []byte, codec sql.NullString, format sql.NullInt64, plaintext sql.NullInt64, encoded sql.NullInt64, checksum sql.NullString) ([]byte, error) {
-	row := payloadRow{
-		Stored:         stored,
-		Codec:          codec,
-		FormatVersion:  format,
-		PlaintextBytes: plaintext,
-		StoredBytes:    encoded,
-		SHA256:         checksum,
-	}
-	plain, err := row.decode(maxDecodedPayloadBytes)
-	if err != nil {
-		return nil, xerrors.Errorf("decode attested payload: %w", err)
-	}
-	return plain, nil
-}
-
-func recomputeAttestationContent(ctx context.Context, q queryRowContexter, eventID, kind string, codec attestedCodecColumns) (string, error) {
+func recomputeAttestationContent(ctx context.Context, q queryRowContexter, eventID, kind string) (string, error) {
 	switch kind {
 	case attestation.KindPrompt:
-		createdAt, body, err := loadAttestedPromptPlaintext(ctx, q, eventID, codec.eventBody)
+		createdAt, body, err := loadAttestedPromptPlaintext(ctx, q, eventID)
 		if err != nil {
 			return "", err
 		}
@@ -341,7 +303,7 @@ func recomputeAttestationContent(ctx context.Context, q queryRowContexter, event
 		}
 		return attestation.EncodeHex(sum), nil
 	case attestation.KindCommand:
-		createdAt, commandText, inputText, err := loadAttestedCommandPlaintext(ctx, q, eventID, codec.audit)
+		createdAt, commandText, inputText, err := loadAttestedCommandPlaintext(ctx, q, eventID)
 		if err != nil {
 			return "", err
 		}
@@ -360,87 +322,35 @@ func recomputeAttestationContent(ctx context.Context, q queryRowContexter, event
 	}
 }
 
-func loadAttestedPromptPlaintext(ctx context.Context, q queryRowContexter, eventID string, hasCodec bool) (string, []byte, error) {
+func loadAttestedPromptPlaintext(ctx context.Context, q queryRowContexter, eventID string) (string, []byte, error) {
 	var createdAt string
 	var body []byte
-	if !hasCodec {
-		if err := q.QueryRowContext(ctx, `
-			SELECT created_at, body
-			  FROM events
-			 WHERE id = ?`, eventID,
-		).Scan(&createdAt, &body); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return "", nil, xerrors.Errorf("attested prompt %s is missing", eventID)
-			}
-			return "", nil, xerrors.Errorf("load attested prompt %s: %w", eventID, err)
-		}
-		return createdAt, body, nil
-	}
-	var codec sql.NullString
-	var format, plaintext, encoded sql.NullInt64
-	var checksum sql.NullString
 	if err := q.QueryRowContext(ctx, `
-		SELECT created_at, body, body_codec, body_format_version, body_plaintext_bytes, body_encoded_bytes, body_sha256
+		SELECT created_at, body
 		  FROM events
 		 WHERE id = ?`, eventID,
-	).Scan(&createdAt, &body, &codec, &format, &plaintext, &encoded, &checksum); err != nil {
+	).Scan(&createdAt, &body); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return "", nil, xerrors.Errorf("attested prompt %s is missing", eventID)
 		}
 		return "", nil, xerrors.Errorf("load attested prompt %s: %w", eventID, err)
 	}
-	plain, err := decodeAttestedStored(body, codec, format, plaintext, encoded, checksum)
-	if err != nil {
-		return "", nil, xerrors.Errorf("decode attested prompt %s: %w", eventID, err)
-	}
-	return createdAt, plain, nil
+	return createdAt, body, nil
 }
 
-func loadAttestedCommandPlaintext(ctx context.Context, q queryRowContexter, eventID string, hasCodec bool) (string, []byte, []byte, error) {
+func loadAttestedCommandPlaintext(ctx context.Context, q queryRowContexter, eventID string) (string, []byte, []byte, error) {
 	var createdAt string
 	var commandStored, inputStored []byte
-	if !hasCodec {
-		if err := q.QueryRowContext(ctx, `
-			SELECT e.created_at, a.command_text, a.input_text
-			  FROM events AS e
-			  JOIN command_audits AS a ON a.event_id = e.id
-			 WHERE e.id = ?`, eventID,
-		).Scan(&createdAt, &commandStored, &inputStored); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return "", nil, nil, xerrors.Errorf("attested command %s is missing", eventID)
-			}
-			return "", nil, nil, xerrors.Errorf("load attested command %s: %w", eventID, err)
-		}
-		return createdAt, commandStored, inputStored, nil
-	}
-	var commandCodec, inputCodec sql.NullString
-	var commandFormat, commandPlain, commandEncoded sql.NullInt64
-	var inputFormat, inputPlain, inputEncoded sql.NullInt64
-	var commandChecksum, inputChecksum sql.NullString
 	if err := q.QueryRowContext(ctx, `
-		SELECT e.created_at, a.command_text, a.input_text,
-		       a.command_codec, a.command_format_version, a.command_plaintext_bytes, a.command_encoded_bytes, a.command_sha256,
-		       a.input_codec, a.input_format_version, a.input_plaintext_bytes, a.input_encoded_bytes, a.input_sha256
+		SELECT e.created_at, a.command_text, a.input_text
 		  FROM events AS e
 		  JOIN command_audits AS a ON a.event_id = e.id
 		 WHERE e.id = ?`, eventID,
-	).Scan(
-		&createdAt, &commandStored, &inputStored,
-		&commandCodec, &commandFormat, &commandPlain, &commandEncoded, &commandChecksum,
-		&inputCodec, &inputFormat, &inputPlain, &inputEncoded, &inputChecksum,
-	); err != nil {
+	).Scan(&createdAt, &commandStored, &inputStored); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return "", nil, nil, xerrors.Errorf("attested command %s is missing", eventID)
 		}
 		return "", nil, nil, xerrors.Errorf("load attested command %s: %w", eventID, err)
 	}
-	commandText, err := decodeAttestedStored(commandStored, commandCodec, commandFormat, commandPlain, commandEncoded, commandChecksum)
-	if err != nil {
-		return "", nil, nil, xerrors.Errorf("decode attested command %s: %w", eventID, err)
-	}
-	inputText, err := decodeAttestedStored(inputStored, inputCodec, inputFormat, inputPlain, inputEncoded, inputChecksum)
-	if err != nil {
-		return "", nil, nil, xerrors.Errorf("decode attested command input %s: %w", eventID, err)
-	}
-	return createdAt, commandText, inputText, nil
+	return createdAt, commandStored, inputStored, nil
 }

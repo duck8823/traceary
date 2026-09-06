@@ -67,6 +67,7 @@ func TestHistoricalOfflineOwners(t *testing.T) {
 		{83, ConservationLawBaseConserving, SemanticVerifierDropBodyRetention, "2325"},
 		{84, ConservationLawBaseConserving, SemanticVerifierDropArchiveSegments, "2326"},
 		{85, ConservationLawBaseConserving, SemanticVerifierDropMemoryEdges, "2327"},
+		{86, ConservationLawBaseConserving, SemanticVerifierDropCompatSurface, "2322"},
 	}
 	for _, tc := range cases {
 		if conservationLawFor(tc.version) != tc.law {
