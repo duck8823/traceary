@@ -19,7 +19,7 @@ usage() {
 Usage: scripts/verify-record-search-refine.sh [options]
 
 Seed a throwaway store through per-host hook entrypoints, then verify
-record, search, session refine, and memory propose/search on that store.
+record, search, session refine, and memory store propose/search on that store.
 
 Options:
   --traceary PATH   Traceary binary to inspect (default: traceary)
