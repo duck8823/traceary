@@ -116,8 +116,8 @@ func (c *RootCLI) applyAuthorizedStoreInit(ctx context.Context, input doctorComm
 		BoundDropApproval:            approval,
 		UnavailableRetentionApproval: unavailableApproval,
 		Budget: domain.PreparedStoreUpgradeBudget{
-			WallTimeLimit:      time.Hour,
-			PublishLockLimit:   time.Hour,
+			WallTimeLimit:      3 * time.Hour,
+			PublishLockLimit:   3 * time.Hour,
 			OwnedDiskByteLimit: size*8 + 1<<30,
 			WALByteLimit:       size*2 + 1<<30,
 			TemporaryByteLimit: size*4 + 1<<30,
