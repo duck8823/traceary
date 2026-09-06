@@ -36,6 +36,18 @@ func TestDoctorInspectCallsAfterLargeStoreReturnAreMapped(t *testing.T) {
 	if !foundConversion {
 		t.Fatal("inspectConsolidationConversion is not among default-path calls after the large-store return")
 	}
+	live := map[string]struct{}{}
+	for _, names := range doctorInspectCallCheckNames {
+		for _, name := range names {
+			live[name] = struct{}{}
+			if _, ok := doctorCheckSurfaceMapping[name]; !ok {
+				t.Fatalf("deferred-skip map names %q which has no acceptance-2 mapping", name)
+			}
+		}
+	}
+	if len(live) != 22 {
+		t.Fatalf("doctorInspectCallCheckNames covers %d check names, want 22", len(live))
+	}
 }
 
 func inspectCallsAfterLargeStoreReturn(src []byte) ([]string, error) {

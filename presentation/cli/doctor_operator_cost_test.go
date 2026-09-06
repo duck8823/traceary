@@ -25,6 +25,9 @@ func TestBuildOperatorCostCheckReportsThisStore(t *testing.T) {
 	if !strings.Contains(check.Message, "this store") || strings.Contains(strings.ToLower(check.Message), "0.5 gib") {
 		t.Fatalf("message = %q", check.Message)
 	}
+	if strings.Contains(check.Message, "undiscardable") {
+		t.Fatalf("message still reports discard-era undiscardable as insight: %q", check.Message)
+	}
 	if !strings.Contains(check.Hint, "this store") {
 		t.Fatalf("hint = %q", check.Hint)
 	}

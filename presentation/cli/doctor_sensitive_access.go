@@ -35,7 +35,7 @@ func (c *RootCLI) inspectSensitiveAccessAuditCoverage(ctx context.Context) docto
 			Message: localizef("failed to list recent command audits: %v", "recent command audit の取得に失敗しました: %v", err),
 		}
 	}
-	// Listing carries metadata-only audits; decode codec-managed payloads
+	// Listing carries metadata-only audits; hydrate stored payloads
 	// before sensitive-path classification so non-identity stores do not fail open.
 	if err := c.event.HydrateCommandAudits(ctx, events, queryservice.FullCommandAuditPayload()); err != nil {
 		return doctorCheck{

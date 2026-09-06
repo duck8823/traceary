@@ -239,10 +239,10 @@ func (c *RootCLI) inspectStoreGrowthBudgetWithClock(ctx context.Context, dbPath 
 	legacyBytes := int64(0)
 	for _, object := range report.Objects {
 		name := strings.ToLower(object.Name)
-		// The retired family is reported by its own check, not as projection
-		// growth. Counting it here would attribute 16 GiB of dead index to the
-		// live projection's budget and point the operator at compaction, which
-		// is the wrong remedy and the wrong first step.
+		// The retired search-index family is reported by its own
+		// migration-state check, not as live store-size growth. Counting it
+		// here would attribute leftover index bytes to the remaining
+		// resident budget and point the operator at the wrong first step.
 		if isLegacySearchIndexObject(name) {
 			legacyBytes += object.Bytes
 			continue

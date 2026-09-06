@@ -53,9 +53,6 @@ compact は拒否しません。詳細は
 [`search-retirement.ja.md`](../operations/search-retirement.ja.md) を参照して
 ください。
 
-compact は `event_content_dedupe_archive`（content-event dedupe の隔離監査証跡）
-を 90 日の retention window 内で保持し、それより古い行は compact 時に破棄します。
-
 DarwinとLinuxでは通常のphysical
 SQLite connectionが、隣接するstableな `<database>.traceary.lock` にshared
 advisory lockを保持します。compact はjournalや向きの
@@ -85,7 +82,6 @@ operator が解放する手段は、書き換えを受け入れたあとの `tra
 です（または compact 成功 JSON の `rollback_path` / `rollback_retained: true`
 を手で削除します）。compact の commit では sibling を消しません。削除するとその
 run の `traceary store compact rollback RUN_ID` は使えなくなります。
-ロールバック copy を消すと、その run で compact が隔離した duplicate の復旧手段も失います。compact 後のストアはそれらの quarantine を持たず、同一内容の canonical survivor だけが残ります。in-place fallback は rollback copy がないため duplicate isolation 自体を行いません。in-place compact は operator quarantine の 90 日窓の期限切れ削除だけは従来どおり行い、その削除にも rollback 成果物はありません（本 issue でも変えていません）。
 `traceary doctor` は隣に残った copy を `compact-rollback-copy` として報告します。
 in-flight ではない abandoned `<db>.compact-*` / `*.work-journal` leftover も
 `doctor --fix` が削除します。

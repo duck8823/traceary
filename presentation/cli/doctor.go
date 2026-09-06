@@ -387,9 +387,8 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		// session-id keyed ended-session probe behind the hook-cancellation
 		// check (#2235), and the 7-day consolidation-conversion aggregate
 		// (#2305). Do not initialize, list events, open spool payloads,
-		// inspect payload codec, walk dbstat, or inspect client state here:
-		// those operations can block behind a live writer and some inspect
-		// event bodies/payloads.
+		// walk dbstat, or inspect client state here: those operations can
+		// block behind a live writer and some inspect event bodies/payloads.
 		// Hook spool is still reported via directory entry counts and byte
 		// sizes only (pending / stale inflight / dead-letter). --fix on this
 		// check is allowed to open SQLite for spool replay only (requeue +
