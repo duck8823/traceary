@@ -66,15 +66,13 @@ func buildOperatorCostCheck(report apptypes.OperatorCostReport) doctorCheck {
 		Name:   name,
 		Status: doctorStatusPass,
 		Message: localizef(
-			"this store: resident=%s (%s/event, %s/session) undiscardable=%s/event amplification=%.2fx rate=%.1f events/day projected undiscardable ~%s/month",
-			"このストア: resident=%s（%s/event、%s/session）undiscardable=%s/event amplification=%.2fx rate=%.1f events/day 予測 undiscardable 約%s/月",
+			"this store: resident=%s (%s/event, %s/session) amplification=%.2fx rate=%.1f events/day",
+			"このストア: resident=%s（%s/event、%s/session）amplification=%.2fx rate=%.1f events/day",
 			formatByteSize(report.ResidentBytes),
 			formatByteSize(int64(report.ResidentBytesPerEvent)),
 			formatByteSize(int64(report.ResidentBytesPerSession)),
-			formatByteSize(int64(report.UndiscardableBytesPerEvent)),
 			report.Amplification,
 			report.EventsPerDay,
-			formatByteSize(report.ProjectedUndiscardableBytesPerMonth),
 		),
 		Hint: Localize(
 			"These figures are measured from this store. They are not a global monthly bound.",

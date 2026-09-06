@@ -63,10 +63,6 @@ The retired search index family is dropped on the work copy. Compact no longer
 refuses a source that still carries it. See
 [`search-retirement.md`](../operations/search-retirement.md).
 
-Compact preserves `event_content_dedupe_archive` (the content-event dedupe
-quarantine audit trail) within a 90-day retention window; rows older than that
-are discarded at compact.
-
 On Darwin and Linux, every normal physical
 SQLite connection holds a shared advisory lock on the stable adjacent
 `<database>.traceary.lock` file. Compact holds the
@@ -100,12 +96,7 @@ The operator releases the copy with `traceary doctor --fix` after accepting
 the rewrite (or by deleting the path named in the compact success JSON:
 `rollback_path`, with `rollback_retained: true`). Compact commit never deletes
 the sibling. Deleting it gives up `traceary store compact rollback RUN_ID` for
-that run. Deleting the rollback copy also gives up recovery of the duplicate
-rows compact isolated during that run: the compacted store no longer carries
-their quarantine, only the canonical survivor whose content they duplicated.
-The in-place fallback isolates no duplicates at all, precisely because it has
-no rollback copy to give up. In-place compact still ages operator quarantine
-out of its 90-day window with no rollback artifact — unchanged by this issue.
+that run.
 `traceary doctor` reports a leftover sibling as
 `compact-rollback-copy`. Abandoned `<db>.compact-*` / `*.work-journal`
 leftovers that are not in-flight are also removed by `doctor --fix`.
