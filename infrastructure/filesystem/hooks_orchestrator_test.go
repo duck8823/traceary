@@ -420,6 +420,13 @@ func TestHooksOrchestrator_NormalizeClient(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("muse is not an orchestrator client", func(t *testing.T) {
+		t.Parallel()
+		if _, err := orchestrator.NormalizeClient("muse"); err == nil {
+			t.Fatal("NormalizeClient(muse) error = nil, want error while no muse handler is registered")
+		}
+	})
 }
 
 func TestHooksOrchestrator_UpgradeAddsMissingEventsAndReportsDiff(t *testing.T) {

@@ -2,7 +2,7 @@
 
 [日本語](./README.ja.md)
 
-Traceary ships native integration packages for Claude Code, Codex, Gemini CLI (legacy), Antigravity, Grok Build, and Kimi Code.
+Traceary ships native integration packages for Claude Code, Codex, Gemini CLI (legacy), Antigravity, Grok Build, Kimi Code, and Muse Code.
 
 > **v0.21.1 note:** Gemini CLI is the legacy Google AI agent host. **Antigravity** (`/Applications/Antigravity.app`) is the active successor. As of v0.21.1, Traceary supports Antigravity as a real hook client with a packaged plugin against the documented public hook surface. See the [Antigravity hooks and plugin guide](./antigravity.md).
 
@@ -38,6 +38,7 @@ Current automatic fixes cover Traceary-managed hook config installation/upgrade 
 | Antigravity | `integrations/antigravity-plugin/` | Supported in v0.21.1. Direct hook installs target `<project>/.agents/hooks.json` or `~/.gemini/config/hooks.json`; the packaged plugin adds a versioned manifest, and the four shared skills (see [skills](./skills.md)). `traceary doctor --client antigravity --json` reports hook routes, and plugin version parity. |
 | Grok Build | `integrations/grok-plugin/` | Supported in v0.23.0. The native plugin declares seven lifecycle hooks and four shared skills (see [skills](./skills.md)). Grok Build 1.0.5 does not dispatch plugin-provided hooks (`grok-hooks` WARN); recording uses `~/.grok/hooks/traceary.json` (`traceary hooks install --client grok --global`, also run by `scripts/install-grok-plugin.sh`). Verify with `traceary doctor --client grok --json`: `grok-plugin` and `grok-hooks-user` pass. |
 | Kimi Code | `integrations/kimi-plugin/` | Supported in v0.29.0. The native plugin declares ten lifecycle hooks (session / prompt / tool audit incl. failure / transcript / compact markers / subagent), and the four shared skills (see [skills](./skills.md)) in a single `kimi.plugin.json` manifest. SessionEnd is declared but was not dispatched by an isolated 0.38.0 `-p` probe (2026-08-21), so `traceary doctor --client kimi --json` reports `kimi-hooks` as WARN where the host does not dispatch. Install it with `scripts/install-kimi-plugin.sh`, then verify with `traceary doctor --client kimi --json`. |
+| Muse Code | `integrations/muse-plugin/` | Supported in v0.50.0. The native plugin declares eight lifecycle hooks (SessionStart / UserPromptSubmit / PreToolUse / PostToolUse / PostToolUseFailure / Stop / PreCompact / PostCompact) and the four shared skills (see [skills](./skills.md)). SessionEnd is not subscribed; compact and tool dispatch are declared but unobserved. Verify with `traceary doctor --client muse --json`. See [Muse Code plugin](./muse.md). |
 
 ## Per-host guides
 
@@ -47,6 +48,7 @@ Current automatic fixes cover Traceary-managed hook config installation/upgrade 
 - [Antigravity hooks and plugin](./antigravity.md)
 - [Grok Build plugin](./grok-plugin.md)
 - [Kimi Code plugin](./kimi.md)
+- [Muse Code plugin](./muse.md)
 - [Shared skills](./skills.md)
 - [Anthropic native memory tool (experimental)](./anthropic-memory-tool.md)
 

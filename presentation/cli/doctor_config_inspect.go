@@ -306,6 +306,15 @@ func resolveDoctorClients(c *RootCLI, client string) ([]string, error) {
 		return []string{"antigravity"}, nil
 	}
 
+	// muse is the same kind of doctor-only client. An alias-map entry
+	// would stay unreachable: normalizeHooksClient only resolves an alias
+	// when the canonical name is also registered in handlers, and no
+	// MuseHooksHandler exists by design (plugin distribution, no hooks
+	// install path). Reachability is this early-return plus --client muse.
+	if strings.EqualFold(strings.TrimSpace(client), "muse") {
+		return []string{"muse"}, nil
+	}
+
 	resolvedClient, err := c.hooksOrchestrator.NormalizeClient(client)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to normalize client: %w", err)
