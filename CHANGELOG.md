@@ -7,6 +7,11 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ## [Unreleased]
 
+## [v0.50.0] - 2026-09-06
+
+### Changed
+- **AI agent packages now report version 0.50.0.** The Claude Code, Codex, Gemini CLI, Antigravity, Grok Build, Kimi Code, and Muse Code manifests remain aligned with the Traceary release version.
+
 ## [v0.49.0] - 2026-09-06
 
 v0.49.0 is a removal release. User-visible behaviour changes in search, archive/retention-plan, the memory graph, degraded refinements, and the flags those removals take with them. Store upgrades run only on the explicit offline path (`traceary doctor --fix` on a reviewed copy): candidate rewrite, catalog-order suffixes 078–086, verification, atomic publish, rollback retained. A normal store open reports pending work and returns; it never performs this work.

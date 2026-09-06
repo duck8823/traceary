@@ -7,6 +7,11 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 
 ## [Unreleased]
 
+## [v0.50.0] - 2026-09-06
+
+### Changed
+- **AI agent package の version を 0.50.0 に更新しました。** Claude Code、Codex、Gemini CLI、Antigravity、Grok Build、Kimi Code、Muse Code の manifest を Traceary の release version と揃えています。
+
 ## [v0.49.0] - 2026-09-06
 
 v0.49.0 は削除リリースです。search、archive / retention-plan、memory graph、degraded refinement、およびそれらが連れていく flag のユーザー可視な振る舞いが変わります。store の upgrade は明示的な offline 経路だけです（review 済み copy への `traceary doctor --fix`）：candidate rewrite、catalog 順 suffix 078–086、verification、atomic publish、rollback 保持。通常の store open は pending を報告して戻り、この作業は行いません。
