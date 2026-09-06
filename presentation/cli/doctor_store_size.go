@@ -87,6 +87,9 @@ func inspectCompactRollbackCopies(dbPath string) doctorCheck {
 		if statErr != nil || info == nil || !info.Mode().IsRegular() {
 			continue
 		}
+		if isUpgradeForensicRollback(dbPath, match) {
+			continue
+		}
 		copies = append(copies, retained{path: match, size: info.Size()})
 	}
 	if len(copies) == 0 {
@@ -151,9 +154,14 @@ func fixAcceptedCompactRollbackCopies(ctx context.Context, dbPath string, dryRun
 	}
 	var removable []string
 	skippedInFlight := 0
+	skippedForensic := 0
 	for _, match := range matches {
 		info, statErr := os.Lstat(match)
 		if statErr != nil || info == nil || !info.Mode().IsRegular() {
+			continue
+		}
+		if isUpgradeForensicRollback(dbPath, match) {
+			skippedForensic++
 			continue
 		}
 		runID := compactArtifactRunID(dbPath, match)
@@ -170,23 +178,34 @@ func fixAcceptedCompactRollbackCopies(ctx context.Context, dbPath string, dryRun
 	if dryRun {
 		return doctorFixResult{
 			Action: localizef(
-				"would remove %d accepted compact rollback cop(ies) (skipped_in_flight=%d)",
-				"accepted compact rollback copy を %d 件削除します (skipped_in_flight=%d)",
+				"would remove %d accepted compact rollback cop(ies) (skipped_in_flight=%d, skipped_upgrade_forensic=%d)",
+				"accepted compact rollback copy を %d 件削除します (skipped_in_flight=%d, skipped_upgrade_forensic=%d)",
 				removed,
 				skippedInFlight,
+				skippedForensic,
 			),
-			Metrics: map[string]int{"removed": removed, "skipped_in_flight": skippedInFlight},
+			Metrics: map[string]int{"removed": removed, "skipped_in_flight": skippedInFlight, "skipped_upgrade_forensic": skippedForensic},
 		}, nil
 	}
 	return doctorFixResult{
 		Action: localizef(
-			"removed %d accepted compact rollback cop(ies) (skipped_in_flight=%d)",
-			"accepted compact rollback copy を %d 件削除しました (skipped_in_flight=%d)",
+			"removed %d accepted compact rollback cop(ies) (skipped_in_flight=%d, skipped_upgrade_forensic=%d)",
+			"accepted compact rollback copy を %d 件削除しました (skipped_in_flight=%d, skipped_upgrade_forensic=%d)",
 			removed,
 			skippedInFlight,
+			skippedForensic,
 		),
-		Metrics: map[string]int{"removed": removed, "skipped_in_flight": skippedInFlight},
+		Metrics: map[string]int{"removed": removed, "skipped_in_flight": skippedInFlight, "skipped_upgrade_forensic": skippedForensic},
 	}, nil
+}
+
+// isUpgradeForensicRollback reports the sibling left by an offline-migration
+// upgrade (#2328). Compact --fix must not unlink it: retention is a release
+// gate, and the file is not an interchangeable compact rollback target.
+func isUpgradeForensicRollback(dbPath, path string) bool {
+	base := filepath.Base(dbPath)
+	name := filepath.Base(path)
+	return strings.HasPrefix(name, base+".rollback-upgrade-")
 }
 
 // inspectStoreGrowthBudgetWithClock returns the store-size check and, when the

@@ -44,10 +44,12 @@ func (u *preparedStoreUpgradeUsecase) Plan(ctx context.Context, command applicat
 	id := hex.EncodeToString(idBytes)
 	now := u.now().UTC()
 	candidateSuffix := ".compact-"
+	rollbackSuffix := ".rollback-"
 	if command.Operation == domain.PreparedStoreUpgradeOperationOfflineMigrationUpgrade {
 		candidateSuffix = ".upgrade-"
+		rollbackSuffix = ".rollback-upgrade-"
 	}
-	run := domain.PreparedStoreUpgradeRun{ID: id, SourcePath: command.TargetPath, CandidatePath: command.TargetPath + candidateSuffix + id, RollbackPath: command.TargetPath + ".rollback-" + id, Phase: domain.PreparedStoreUpgradePlanned, Operation: command.Operation, ConsumerBinding: command.ConsumerBinding, Budget: command.Budget, BoundDropApproval: command.BoundDropApproval, CreatedAt: now, UpdatedAt: now}
+	run := domain.PreparedStoreUpgradeRun{ID: id, SourcePath: command.TargetPath, CandidatePath: command.TargetPath + candidateSuffix + id, RollbackPath: command.TargetPath + rollbackSuffix + id, Phase: domain.PreparedStoreUpgradePlanned, Operation: command.Operation, ConsumerBinding: command.ConsumerBinding, Budget: command.Budget, BoundDropApproval: command.BoundDropApproval, CreatedAt: now, UpdatedAt: now}
 	planDigest, err := u.recipes[command.Operation].Plan(ctx, application.PreparedCandidateRequest{Run: run})
 	if err != nil {
 		return run, err
