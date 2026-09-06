@@ -263,7 +263,7 @@ func run() error {
 			sqlite.SetSharedLeaseWaitReporter(func(waited time.Duration, lockPath string) {
 				_, _ = fmt.Fprintf(os.Stderr, "traceary: waiting for shared store lease (%s) on %s\n", waited.Round(time.Second), lockPath)
 			})
-			svc := usecase.NewStoreCompactionUsecase(path, journal, builder, sqlite.StoreReplacementFiles{CallerHoldsExclusiveLease: true}, sqlite.StoreLeaseCoordinator{})
+			svc := usecase.NewStoreCompactionUsecase(path, journal, builder, sqlite.StoreReplacementFiles{CallerHoldsExclusiveLease: true}, sqlite.StoreLeaseCoordinator{}, sqlite.SQLiteCompactionRollbackGuard{})
 			return svc
 		}),
 		cli.WithWorkspaceIdentity(workspaceIdentityUsecase),

@@ -13,6 +13,14 @@ type StoreCompactionJournal interface {
 	Append(context.Context, domain.CompactionRun) error
 }
 
+// CompactionRollbackGuard counts published-store records a rollback swap
+// would discard: events present in the published store but absent from the
+// retained rollback inode. Post-commit spool replays and direct writes land
+// such records after the pre-compact snapshot (#2329).
+type CompactionRollbackGuard interface {
+	CountRecordsAtRisk(ctx context.Context, publishedPath, rollbackPath string) (int, error)
+}
+
 // StoreCompactionBuilder creates and verifies a compact SQLite candidate.
 type StoreCompactionBuilder interface {
 	Build(context.Context, string, string) error

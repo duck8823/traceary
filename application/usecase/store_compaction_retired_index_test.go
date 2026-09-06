@@ -117,6 +117,7 @@ func TestStoreCompactionRollbackIsNotBlockedByTheRetiredSearchIndex(t *testing.T
 		faultBuilder{},
 		faultFiles{fail: "retired-search-index", observation: ready},
 		faultLease{},
+		stubRollbackGuard{},
 	)
 	got, err := sut.Rollback(context.Background(), run.ID)
 	if err != nil {

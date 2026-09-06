@@ -138,7 +138,7 @@ func TestStoreCompactionSmallAllocatedShapeE2E(t *testing.T) {
 	if err := journal.Create(ctx, run); err != nil {
 		t.Fatal(err)
 	}
-	service := usecase.NewStoreCompactionUsecase(source, journal, SQLiteCompactionBuilder{}, StoreReplacementFiles{CallerHoldsExclusiveLease: true}, StoreLeaseCoordinator{})
+	service := usecase.NewStoreCompactionUsecase(source, journal, SQLiteCompactionBuilder{}, StoreReplacementFiles{CallerHoldsExclusiveLease: true}, StoreLeaseCoordinator{}, SQLiteCompactionRollbackGuard{})
 	run, err = service.Apply(ctx, run.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -556,7 +556,7 @@ func TestStoreCompactionExclusiveBoundaryRejectsLateHardLinkBeforeObservation(t 
 			}
 			run := domain.CompactionRun{ID: "0123456789abcdef0123456789abcdef", SourcePath: source, CandidatePath: candidate, RollbackPath: rollback, Phase: tc.phase}
 			journal := &observationTrackingJournal{run: run}
-			service := usecase.NewStoreCompactionUsecase(source, journal, SQLiteCompactionBuilder{}, StoreReplacementFiles{CallerHoldsExclusiveLease: true}, StoreLeaseCoordinator{})
+			service := usecase.NewStoreCompactionUsecase(source, journal, SQLiteCompactionBuilder{}, StoreReplacementFiles{CallerHoldsExclusiveLease: true}, StoreLeaseCoordinator{}, SQLiteCompactionRollbackGuard{})
 			hardlink := filepath.Join(realDir, "late-hardlink.db")
 			if err := os.Link(filepath.Join(realDir, "store.db"), hardlink); err != nil {
 				t.Fatal(err)
