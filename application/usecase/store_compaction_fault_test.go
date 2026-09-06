@@ -339,7 +339,7 @@ func TestStoreCompactionRollbackAfterExchangeStopResumesRolledBack(t *testing.T)
 	run.Candidate = domain.StoreFileIdentity{Device: 1, Inode: 2}
 	j := &faultJournal{run: run, failAppendPhase: domain.CompactionRollbackSwapped}
 	ready := domain.CompactionObservation{Orientation: domain.OrientationRollbackReady, Source: run.Candidate, Rollback: run.SourceIdentity, RollbackExists: true}
-	first := NewStoreCompactionUsecase("/store", j, faultBuilder{}, faultFiles{observation: ready}, faultLease{})
+	first := NewStoreCompactionUsecase("/store", j, faultBuilder{}, faultFiles{observation: ready}, faultLease{}, stubRollbackGuard{})
 	if _, err := first.Rollback(context.Background(), run.ID); err == nil {
 		t.Fatal("rollback after-exchange stop did not fail")
 	}
@@ -360,7 +360,7 @@ func TestStoreCompactionRollbackBeforeExchangeFaultKeepsIntentResumable(t *testi
 	run.Candidate = domain.StoreFileIdentity{Device: 1, Inode: 2}
 	j := &faultJournal{run: run}
 	ready := domain.CompactionObservation{Orientation: domain.OrientationRollbackReady, Source: run.Candidate, Rollback: run.SourceIdentity, RollbackExists: true}
-	first := NewStoreCompactionUsecase("/store", j, faultBuilder{}, faultFiles{fail: "exchange", observation: ready}, faultLease{})
+	first := NewStoreCompactionUsecase("/store", j, faultBuilder{}, faultFiles{fail: "exchange", observation: ready}, faultLease{}, stubRollbackGuard{})
 	if _, err := first.Rollback(context.Background(), run.ID); err == nil {
 		t.Fatal("rollback exchange fault unexpectedly succeeded")
 	}

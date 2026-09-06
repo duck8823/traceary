@@ -21,6 +21,7 @@ type storeCompactionUsecase struct {
 	builder       application.StoreCompactionBuilder
 	files         application.StoreCompactionFiles
 	lease         application.StoreCompactionLease
+	guard         application.CompactionRollbackGuard
 	progress      application.CompactionProgress
 	now           func() time.Time
 	expectedStore string
@@ -38,8 +39,15 @@ func BindCompactionProgress(u application.StoreCompactionUsecase, progress appli
 }
 
 // NewStoreCompactionUsecase composes the dedicated compaction protocol.
-func NewStoreCompactionUsecase(expectedStore string, j application.StoreCompactionJournal, b application.StoreCompactionBuilder, f application.StoreCompactionFiles, l application.StoreCompactionLease) application.StoreCompactionUsecase {
-	return &storeCompactionUsecase{journal: j, builder: b, files: f, lease: l, now: time.Now, expectedStore: filepath.Clean(expectedStore)}
+// An optional CompactionRollbackGuard enables the rollback path; Rollback
+// fails closed when none is configured, so a missing guard can never
+// silently discard post-commit records (#2329).
+func NewStoreCompactionUsecase(expectedStore string, j application.StoreCompactionJournal, b application.StoreCompactionBuilder, f application.StoreCompactionFiles, l application.StoreCompactionLease, guards ...application.CompactionRollbackGuard) application.StoreCompactionUsecase {
+	u := &storeCompactionUsecase{journal: j, builder: b, files: f, lease: l, now: time.Now, expectedStore: filepath.Clean(expectedStore)}
+	if len(guards) > 0 {
+		u.guard = guards[0]
+	}
+	return u
 }
 
 func (u *storeCompactionUsecase) Compact(ctx context.Context, in application.CompactInput) (application.CompactResult, error) {
@@ -590,6 +598,23 @@ func (u *storeCompactionUsecase) Rollback(ctx context.Context, id string) (domai
 	}
 	if run.Phase != domain.CompactionSwapped && run.Phase != domain.CompactionRollbackReady && run.Phase != domain.CompactionCommitted && run.Phase != domain.CompactionRollbackSwapIntent && run.Phase != domain.CompactionRollbackSwapped {
 		return run, fmt.Errorf("cannot rollback compaction in phase %q", run.Phase)
+	}
+	if u.guard == nil {
+		return run, fmt.Errorf("compact rollback guard is not configured")
+	}
+	// Refuse the swap when the published store holds records the retained
+	// rollback inode never saw: post-commit spool replays or direct writes
+	// the host already acknowledged. Restoring the inode would discard them
+	// silently (#2329). The exclusive lease above keeps this check stable
+	// through the exchange below.
+	if path := strings.TrimSpace(run.RollbackPath); path != "" {
+		atRisk, err := u.guard.CountRecordsAtRisk(ctx, u.expectedStore, path)
+		if err != nil {
+			return run, err
+		}
+		if atRisk > 0 {
+			return run, fmt.Errorf("refuses compact rollback: %d record(s) written after the pre-compact snapshot would be discarded; rollback is available only before new records arrive", atRisk)
+		}
 	}
 	observation, err := u.files.Observe(ctx, run)
 	if err != nil {
