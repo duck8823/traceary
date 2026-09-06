@@ -91,8 +91,14 @@ muse resume <uuid>
 (`muse resume --help`.) Resume is **interactive TUI**, not a headless one-shot.
 Durable log records `session.resumed` (sample:
 `prior_turn_count: 3`, `resumed_from_sequence: 811` on session
-`01a0692b-a8e2-7530-8729-a67260ea9f19`). `session.started` was also observed
-with `"background_tasks": "keep"` and `previous_session_stream`.
+`01a0692b-a8e2-7530-8729-a67260ea9f19`). That same resume sample’s
+`session.started` used `"background_tasks": "kill"` plus
+`previous_session_stream`. `"background_tasks": "keep"` was observed on a
+**different** session (`01a067b6-81b6-7490-91b0-494857e673a1`, 2026/09/03),
+not on the resume sample. Local corpus grep of
+`~/.local/share/muse/sessions` found 3× `"keep"` and 3× `"kill"`.
+**Unknown:** other enum values, when Muse chooses keep vs kill, and
+headless semantics.
 
 `muse exec` has `--session-id <UUID>` (use a specific id for a **new**
 headless run). **Unknown:** whether `exec --session-id` of an *existing*
@@ -194,8 +200,10 @@ Observed (not a complete product spec):
 - Session-local **`cron.db`**: Muse documents `cron_create` in the binary
   (5-field local cron, 7-day expiry). Files sit beside `session.jsonl`.
 - `muse session-message` — list/send cross-session messages (not exercised).
-- `session.started` payload field `background_tasks: "keep"` on at least one
-  live log. **Unknown:** other enum values and headless semantics.
+- `session.started` payload field `background_tasks`: evidenced values
+  `"keep"` and `"kill"` (3 each in the local corpus). `"keep"` is **not**
+  from the resume sample above (`01a0692b-…` used `"kill"`). **Unknown:**
+  other enum values, selection rule, and headless semantics.
 - `local-tracing/bootstrap/cli-*.log` — bootstrap traces, one file per CLI
   invocation; not the session transcript.
 - `tool-outputs/.spool/` — truncated/in-flight tool bodies.
@@ -208,6 +216,12 @@ Read-only; no files were modified except throwaway `/tmp/muse-2350-*` probes.
 ## 4. Hook / event inventory
 
 ### Durable `session.jsonl` payload types (corpus count, local store)
+
+Command (snapshot at investigation time; later probes can increment):
+
+```sh
+grep -rho '"payload_type":"[^"]*"' ~/.local/share/muse/sessions | sort | uniq -c | sort -nr
+```
 
 Top types included `runtime.session`, `tool_batch.effect.*`,
 `session.resource_pressure.observed`, `session.opened.observed`,
