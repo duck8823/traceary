@@ -40,6 +40,12 @@ After every released binary upgrade:
 
    Live probes exist for Grok (`grok --permission-mode plan --no-subagents --max-turns 1 -p …`), Kimi (`kimi -p …`, no `--auto`/`--yolo`), Codex (`codex exec` from a trusted git root — see the Codex section below), Claude (`claude --print --permission-mode plan`), and Antigravity (`agy --mode plan --print-timeout 120s --print …`; the binary is `agy`, not `antigravity`; the prompt is the `--print` argument). Combined `--mode plan --sandbox` on agy 1.1.22 returned a successful reply but wrote no capture events, so the gate keeps plan and omits sandbox. Gemini has no headless probe in this gate; skip it with an explicit reason as above. `--skip claude=…` / `--skip antigravity=…` remain valid when the host is intentionally unused or not authenticated on that machine; `no headless probe in this gate` is no longer a truthful reason. An Antigravity probe that prints permission wording on stderr fails with `scoped hook permission is absent or shadowed` — grant the Traceary hook permission rather than skipping. On a Gemini account Google rejects with `IneligibleTierError`, that rejection must not count as capture. An unskipped host whose binary is missing or whose probe fails is a FAIL, never a silent pass, and at least one unskipped host must actually pass capture. A stock macOS has neither `timeout` nor `gtimeout`; install coreutils if you want the Claude probe bounded by the gate's 300s outer timeout (`agy` still self-bounds via `--print-timeout`).
 
+6. Prove the read-side guarantee with the synthetic matrix. It seeds a throwaway store through per-host hook entrypoints (muse, grok, kimi; claude, codex, gemini, and antigravity have no synthetic seed pair and stay covered by the live-capture gate above) and verifies search, session refine, and memory propose/search on that store. The store is bounded under 64 MiB and removed on exit:
+
+   ```sh
+   ./scripts/verify-record-search-refine.sh
+   ```
+
 ## Host refresh and verification matrix
 
 | Host | Refresh | Activation | Version verification | Supported skip |

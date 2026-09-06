@@ -39,6 +39,18 @@ Corpus: **maintainer store 2026-08-11 uncompressed #1620**。
 | session-tier coefficient | session あたり `<= 64 KiB` |
 | resident store | 正規操作あたり `<= 13 KiB` |
 
+## Dogfood 方針
+
+実サイズの dogfood 実行はリリースゲート**ではありません**（2026-09-06 のオーナー判断、#2349）。v0.49.0 の 12 GiB 実コピーでの offline-upgrade dogfood は約 40 GiB の一時領域を要し、約 1 時間かかり、一般的なメンテナマシンでは SQLITE_FULL で失敗しました（#2347）。実質は再現性もプロビジョニングの筋書きもない手動 e2e テストでした。
+
+代わりにリリースごとに MUST として担保するもの：
+
+1. Plugin identity: `scripts/verify-post-upgrade-plugin-refresh.sh` — インストール済み全 host パッケージがリリース binary と一致すること。
+2. Live record: `scripts/verify-post-upgrade-live-capture.sh` — skip 指定のない全 host が使い捨て store に `session_started` + `prompt` を記録すること。
+3. Read-side guarantee: `scripts/verify-record-search-refine.sh` — 境界付き使い捨て store（64 MiB 未満、終了時削除）での synthetic な record / search / session-refine / memory の往復。
+
+実サイズの実行は opt-in のみ：ディスクを事前に確保し、証跡を残し、ゲートにはしません。[post-upgrade plugin refresh](./post-upgrade-plugins.ja.md) を参照してください。
+
 ## Rebuild
 
 search-projection family は v0.49.0（#2319）で削除されました。`store compact --projection-rebuild` / `--projection-abort` は unknown flag です。検索は two-tier 読み取り経路です。旧 family の offline DROP + VACUUM は `traceary doctor --fix`（verified candidate。store open では走りません）。[検索プロジェクションの再構築](../search-projection-rebuild.ja.md) を参照してください。

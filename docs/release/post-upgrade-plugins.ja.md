@@ -40,6 +40,12 @@ release 済みバイナリを更新するたびに、次を実行してくださ
 
    live probe が存在するのは Grok（`grok --permission-mode plan --no-subagents --max-turns 1 -p …`）、Kimi（`kimi -p …`。`--auto` / `--yolo` なし）、Codex（trusted な git root からの `codex exec`。下記 Codex 節を参照）、Claude（`claude --print --permission-mode plan`）、Antigravity（`agy --mode plan --print-timeout 120s --print …`。バイナリ名は `antigravity` ではなく `agy`。プロンプトは `--print` の引数）です。agy 1.1.22 では `--mode plan --sandbox` の併用が応答は成功しても capture イベントを書かないため、gate は plan を残して sandbox を付けません。Gemini にはこの gate の headless probe がないため、明示理由付きで skip してください。`--skip claude=…` / `--skip antigravity=…` は、そのホストを意図的に導入していない・この機械で未認証の場合に限り有効です。`no headless probe in this gate` はもはや正しい理由ではありません。Antigravity の probe が stderr に permission 文言を出した場合は `scoped hook permission is absent or shadowed` で FAIL します。skip せず、Traceary hook の permission を付与してください。Google が `IneligibleTierError` で拒否する Gemini アカウントでは、その拒否を capture とみなしてはいけません。skip していないホストでバイナリが無い・probe が失敗した場合は silent pass ではなく FAIL で、skip していないホストの少なくとも 1 つが実際に capture を pass する必要があります。標準の macOS には `timeout` / `gtimeout` が無いため、Claude probe の 300 秒の外側 timeout を効かせるには coreutils を入れてください（`agy` は `--print-timeout` で自己制限します）。
 
+6. synthetic マトリクスで read-side の保証を証明する。host 別 hook entrypoint（muse、grok、kimi。claude、codex、gemini、antigravity には synthetic seed がないため上記 live-capture gate の対象のまま）で使い捨て store を seed し、その store 上で search、session refine、memory propose/search を検証します。store は 64 MiB 未満に制限し、終了時に削除します。
+
+   ```sh
+   ./scripts/verify-record-search-refine.sh
+   ```
+
 ## ホスト別の更新・有効化・検証マトリクス
 
 | Host | 更新 | 有効化 | version 検証 | 許可する skip |
