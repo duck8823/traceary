@@ -62,6 +62,22 @@ func TestBumpVersionAcrossRepo_RewritesAllMarkers(t *testing.T) {
 	assertContains("docs/landing/components.jsx", "/Cellar/traceary/1.2.3")
 }
 
+func TestBumpManifests_IncludesMuse(t *testing.T) {
+	t.Parallel()
+
+	const museManifest = "integrations/muse-plugin/plugin.json"
+	found := false
+	for _, manifest := range bumpManifests {
+		if manifest == museManifest {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("bumpManifests does not include %s", museManifest)
+	}
+}
+
 // TestBumpVersionAcrossRepo_RejectsNonSemver pins that a non-X.Y.Z version is
 // rejected before any file is written.
 func TestBumpVersionAcrossRepo_RejectsNonSemver(t *testing.T) {

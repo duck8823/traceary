@@ -76,6 +76,7 @@ func (c *RootCLI) newHookCommand() *cobra.Command {
 	hookCmd.AddCommand(c.newHookAntigravityCommand())
 	hookCmd.AddCommand(c.newHookGrokCommand())
 	hookCmd.AddCommand(c.newHookKimiCommand())
+	hookCmd.AddCommand(c.newHookMuseCommand())
 	hookCmd.AddCommand(c.newHookMemoryExtractWorkerCommand())
 
 	return hookCmd

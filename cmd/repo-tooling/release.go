@@ -31,6 +31,8 @@ var bumpManifests = []string{
 	"integrations/grok-plugin/plugin.json",
 	"integrations/kimi-plugin/kimi.plugin.json",
 	"plugins/traceary/.codex-plugin/plugin.json",
+	"integrations/muse-plugin/plugin.json",
+	"integrations/muse-plugin/.muse-plugin/plugin.json",
 }
 
 func newReleaseCommand() *cobra.Command {
