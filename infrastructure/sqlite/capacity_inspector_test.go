@@ -22,6 +22,8 @@ func TestCapacityInspectorReturnsMetadataOnlyAggregates(t *testing.T) {
 	secret := "PRIVATE-SENTINEL-event-identifier"
 	statements := []string{
 		`PRAGMA journal_mode=WAL`,
+		`CREATE TABLE store_format_state (singleton INTEGER PRIMARY KEY CHECK (singleton = 1), minimum_reader_version INTEGER NOT NULL)`,
+		`INSERT INTO store_format_state(singleton, minimum_reader_version) VALUES (1, 42)`,
 		`CREATE TABLE events (id TEXT PRIMARY KEY, kind TEXT, agent TEXT, session_id TEXT, body TEXT, created_at TEXT)`,
 		`CREATE TABLE event_metadata_projection (id TEXT PRIMARY KEY, body_stored_bytes INTEGER NOT NULL)`,
 		`CREATE INDEX idx_events_created_at ON events(created_at)`,

@@ -155,18 +155,6 @@ func persistEventDelivery(
 }
 
 func insertHookDeliveryAttempt(ctx context.Context, tx *sql.Tx, event *model.Event, deliveryRecordID, outcome string) error {
-	// Keep: focused fixtures may omit migration 23. This is a fixture-integrity
-	// skip, not a version-era probe; production initialize still applies 23
-	// before writes. Recorded in the item-1 allow-list.
-	enabled, err := tableExistsInTransaction(ctx, tx, "hook_delivery_attempts")
-	if err != nil {
-		return err
-	}
-	if !enabled {
-		// Focused historical-schema tests may omit migration 23. Runtime stores
-		// always initialize before hook writes.
-		return nil
-	}
 	// A hook callback receives a fresh Traceary event ID. OR IGNORE collapses
 	// only a repository retry of that same event object after a transaction
 	// race; it does not collapse a later callback carrying a new event ID.
@@ -399,20 +387,13 @@ func insertWorkspaceObservation(
 	event *model.Event,
 	observedEventID, deliveryRecordID, kind, origin, reason, attributionFingerprint string,
 ) error {
-	enabled, err := tableExistsInTransaction(ctx, tx, "session_workspace_observations")
-	if err != nil {
-		return err
-	}
-	if !enabled {
-		// A few datasource-level tests deliberately install a minimal historical
-		// schema. Runtime databases always reach migration 22 before writes, while
-		// the compatibility path keeps those focused fixtures useful.
-		return nil
-	}
 	relationship, err := workspaceRelationshipForEvent(ctx, tx, event)
 	if err != nil {
 		return err
 	}
+	// 076 is data-dependent offline; live open still writes the pre-collapse
+	// row shape until doctor --fix applies it. The version gate cannot
+	// replace this probe.
 	aggregated, err := columnExistsInTransaction(ctx, tx, "session_workspace_observations", "observation_count")
 	if err != nil {
 		return err
@@ -523,9 +504,6 @@ func insertLegacyWorkspaceObservation(
 	)
 	if err != nil {
 		if deliveryRecordID != "" && isSQLiteUniqueOrPKConflict(err) {
-			// Primary and unchanged-retry observations intentionally mint the
-			// same delivery+attribution ID. The collision is the database-backed
-			// idempotent no-op; changed attribution has a different ID and inserts.
 			return nil
 		}
 		return xerrors.Errorf("failed to insert workspace observation: %w", err)
@@ -558,18 +536,6 @@ func workspaceRelationshipForEvent(ctx context.Context, tx *sql.Tx, event *model
 	return relationship, nil
 }
 
-func tableExistsInTransaction(ctx context.Context, tx *sql.Tx, table string) (bool, error) {
-	var count int
-	if err := tx.QueryRowContext(
-		ctx,
-		`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?`,
-		table,
-	).Scan(&count); err != nil {
-		return false, xerrors.Errorf("failed to inspect SQLite schema for %s: %w", table, err)
-	}
-	return count > 0, nil
-}
-
 func columnExistsInTransaction(ctx context.Context, tx *sql.Tx, table, column string) (bool, error) {
 	var exists int
 	if err := tx.QueryRowContext(
@@ -581,6 +547,18 @@ func columnExistsInTransaction(ctx context.Context, tx *sql.Tx, table, column st
 		return false, xerrors.Errorf("failed to inspect SQLite column %s.%s: %w", table, column, err)
 	}
 	return exists == 1, nil
+}
+
+func tableExistsInTransaction(ctx context.Context, tx *sql.Tx, table string) (bool, error) {
+	var count int
+	if err := tx.QueryRowContext(
+		ctx,
+		`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?`,
+		table,
+	).Scan(&count); err != nil {
+		return false, xerrors.Errorf("failed to inspect SQLite schema for %s: %w", table, err)
+	}
+	return count > 0, nil
 }
 
 func canonicalWorkspaceForEvent(ctx context.Context, tx *sql.Tx, event *model.Event) (types.Workspace, error) {

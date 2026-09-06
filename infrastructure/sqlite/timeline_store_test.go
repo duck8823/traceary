@@ -61,6 +61,14 @@ CREATE TABLE session_workspace_observations (
     observation_origin TEXT NOT NULL,
     PRIMARY KEY (session_id, workspace, observed_relationship, source_client, source_hook, observation_kind)
 );
+CREATE TABLE hook_delivery_attempts (
+    delivery_record_id TEXT NOT NULL,
+    attempted_event_id TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    attempt_origin TEXT NOT NULL,
+    observed_at TEXT NOT NULL,
+    PRIMARY KEY (delivery_record_id, attempted_event_id)
+);
 CREATE TABLE session_workspace_aliases (
     session_id TEXT NOT NULL,
     alias_workspace TEXT NOT NULL,

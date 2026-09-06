@@ -47,6 +47,50 @@ func TestVerifyStoreCompatibility_MissingStateWithoutLineageFailsClosed(t *testi
 	}
 }
 
+func TestVerifyStoreCompatibility_ModernLedgerMissingStateFailsClosed(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "modern-missing-state.db")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	if _, err = db.Exec(`
+		CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL);
+		INSERT INTO schema_migrations(version, name) VALUES (80, '000080.sql');
+		CREATE TABLE events (id TEXT PRIMARY KEY);
+	`); err != nil {
+		t.Fatal(err)
+	}
+	err = VerifyStoreCompatibility(context.Background(), db)
+	if err == nil {
+		t.Fatal("expected fail-closed error")
+	}
+	if !strings.Contains(err.Error(), "store_format_state is missing") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestVerifyStoreCompatibility_ForeignEventsFileFailsClosed(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "foreign-events.db")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	if _, err = db.Exec(`CREATE TABLE events (id TEXT PRIMARY KEY, body TEXT)`); err != nil {
+		t.Fatal(err)
+	}
+	err = VerifyStoreCompatibility(context.Background(), db)
+	if err == nil {
+		t.Fatal("expected fail-closed error")
+	}
+	if !strings.Contains(err.Error(), "store_format_state is missing") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestVerifyStoreCompatibility_EmptyFileIsBootstrap(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "empty.db")

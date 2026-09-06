@@ -14,7 +14,6 @@ import (
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
-	"github.com/duck8823/traceary/infrastructure/sqlite"
 )
 
 func TestDatasource_SaveAndListRecent(t *testing.T) {
@@ -134,8 +133,8 @@ CREATE TABLE events (
 );`),
 		},
 	}
-	initialDB := sqlite.NewDatabase(dbPath, initialMigrations)
-	if err := sqlite.NewStoreManagementDatasource(initialDB).Initialize(context.Background()); err != nil {
+	_, initialStore := newEventDatasource(t, dbPath, initialMigrations)
+	if err := initialStore.Initialize(context.Background()); err != nil {
 		t.Fatalf("Initialize(initial) error = %v", err)
 	}
 

@@ -71,13 +71,11 @@ var recordedCapabilityProbes = map[string]probeAllowEntry{
 	"infrastructure/sqlite/drop_search_projection_family.go:37":  {class: "integrity", site: "sibling-offline 080", verdict: "carved-out", reason: "sibling-offline verifier for 080"},
 	"infrastructure/sqlite/drop_search_projection_family.go:45":  {class: "integrity", site: "sibling-offline 080", verdict: "carved-out", reason: "sibling-offline verifier for 080"},
 	"infrastructure/sqlite/event_datasource.go:1204":             {class: "integrity", site: "read path", verdict: "kept", reason: "feature facet: optional output_metadata on historical command_audits"},
-	"infrastructure/sqlite/event_delivery_store.go:161":          {class: "integrity", site: "write path", verdict: "kept", reason: "fixture-integrity skip: focused tests omit hook_delivery_attempts; production initialize still applies 23"},
-	"infrastructure/sqlite/event_delivery_store.go:230":          {class: "integrity", site: "write path", verdict: "kept", reason: "feature facet: command_audits.output_metadata from 077; optional write of metadata"},
-	"infrastructure/sqlite/event_delivery_store.go:252":          {class: "integrity", site: "definition", verdict: "kept", reason: "transactionColumnExists helper definition"},
-	"infrastructure/sqlite/event_delivery_store.go:402":          {class: "integrity", site: "write path", verdict: "kept", reason: "fixture-integrity skip: focused tests omit session_workspace_observations; production initialize still applies 22"},
-	"infrastructure/sqlite/event_delivery_store.go:416":          {class: "integrity", site: "write path", verdict: "kept", reason: "pre-076 observation shape: focused fixtures freeze schema before collapse"},
-	"infrastructure/sqlite/event_delivery_store.go:561":          {class: "integrity", site: "definition", verdict: "kept", reason: "tableExistsInTransaction helper definition"},
-	"infrastructure/sqlite/event_delivery_store.go:573":          {class: "integrity", site: "definition", verdict: "kept", reason: "columnExistsInTransaction helper definition"},
+	"infrastructure/sqlite/event_delivery_store.go:218":          {class: "integrity", site: "write path", verdict: "kept", reason: "feature facet: command_audits.output_metadata from 077; optional write of metadata"},
+	"infrastructure/sqlite/event_delivery_store.go:240":          {class: "integrity", site: "definition", verdict: "kept", reason: "transactionColumnExists helper definition"},
+	"infrastructure/sqlite/event_delivery_store.go:397":          {class: "integrity", site: "write path", verdict: "kept", reason: "076 is data-dependent offline; live open still writes the pre-collapse observation row until doctor --fix applies 076"},
+	"infrastructure/sqlite/event_delivery_store.go:539":          {class: "integrity", site: "definition", verdict: "kept", reason: "columnExistsInTransaction helper definition"},
+	"infrastructure/sqlite/event_delivery_store.go:552":          {class: "integrity", site: "definition", verdict: "kept", reason: "tableExistsInTransaction helper definition"},
 	"infrastructure/sqlite/prepared_migration_catalog.go:357":    {class: "false-positive", site: "catalog", verdict: "kept", reason: "local variable tableExists, not a probe helper"},
 	"infrastructure/sqlite/prepared_migration_catalog.go:358":    {class: "integrity", site: "bootstrap", verdict: "kept", reason: "schema_migrations presence is the catalog bootstrap invariant"},
 	"infrastructure/sqlite/prepared_migration_catalog.go:361":    {class: "false-positive", site: "catalog", verdict: "kept", reason: "local variable tableExists, not a probe helper"},
@@ -108,38 +106,40 @@ var recordedCapabilityProbes = map[string]probeAllowEntry{
 
 func TestCapabilityProbesAreAllowListed(t *testing.T) {
 	t.Parallel()
-	roots := []string{"domain", "application", "presentation", "infrastructure"}
 	found := map[string]bool{}
-	for _, root := range roots {
-		err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			if d.IsDir() {
-				return nil
-			}
-			if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-				return nil
-			}
-			contents, readErr := os.ReadFile(path)
-			if readErr != nil {
-				return fmt.Errorf("read %s: %w", path, readErr)
-			}
-			for i, line := range strings.Split(string(contents), "\n") {
-				if !probePattern.MatchString(line) {
-					continue
-				}
-				key := path + ":" + strconv.Itoa(i+1)
-				found[key] = true
-				if _, ok := recordedCapabilityProbes[key]; !ok {
-					t.Errorf("unrecorded capability probe %s: %s", key, strings.TrimSpace(line))
-				}
+	err := filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if d.Name() == ".git" || d.Name() == "vendor" {
+				return filepath.SkipDir
 			}
 			return nil
-		})
-		if err != nil {
-			t.Fatalf("walk %s: %v", root, err)
 		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		contents, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return fmt.Errorf("read %s: %w", path, readErr)
+		}
+		for i, line := range strings.Split(string(contents), "\n") {
+			if !probePattern.MatchString(line) {
+				continue
+			}
+			rel := filepath.ToSlash(path)
+			rel = strings.TrimPrefix(rel, "./")
+			key := rel + ":" + strconv.Itoa(i+1)
+			found[key] = true
+			if _, ok := recordedCapabilityProbes[key]; !ok {
+				t.Errorf("unrecorded capability probe %s: %s", key, strings.TrimSpace(line))
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk .: %v", err)
 	}
 	for key, entry := range recordedCapabilityProbes {
 		if entry.reason == "" {

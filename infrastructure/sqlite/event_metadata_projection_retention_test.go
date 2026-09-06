@@ -28,7 +28,7 @@ func TestEventMetadataProjectionReadersRemain(t *testing.T) {
 			files = append(files, entry.Name())
 		}
 	}
-	if len(files) < 20 {
-		t.Fatalf("projection readers = %d (%v), want at least the 20 files #1686 inventoried", len(files), files)
+	if len(files) < 18 {
+		t.Fatalf("projection readers = %d (%v), want at least the 18 remaining files after #2322 removed the two legacy UNION readers", len(files), files)
 	}
 }

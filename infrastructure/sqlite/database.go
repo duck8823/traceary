@@ -376,15 +376,7 @@ func allowPre36LineageOrFailClosed(ctx context.Context, db *sql.DB) error {
 	if err := db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='schema_migrations')`).Scan(&hasMigrations); err != nil {
 		return xerrors.Errorf("check schema_migrations: %w", err)
 	}
-	var hasEvents int
-	if err := db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='events')`).Scan(&hasEvents); err != nil {
-		return xerrors.Errorf("check events table: %w", err)
-	}
 	if hasMigrations == 0 {
-		if hasEvents == 1 {
-			// Traceary-shaped store that never reached migration 36.
-			return nil
-		}
 		var userTables int
 		if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`).Scan(&userTables); err != nil {
 			return xerrors.Errorf("count user tables: %w", err)
@@ -400,11 +392,6 @@ func allowPre36LineageOrFailClosed(ctx context.Context, db *sql.DB) error {
 		return xerrors.Errorf("read schema_migrations lineage: %w", err)
 	}
 	if maxVersion.Valid && maxVersion.Int64 >= 1 && maxVersion.Int64 < 36 {
-		return nil
-	}
-	if hasEvents == 1 {
-		// schema_migrations skipped 36 in a fixture, or a store lost
-		// store_format_state; initialize can still route toward 36.
 		return nil
 	}
 	return xerrors.New("store_format_state is missing and the schema_migrations lineage is not a recognized pre-36 store")
