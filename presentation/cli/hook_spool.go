@@ -449,6 +449,8 @@ func (c *RootCLI) replayHookSpoolRecord(ctx context.Context, record hookSpoolRec
 		return c.replayGrokSpoolRecord(ctx, input, action, dbPath)
 	case "kimi":
 		return c.replayKimiSpoolRecord(ctx, input, action, dbPath)
+	case "muse":
+		return c.replayMuseSpoolRecord(ctx, input, action, dbPath)
 	default:
 		return xerrors.Errorf("unsupported hook spool command: %s", record.Command)
 	}
@@ -519,6 +521,32 @@ func (c *RootCLI) replayKimiSpoolRecord(ctx context.Context, input io.Reader, ac
 		return c.runHookKimiPostCompact(ctx, nil, input, dbPath)
 	default:
 		return xerrors.Errorf("unsupported kimi spool action: %s", action)
+	}
+}
+
+// nil writer for the same reason as replayGrokSpoolRecord. Muse hooks spool
+// with Command "muse" (hook_muse.go); without this branch, deferred records
+// fail as unsupported hook spool command: muse.
+func (c *RootCLI) replayMuseSpoolRecord(ctx context.Context, input io.Reader, action, dbPath string) error {
+	switch strings.TrimSpace(action) {
+	case "session-start":
+		return c.runHookMuseSessionStart(ctx, nil, input, dbPath)
+	case "user-prompt-submit":
+		return c.runHookMuseUserPromptSubmit(ctx, nil, input, dbPath)
+	case "pre-tool-use":
+		return c.runHookMusePreToolUse(ctx, nil, input, dbPath)
+	case "post-tool-use":
+		return c.runHookMusePostToolUse(ctx, nil, input, dbPath)
+	case "post-tool-use-failure":
+		return c.runHookMusePostToolUseFailure(ctx, nil, input, dbPath)
+	case "stop":
+		return c.runHookMuseStop(ctx, nil, input, dbPath)
+	case "pre-compact":
+		return c.runHookMusePreCompact(ctx, nil, input, dbPath)
+	case "post-compact":
+		return c.runHookMusePostCompact(ctx, nil, input, dbPath)
+	default:
+		return xerrors.Errorf("unsupported muse spool action: %s", action)
 	}
 }
 

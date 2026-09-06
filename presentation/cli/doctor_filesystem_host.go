@@ -32,7 +32,7 @@ func (c *RootCLI) appendFilesystemHostDoctorChecks(
 	}
 	for _, targetClient := range clients {
 		switch targetClient {
-		case "kimi", "antigravity", "grok":
+		case "kimi", "antigravity", "grok", "muse":
 			// Native package identity already covers these hosts.
 			continue
 		}

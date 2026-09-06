@@ -4,7 +4,7 @@ import "context"
 
 // nativeHostPackageChecks probes and builds the native plugin activation
 // checks for hosts that ship a Traceary plugin distribution with its own
-// probe (grok, kimi). It reads only host manifests/caches and host CLI
+// probe (grok, kimi, muse). It reads only host manifests/caches and host CLI
 // output; it never touches the Traceary store. handled is false for any
 // other client, so callers can tell "not a native host" apart from "native
 // host with zero checks".
@@ -34,6 +34,17 @@ func (c *RootCLI) nativeHostPackageChecks(ctx context.Context, client, projectDi
 			}}, true
 		}
 		return buildKimiDoctorChecks(state, currentVersion), true
+	case "muse":
+		state, probeErr := probeMuseDoctorState(ctx, projectDir)
+		if probeErr != nil {
+			return []doctorCheck{{
+				Name:    "muse-inspect",
+				Status:  doctorStatusWarn,
+				Message: localizef("failed to inspect the Muse plugin installation: %v", "Muse plugin の導入状態を検査できませんでした: %v", probeErr),
+				Hint:    Localize("reinstall the native Traceary Muse plugin, then rerun doctor", "native Traceary Muse plugin を再インストールしてから doctor を再実行してください"),
+			}}, true
+		}
+		return buildMuseDoctorChecks(state, currentVersion), true
 	default:
 		return nil, false
 	}
@@ -41,7 +52,7 @@ func (c *RootCLI) nativeHostPackageChecks(ctx context.Context, client, projectDi
 
 // hostPackageIdentityChecks produces the host package identity family: the
 // installed package version for every host manifest/cache
-// (inspectPluginVersionChecks) plus the native grok/kimi activation checks
+// (inspectPluginVersionChecks) plus the native grok/kimi/muse activation checks
 // for the resolved clients. It is store-independent by construction — every
 // call it makes reads host manifests, host plugin caches, or host CLI probes
 // only — so it stays available in the bounded (large-store) doctor report.

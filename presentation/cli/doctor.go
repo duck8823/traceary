@@ -403,7 +403,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 		// hook-state-residue is owned by appendFilesystemHostDoctorChecks on
 		// this path; appending it here would print and --fix it twice.
 		// Host package identity (installed plugin/manifest version, native
-		// grok/kimi activation state) reads only host manifests, host plugin
+		// grok/kimi/muse activation state) reads only host manifests, host plugin
 		// caches, and host CLI probes, so it stays available in the bounded
 		// report; it is independent of the Traceary store.
 		if resolvedProjectDir, projectDirErr := resolveHooksProjectDir(input.projectDir); projectDirErr != nil {
@@ -498,10 +498,10 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 	report.Checks = append(report.Checks, c.inspectHookGrokTranscriptDiagnostics(time.Now().UTC()))
 
 	for _, targetClient := range resolvedClients {
-		if targetClient == "kimi" {
-			// Kimi has no hook install path (the plugin is the distribution
-			// path), so the shared ResolveInstallPath would fail closed; the
-			// plugin state is probed directly from the Kimi home instead.
+		if targetClient == "kimi" || targetClient == "muse" {
+			// Kimi and Muse have no hook install path (plugin distribution
+			// is the path), so the shared ResolveInstallPath would fail
+			// closed; native package identity probes the host instead.
 			nativeChecks, _ := c.nativeHostPackageChecks(ctx, targetClient, resolvedProjectDir, input.currentVersion)
 			report.Checks = append(report.Checks, nativeChecks...)
 			report.Checks = append(report.Checks, c.inspectClientEventCoverage(ctx, targetClient, "", resolvedProjectDir, input.coverageThreshold))
