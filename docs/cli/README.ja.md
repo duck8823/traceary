@@ -123,7 +123,7 @@ subcommand なしの `traceary` は TTY / 非 TTY とも常に help を表示し
 
 全文検索と構造フィルタで event を検索します。
 
-`search` は two-tier 読み取り経路を使います。query があるときは session refinement を先に引き、canonical な `events` / `command_audits` / `sessions` の未索引走査へ fallback します。query が空で他フィルタだけの検索は、同じ表の構造走査です。SESSIONS 行は要約または refinement 本文が query に一致した session です。古い event のグループでも、一致した event 行でもありません。
+`search` は two-tier 読み取り経路を使います。query があるときは session refinement を先に引き、canonical な `events` / `command_audits` / `sessions` の未索引走査へ fallback します。phrase query とハイフン付き語は動きます（退役した耐久 index では扱えませんでした）。query が空で他フィルタだけの検索は、同じ表の構造走査です。大きな store では 1〜2 秒かかることがあります。SESSIONS 行は要約または refinement 本文が query に一致した session です。古い event のグループでも、一致した event 行でもありません。
 
 セッション行は、その trail のどこかに検索条件に一致する活動があることを示します。`--from` / `--to` では session summary クエリと同じくセッションの開始時刻で選び、`--failures` はそのセッション内に失敗したコマンドが1つでもあれば満たします。セッション行に対する filter は単一の event ではなくセッション全体に適用されるため、query、期間、`--failures` がそれぞれセッション内の別の活動によって満たされても、そのセッションは表示されます。すべての filter が1行の event だけを絞り込むのは event 階層です。
 
@@ -755,7 +755,7 @@ text 出力は `Environment`、`Database`、`Plugins`、`Hooks` の安定した 
 
 - `store-capacity`: 旧 `store capacity` と同じ bounded InspectCapacity 経路で、メタデータのみの容量内訳（database / free / WAL / 上位オブジェクト）を出します。2 GiB 以上の既定 doctor は filesystem-metadata-only のままで、この check は `skip` です（SQLite を開かず、dbstat も歩きません）。
 - `doctor --json` に additive な `workspace_identity` ブロック（coverage、conflict pair、sources、samples、aliases、導出 `exact_delivery`）を載せ、旧 `report workspace-identity` を置き換えます。text は既存の `workspace-aliases` check のままです。2 GiB 以上の既定 doctor はこのブロックを出さず、identity のために SQLite を開きません。
-- `offline-migrations`: 保留中のデータ依存 migration（035, 045）を報告します。空ストアは first write または `doctor` で自動初期化します。適用は `doctor --fix` です（数分かかることがあります）。2 GiB 以上の既定 doctor はこの check を skip し、SQLite を開きません。
+- `offline-migrations`: 保留中のデータ依存 migration（catalog 順 suffix 078–086 を含む）を報告します。空ストアは first write または `doctor` で自動初期化します。適用は review 済み copy への `doctor --fix` です（数分かかることがあります）。通常の open は pending を報告して戻ります。残っている行の DROP には `--approve-drop N:<hex>` および/または `--approve-unavailable-retention M:<hex>` が必要です。2 GiB 以上の既定 doctor はこの check を skip し、SQLite を開きません（`doctor --fix` は適用します）。
 - `path`: `PATH` 上の `traceary` 解決先と directory を確認します。見つからない場合は `FAIL`、複数見つかる場合は `WARN` です。
 - `<client>-plugin-version`: 検出した plugin manifest / cache の version と実行中 binary version を比較し、不一致なら plugin の reinstall / update を促します。
 - `hook-spool`: 単位をラベルします。metadata-only doctor（2 GiB 以上）は **files**（`metadata-only, store-independent`）。full doctor は選択中 `--client` 向けの **decoded records** に加え、比較用の `filesystem pending files (store-independent)=N` を出します。store-independent な check は出力行に `store-independent` と書きます。`--db-path` または `TRACEARY_DB_PATH` 付きで走ったとき、store 向け hint（`traceary doctor` / `store` / `memory`）に `--db-path` が付きます。詳細は [bounded large-store doctor](../operations/large-store-doctor.ja.md) です。
@@ -800,6 +800,8 @@ alias:
 - `--json`
 - `--fix` — 利用可能な安全な修復を適用する
 - `--dry-run` — 書き込まずに `--fix` を preview する
+- `--approve-drop` — 退役 table に行が残っているときの preflight `N:<hex>` token
+- `--approve-unavailable-retention` — unavailable_retention マーカーを DROP するときの preflight `N:<hex>` token
 - `--warnings-ok` — warning-only report は exit code `0` にし、failure は exit code `1` のままにする
 - `--strict` — audit-reliability: 時間に関係なく完全一致する duplicate group をすべて報告する（near-simultaneous な書き込みだけに限定しない）
 
@@ -840,9 +842,10 @@ preview ではなく、in-place `VACUUM` でもありません。成功後は `t
 
 - `--db-path`
 - `--work-dir`
-- `--json`
 
-`--archive`、`--archive-verify`、`--archive-restore`、`--retention-plan`、`--retention-apply`、およびその他の archive/retention flag は unknown です。既存 archive package の取り出しは Traceary 0.48.2 です。この binary に archive reader はありません。可搬コピーは `traceary bundle` と `traceary store backup` です。
+成功した compact は常に `compact_strategy` JSON を出します。`--json` flag はありません。
+
+`--archive`、`--archive-verify`、`--archive-restore`、`--retention-plan`、`--retention-apply`、およびその他の archive/retention flag は unknown です。`--projection-rebuild`、`--projection-abort`、`--index-family-bytes`、`--decoded-bytes`、`--recent-age`、`--lock-time` も unknown です。既存 archive package の取り出しは Traceary 0.48.2 です。この binary に archive reader はありません。可搬コピーは `traceary bundle` と `traceary store backup` です。
 
 ### `traceary store compact rollback RUN_ID`
 

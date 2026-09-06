@@ -123,7 +123,7 @@ Useful flags:
 
 Search events by text and structured filters.
 
-`search` uses the two-tier read path: a non-empty query searches session refinements first and falls back to an unindexed scan of canonical `events` / `command_audits` / `sessions`. An empty query with other filters is a structural scan of those same tables. A SESSIONS row is a session whose summary or refinement text matches the query — it is not an older-event bucket or a matching event line.
+`search` uses the two-tier read path: a non-empty query searches session refinements first and falls back to an unindexed scan of canonical `events` / `command_audits` / `sessions`. Phrase queries and hyphenated terms work (the retired durable index could not). An empty query with other filters is a structural scan of those same tables. A search over a large store may take a second or two. A SESSIONS row is a session whose summary or refinement text matches the query — it is not an older-event bucket or a matching event line.
 
 Session rows mean the trail contains a match. A session is selected by its start instant for `--from` / `--to` — the same rule session-summary queries use — and `--failures` is satisfied by any failed command in the session. Filters on session rows apply to the session, not to a single event: a session can appear when the query, the time range and `--failures` are each satisfied by different activity within it. The event tier is the one where every filter narrows to a single row.
 
@@ -763,7 +763,7 @@ Additional doctor checks:
 
 - `store-capacity` reports the metadata-only capacity breakdown (database / free / WAL / top objects) from the same bounded InspectCapacity path as the former `store capacity` command. On stores ≥2 GiB the default doctor stays filesystem-metadata-only and this check is `skip` (no SQLite open, no dbstat walk).
 - `doctor --json` includes an additive `workspace_identity` block (coverage, conflict pairs, sources, samples, aliases, derived `exact_delivery`) that replaces the former `report workspace-identity` leaf. Text mode stays the existing `workspace-aliases` check. On stores ≥2 GiB the default doctor omits the block and does not open SQLite for identity.
-- `offline-migrations` reports pending data-dependent migrations (035, 045). Empty stores still auto-init on first write or `doctor`. Apply pending versions with `doctor --fix` (can take minutes). On stores ≥2 GiB the default doctor skips this check without opening SQLite.
+- `offline-migrations` reports pending data-dependent migrations (including catalog-order suffixes 078–086). Empty stores still auto-init on first write or `doctor`. Apply pending versions with `doctor --fix` (can take minutes) on a reviewed copy; a normal open reports pending work and returns. Dropping present rows requires `--approve-drop N:<hex>` and/or `--approve-unavailable-retention M:<hex>`. On stores ≥2 GiB the default doctor skips this check without opening SQLite (`doctor --fix` still applies).
 - `path` confirms `traceary` resolves on `PATH` and reports the directory. Missing is `FAIL`; multiple matches are `WARN`.
 - `<client>-plugin-version` compares detected installed plugin manifests/caches with the running binary version and suggests reinstalling/updating the plugin when they drift.
 - `hook-spool` uses labeled units: metadata-only doctor (≥2 GiB) reports **files** (`metadata-only, store-independent`); full doctor reports **decoded records for the selected `--client`s** and also prints `filesystem pending files (store-independent)=N` so the two modes are comparable. Store-independent checks include `store-independent` on the output line. When doctor ran with `--db-path` or `TRACEARY_DB_PATH`, store-addressed hint commands (`traceary doctor` / `store` / `memory`) include `--db-path`. See [bounded large-store doctor](../operations/large-store-doctor.md).
@@ -810,6 +810,8 @@ Useful flags:
 - `--json`
 - `--fix` — apply available safe remediations
 - `--dry-run` — preview `--fix` without writing
+- `--approve-drop` — `N:<hex>` token from preflight when a retired table still has rows
+- `--approve-unavailable-retention` — `N:<hex>` token from preflight when unavailable_retention markers would be dropped
 - `--warnings-ok` — return exit code `0` for warning-only reports while keeping failures at exit code `1`
 - `--strict` — audit-reliability: report every exact duplicate group regardless of time, not only near-simultaneous writes
 
@@ -850,9 +852,10 @@ Useful flags:
 
 - `--db-path`
 - `--work-dir`
-- `--json`
 
-`--archive`, `--archive-verify`, `--archive-restore`, `--retention-plan`, `--retention-apply`, and the other archive/retention flags are unknown. Existing archive packages are retrieved with Traceary 0.48.2; this binary has no archive reader. Portable copies use `traceary bundle` and `traceary store backup`.
+Successful compact always prints `compact_strategy` JSON; there is no `--json` flag.
+
+`--archive`, `--archive-verify`, `--archive-restore`, `--retention-plan`, `--retention-apply`, and the other archive/retention flags are unknown. `--projection-rebuild`, `--projection-abort`, `--index-family-bytes`, `--decoded-bytes`, `--recent-age`, and `--lock-time` are also unknown. Existing archive packages are retrieved with Traceary 0.48.2; this binary has no archive reader. Portable copies use `traceary bundle` and `traceary store backup`.
 
 ### `traceary store compact rollback RUN_ID`
 

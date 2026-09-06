@@ -86,6 +86,46 @@ func TestInspectCompactRollbackCopies(t *testing.T) {
 		}
 	})
 
+	t.Run("fix keeps an upgrade forensic rollback after compact-rollback-copy", func(t *testing.T) {
+		dir := t.TempDir()
+		db := filepath.Join(dir, "traceary.db")
+		forensic := db + ".rollback-upgrade-5cde1d1bb70adf4f608b87ba267f9c87"
+		compact := db + ".rollback-abc123"
+		if err := os.WriteFile(forensic, []byte("upgrade-forensic"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(compact, []byte("compact-accepted"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		check := inspectCompactRollbackCopies(db)
+		if !strings.Contains(check.Message, compact) {
+			t.Fatalf("Message = %q, want compact path", check.Message)
+		}
+		if strings.Contains(check.Message, forensic) {
+			t.Fatalf("Message = %q, forensic rollback must not be a compact-rollback-copy target", check.Message)
+		}
+		result, err := check.StructuredFixFunc(t.Context(), false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Metrics["removed"] != 1 {
+			t.Fatalf("metrics=%v, want removed=1", result.Metrics)
+		}
+		if result.Metrics["skipped_upgrade_forensic"] != 1 {
+			t.Fatalf("metrics=%v, want skipped_upgrade_forensic=1", result.Metrics)
+		}
+		if _, err := os.Lstat(forensic); err != nil {
+			t.Fatalf("upgrade forensic rollback was deleted: %v", err)
+		}
+		if _, err := os.Lstat(compact); !os.IsNotExist(err) {
+			t.Fatalf("accepted compact rollback still present: %v", err)
+		}
+		after := inspectCompactRollbackCopies(db)
+		if after.Status != doctorStatusPass {
+			t.Fatalf("after status=%q", after.Status)
+		}
+	})
+
 	t.Run("symlink rollback is not unlinked", func(t *testing.T) {
 		dir := t.TempDir()
 		db := filepath.Join(dir, "traceary.db")
