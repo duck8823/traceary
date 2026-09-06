@@ -478,6 +478,49 @@ func TestCheckGrokHooksRejectsContractDrift(t *testing.T) {
 	}
 }
 
+func TestCheckMuseHooksRejectsContractDrift(t *testing.T) {
+	t.Parallel()
+	valid := museHookFixture()
+	if err := checkMuseHooks("hooks.json", valid); err != nil {
+		t.Fatalf("checkMuseHooks(valid) error = %v", err)
+	}
+
+	valid.Hooks["Stop"][0].Hooks[0].Command = `"${MUSE_PLUGIN_ROOT}/scripts/traceary-muse.sh" "pre-compact"`
+	if err := checkMuseHooks("hooks.json", valid); err == nil {
+		t.Fatal("checkMuseHooks(action swap) error = nil")
+	}
+	valid = museHookFixture()
+	valid.Hooks["Stop"][0].Hooks[0].Timeout = 4
+	if err := checkMuseHooks("hooks.json", valid); err == nil {
+		t.Fatal("checkMuseHooks(timeout drift) error = nil")
+	}
+	valid = museHookFixture()
+	valid.Hooks["SubagentStart"] = valid.Hooks["SessionStart"]
+	if err := checkMuseHooks("hooks.json", valid); err == nil {
+		t.Fatal("checkMuseHooks(extra event) error = nil")
+	}
+}
+
+func museHookFixture() hookFile {
+	hooks := map[string][]hookEntry{}
+	for _, spec := range []struct{ event, name, action string }{
+		{"SessionStart", "traceary-session-start", "session-start"},
+		{"UserPromptSubmit", "traceary-prompt", "user-prompt-submit"},
+		{"PreToolUse", "traceary-tool-pre", "pre-tool-use"},
+		{"PostToolUse", "traceary-audit", "post-tool-use"},
+		{"PostToolUseFailure", "traceary-audit-failure", "post-tool-use-failure"},
+		{"Stop", "traceary-stop", "stop"},
+		{"PreCompact", "traceary-compact-pre", "pre-compact"},
+		{"PostCompact", "traceary-compact-post", "post-compact"},
+	} {
+		hooks[spec.event] = []hookEntry{{Hooks: []hookCommand{{
+			Name: spec.name, Type: "command", Timeout: 10,
+			Command: `"${MUSE_PLUGIN_ROOT}/scripts/traceary-muse.sh" "` + spec.action + `"`,
+		}}}}
+	}
+	return hookFile{Hooks: hooks}
+}
+
 func grokHookFixture() hookFile {
 	hooks := map[string][]hookEntry{}
 	for _, spec := range []struct{ event, name, action string }{
@@ -527,6 +570,9 @@ func TestIntegrationHookCopies_MembershipMatrix(t *testing.T) {
 		},
 		"traceary-grok.sh": {
 			"integrations/grok-plugin/scripts",
+		},
+		"traceary-muse.sh": {
+			"integrations/muse-plugin/scripts",
 		},
 	}
 
@@ -645,6 +691,7 @@ func writeHookTree(t *testing.T, root string) {
 		"traceary-prompt.sh":  "#!/bin/bash\n# prompt\n",
 		"traceary-compact.sh": "#!/bin/bash\n# compact\n",
 		"traceary-grok.sh":    "#!/bin/sh\n# grok\n",
+		"traceary-muse.sh":    "#!/bin/sh\n# muse\n",
 	}
 	hooksDir := filepath.Join(root, "scripts/hooks")
 	if err := os.MkdirAll(hooksDir, 0o755); err != nil {

@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "name": "traceary-muse",
+  "displayName": "Traceary Muse",
+  "version": "0.49.0",
+  "description": "Local-first Traceary integration for Muse Code with native session, audit, transcript, and compact hooks.",
+  "compat": {
+    "source": "native",
+    "manifestDir": ".muse-plugin"
+  },
+  "capabilities": {
+    "skills": [
+      {"id": "traceary-memory-remember", "path": "skills/traceary-memory-remember/SKILL.md"},
+      {"id": "traceary-memory-review", "path": "skills/traceary-memory-review/SKILL.md"},
+      {"id": "traceary-session-history", "path": "skills/traceary-session-history/SKILL.md"},
+      {"id": "traceary-session-refine", "path": "skills/traceary-session-refine/SKILL.md"}
+    ],
+    "commands": [],
+    "hooks": [
+      {"id": "traceary-session-start", "event": "SessionStart", "command": ["traceary", "hook", "muse", "session-start"], "timeoutMs": 10000},
+      {"id": "traceary-prompt", "event": "UserPromptSubmit", "command": ["traceary", "hook", "muse", "user-prompt-submit"], "timeoutMs": 10000},
+      {"id": "traceary-tool-pre", "event": "PreToolUse", "command": ["traceary", "hook", "muse", "pre-tool-use"], "timeoutMs": 10000},
+      {"id": "traceary-audit", "event": "PostToolUse", "command": ["traceary", "hook", "muse", "post-tool-use"], "timeoutMs": 10000},
+      {"id": "traceary-audit-failure", "event": "PostToolUseFailure", "command": ["traceary", "hook", "muse", "post-tool-use-failure"], "timeoutMs": 10000},
+      {"id": "traceary-stop", "event": "Stop", "command": ["traceary", "hook", "muse", "stop"], "timeoutMs": 10000},
+      {"id": "traceary-compact-pre", "event": "PreCompact", "command": ["traceary", "hook", "muse", "pre-compact"], "timeoutMs": 10000},
+      {"id": "traceary-compact-post", "event": "PostCompact", "command": ["traceary", "hook", "muse", "post-compact"], "timeoutMs": 10000}
+    ],
+    "mcpServers": [],
+    "reminders": []
+  }
+}

@@ -89,6 +89,12 @@ var integrationHookCopies = []integrationHookCopy{
 			"integrations/grok-plugin/scripts",
 		},
 	},
+	{
+		source: "scripts/hooks/traceary-muse.sh",
+		packages: []string{
+			"integrations/muse-plugin/scripts",
+		},
+	},
 }
 
 func newIntegrationsCommand() *cobra.Command {
@@ -165,6 +171,9 @@ func verifyIntegrations(root string, runCLISmoke bool) error {
 	if err := checkKimi(root, version); err != nil {
 		return err
 	}
+	if err := checkMuse(root, version); err != nil {
+		return err
+	}
 	if err := checkAntigravity(root); err != nil {
 		return err
 	}
@@ -190,6 +199,7 @@ var rememberSkillPaths = []string{
 	"integrations/antigravity-plugin/skills/traceary-memory-remember/SKILL.md",
 	"integrations/grok-plugin/skills/traceary-memory-remember/SKILL.md",
 	"integrations/kimi-plugin/skills/traceary-memory-remember/SKILL.md",
+	"integrations/muse-plugin/skills/traceary-memory-remember/SKILL.md",
 }
 
 // checkRememberSkillContract enforces the explicit-remember product contract:
@@ -243,6 +253,7 @@ var sharedSkillPaths = map[string][]string{
 		"integrations/antigravity-plugin/skills/traceary-memory-review/SKILL.md",
 		"integrations/grok-plugin/skills/traceary-memory-review/SKILL.md",
 		"integrations/kimi-plugin/skills/traceary-memory-review/SKILL.md",
+		"integrations/muse-plugin/skills/traceary-memory-review/SKILL.md",
 	},
 	"traceary-session-history": {
 		"integrations/claude-plugin/skills/traceary-session-history/SKILL.md",
@@ -251,6 +262,7 @@ var sharedSkillPaths = map[string][]string{
 		"integrations/antigravity-plugin/skills/traceary-session-history/SKILL.md",
 		"integrations/grok-plugin/skills/traceary-session-history/SKILL.md",
 		"integrations/kimi-plugin/skills/traceary-session-history/SKILL.md",
+		"integrations/muse-plugin/skills/traceary-session-history/SKILL.md",
 	},
 	"traceary-session-refine": {
 		"integrations/claude-plugin/skills/traceary-session-refine/SKILL.md",
@@ -259,6 +271,7 @@ var sharedSkillPaths = map[string][]string{
 		"integrations/antigravity-plugin/skills/traceary-session-refine/SKILL.md",
 		"integrations/grok-plugin/skills/traceary-session-refine/SKILL.md",
 		"integrations/kimi-plugin/skills/traceary-session-refine/SKILL.md",
+		"integrations/muse-plugin/skills/traceary-session-refine/SKILL.md",
 	},
 }
 
@@ -669,6 +682,103 @@ func checkKimi(root, version string) error {
 	for _, skill := range expectedSkills {
 		if err := requireExists(root, "integrations/kimi-plugin/skills/"+skill+"/SKILL.md", "missing Kimi "+skill+" skill"); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func checkMuse(root, version string) error {
+	var manifest struct {
+		Name    string `json:"name"`
+		Version string `json:"version"`
+	}
+	if err := readJSON(root, "integrations/muse-plugin/plugin.json", &manifest); err != nil {
+		return err
+	}
+	if manifest.Name != "traceary-muse" {
+		return xerrors.Errorf("unexpected Muse plugin name")
+	}
+	if manifest.Version != version {
+		return xerrors.Errorf("muse plugin version must track v%s", version)
+	}
+
+	var nested struct {
+		Name    string `json:"name"`
+		Version string `json:"version"`
+	}
+	if err := readJSON(root, "integrations/muse-plugin/.muse-plugin/plugin.json", &nested); err != nil {
+		return err
+	}
+	if nested.Name != "traceary-muse" {
+		return xerrors.Errorf("unexpected nested Muse plugin name")
+	}
+	if nested.Version != version {
+		return xerrors.Errorf("nested muse plugin version must track v%s", version)
+	}
+
+	if err := requireNoShippedMCPConfig(root, "integrations/muse-plugin/.mcp.json"); err != nil {
+		return err
+	}
+
+	hooksPath := "integrations/muse-plugin/hooks/hooks.json"
+	hooks, _, err := readHookFile(root, hooksPath)
+	if err != nil {
+		return err
+	}
+	if err := checkNoDuplicateTracearyHookEntries(hooksPath, hooks); err != nil {
+		return err
+	}
+	if err := checkMuseHooks(hooksPath, hooks); err != nil {
+		return err
+	}
+	if err := requireExists(root, "integrations/muse-plugin/scripts/traceary-muse.sh", "missing Muse hook wrapper"); err != nil {
+		return err
+	}
+	expectedSkills := []string{"traceary-memory-remember", "traceary-memory-review", "traceary-session-history", "traceary-session-refine"}
+	entries, err := os.ReadDir(filepath.Join(root, "integrations/muse-plugin/skills"))
+	if err != nil {
+		return xerrors.Errorf("failed to read Muse skills: %w", err)
+	}
+	actualSkills := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			actualSkills = append(actualSkills, entry.Name())
+		}
+	}
+	if !equalStrings(actualSkills, expectedSkills) {
+		return xerrors.Errorf("muse plugin skills must be exactly %v, got %v", expectedSkills, actualSkills)
+	}
+	for _, skill := range expectedSkills {
+		if err := requireExists(root, "integrations/muse-plugin/skills/"+skill+"/SKILL.md", "missing Muse "+skill+" skill"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func checkMuseHooks(path string, hooks hookFile) error {
+	required := []struct{ event, name, action string }{
+		{"SessionStart", "traceary-session-start", "session-start"},
+		{"UserPromptSubmit", "traceary-prompt", "user-prompt-submit"},
+		{"PreToolUse", "traceary-tool-pre", "pre-tool-use"},
+		{"PostToolUse", "traceary-audit", "post-tool-use"},
+		{"PostToolUseFailure", "traceary-audit-failure", "post-tool-use-failure"},
+		{"Stop", "traceary-stop", "stop"},
+		{"PreCompact", "traceary-compact-pre", "pre-compact"},
+		{"PostCompact", "traceary-compact-post", "post-compact"},
+	}
+	if len(hooks.Hooks) != len(required) {
+		return xerrors.Errorf("%s must expose exactly %d verified events", path, len(required))
+	}
+	for _, want := range required {
+		entries := hooks.Hooks[want.event]
+		if len(entries) != 1 || entries[0].Matcher != "" || len(entries[0].Hooks) != 1 {
+			return xerrors.Errorf("%s %s must contain exactly one unfiltered command", path, want.event)
+		}
+		command := entries[0].Hooks[0]
+		expectedCommand := `"${MUSE_PLUGIN_ROOT}/scripts/traceary-muse.sh" "` + want.action + `"`
+		if command.Name != want.name || command.Type != "command" || command.Command != expectedCommand || command.Timeout != 10 {
+			return xerrors.Errorf("%s %s command drifted from the verified Muse contract", path, want.event)
 		}
 	}
 	return nil

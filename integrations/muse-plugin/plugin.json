@@ -1,0 +1,17 @@
+{
+  "name": "traceary-muse",
+  "version": "0.49.0",
+  "description": "Local-first Traceary integration for Muse Code with native session, audit, transcript, and compact hooks.",
+  "author": {
+    "name": "Shunsuke Maeda",
+    "email": "duck8823@gmail.com"
+  },
+  "homepage": "https://github.com/duck8823/traceary",
+  "keywords": [
+    "traceary",
+    "session",
+    "audit",
+    "memory",
+    "local-first"
+  ]
+}

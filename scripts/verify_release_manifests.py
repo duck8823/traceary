@@ -21,6 +21,8 @@ PLUGIN_MANIFESTS = [
     ROOT / 'integrations' / 'grok-plugin' / 'plugin.json',
     ROOT / 'integrations' / 'kimi-plugin' / 'kimi.plugin.json',
     ROOT / 'plugins' / 'traceary' / '.codex-plugin' / 'plugin.json',
+    ROOT / 'integrations' / 'muse-plugin' / 'plugin.json',
+    ROOT / 'integrations' / 'muse-plugin' / '.muse-plugin' / 'plugin.json',
 ]
 
 
