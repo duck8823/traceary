@@ -10,6 +10,7 @@ import (
 )
 
 func TestLatestSessionBoundaryQueryUsesBodyFreeBoundaryIndex(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "traceary.db")
 	database := NewDatabase(path, os.DirFS(filepath.Join("..", "..", "schema", "sqlite", "migrations")))

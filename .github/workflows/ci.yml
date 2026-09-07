@@ -70,8 +70,8 @@ jobs:
       - name: Verify record/search/refine matrix
         run: ./scripts/smoke_test_integrations.sh record-search-refine
 
-  test:
-    name: Test
+  test-sqlite:
+    name: Test (sqlite)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -86,8 +86,48 @@ jobs:
       - name: Download modules
         run: go mod download
 
-      - name: Run tests
-        run: go test ./...
+      - name: Run sqlite tests
+        run: go test -count=1 ./infrastructure/sqlite/
+
+  test-cli:
+    name: Test (cli)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Download modules
+        run: go mod download
+
+      - name: Run presentation tests
+        run: go test -count=1 ./presentation/...
+
+  test-rest:
+    name: Test (rest)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Download modules
+        run: go mod download
+
+      # Exclusion-based so newly added packages can never fall through
+      # the shard gap: every package not covered above runs here.
+      - name: Run remaining tests
+        run: go list ./... | grep -v -e '^github.com/duck8823/traceary/infrastructure/sqlite$' -e '^github.com/duck8823/traceary/presentation/' | xargs go test -count=1
 
   lint:
     name: Lint

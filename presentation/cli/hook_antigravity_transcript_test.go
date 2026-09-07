@@ -10,6 +10,7 @@ import (
 )
 
 func TestAntigravityCurrentTranscriptSchema(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "transcript.jsonl")
 	content := "" +
 		`{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","content":"first prompt"}` + "\n" +
@@ -37,6 +38,7 @@ func TestAntigravityCurrentTranscriptSchema(t *testing.T) {
 }
 
 func TestReadLastAntigravityCompletedTurn(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		lines      []string
@@ -116,6 +118,7 @@ func TestReadLastAntigravityCompletedTurn(t *testing.T) {
 }
 
 func TestExtractAntigravityTranscriptDoesNotFallBackAfterTurnResolution(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "transcript.jsonl")
 	if err := os.WriteFile(path, []byte(strings.Join([]string{
 		`{"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","content":"unfinished"}`,

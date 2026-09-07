@@ -14,6 +14,7 @@ import (
 )
 
 func TestCommandAuditReliabilityFindingsDetectDuplicateGroups(t *testing.T) {
+	t.Parallel()
 	largeOutput := strings.Repeat("x", 2048)
 	base := time.Date(2026, 5, 31, 0, 0, 0, 0, time.UTC)
 	details := []apptypes.EventDetails{
@@ -48,6 +49,7 @@ func TestCommandAuditReliabilityFindingsDetectDuplicateGroups(t *testing.T) {
 // #1168 false positive: the same command intentionally re-run minutes apart
 // during a review/merge flow must NOT be flagged by default.
 func TestCommandAuditReliabilityFindingsIgnoreIntentionalRerunsByDefault(t *testing.T) {
+	t.Parallel()
 	base := time.Date(2026, 6, 6, 4, 30, 51, 0, time.UTC)
 	command := "rtk gh pr checks 1147 --json name,state,workflow,bucket,link"
 	details := []apptypes.EventDetails{
@@ -69,6 +71,7 @@ func TestCommandAuditReliabilityFindingsIgnoreIntentionalRerunsByDefault(t *test
 // TestCommandAuditReliabilityFindingsFlagNearSimultaneousDuplicates confirms a
 // near-simultaneous identity match (likely hook double-write) is still flagged.
 func TestCommandAuditReliabilityFindingsFlagNearSimultaneousDuplicates(t *testing.T) {
+	t.Parallel()
 	base := time.Date(2026, 6, 6, 4, 30, 51, 0, time.UTC)
 	details := []apptypes.EventDetails{
 		mustAuditDetailForReliability(t, "evt-1", "session-1", "workspace-1", "git status", `{"command":"git status"}`, "ok", base),
@@ -85,6 +88,7 @@ func TestCommandAuditReliabilityFindingsFlagNearSimultaneousDuplicates(t *testin
 // within one identity group only the near-simultaneous cluster is flagged by
 // default, while strict mode reports the whole exact group.
 func TestCommandAuditReliabilityFindingsSplitNearAndFarDuplicates(t *testing.T) {
+	t.Parallel()
 	base := time.Date(2026, 6, 6, 4, 30, 51, 0, time.UTC)
 	command := "go test ./..."
 	newDetails := func() []apptypes.EventDetails {
@@ -111,6 +115,7 @@ func TestCommandAuditReliabilityFindingsSplitNearAndFarDuplicates(t *testing.T) 
 // gap (inclusive via <=), and two separate near-simultaneous clusters inside one
 // identity group.
 func TestCommandAuditReliabilityFindingsClusterBoundaryCases(t *testing.T) {
+	t.Parallel()
 	base := time.Date(2026, 6, 6, 4, 30, 51, 0, time.UTC)
 	command := "go test ./..."
 	input := `{"command":"test"}`
@@ -171,6 +176,7 @@ func TestCommandAuditReliabilityFindingsClusterBoundaryCases(t *testing.T) {
 // but differ in client or agent are NOT a duplicate group, matching the stated
 // exact-duplicate identity (kind/client/agent/session/workspace/command/...).
 func TestCommandAuditReliabilityFindingsSeparateGroupsByClientAndAgent(t *testing.T) {
+	t.Parallel()
 	base := time.Date(2026, 6, 6, 4, 30, 51, 0, time.UTC)
 	command := "go test ./..."
 	input := `{"command":"test"}`
@@ -205,6 +211,7 @@ func TestCommandAuditReliabilityFindingsSeparateGroupsByClientAndAgent(t *testin
 }
 
 func TestCommandAuditReliabilityFindingsDetectWorkspaceDrift(t *testing.T) {
+	t.Parallel()
 	cwd := filepath.Join(t.TempDir(), "traceary")
 	base := time.Date(2026, 5, 31, 0, 0, 0, 0, time.UTC)
 	details := []apptypes.EventDetails{

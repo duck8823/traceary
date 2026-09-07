@@ -17,6 +17,7 @@ import (
 )
 
 func TestSQLiteCompactionBuilderBuildAndVerifyPair(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	source := filepath.Join(t.TempDir(), "source.db")
 	candidate := filepath.Join(filepath.Dir(source), "candidate.db")
@@ -68,6 +69,7 @@ func TestSQLiteCompactionBuilderBuildAndVerifyPair(t *testing.T) {
 }
 
 func TestSQLiteCompactionVerificationDoesNotCreateSidecars(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	dir := t.TempDir()
 	source := filepath.Join(dir, "source.db")
@@ -104,6 +106,7 @@ func TestSQLiteCompactionVerificationDoesNotCreateSidecars(t *testing.T) {
 }
 
 func TestStoreCompactionSmallAllocatedShapeE2E(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	dir := t.TempDir()
 	source := filepath.Join(dir, "source.db")
@@ -182,6 +185,7 @@ func TestStoreCompactionSmallAllocatedShapeE2E(t *testing.T) {
 }
 
 func TestCompact_CompletesWhileOtherProcessWaitsForSharedLease(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	dir := t.TempDir()
 	source := filepath.Join(dir, "source.db")
@@ -224,6 +228,7 @@ func TestCompact_CompletesWhileOtherProcessWaitsForSharedLease(t *testing.T) {
 }
 
 func TestStoreCompactionResumeReplacesRunOwnedNearCapacityPartialCandidate(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	dir := t.TempDir()
 	source := filepath.Join(dir, "source.db")
@@ -310,6 +315,7 @@ func TestStoreCompactionResumeReplacesRunOwnedNearCapacityPartialCandidate(t *te
 }
 
 func TestStoreCompactionResumePreservesUnknownValidCandidate(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	dir := t.TempDir()
 	source := filepath.Join(dir, "source.db")
@@ -360,6 +366,7 @@ func TestStoreCompactionResumePreservesUnknownValidCandidate(t *testing.T) {
 }
 
 func TestStoreCompactionResumeDoesNotAdoptCrashGapEmptyCandidate(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	dir := t.TempDir()
 	source := filepath.Join(dir, "source.db")
@@ -411,6 +418,7 @@ func TestStoreCompactionResumeDoesNotAdoptCrashGapEmptyCandidate(t *testing.T) {
 }
 
 func TestStoreCompactionResumeRejectsReplacedPreparedCandidateInode(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	dir := t.TempDir()
 	source := filepath.Join(dir, "source.db")
@@ -447,6 +455,7 @@ func TestStoreCompactionResumeRejectsReplacedPreparedCandidateInode(t *testing.T
 }
 
 func TestStoreCompactionResumeRebuildsValidIncompletePreparedCandidate(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	dir := t.TempDir()
 	source := filepath.Join(dir, "source.db")
@@ -482,6 +491,7 @@ func TestStoreCompactionResumeRebuildsValidIncompletePreparedCandidate(t *testin
 }
 
 func TestStoreCompactionApplyRejectsSameContentReplacementAfterVerification(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	dir := t.TempDir()
 	source := filepath.Join(dir, "source.db")
@@ -523,6 +533,7 @@ func TestStoreCompactionApplyRejectsSameContentReplacementAfterVerification(t *t
 }
 
 func TestStoreCompactionExclusiveBoundaryRejectsLateHardLinkBeforeObservation(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name  string
 		phase domain.CompactionPhase
@@ -664,6 +675,7 @@ func prepareCompactionCandidateForResumeTest(ctx context.Context, t *testing.T, 
 }
 
 func TestStoreCompactionAbandonsStaleCandidatePreparedAndReplans(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	dir := t.TempDir()
 	source := filepath.Join(dir, "source.db")
@@ -710,6 +722,7 @@ func TestStoreCompactionAbandonsStaleCandidatePreparedAndReplans(t *testing.T) {
 }
 
 func TestStoreCompactionDoesNotAbandonSwapIntent(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	dir := t.TempDir()
 	source := filepath.Join(dir, "source.db")

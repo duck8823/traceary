@@ -10,6 +10,7 @@ import (
 )
 
 func TestDecodeLaneRowsCheckpointsWALBetweenWritePages(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "store.db")
 	if err := os.WriteFile(path, nil, 0o600); err != nil {

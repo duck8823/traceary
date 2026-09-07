@@ -12,6 +12,7 @@ import (
 )
 
 func TestCompactionDropsTheLegacySearchFamilyDuringTheCopy(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	dir := t.TempDir()
 	source := filepath.Join(dir, "source.db")
@@ -58,6 +59,7 @@ func TestCompactionDropsTheLegacySearchFamilyDuringTheCopy(t *testing.T) {
 }
 
 func TestRequireStaticSearchStateReportsFamilyWithoutSearchRetire(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	source := filepath.Join(t.TempDir(), "source.db")
 	createCompactableStore(t, source)
@@ -89,6 +91,7 @@ func TestRequireStaticSearchStateReportsFamilyWithoutSearchRetire(t *testing.T) 
 }
 
 func TestRejectRetiredSearchIndexInspectsWhateverWouldBePublished(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	dir := t.TempDir()
 	source := filepath.Join(dir, "source.db")

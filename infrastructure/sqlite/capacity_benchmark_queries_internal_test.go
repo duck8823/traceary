@@ -8,6 +8,7 @@ import (
 )
 
 func TestCapacityBenchmarkQueriesShareProductionSources(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "queries.db")
 	db, err := sql.Open("sqlite", path)
 	if err != nil {

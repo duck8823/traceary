@@ -14,6 +14,7 @@ import (
 )
 
 func TestPageMetadataInspectorReadsPragmas(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "pages.db")
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
@@ -62,6 +63,7 @@ func TestPageMetadataInspectorReadsPragmas(t *testing.T) {
 }
 
 func TestPageMetadataInspectorRejectsInvalidSQLiteFile(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "not-sqlite.db")
 	if err := os.WriteFile(path, []byte("not a database"), 0o600); err != nil {
 		t.Fatal(err)

@@ -11,6 +11,7 @@ import (
 )
 
 func TestDetectRepoContextFromDir(t *testing.T) {
+	t.Parallel()
 	t.Run("prefers normalized remote origin", func(t *testing.T) {
 		repoDir := initGitRepoForContextTest(t)
 		runGitCommandForContextTest(t, repoDir, "remote", "add", "origin", "git@github.com:duck8823/traceary.git")

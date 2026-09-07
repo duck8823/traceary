@@ -10,6 +10,7 @@ import (
 )
 
 func TestCompactPreservesRepairCompletion(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	dir := t.TempDir()
 	source := filepath.Join(dir, "source.db")

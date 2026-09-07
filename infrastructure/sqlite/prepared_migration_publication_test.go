@@ -20,6 +20,7 @@ import (
 )
 
 func TestPreparedMigrationPublishesAndRollsBackOwnedCopy(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("prepared migration publication exercises the filesystem protocol")
 	}

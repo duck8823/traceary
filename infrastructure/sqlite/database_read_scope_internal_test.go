@@ -32,6 +32,7 @@ func newReadScopeTestDatabase(t *testing.T) *Database {
 // compatibility guard exactly once, and closes the connection when fn
 // returns.
 func TestWithReadScope_OpensOnceClosesOnceChecksCompatOnce(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	database := newReadScopeTestDatabase(t)
 
@@ -67,6 +68,7 @@ func TestWithReadScope_OpensOnceClosesOnceChecksCompatOnce(t *testing.T) {
 // outer handle rather than opening a second connection or re-running the
 // compatibility guard.
 func TestWithReadScope_NestedReusesOuterHandle(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	database := newReadScopeTestDatabase(t)
 
@@ -105,6 +107,7 @@ func TestWithReadScope_NestedReusesOuterHandle(t *testing.T) {
 // item 4: a caller that never enters WithReadScope must keep paying
 // setup+ping+compat on every openReadOnly call.
 func TestWithReadScope_CallerThatSkipsScopeSeesPerCallBehaviour(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	database := newReadScopeTestDatabase(t)
 
@@ -133,6 +136,7 @@ func TestWithReadScope_CallerThatSkipsScopeSeesPerCallBehaviour(t *testing.T) {
 // case: the handle opened by WithReadScope must close via defer even when fn
 // panics, so no *sql.DB leaks out of a crashed candidate loop.
 func TestWithReadScope_ClosesHandleOnPanic(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	database := newReadScopeTestDatabase(t)
 
@@ -163,6 +167,7 @@ func TestWithReadScope_ClosesHandleOnPanic(t *testing.T) {
 // entry before fn runs at all, and openReadOnly must independently reject
 // the same store.
 func TestWithReadScope_CompatibilityFailureStopsAtEntry(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := t.TempDir() + "/future.db"
 	raw, err := sql.Open("sqlite", path)
@@ -196,6 +201,7 @@ func TestWithReadScope_CompatibilityFailureStopsAtEntry(t *testing.T) {
 // TestWithReadScope_PropagatesCancelledContext covers the Given/When/Then
 // cancellation case: fn observes ctx.Err() from the scoped context.
 func TestWithReadScope_PropagatesCancelledContext(t *testing.T) {
+	t.Parallel()
 	database := newReadScopeTestDatabase(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
