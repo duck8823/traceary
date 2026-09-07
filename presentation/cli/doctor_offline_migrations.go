@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"time"
 
@@ -129,8 +130,18 @@ func (c *RootCLI) applyAuthorizedStoreInit(ctx context.Context, input doctorComm
 		return log, true
 	}
 	log.Action = "applied data-dependent migrations: " + versions +
-		"\nrollback copy retained as forensic backup (not an interchangeable rollback target): " + receipt.RollbackPath
+		"\nrollback copy retained as forensic backup (not an interchangeable rollback target): " + receipt.RollbackPath +
+		upgradeFootprintLine(size, receipt)
 	return log, true
+}
+
+// upgradeFootprintLine reports the measured transient footprint of the offline
+// upgrade so the next dogfood run can provision space from the previous run's
+// numbers (#2347): candidate build peak (owned + WAL) and wall time, against
+// the source size the 3x worst-case reservation was computed from.
+func upgradeFootprintLine(sourceSize uint64, receipt application.PreparedStoreUpgradeReceipt) string {
+	return fmt.Sprintf("\nupgrade footprint: source=%d peak_owned=%d peak_wal=%d build_ms=%d",
+		sourceSize, receipt.Evidence.PeakOwnedBytes, receipt.Evidence.PeakWALBytes, receipt.Evidence.BuildMilliseconds)
 }
 
 func boundDropApprovalForFix(ctx context.Context, store usecase.StoreManagementUsecase, token string) (*domain.BoundDropApproval, error) {

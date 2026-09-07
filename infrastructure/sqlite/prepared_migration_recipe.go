@@ -27,13 +27,35 @@ type PreparedMigrationCandidateRecipe struct {
 	// that needs candidate-time data work (v81 restore is the first).
 	beforeApply func(ctx context.Context, db *sql.DB) error
 	// afterApply runs after the pending suffix is applied and before
-	// wal_checkpoint(TRUNCATE). The upgrade recipe uses it for VACUUM.
-	afterApply func(ctx context.Context, db *sql.DB) error
+	// wal_checkpoint(TRUNCATE). The upgrade recipe uses it for VACUUM INTO.
+	// It returns the handle Build continues with: normally the same handle,
+	// or a reopened one when afterApply replaced the underlying file.
+	afterApply func(ctx context.Context, db *sql.DB) (*sql.DB, error)
 }
 
 type preparedMigrationMetrics struct {
 	peakOwned, peakWAL uint64
 	elapsed            time.Duration
+}
+
+// migrationCadenceCheckpointHook is an optional test sink fired after each
+// per-migration candidate WAL TRUNCATE during apply. Cadence checkpoints are
+// deliberately not step-recorder events: the pinned apply → VACUUM →
+// checkpoint order must stay stable while the WAL stays bounded.
+var migrationCadenceCheckpointHook func()
+
+// checkpointMigrationCandidateWAL folds one migration worth of WAL into the
+// candidate and truncates it, so the WAL stays bounded by the largest single
+// migration instead of the whole pending suffix. TRUNCATE matches the final
+// checkpoint in Build and the decode cadence in #2323.
+func checkpointMigrationCandidateWAL(ctx context.Context, db *sql.DB) error {
+	if _, err := db.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+		return fmt.Errorf("checkpoint migration candidate WAL: %w", err)
+	}
+	if migrationCadenceCheckpointHook != nil {
+		migrationCadenceCheckpointHook()
+	}
+	return nil
 }
 
 // Plan fixes the exact pending migration suffix digest.
@@ -156,9 +178,14 @@ func (r *PreparedMigrationCandidateRecipe) Build(ctx context.Context, request ap
 			<-monitorErr
 			return err
 		}
+		if err = checkpointMigrationCandidateWAL(buildCtx, db); err != nil {
+			stopMonitor()
+			<-monitorErr
+			return err
+		}
 	}
 	if r.afterApply != nil {
-		if err = r.afterApply(buildCtx, db); err != nil {
+		if db, err = r.afterApply(buildCtx, db); err != nil {
 			stopMonitor()
 			<-monitorErr
 			return err
