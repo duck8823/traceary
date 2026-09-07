@@ -162,8 +162,16 @@ case "${TARGET}" in
   record-search-refine)
     run_record_search_refine
     ;;
+  staged-selector)
+    "${ROOT_DIR}/scripts/test-test-select-staged.sh"
+    echo 'ok: staged selector behavior passed'
+    ;;
+  wave-e2e)
+    "${ROOT_DIR}/scripts/test-run-wave-e2e.sh"
+    echo 'ok: wave E2E gate behavior passed'
+    ;;
   *)
-    echo "usage: $0 [all|claude|codex|gemini|grok|post-upgrade-plugin-refresh|post-upgrade-live-capture|record-search-refine]" >&2
+    echo "usage: $0 [all|claude|codex|gemini|grok|post-upgrade-plugin-refresh|post-upgrade-live-capture|record-search-refine|staged-selector|wave-e2e]" >&2
     exit 64
     ;;
 esac

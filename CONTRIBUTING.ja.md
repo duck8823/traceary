@@ -42,6 +42,18 @@ go test -p 1 ./...   # 完全直列。最も遅いが競合が最小
 
 並列負荷でのみ失敗するテストが出たら、テストを弱めるのではなく `t.Parallel()` を戻し、共有状態をコメントに残してください。
 
+## 段階別テスト戦略
+
+検証責務は段階で分割します。検証の削除ではなく、実行対象と頻度の分離です。
+
+| 実行タイミング | 必須テスト |
+|---|---|
+| commit | staged 変更に対応する unit テスト。`scripts/test-select-staged.sh` が所有パッケージ＋逆依存に写像します。`scripts/install-git-hooks.sh` で hook を導入してください。docs のみの変更は文書検証を実行します。分類不能な変更は全量に拡大し、0 件成功扱いはしません。 |
+| PR | 最終 head での全量 unit。CI の `Test (sqlite)` / `Test (cli)` / `Test (rest)` shard です。branch protection が fresh な実行を要求するため、古い結果の再利用はありません。 |
+| wave | wave ごとに統合 head で E2E。`scripts/run-wave-e2e.sh --wave ID --ref REV` を使います。gate が通った wave だけが完了です。証跡は wave、SHA、時刻を束縛します。 |
+
+分類：Go の `go test` パッケージが unit、`scripts/smoke_test_integrations.sh all` と live host gate が integration / E2E です。lint、security、release gate は CI で必須のまま黙って削除しません。変更には根拠を明示します。
+
 ## ドキュメントのルール
 
 人向けの Markdown は、英語版と日本語版をセットで管理します。

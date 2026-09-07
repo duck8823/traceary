@@ -51,6 +51,19 @@ go test -p 1 ./...   # fully serial, slowest but least contention
 If a test fails only under parallel load, revert its `t.Parallel()` instead
 of weakening the test, and note the shared state in a comment.
 
+## Staged test strategy
+
+Verification responsibility is split by stage; never delete verification,
+only separate when and what runs.
+
+| Stage | Required |
+|---|---|
+| commit | Unit tests for staged changes: `scripts/test-select-staged.sh` maps them to owning packages plus reverse dependencies. Install the hook with `scripts/install-git-hooks.sh`. Docs-only changes run the documentation checks. Anything unclassifiable expands to the full suite, never zero tests. |
+| PR | Full unit suite on the final head: the CI `Test (sqlite)` / `Test (cli)` / `Test (rest)` shards. Branch protection requires fresh runs, so stale results are never reused. |
+| wave | E2E on the integrated head per wave: `scripts/run-wave-e2e.sh --wave ID --ref REV`. The wave is complete only when the gate passes; evidence binds wave, SHA, and timestamp. |
+
+Classification: Go `go test` packages are unit; `scripts/smoke_test_integrations.sh all` plus the live host gates are integration/E2E. Lint, security checks, and release gates stay mandatory in CI and are never silently dropped; changing them needs a stated reason.
+
 ## Documentation rules
 
 Human-facing Markdown is maintained in English/Japanese pairs.
