@@ -76,6 +76,6 @@ go tool golangci-lint run
 ### Code style
 
 - `go tool golangci-lint run` must pass before committing
-- `go test ./...` must pass before committing
+- Staged selector tests (`scripts/test-select-staged.sh` scope) must pass before committing; the full `go test ./...` suite must pass on the PR head (see CONTRIBUTING.md staged test strategy)
 - Test names use English descriptions (table-driven with subtests)
 - No `panic()` in runtime paths — reserved only for programming errors in init-time assertions

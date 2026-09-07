@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Pre-commit hook: run the staged selector's tests plus gofmt on staged Go
+# files (#2341). Installed by scripts/install-git-hooks.sh.
+# Bypass for a single commit with TRACEARY_SKIP_HOOKS=1 (WIP commits only;
+# CI still runs the full suite on the PR head).
+set -euo pipefail
+
+if [ "${TRACEARY_SKIP_HOOKS:-0}" = "1" ]; then
+  echo "pre-commit: skipped via TRACEARY_SKIP_HOOKS=1" >&2
+  exit 0
+fi
+
+ROOT_DIR="$(git rev-parse --show-toplevel)"
+cd "${ROOT_DIR}"
+
+SELECTED="$(./scripts/test-select-staged.sh)"
+if [ "${SELECTED}" = "DOCS-CHECKS" ]; then
+  python3 scripts/verify_docs_no_removed_aliases.py
+else
+  # shellcheck disable=SC2086
+  go test ${SELECTED}
+fi
+
+STAGED_GO="$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$' || true)"
+if [ -n "${STAGED_GO}" ]; then
+  UNFORMATTED="$(printf '%s\n' "${STAGED_GO}" | xargs gofmt -l || true)"
+  if [ -n "${UNFORMATTED}" ]; then
+    echo "pre-commit: unformatted Go files:" >&2
+    printf '%s\n' "${UNFORMATTED}" >&2
+    exit 1
+  fi
+fi
+echo "pre-commit: staged selection passed" >&2

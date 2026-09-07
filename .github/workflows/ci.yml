@@ -70,6 +70,12 @@ jobs:
       - name: Verify record/search/refine matrix
         run: ./scripts/smoke_test_integrations.sh record-search-refine
 
+      - name: Verify staged test selector
+        run: ./scripts/smoke_test_integrations.sh staged-selector
+
+      - name: Verify wave E2E gate
+        run: ./scripts/smoke_test_integrations.sh wave-e2e
+
   test-sqlite:
     name: Test (sqlite)
     runs-on: ubuntu-latest
