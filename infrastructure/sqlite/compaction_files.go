@@ -456,10 +456,18 @@ func (f PreparedStoreUpgradeFiles) Plan(ctx context.Context, run domain.Compacti
 			return run, errors.New("negative source size")
 		}
 		sourceBytes := uint64(id.Size)
-		if ^uint64(0)-sourceBytes < sourceBytes {
+		// Worst-case transient is three source-sized files plus the hook
+		// spool reserve: the untouched source, the migrated candidate (which
+		// can inflate past the source before compaction), and the bounded
+		// VACUUM INTO sibling that is renamed over the candidate. The
+		// candidate WAL stays small (per-migration TRUNCATE cadence), so it
+		// rides inside the safety margin instead of a fourth reservation.
+		// Reserving less risks repeating #2347: a late SQLITE_FULL abort at
+		// VACUUM after the expensive copy + migration work.
+		if ^uint64(0)/3 < sourceBytes {
 			return run, errors.New("prepared upgrade resource size overflow")
 		}
-		temporary = sourceBytes + sourceBytes
+		temporary = sourceBytes + sourceBytes + sourceBytes
 		spool := spoolReserveBytes(run.SourcePath)
 		if ^uint64(0)-temporary < spool {
 			return run, errors.New("prepared upgrade resource size overflow")
@@ -737,6 +745,12 @@ func (f PreparedStoreUpgradeFiles) RemoveAbandonedCandidate(ctx context.Context,
 	}
 	if err := os.Remove(run.CandidatePath); err != nil && !os.IsNotExist(err) {
 		return err
+	}
+	if run.Operation == domain.PreparedStoreUpgradeOperationOfflineMigrationUpgrade {
+		// A VACUUM INTO sibling from a crashed build is run-owned residue.
+		if err := os.Remove(vacuumCandidateOutputPath(run.CandidatePath, run.ID)); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("unlink vacuum upgrade output: %w", err)
+		}
 	}
 	return nil
 }

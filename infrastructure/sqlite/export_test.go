@@ -102,6 +102,9 @@ func SetPreparedUpgradeFailureHookForTest(fn func(string) error) {
 	preparedUpgradeFailureHook = fn
 }
 
+// SetMigrationCadenceCheckpointHookForTest counts per-migration WAL TRUNCATEs.
+func SetMigrationCadenceCheckpointHookForTest(fn func()) { migrationCadenceCheckpointHook = fn }
+
 // PreparedVerifyOpenIsReadOnlyForTest reports the last upgrade verify reopen result.
 func PreparedVerifyOpenIsReadOnlyForTest() bool { return preparedVerifyOpenIsReadOnly }
 

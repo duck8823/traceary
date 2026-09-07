@@ -67,3 +67,26 @@ page metadata instead of reporting it unavailable.
 Store-independent checks (hook spool, hook-state residue, plugin cache, `path` / `config`) say `store-independent` on the output line. They inspect host files, not the SQLite store. SessionEnd cancellation markers are resolved against the store via a bounded `mode=ro` sessions primary-key lookup (no event bodies or dbstat), so they are no longer store-independent-only. Store-scoped checks (capacity, memory activation, legacy-search-index leftover) inspect the store at `DB_PATH`. The live search-projection family is gone; leftover retired-index bytes are a migration-state check, not a live inspect target. See [`search-retirement.md`](search-retirement.md).
 
 When doctor ran with `--db-path` or `TRACEARY_DB_PATH`, store-addressed hint commands (`traceary doctor`, `traceary store`, `traceary memory`) include `--db-path` so executing them verbatim hits the same store. Host-only commands (`claude plugin update`, `which -a traceary`) are left unchanged. The default home store does not inject `--db-path`.
+
+## Offline-upgrade disk budget
+
+`doctor --fix` applies pending data-dependent (offline) migrations by building
+a migrated candidate beside the live store and exchanging it in. The transient
+footprint is bounded and refused early instead of failing late at VACUUM:
+
+- **Worst-case reservation:** source + migrated candidate + `VACUUM INTO`
+  output ≈ 3× source size, plus the hook-spool reserve and a 10% (min 64 MiB)
+  safety margin. The candidate WAL is folded with a `TRUNCATE` checkpoint after
+  every migration, and the dedupe-archive restore commits in rowid-ordered
+  pages of 200 rows, so WAL headroom rides inside the margin.
+- **Early refuse:** planning refuses with `insufficient free space: free N
+  more bytes to proceed (need R, have A)` when the reservation does not fit,
+  before the copy starts. A successful run prints the measured footprint as
+  `upgrade footprint: source=S peak_owned=P peak_wal=W build_ms=M` on the
+  `offline-migrations` fix line — use the previous run's peaks to provision
+  the next dogfood host.
+- **Measured (v0.49.0 RC dogfood):** 12 GiB source → 17 GiB candidate peak,
+  6.6 GiB WAL peak (pre-#2347 build: unbounded WAL, in-place VACUUM aborted
+  with `SQLITE_FULL`). Post-#2347 the same shape is expected near
+  source + candidate + compacted output with WAL under one migration's worth;
+  keep this section current with each release's dogfood numbers.

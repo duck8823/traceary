@@ -63,3 +63,11 @@ metadata を「unavailable」ではなく正常に読めます。
 store-independent な check（hook spool、hook-state residue、plugin cache、`path` / `config`）は出力行に `store-independent` と書きます。SQLite store ではなく host file を見ます。SessionEnd cancellation marker は境界付きの `mode=ro` sessions 主キー lookup で store と突き合わせるため（event body や dbstat は読まない）、もはや store-independent 専用ではありません。store-scoped な check（capacity、memory activation、legacy-search-index leftover）は `DB_PATH` の store を見ます。live の search-projection family は削除済みで、退役インデックスの残留 byte は migration-state check であり live inspect 対象ではありません。詳細は [`search-retirement.ja.md`](search-retirement.ja.md) を参照してください。
 
 doctor が `--db-path` または `TRACEARY_DB_PATH` 付きで走ったとき、store を対象とする hint（`traceary doctor`、`traceary store`、`traceary memory`）には `--db-path` が付きます。そのまま実行しても検査した store に届きます。host-only なコマンド（`claude plugin update`、`which -a traceary`）は変えません。既定の home store では `--db-path` を足しません。
+
+## Offline upgrade のディスク予算
+
+`doctor --fix` は pending の data-dependent（offline）migration を、live store の横に migrated candidate を作って交換することで適用します。transient 使用量は上限があり、VACUUM での遅い失敗ではなく先に refuse します。
+
+- **worst-case の予約:** source + migrated candidate + `VACUUM INTO` 出力で source size の約 3 倍に、hook-spool reserve と 10%（最小 64 MiB）の safety margin を加えます。candidate の WAL は migration ごとに `TRUNCATE` checkpoint で折りたたみ、dedupe-archive restore は rowid 順に 200 行ずつ commit するため、WAL headroom は margin 内に収まります。
+- **早期 refuse:** 予約が収まらない場合、copy 開始前に `insufficient free space: free N more bytes to proceed (need R, have A)` で refuse します。成功時は `offline-migrations` の fix 行に `upgrade footprint: source=S peak_owned=P peak_wal=W build_ms=M` として実測を出します。次回 dogfood の容量確保には前回の peak を使ってください。
+- **実測（v0.49.0 RC dogfood）:** 12 GiB source → candidate peak 17 GiB、WAL peak 6.6 GiB（#2347 前の build: WAL 無制限、in-place VACUUM が `SQLITE_FULL` で abort）。#2347 以降は source + candidate + compact 出力に WAL 1 migration 分以下を想定しています。各 release の dogfood 数値でこの節を更新してください。

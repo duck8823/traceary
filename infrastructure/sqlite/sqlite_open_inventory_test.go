@@ -14,15 +14,16 @@ func TestRuntimeSQLiteOpenInventoryIsExplicit(t *testing.T) {
 	_, current, _, _ := runtime.Caller(0)
 	root := filepath.Clean(filepath.Join(filepath.Dir(current), "..", ".."))
 	allowed := map[string]int{
-		"infrastructure/sqlite/compaction_sqlite.go":         2, // EX-held candidate in-memory probe plus immutable source inspect; cover checkpoint is gone.
-		"infrastructure/sqlite/compaction_copy_filter.go":    2, // EX-held work copy plus EX-held in-place incremental vacuum.
-		"infrastructure/sqlite/database.go":                  2, // in-memory driver probe plus O(1) mode=ro inspect; no coordinated lease.
-		"infrastructure/sqlite/ended_session_inspector.go":   1, // mode=ro bounded ended-session probe; no coordinated lease, no dbstat.
-		"infrastructure/sqlite/oneoff_repair_inspect.go":     1, // mode=ro O(1) doctor probe; PK + EXISTS only, no coordinated lease.
-		"infrastructure/sqlite/page_metadata_inspector.go":   1, // mode=ro O(1) doctor probe; no coordinated lease, no dbstat.
-		"infrastructure/sqlite/prepared_migration_recipe.go": 1, // owned offline candidate only.
-		"infrastructure/sqlite/drop_encoded_payloads.go":     1, // rolled-back write probe on the owned candidate only.
-		"cmd/store-benchmark/body_locality.go":               3, // scratch locality fixtures only; never the live store.
+		"infrastructure/sqlite/compaction_sqlite.go":                 2, // EX-held candidate in-memory probe plus immutable source inspect; cover checkpoint is gone.
+		"infrastructure/sqlite/compaction_copy_filter.go":            2, // EX-held work copy plus EX-held in-place incremental vacuum.
+		"infrastructure/sqlite/database.go":                          2, // in-memory driver probe plus O(1) mode=ro inspect; no coordinated lease.
+		"infrastructure/sqlite/ended_session_inspector.go":           1, // mode=ro bounded ended-session probe; no coordinated lease, no dbstat.
+		"infrastructure/sqlite/oneoff_repair_inspect.go":             1, // mode=ro O(1) doctor probe; PK + EXISTS only, no coordinated lease.
+		"infrastructure/sqlite/page_metadata_inspector.go":           1, // mode=ro O(1) doctor probe; no coordinated lease, no dbstat.
+		"infrastructure/sqlite/prepared_migration_recipe.go":         1, // owned offline candidate only.
+		"infrastructure/sqlite/prepared_upgrade_migration_recipe.go": 1, // reopen installed VACUUM INTO candidate after copy-back; owned candidate only.
+		"infrastructure/sqlite/drop_encoded_payloads.go":             1, // rolled-back write probe on the owned candidate only.
+		"cmd/store-benchmark/body_locality.go":                       3, // scratch locality fixtures only; never the live store.
 	}
 	seen := map[string]int{}
 	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
