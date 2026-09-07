@@ -7,6 +7,17 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 
 ## [Unreleased]
 
+## [v0.51.0] - 2026-09-07
+
+v0.51.0 は offline upgrade の transient 使用量に上限を設け、実サイズ store での VACUUM 時 abort をなくします。テストループも高速・段階化します（parallel safe test、commit 単位の選択、wave E2E evidence）。
+
+### Fixed
+- **実サイズ store で offline upgrade が disk と memory を使い果たす (#2347)。** preflight は source + migrated candidate + `VACUUM INTO` 出力（source の 3 倍＋spool＋margin）を予約し、収まらない場合は copy 前に refuse します。apply loop は migration ごとに `TRUNCATE` checkpoint で candidate の WAL を折りたたみ、compaction は `VACUUM INTO`＋candidate への `O_TRUNC` copy-back（publication の inode fence は不変）、dedupe-archive restore は rowid 順 200 行ずつ commit します。`doctor --fix` は実測 footprint（`source`、`peak_owned`/`peak_wal`、`build_ms`）を出し、large-store doc に release ごとの disk budget を記録します。
+
+### Changed
+- **parallel-safe unit test と sharded CI job (#2340)。** safe な test を並列化し、CI の test job を shard して feedback を高速化します。
+- **staged commit/PR/wave test strategy (#2341)。** commit は staged selector（owning package＋reverse deps）を走らせ、PR は最終 head で full unit suite を保ち、wave E2E は evidence を wave ID・SHA・timestamp に束縛します。
+
 ## [v0.50.1] - 2026-09-07
 
 v0.50.1 は patch release です。実サイズの dogfood 実行はリリースゲートではありません。リリースごとの保証は 3 つの scripted gate（plugin refresh identity、live capture、新規 synthetic record/search/refine マトリクス）です。

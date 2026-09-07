@@ -1,6 +1,6 @@
 {
   "name": "traceary-muse",
-  "version": "0.50.1",
+  "version": "0.51.0",
   "description": "Local-first Traceary integration for Muse Code with native session, audit, transcript, and compact hooks.",
   "author": {
     "name": "Shunsuke Maeda",
