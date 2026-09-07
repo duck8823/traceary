@@ -12,6 +12,7 @@ import (
 )
 
 func TestCompactionE2E_21Point4GiBShape(t *testing.T) {
+	t.Parallel()
 	if os.Getenv("TRACEARY_RUN_21GB_COMPACTION_SHAPE") != "1" {
 		t.Skip("set TRACEARY_RUN_21GB_COMPACTION_SHAPE=1 for the large-shape harness")
 	}

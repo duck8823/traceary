@@ -12,6 +12,7 @@ import (
 )
 
 func TestInspectCompactInFlightJournals_WarnsOnCandidatePrepared(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	dbPath := filepath.Join(root, "traceary.db")
 	if err := os.WriteFile(dbPath, []byte("x"), 0o600); err != nil {
@@ -44,6 +45,7 @@ func TestInspectCompactInFlightJournals_WarnsOnCandidatePrepared(t *testing.T) {
 }
 
 func TestInspectCompactInFlightJournals_IgnoresAbandonedAndCommitted(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	dbPath := filepath.Join(root, "traceary.db")
 	if err := os.WriteFile(dbPath, []byte("x"), 0o600); err != nil {
@@ -72,6 +74,7 @@ func TestInspectCompactInFlightJournals_IgnoresAbandonedAndCommitted(t *testing.
 }
 
 func TestInspectCompactInFlightJournals_SwapIntentWarnsWithoutAutoFix(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	dbPath := filepath.Join(root, "traceary.db")
 	dir := filepath.Join(root, compactJournalDirName)
@@ -97,6 +100,7 @@ func TestInspectCompactInFlightJournals_SwapIntentWarnsWithoutAutoFix(t *testing
 }
 
 func TestInspectCompactInFlightJournals_AbandonedLeftoverIsFixable(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	dbPath := filepath.Join(root, "traceary.db")
 	if err := os.WriteFile(dbPath, []byte("x"), 0o600); err != nil {
@@ -139,6 +143,7 @@ func TestInspectCompactInFlightJournals_AbandonedLeftoverIsFixable(t *testing.T)
 }
 
 func TestInspectCompactInFlightJournals_DoesNotDeleteInFlightWork(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	dbPath := filepath.Join(root, "traceary.db")
 	dir := filepath.Join(root, compactJournalDirName)

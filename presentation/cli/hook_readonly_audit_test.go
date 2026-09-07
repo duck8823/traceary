@@ -85,6 +85,7 @@ func latestAuditEventID(t *testing.T, dbPath string) string {
 }
 
 func TestRootCLI_HookAuditCommand_ClaudeReadStoresMetadataOnly(t *testing.T) {
+	t.Parallel()
 	dbPath, eventUC, storeUC, setPath := newHookAuditStore(t)
 	payload := `{"session_id":"s-read","cwd":"/tmp","tool_name":"Read","tool_input":{"file_path":"README.md"},"tool_response":{"content":"hello from read"}}`
 	executeHookAudit(t, dbPath, eventUC, storeUC, setPath, []string{"hook", "audit", "claude"}, payload)
@@ -126,6 +127,7 @@ func TestRootCLI_HookAuditCommand_ClaudeReadStoresMetadataOnly(t *testing.T) {
 }
 
 func TestRootCLI_HookAuditCommand_GrokReadFileStoresMetadataOnly(t *testing.T) {
+	t.Parallel()
 	dbPath, eventUC, storeUC, setPath := newHookAuditStore(t)
 	payload, err := os.ReadFile(filepath.Join("testdata", "grok_hooks", "v0.2.99", "post_tool_use.json"))
 	if err != nil {
@@ -144,6 +146,7 @@ func TestRootCLI_HookAuditCommand_GrokReadFileStoresMetadataOnly(t *testing.T) {
 }
 
 func TestRootCLI_HookAuditCommand_ClaudeBashKeepsFullOutput(t *testing.T) {
+	t.Parallel()
 	dbPath, eventUC, storeUC, setPath := newHookAuditStore(t)
 	payload := `{"session_id":"s-bash","cwd":"/tmp","tool_name":"Bash","tool_input":{"command":"echo hi"},"tool_response":{"stdout":"hi\n"}}`
 	executeHookAudit(t, dbPath, eventUC, storeUC, setPath, []string{"hook", "audit", "claude"}, payload)
@@ -159,6 +162,7 @@ func TestRootCLI_HookAuditCommand_ClaudeBashKeepsFullOutput(t *testing.T) {
 }
 
 func TestRootCLI_HookAuditCommand_DeniedReadKeepsFullOutput(t *testing.T) {
+	t.Parallel()
 	dbPath, eventUC, storeUC, setPath := newHookAuditStore(t)
 	payload, err := os.ReadFile(filepath.Join("testdata", "grok_hooks", "v0.2.99", "post_tool_use_denied.json"))
 	if err != nil {
@@ -177,6 +181,7 @@ func TestRootCLI_HookAuditCommand_DeniedReadKeepsFullOutput(t *testing.T) {
 }
 
 func TestRootCLI_HookAuditCommand_KimiPassesHostAndToolName(t *testing.T) {
+	t.Parallel()
 	eventStub := &eventUsecaseStub{}
 	rootCmd := newTestRootCLI(
 		cli.WithStoreManagement(&storeManagementUsecaseStub{}),

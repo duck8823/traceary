@@ -9,6 +9,7 @@ import (
 )
 
 func TestPreparedMigrationVerifierAcceptsSchemaChangeAndLogicalEquivalence(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	dir := t.TempDir()
 	source := dir + "/source.db"

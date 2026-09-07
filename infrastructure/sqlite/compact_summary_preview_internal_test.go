@@ -14,6 +14,7 @@ import (
 )
 
 func TestCompactSummaryPreviewSkipsLeadingWhitespaceLegacyMarkersAcrossPages(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	database := NewDatabase(filepath.Join(t.TempDir(), "traceary.db"), os.DirFS(filepath.Join("..", "..", "schema", "sqlite", "migrations")))
 	if err := NewStoreManagementDatasource(database).Initialize(ctx); err != nil {
@@ -49,6 +50,7 @@ func TestCompactSummaryPreviewSkipsLeadingWhitespaceLegacyMarkersAcrossPages(t *
 }
 
 func TestCompactSummaryPreviewSelectsMetadataBeforeHydration(t *testing.T) {
+	t.Parallel()
 	candidate := strings.Join(strings.Fields(strings.ToLower(selectLatestPostCompactSummaryQuery)), " ")
 	if !strings.Contains(candidate, "from event_metadata_projection m") || strings.Contains(candidate, " from events ") || strings.Contains(candidate, ".body") {
 		t.Fatalf("candidate query is not body-free: %s", candidate)

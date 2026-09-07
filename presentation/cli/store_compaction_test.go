@@ -42,6 +42,7 @@ func (*compactionCLIStub) AbandonStalePrePublication(context.Context, string) (d
 }
 
 func TestStoreCompactUsesDedicatedPathBoundComposition(t *testing.T) {
+	t.Parallel()
 	stub := &compactionCLIStub{}
 	root := NewRootCLI(WithStoreCompactionFactory(func(string) application.StoreCompactionUsecase { return stub })).Command()
 	path := t.TempDir() + "/store.db"
@@ -76,6 +77,7 @@ func TestStoreCompactUsesDedicatedPathBoundComposition(t *testing.T) {
 }
 
 func TestStoreCompactPlanIsUnknown(t *testing.T) {
+	t.Parallel()
 	root := NewRootCLI(WithStoreCompactionFactory(func(string) application.StoreCompactionUsecase { return &compactionCLIStub{} })).Command()
 	root.SetArgs([]string{"store", "compact", "plan"})
 	if err := root.Execute(); err == nil {

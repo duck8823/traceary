@@ -28,6 +28,29 @@ git diff --check
 
 `make ci` runs the same repository-level checks contributors usually need locally.
 
+## Parallel tests
+
+`go test ./...` parallelizes packages up to GOMAXPROCS by default. Tests that
+share process-global state (environment, working directory, fixed paths,
+golden writes, lease reporters) must stay serial: do not add `t.Parallel()`
+to them. Known serial families: hook tests driven by `t.Setenv`, tests using
+`SetUserHomeDirFunc`, upgrade end-to-end tests, lease/busy timing tests, and
+golden writers.
+
+CI splits the suite into three parallel shards with no gap: `Test (sqlite)`
+runs `./infrastructure/sqlite/`, `Test (cli)` runs `./presentation/...`, and
+`Test (rest)` runs every remaining package via an exclusion list, so newly
+added packages always land somewhere. All three are required checks.
+
+Serial fallback and rollback:
+
+```sh
+go test -p 1 ./...   # fully serial, slowest but least contention
+```
+
+If a test fails only under parallel load, revert its `t.Parallel()` instead
+of weakening the test, and note the shared state in a comment.
+
 ## Documentation rules
 
 Human-facing Markdown is maintained in English/Japanese pairs.

@@ -28,6 +28,20 @@ git diff --check
 
 `make ci` を使うと、通常必要になるリポジトリ全体の検証をまとめて実行できます。
 
+## 並列テスト
+
+`go test ./...` は既定で GOMAXPROCS 上限までパッケージを並列実行します。プロセス全体で共有する状態（環境変数、作業ディレクトリ、固定パス、golden 書き込み、lease reporter）に触るテストは直列のままにしてください。`t.Parallel()` を付けないでください。既知の直列 family：`t.Setenv` 駆動の hook テスト、`SetUserHomeDirFunc` を使うテスト、upgrade e2e テスト、lease / busy のタイミングテスト、golden writer。
+
+CI は suite を gap なしの 3 shard に分けて並列実行します。`Test (sqlite)` が `./infrastructure/sqlite/`、`Test (cli)` が `./presentation/...`、`Test (rest)` が除外リスト方式で残り全パッケージを実行するため、新規パッケージの取りこぼしがありません。3 つとも必須チェックです。
+
+直列 fallback と rollback：
+
+```sh
+go test -p 1 ./...   # 完全直列。最も遅いが競合が最小
+```
+
+並列負荷でのみ失敗するテストが出たら、テストを弱めるのではなく `t.Parallel()` を戻し、共有状態をコメントに残してください。
+
 ## ドキュメントのルール
 
 人向けの Markdown は、英語版と日本語版をセットで管理します。
