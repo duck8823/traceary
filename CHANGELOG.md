@@ -7,6 +7,17 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ## [Unreleased]
 
+## [v0.51.0] - 2026-09-07
+
+v0.51.0 bounds the offline-upgrade transient footprint so a real-sized store no longer aborts late at VACUUM, and makes the test loop faster and staged (parallel safe tests, commit-scoped selection, wave E2E evidence).
+
+### Fixed
+- **Offline upgrade exhausts disk and memory on real-sized stores (#2347).** Preflight reserves source + migrated candidate + `VACUUM INTO` output (3x source plus spool and margin) and refuses before the copy when it does not fit. The apply loop folds the candidate WAL with a `TRUNCATE` checkpoint after every migration, compaction uses `VACUUM INTO` with an `O_TRUNC` copy-back over the candidate (publication inode fences unchanged), and the dedupe-archive restore commits in rowid-ordered 200-row pages. `doctor --fix` prints the measured footprint (`source`, `peak_owned`/`peak_wal`, `build_ms`) and the large-store doc records the per-release disk budget.
+
+### Changed
+- **Parallel-safe unit tests and sharded CI jobs (#2340).** Safe tests run in parallel and CI shards the test jobs for faster feedback.
+- **Staged commit/PR/wave test strategy (#2341).** Commits run the staged selector (owning packages plus reverse deps), PRs keep the full unit suite on the final head, and wave E2E binds evidence to wave ID, SHA, and timestamp.
+
 ## [v0.50.1] - 2026-09-07
 
 v0.50.1 is a patch release. Real-sized dogfood runs are not release gates; the per-release guarantee is three scripted gates (plugin refresh identity, live capture, and the new synthetic record/search/refine matrix).
