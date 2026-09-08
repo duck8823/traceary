@@ -25,11 +25,7 @@ Local-first CLI for recording AI agent work logs, session boundaries, and shell 
 
 ## Build and test
 
-```sh
-go build ./...
-go test ./...
-go tool golangci-lint run
-```
+Build/test commands and validation policy: see [AGENTS.md](AGENTS.md#build-and-test).
 
 ## Project conventions
 
@@ -87,8 +83,7 @@ go tool golangci-lint run
 
 ### Code style
 
-- `go tool golangci-lint run` must pass before committing
-- `go test ./...` must pass before committing
+- Follow the validation scheduling and project checkpoints in [AGENTS.md](AGENTS.md#build-and-test).
 - Test names use English descriptions (table-driven with subtests)
 - No `panic()` in runtime paths — reserved only for programming errors in init-time assertions
 

@@ -17,7 +17,7 @@ git switch -c your-topic-branch
 
 ## Common validation commands
 
-Run these before opening or updating a pull request.
+Use [the shared validation schedule](~/.config/dotfiles/conventions/ai/autonomous-preflight.md#validation-evidence-reuse) and the project checkpoints below. These are command references, not a request to rerun every full check for each PR update. Proof-based local evidence reuse never replaces required fresh CI runs.
 
 ```sh
 go test ./...
