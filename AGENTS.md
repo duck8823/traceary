@@ -34,7 +34,7 @@ go test ./...
 go tool golangci-lint run
 ```
 
-Validation scheduling, affected scope, immutable-input parallelism, and evidence reuse follow [the shared validation policy](~/.config/dotfiles/conventions/ai/autonomous-preflight.md#validation-evidence-reuse). Project checkpoints and the staged selector are defined in [CONTRIBUTING.md](CONTRIBUTING.md#staged-test-strategy); required fresh CI and wave/release gates remain mandatory.
+Validation scheduling, affected scope, immutable-input parallelism, and evidence reuse follow [the shared validation policy](https://github.com/duck8823/dotfiles/blob/main/conventions/ai/autonomous-preflight.md#validation-evidence-reuse). Project checkpoints and the staged selector are defined in [CONTRIBUTING.md](CONTRIBUTING.md#staged-test-strategy); required fresh CI and wave/release gates remain mandatory.
 
 ## Project conventions
 

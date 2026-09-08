@@ -17,7 +17,7 @@ git switch -c your-topic-branch
 
 ## Common validation commands
 
-Use [the shared validation schedule](~/.config/dotfiles/conventions/ai/autonomous-preflight.md#validation-evidence-reuse) and the project checkpoints below. These are command references, not a request to rerun every full check for each PR update. Proof-based local evidence reuse never replaces required fresh CI runs.
+Use [the shared validation schedule](https://github.com/duck8823/dotfiles/blob/main/conventions/ai/autonomous-preflight.md#validation-evidence-reuse) and the project checkpoints below. These are command references, not a request to rerun every full check for each PR update. Proof-based local evidence reuse never replaces required fresh CI runs.
 
 ```sh
 go test ./...
