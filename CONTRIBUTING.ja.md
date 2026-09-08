@@ -17,7 +17,7 @@ git switch -c your-topic-branch
 
 ## よく使う検証コマンド
 
-PR を作る前、または更新する前に次を実行してください。
+[共通の検証スケジュール](https://github.com/duck8823/dotfiles/blob/main/conventions/ai/autonomous-preflight.md#validation-evidence-reuse) と下記のプロジェクト固有の節目に従ってください。以下はコマンド一覧であり、PR 更新のたびに全体検証を繰り返す指定ではありません。根拠に基づくローカル証跡の再利用でも、必須の fresh CI 実行を代替しません。
 
 ```sh
 go test ./...

@@ -34,6 +34,8 @@ go test ./...
 go tool golangci-lint run
 ```
 
+Validation scheduling, affected scope, immutable-input parallelism, and evidence reuse follow [the shared validation policy](https://github.com/duck8823/dotfiles/blob/main/conventions/ai/autonomous-preflight.md#validation-evidence-reuse). Project checkpoints and the staged selector are defined in [CONTRIBUTING.md](CONTRIBUTING.md#staged-test-strategy); required fresh CI and wave/release gates remain mandatory.
+
 ## Project conventions
 
 ### Language
@@ -75,7 +77,6 @@ go tool golangci-lint run
 
 ### Code style
 
-- `go tool golangci-lint run` must pass before committing
-- Staged selector tests (`scripts/test-select-staged.sh` scope) must pass before committing; the full `go test ./...` suite must pass on the PR head (see CONTRIBUTING.md staged test strategy)
+- Follow the validation scheduling and project checkpoints in [Build and test](#build-and-test).
 - Test names use English descriptions (table-driven with subtests)
 - No `panic()` in runtime paths — reserved only for programming errors in init-time assertions
