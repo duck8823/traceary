@@ -31,7 +31,7 @@ func TestHookSessionStart_WakeInjection(t *testing.T) {
 	tests := []struct {
 		name              string
 		seed              func(ctx context.Context, t *testing.T, fx *wakeInjectionFixture)
-		budgetJSON        string // empty = default 8192; "0" disables
+		budgetJSON        string // empty = default 2048; "0" disables
 		consolidationJSON string // optional independent threshold
 		configBody        string // full config body when set (overrides budget/consolidation helpers)
 		unusableConfig    bool
@@ -484,13 +484,13 @@ func TestLoadConfig_WakeInjectionBudget(t *testing.T) {
 		want            int64
 	}{
 		{
-			name: "absent config file resolves the 8 KiB default",
-			want: presentation.DefaultWakeInjectionBudgetBytes,
+			name: "absent config file resolves the 2 KiB default",
+			want: 2048,
 		},
 		{
-			name: "absent key defaults to 8 KiB",
+			name: "absent key defaults to 2 KiB",
 			json: `{}`,
-			want: presentation.DefaultWakeInjectionBudgetBytes,
+			want: 2048,
 		},
 		{
 			name: "explicit zero disables",

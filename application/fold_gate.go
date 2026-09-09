@@ -27,7 +27,7 @@ func WakeSummaryFitsBudget(summary string, budgetBytes int64) bool {
 const DefaultFoldThresholdBytes int64 = 64 * 1024
 
 // DefaultFoldWakeBudgetBytes matches presentation.DefaultWakeInjectionBudgetBytes.
-const DefaultFoldWakeBudgetBytes int64 = 8192
+const DefaultFoldWakeBudgetBytes int64 = 2048
 
 // FoldGateTargetRatio is the v0.34 row: >= 95% of sessions worth folding.
 const FoldGateTargetRatio = 0.95

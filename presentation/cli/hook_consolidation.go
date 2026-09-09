@@ -273,7 +273,10 @@ func (c *RootCLI) recordConsolidationRequest(
 
 // formatConsolidationReason is the only channel that reaches the agent. Keep
 // it short: English, no ANSI, no emoji. When a previous refinement exists,
-// include its summary and covers_to so the agent can merge rather than rewrite.
+// include a bounded preview and covers_to so the agent can merge rather than
+// rewrite without filling the host UI.
+const previousSummaryPreviewRuneLimit = 240
+
 func formatConsolidationReason(sessionID types.SessionID, result usecase.ConsolidationPressureResult, atEventID types.Optional[types.EventID]) string {
 	coversTo := "<event-id>"
 	if id, ok := atEventID.Value(); ok {
@@ -293,8 +296,17 @@ func formatConsolidationReason(sessionID types.SessionID, result usecase.Consoli
 		fmt.Fprintf(&b,
 			"\nMerge with the previous summary (covers_to=%s) rather than rewriting it: %s",
 			prev.String(),
-			summary,
+			formatPreviousSummaryPreview(summary),
 		)
 	}
 	return b.String()
+}
+
+func formatPreviousSummaryPreview(summary string) string {
+	compact := strings.Join(strings.Fields(summary), " ")
+	runes := []rune(compact)
+	if len(runes) <= previousSummaryPreviewRuneLimit {
+		return compact
+	}
+	return string(runes[:previousSummaryPreviewRuneLimit-1]) + "…"
 }

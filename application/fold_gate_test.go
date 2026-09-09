@@ -7,6 +7,13 @@ import (
 	"github.com/duck8823/traceary/application"
 )
 
+func TestDefaultFoldWakeBudgetMatchesPublishedWakeDefault(t *testing.T) {
+	t.Parallel()
+	if got := application.DefaultFoldWakeBudgetBytes; got != 2048 {
+		t.Fatalf("DefaultFoldWakeBudgetBytes = %d, want 2048", got)
+	}
+}
+
 func TestWakeSummaryFitsBudgetCountsHeaderAndNewlines(t *testing.T) {
 	t.Parallel()
 	budget := application.DefaultFoldWakeBudgetBytes

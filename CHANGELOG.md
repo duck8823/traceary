@@ -7,6 +7,9 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ## [Unreleased]
 
+### Changed
+- **Automatic summary output no longer fills the agent UI (#2376).** Wake injection now defaults to a 2 KiB output budget instead of 8 KiB, while explicit operator-configured budgets keep their existing meaning. Consolidation reminders collapse and cap the previous-refinement preview at 240 runes without changing the stored summary.
+
 ## [v0.51.0] - 2026-09-07
 
 v0.51.0 bounds the offline-upgrade transient footprint so a real-sized store no longer aborts late at VACUUM, and makes the test loop faster and staged (parallel safe tests, commit-scoped selection, wave E2E evidence).
