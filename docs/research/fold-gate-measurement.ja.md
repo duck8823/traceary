@@ -21,7 +21,7 @@
 
 ## wake injection
 
-集計ではなく `sessions.client` ごと。適格は top-level session + `has_agent_reasoning = 1`（#1877 の規則）。host が **injects** なのは、適格 summary が 1 件でも `wake_injection.budget_bytes`（既定 8 KiB）に収まるとき。Antigravity は injection 対象外のまま。client が無いのは fail ではなく `unmeasured`。
+集計ではなく `sessions.client` ごと。適格は top-level session + `has_agent_reasoning = 1`（#1877 の規則）。host が **injects** なのは、適格 summary が 1 件でも `wake_injection.budget_bytes`（既定 2 KiB）に収まるとき。Antigravity は injection 対象外のまま。client が無いのは fail ではなく `unmeasured`。
 
 ## summary の中身
 

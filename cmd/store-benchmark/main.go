@@ -68,7 +68,7 @@ func main() {
 	flag.StringVar(&localityDir, "measure-body-locality", "", "write scratch inline/side-table stores and a body-locality report under this new directory")
 	flag.BoolVar(&foldGates, "fold-gates", false, "measure refinement ratio and per-host wake eligibility on --db (never the live store)")
 	flag.Int64Var(&foldThreshold, "fold-threshold-bytes", 0, "consolidation threshold used to decide sessions worth folding (default 65536)")
-	flag.Int64Var(&foldWakeBudget, "fold-wake-budget-bytes", 0, "wake injection budget for per-host fit (default 8192)")
+	flag.Int64Var(&foldWakeBudget, "fold-wake-budget-bytes", 0, "wake injection budget for per-host fit (default 2048)")
 	flag.IntVar(&iterations, "iterations", 15, "samples per cold and warm series")
 	flag.IntVar(&smallRows, "small-rows", 10000, "synthetic small event rows")
 	flag.IntVar(&largeRows, "large-rows", 8, "synthetic 1 MiB event rows")

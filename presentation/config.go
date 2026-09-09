@@ -58,7 +58,7 @@ type consolidationSection struct {
 
 // wakeInjectionSection configures the session-start wake injection budget
 // (#1684). BudgetBytes is a pointer so explicit 0 (disabled) is distinct from
-// an absent key (default 8 KiB), matching consolidationSection.
+// an absent key (default 2 KiB), matching consolidationSection.
 type wakeInjectionSection struct {
 	BudgetBytes *int64 `json:"budget_bytes"`
 }
@@ -124,7 +124,7 @@ type Config struct {
 	// so a broken file cannot re-enable a trigger the operator turned off.
 	Consolidation ConsolidationConfig
 	// WakeInjection holds the session-start summary injection budget.
-	// LoadConfig always resolves BudgetBytes: default 8 KiB when the file/key
+	// LoadConfig always resolves BudgetBytes: default 2 KiB when the file/key
 	// is absent; explicit 0 disables; unreadable or malformed config also
 	// resolves to 0 so a broken file cannot re-enable injection.
 	WakeInjection WakeInjectionConfig
@@ -151,8 +151,8 @@ const DefaultConsolidationMinCommands int64 = 20
 const DefaultConsolidationStopCadence int64 = 8
 
 // DefaultWakeInjectionBudgetBytes is the wake-injection stdout budget when
-// wake_injection.budget_bytes is absent from config.json (8 KiB).
-const DefaultWakeInjectionBudgetBytes int64 = 8192
+// wake_injection.budget_bytes is absent from config.json (2 KiB).
+const DefaultWakeInjectionBudgetBytes int64 = 2048
 
 // DefaultCompactReclaimWarnBytes is the reclaim warning threshold when
 // compact.reclaim_warn_bytes is absent from config.json (1 GiB of

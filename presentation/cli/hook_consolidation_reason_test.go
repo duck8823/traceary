@@ -74,3 +74,31 @@ func TestFormatConsolidationReason(t *testing.T) {
 		})
 	}
 }
+
+func TestFormatConsolidationReasonBoundsPreviousSummaryPreview(t *testing.T) {
+	t.Parallel()
+
+	longSummary := strings.Repeat("要約 line\n", 80)
+	result := usecase.ConsolidationPressureResult{
+		Commands:         20,
+		PreviousSummary:  types.Some(longSummary),
+		PreviousCoversTo: types.Some(types.EventID("evt-1")),
+	}
+
+	got := formatConsolidationReason(types.SessionID("sess-1"), result, types.Some(types.EventID("evt-9")))
+	previewMarker := "rather than rewriting it: "
+	markerIndex := strings.Index(got, previewMarker)
+	if markerIndex < 0 {
+		t.Fatalf("previous summary preview marker missing: %q", got)
+	}
+	preview := got[markerIndex+len(previewMarker):]
+	if strings.Contains(preview, "\n") {
+		t.Fatalf("previous summary preview contains a newline: %q", preview)
+	}
+	if gotRunes := len([]rune(preview)); gotRunes > previousSummaryPreviewRuneLimit {
+		t.Fatalf("previous summary preview runes = %d, want <= %d", gotRunes, previousSummaryPreviewRuneLimit)
+	}
+	if !strings.HasSuffix(preview, "…") {
+		t.Fatalf("truncated previous summary preview = %q, want ellipsis suffix", preview)
+	}
+}

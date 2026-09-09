@@ -7,6 +7,9 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 
 ## [Unreleased]
 
+### Changed
+- **自動要約出力が agent UI を埋めないようにしました（#2376）。** 起床注入の既定出力予算を 8 KiB から 2 KiB に縮小し、オペレータが明示した予算の意味は維持します。consolidation reminder に含める直前 refinement の preview は空白を畳み、240 rune で上限を設けます。保存済み要約は変更しません。
+
 ## [v0.51.0] - 2026-09-07
 
 v0.51.0 は offline upgrade の transient 使用量に上限を設け、実サイズ store での VACUUM 時 abort をなくします。テストループも高速・段階化します（parallel safe test、commit 単位の選択、wave E2E evidence）。

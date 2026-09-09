@@ -21,7 +21,7 @@ A session is **worth folding** when either:
 
 ## Wake injection
 
-Per `sessions.client`, not in aggregate. Eligible means top-level session + `has_agent_reasoning = 1` (the #1877 rule). A host **injects** when at least one eligible summary fits `wake_injection.budget_bytes` (default 8 KiB). Antigravity is still out of the injection product; a missing client is `unmeasured`, not a fail.
+Per `sessions.client`, not in aggregate. Eligible means top-level session + `has_agent_reasoning = 1` (the #1877 rule). A host **injects** when at least one eligible summary fits `wake_injection.budget_bytes` (default 2 KiB). Antigravity is still out of the injection product; a missing client is `unmeasured`, not a fail.
 
 ## Summary content
 
