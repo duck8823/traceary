@@ -77,9 +77,13 @@ func (u *consolidationRequestUsecase) ClaimCodexPrompt(ctx context.Context, sess
 func newCodexPromptClaimToken() (types.ConsolidationPromptClaimToken, error) {
 	bytes := make([]byte, 16)
 	if _, err := rand.Read(bytes); err != nil {
-		return "", err
+		return "", xerrors.Errorf("failed to generate Codex prompt claim token: %w", err)
 	}
-	return types.ConsolidationPromptClaimTokenFrom(hex.EncodeToString(bytes))
+	token, err := types.ConsolidationPromptClaimTokenFrom(hex.EncodeToString(bytes))
+	if err != nil {
+		return "", xerrors.Errorf("failed to validate generated Codex prompt claim token: %w", err)
+	}
+	return token, nil
 }
 
 // ReleaseCodexPrompt makes a pre-delivery writer failure retryable.
