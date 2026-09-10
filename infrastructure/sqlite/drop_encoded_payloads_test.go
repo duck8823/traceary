@@ -32,8 +32,8 @@ func TestDropEncodedPayloads_LiveOpenLeavesPopulatedStoreUntouched(t *testing.T)
 	if !errors.As(err, &required) {
 		t.Fatalf("error=%v, want OfflineMigrationsRequiredError", err)
 	}
-	if len(required.Versions) == 0 || required.Versions[len(required.Versions)-1] != 86 {
-		t.Fatalf("pending offline = %v, want suffix 86", required.Versions)
+	if len(required.Versions) == 0 || required.Versions[len(required.Versions)-1] != 87 {
+		t.Fatalf("pending offline = %v, want suffix 87", required.Versions)
 	}
 	after := readStoreBytes(t, path)
 	if string(after) != string(before) {
