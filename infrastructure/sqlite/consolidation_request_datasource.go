@@ -21,11 +21,23 @@ var insertConsolidationRequestQuery string
 //go:embed sql/select_latest_open_consolidation_request.sql
 var selectLatestOpenConsolidationRequestQuery string
 
+//go:embed sql/claim_codex_prompt_request.sql
+var claimCodexPromptRequestQuery string
+
+//go:embed sql/release_codex_prompt_request.sql
+var releaseCodexPromptRequestQuery string
+
+//go:embed sql/confirm_codex_prompt_request.sql
+var confirmCodexPromptRequestQuery string
+
 //go:embed sql/select_latest_consolidation_request.sql
 var selectLatestConsolidationRequestQuery string
 
 //go:embed sql/update_consolidation_request_refine_outcome.sql
 var updateConsolidationRequestRefineOutcomeQuery string
+
+//go:embed sql/fulfill_superseded_codex_prompt_requests.sql
+var fulfillSupersededCodexPromptRequestsQuery string
 
 //go:embed sql/select_consolidation_conversion.sql
 var selectConsolidationConversionQuery string
@@ -75,6 +87,8 @@ func (d *ConsolidationRequestDatasource) Save(ctx context.Context, request *mode
 		request.ThresholdValue(),
 		boolToInt(request.ReRequest()),
 		request.Delivery().String(),
+		request.SessionID().String(),
+		request.AtEventID().String(),
 	)
 	if err != nil {
 		return false, xerrors.Errorf("failed to insert consolidation request: %w", err)
@@ -214,11 +228,17 @@ func (d *ConsolidationRequestDatasource) MarkRefineOutcome(ctx context.Context, 
 		}
 	}()
 
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, xerrors.Errorf("failed to begin consolidation request stamp: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
 	var generation any
 	if value, ok := stamp.Generation.Value(); ok {
 		generation = value
 	}
-	result, err := db.ExecContext(
+	result, err := tx.ExecContext(
 		ctx,
 		updateConsolidationRequestRefineOutcomeQuery,
 		stamp.Outcome.String(),
@@ -226,6 +246,10 @@ func (d *ConsolidationRequestDatasource) MarkRefineOutcome(ctx context.Context, 
 		stamp.ProducedBy,
 		formatMemoryValidityTimestamp(stamp.At),
 		generation,
+		stamp.Outcome.String(),
+		stamp.Outcome.String(),
+		stamp.Outcome.String(),
+		stamp.Outcome.String(),
 		stamp.SessionID.String(),
 	)
 	if err != nil {
@@ -235,7 +259,21 @@ func (d *ConsolidationRequestDatasource) MarkRefineOutcome(ctx context.Context, 
 	if err != nil {
 		return false, xerrors.Errorf("failed to read consolidation request stamp rows: %w", err)
 	}
-	return n > 0, nil
+	if n == 0 {
+		return false, nil
+	}
+	if stamp.Outcome == types.ConsolidationRefineAccepted {
+		// Refining the newest open request covers every older prompt-only
+		// request in the same session. Keeping this in the transaction prevents
+		// a stale pending lease from becoming deliverable after accepted coverage.
+		if _, err := tx.ExecContext(ctx, fulfillSupersededCodexPromptRequestsQuery, stamp.SessionID.String(), stamp.SessionID.String()); err != nil {
+			return false, xerrors.Errorf("failed to fulfill superseded Codex prompt requests: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return false, xerrors.Errorf("failed to commit consolidation request stamp: %w", err)
+	}
+	return true, nil
 }
 
 // ConversionSince returns per-client conversion over the window.
@@ -308,4 +346,112 @@ func (d *ConsolidationRequestDatasource) RefinementAuthorshipSince(ctx context.C
 		return nil, xerrors.Errorf("consolidation authorship rows: %w", err)
 	}
 	return out, nil
+}
+
+// ClaimCodexPrompt atomically obtains a durable delivery lease. Expired leases
+// are intentionally reclaimable: stdout can succeed immediately before a process
+// crash, so confirmation is at-least-once rather than falsely exactly-once.
+func (d *ConsolidationRequestDatasource) ClaimCodexPrompt(
+	ctx context.Context,
+	sessionID types.SessionID,
+	token types.ConsolidationPromptClaimToken,
+	at, expiresAt time.Time,
+) (types.Optional[*model.CodexPromptClaim], error) {
+	db, err := d.db.open(ctx)
+	if err != nil {
+		return types.None[*model.CodexPromptClaim](), xerrors.Errorf("failed to open DB for Codex prompt claim: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+	var storedSessionID, client, requestedAt, atEventID, signal, delivery, requestID string
+	var pressure, threshold int64
+	var reRequest int
+	err = db.QueryRowContext(ctx, claimCodexPromptRequestQuery,
+		token.String(), formatMemoryValidityTimestamp(at), formatMemoryValidityTimestamp(expiresAt), sessionID.String(), formatMemoryValidityTimestamp(at),
+	).Scan(&storedSessionID, &client, &requestedAt, &atEventID, &signal, &pressure, &threshold, &reRequest, &delivery, &requestID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return types.None[*model.CodexPromptClaim](), nil
+	}
+	if err != nil {
+		return types.None[*model.CodexPromptClaim](), xerrors.Errorf("failed to claim Codex prompt request: %w", err)
+	}
+	request, err := consolidationRequestFromStored(storedSessionID, client, requestedAt, atEventID, signal, pressure, threshold, reRequest, delivery)
+	if err != nil {
+		return types.None[*model.CodexPromptClaim](), err
+	}
+	stableID, err := types.ConsolidationPromptRequestIDFrom(requestID)
+	if err != nil {
+		return types.None[*model.CodexPromptClaim](), xerrors.Errorf("invalid stored Codex prompt request id: %w", err)
+	}
+	claim, err := model.NewCodexPromptClaim(request, stableID, token)
+	if err != nil {
+		return types.None[*model.CodexPromptClaim](), xerrors.Errorf("invalid stored Codex prompt claim: %w", err)
+	}
+	return types.Some(claim), nil
+}
+
+// ReleaseCodexPrompt clears only the matching active lease after a writer failure.
+func (d *ConsolidationRequestDatasource) ReleaseCodexPrompt(ctx context.Context, requestID types.ConsolidationPromptRequestID, token types.ConsolidationPromptClaimToken) error {
+	return d.transitionCodexPrompt(ctx, releaseCodexPromptRequestQuery, requestID, token)
+}
+
+// ConfirmCodexPrompt records delivery only after the writer completed.
+func (d *ConsolidationRequestDatasource) ConfirmCodexPrompt(ctx context.Context, requestID types.ConsolidationPromptRequestID, token types.ConsolidationPromptClaimToken, deliveredAt time.Time) error {
+	db, err := d.db.open(ctx)
+	if err != nil {
+		return xerrors.Errorf("failed to open DB for Codex prompt confirmation: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+	result, err := db.ExecContext(ctx, confirmCodexPromptRequestQuery, formatMemoryValidityTimestamp(deliveredAt), requestID.String(), token.String())
+	if err != nil {
+		return xerrors.Errorf("failed to confirm Codex prompt request: %w", err)
+	}
+	return requireOneCodexPromptTransition(result)
+}
+
+func (d *ConsolidationRequestDatasource) transitionCodexPrompt(ctx context.Context, query string, requestID types.ConsolidationPromptRequestID, token types.ConsolidationPromptClaimToken) error {
+	db, err := d.db.open(ctx)
+	if err != nil {
+		return xerrors.Errorf("failed to open DB for Codex prompt release: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+	result, err := db.ExecContext(ctx, query, requestID.String(), token.String())
+	if err != nil {
+		return xerrors.Errorf("failed to release Codex prompt request: %w", err)
+	}
+	return requireOneCodexPromptTransition(result)
+}
+
+func requireOneCodexPromptTransition(result sql.Result) error {
+	n, err := result.RowsAffected()
+	if err != nil {
+		return xerrors.Errorf("failed to read Codex prompt transition result: %w", err)
+	}
+	if n != 1 {
+		return xerrors.New("Codex prompt lease was no longer active")
+	}
+	return nil
+}
+
+func consolidationRequestFromStored(storedSessionID, client, requestedAt, atEventID, signal string, pressure, threshold int64, reRequest int, delivery string) (*model.ConsolidationRequest, error) {
+	parsedAt, err := time.Parse(time.RFC3339Nano, requestedAt)
+	if err != nil {
+		return nil, xerrors.Errorf("invalid consolidation requested_at: %w", err)
+	}
+	sid, err := types.SessionIDFrom(storedSessionID)
+	if err != nil {
+		return nil, xerrors.Errorf("invalid stored consolidation session id: %w", err)
+	}
+	eid, err := types.EventIDFrom(atEventID)
+	if err != nil {
+		return nil, xerrors.Errorf("invalid stored consolidation at_event_id: %w", err)
+	}
+	del, err := types.ConsolidationDeliveryFrom(delivery)
+	if err != nil {
+		return nil, xerrors.Errorf("invalid stored consolidation delivery: %w", err)
+	}
+	request, err := model.NewConsolidationRequest(sid, client, parsedAt, eid, signal, pressure, threshold, reRequest == 1, del)
+	if err != nil {
+		return nil, xerrors.Errorf("invalid stored consolidation request: %w", err)
+	}
+	return request, nil
 }

@@ -7,5 +7,6 @@ INSERT OR IGNORE INTO consolidation_requests (
     pressure_value,
     threshold_value,
     re_request,
-    delivery
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+    delivery,
+    prompt_request_id
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, printf('consolidation:%s:%s', hex(?), hex(?)));

@@ -5,11 +5,14 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -34,6 +37,17 @@ func (s *consolidationRequestUsecaseStub) Record(context.Context, usecase.Consol
 
 func (s *consolidationRequestUsecaseStub) RecordRefineOutcome(context.Context, model.ConsolidationRefineStamp) (bool, error) {
 	return false, nil
+}
+
+func (s *consolidationRequestUsecaseStub) ClaimCodexPrompt(context.Context, types.SessionID) (types.Optional[*model.CodexPromptClaim], error) {
+	return types.None[*model.CodexPromptClaim](), s.err
+}
+
+func (s *consolidationRequestUsecaseStub) ReleaseCodexPrompt(context.Context, types.ConsolidationPromptRequestID, types.ConsolidationPromptClaimToken) error {
+	return s.err
+}
+func (s *consolidationRequestUsecaseStub) ConfirmCodexPrompt(context.Context, types.ConsolidationPromptRequestID, types.ConsolidationPromptClaimToken) error {
+	return s.err
 }
 
 type latestEventOrderStub struct {
@@ -128,7 +142,7 @@ func TestHookTranscript_ConsolidationRequestLedger(t *testing.T) {
 		if code, _ := fx.runTranscript(t, "one"); code != 2 {
 			t.Fatalf("first exit = %d", code)
 		}
-		seedTranscriptsAfterNow(t, fx.eventDS, sessionID, "evt-gap", 8)
+		seedTranscriptsAfterNow(t, fx.dbPath, fx.eventDS, sessionID, "evt-gap", 8)
 		if code, _ := fx.runTranscript(t, "after-window"); code != 2 {
 			t.Fatalf("after cadence exit = %d, want 2", code)
 		}
@@ -203,6 +217,160 @@ func TestHookTranscript_ConsolidationRequestLedger(t *testing.T) {
 			t.Fatalf("exit = %d, want 2; %s", code, message)
 		}
 	})
+}
+
+func TestCodexPromptOnlyStopNeverReplacesPrimaryArtifactOnHandoffFailure(t *testing.T) {
+	cases := []struct {
+		name      string
+		configure func(*consolidationHookFixture)
+	}{
+		{name: "ledger usecase failure", configure: func(fx *consolidationHookFixture) {
+			fx.request = &consolidationRequestUsecaseStub{err: errors.New("ledger unavailable")}
+		}},
+		{name: "duplicate persistence", configure: func(fx *consolidationHookFixture) { fx.request = &consolidationRequestUsecaseStub{} }},
+		{name: "latest event lookup failure", configure: func(fx *consolidationHookFixture) {
+			fx.order = &latestEventOrderStub{err: errors.New("latest unavailable")}
+		}},
+		{name: "request usecase unavailable", configure: func(fx *consolidationHookFixture) { fx.omitRequest = true }},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			fx := newConsolidationHookFixture(t, "sess-codex-stop-"+strings.ReplaceAll(tt.name, " ", "-"))
+			writeConsolidationConfig(t, os.Getenv("HOME"), `{"min_commands":20,"stop_cadence":8,"codex_prompt_only":true}`)
+			tt.configure(fx)
+			code, stderr := fx.runTranscriptClient(t, "codex", "primary Stop artifact")
+			if code != 0 || stderr != "" {
+				t.Fatalf("Stop = %d/%q, want success with clean primary artifact", code, stderr)
+			}
+		})
+	}
+}
+
+func TestCodexPromptOnlyConsolidationDelivery(t *testing.T) {
+	fx := newConsolidationHookFixture(t, "sess-codex-prompt-only")
+	writeConsolidationConfig(t, os.Getenv("HOME"), `{"min_commands":20,"stop_cadence":8,"codex_prompt_only":true}`)
+	if code, message := fx.runTranscriptClient(t, "codex", "terminal artifact"); code != 0 || message != "" {
+		t.Fatalf("prompt-only Stop = %d/%q, want success without replacement output", code, message)
+	}
+	row := mustConsolidationRow(t, fx.dbPath, fx.sessionID)
+	if row.delivery != "none" {
+		t.Fatalf("delivery = %q, want none pending", row.delivery)
+	}
+
+	root := cli.NewRootCLI(cli.WithStoreManagement(fx.storeUC), cli.WithEvent(fx.eventUC), cli.WithConsolidationRequest(fx.requestUC), cli.WithDatabasePathSetter(fx.db.SetPath)).Command()
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&bytes.Buffer{})
+	root.SetIn(strings.NewReader(`{"session_id":"` + fx.sessionID + `","cwd":"/tmp","prompt":"ordinary prompt body"}`))
+	root.SetArgs([]string{"hook", "prompt", "codex", "--db-path", fx.dbPath})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("prompt error = %v", err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "traceary session refine") || strings.Contains(got, "ordinary prompt body") || strings.Contains(got, "terminal artifact") {
+		t.Fatalf("prompt output must be bounded action only: %q", got)
+	}
+	out.Reset()
+	root.SetIn(strings.NewReader(`{"session_id":"` + fx.sessionID + `","cwd":"/tmp","prompt":"next"}`))
+	if err := root.Execute(); err != nil {
+		t.Fatalf("second prompt error = %v", err)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("second prompt duplicated delivery: %q", out.String())
+	}
+	if countConsolidationRequests(t, fx.dbPath) != 1 {
+		t.Fatalf("rows = %d, want 1", countConsolidationRequests(t, fx.dbPath))
+	}
+}
+
+func TestCodexPromptOnlyRefinementCoverageAndCadence(t *testing.T) {
+	fx := newConsolidationHookFixture(t, "sess-codex-prompt-coverage")
+	writeConsolidationConfig(t, os.Getenv("HOME"), `{"min_commands":20,"stop_cadence":8,"codex_prompt_only":true}`)
+	if code, _ := fx.runTranscriptClient(t, "codex", "first"); code != 0 {
+		t.Fatalf("first Stop=%d", code)
+	}
+	// Keep two pending handoffs to prove accepted coverage supersedes the older one.
+	seedTranscriptsAfterNow(t, fx.dbPath, fx.eventDS, fx.sessionID, "evt-before-coverage", 8)
+	if code, _ := fx.runTranscriptClient(t, "codex", "second"); code != 0 {
+		t.Fatalf("second Stop=%d", code)
+	}
+	if got := countConsolidationRequests(t, fx.dbPath); got != 2 {
+		t.Fatalf("pending rows=%d, want 2", got)
+	}
+
+	// Persist an actual refinement through the CLI path, rather than stamping the
+	// ledger directly. It covers the newest request and supersedes the older one.
+	refineSession(t, fx, fx.sessionID, queryLatestEventID(t, fx.dbPath, fx.sessionID))
+	newPrompt := func(out io.Writer) *cobra.Command {
+		root := cli.NewRootCLI(cli.WithStoreManagement(fx.storeUC), cli.WithEvent(fx.eventUC), cli.WithConsolidationRequest(fx.requestUC), cli.WithDatabasePathSetter(fx.db.SetPath)).Command()
+		root.SetOut(out)
+		root.SetErr(&bytes.Buffer{})
+		root.SetIn(strings.NewReader(`{"session_id":"` + fx.sessionID + `","cwd":"/tmp","prompt":"next"}`))
+		root.SetArgs([]string{"hook", "prompt", "codex", "--db-path", fx.dbPath})
+		return root
+	}
+	var out bytes.Buffer
+	if err := newPrompt(&out).Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("accepted coverage redelivered a stale request: %q", out.String())
+	}
+
+	// New command work and a full cadence window after coverage create exactly
+	// one new handoff, which is delivered once at the next prompt.
+	seedCommandsAfterNow(t, fx.dbPath, fx.eventDS, fx.sessionID, "evt-after-coverage-command", 20)
+	seedTranscriptsAfterNow(t, fx.dbPath, fx.eventDS, fx.sessionID, "evt-after-coverage-cadence", 8)
+	if code, _ := fx.runTranscriptClient(t, "codex", "post-coverage work"); code != 0 {
+		t.Fatalf("post-coverage Stop=%d", code)
+	}
+	if got := countConsolidationRequests(t, fx.dbPath); got != 3 {
+		t.Fatalf("post-coverage rows=%d, want 3", got)
+	}
+	out.Reset()
+	if err := newPrompt(&out).Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(out.String(), "traceary session refine"); got != 1 {
+		t.Fatalf("fresh prompt deliveries=%d, want 1; output=%q", got, out.String())
+	}
+	out.Reset()
+	if err := newPrompt(&out).Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("fresh request redelivered: %q", out.String())
+	}
+}
+
+type consolidationFailingWriter struct{}
+
+func (consolidationFailingWriter) Write([]byte) (int, error) { return 0, errors.New("writer failed") }
+
+func TestCodexPromptOnlyRetriesAfterOutputFailure(t *testing.T) {
+	fx := newConsolidationHookFixture(t, "sess-codex-prompt-retry")
+	writeConsolidationConfig(t, os.Getenv("HOME"), `{"min_commands":20,"stop_cadence":8,"codex_prompt_only":true}`)
+	if code, _ := fx.runTranscriptClient(t, "codex", "terminal"); code != 0 {
+		t.Fatalf("Stop exit = %d, want 0", code)
+	}
+	newPrompt := func(out io.Writer) *cobra.Command {
+		root := cli.NewRootCLI(cli.WithStoreManagement(fx.storeUC), cli.WithEvent(fx.eventUC), cli.WithConsolidationRequest(fx.requestUC), cli.WithDatabasePathSetter(fx.db.SetPath)).Command()
+		root.SetOut(out)
+		root.SetErr(&bytes.Buffer{})
+		root.SetIn(strings.NewReader(`{"session_id":"` + fx.sessionID + `","cwd":"/tmp","prompt":"next"}`))
+		root.SetArgs([]string{"hook", "prompt", "codex", "--db-path", fx.dbPath})
+		return root
+	}
+	if err := newPrompt(consolidationFailingWriter{}).Execute(); err != nil {
+		t.Fatalf("failed output must remain non-blocking: %v", err)
+	}
+	var out bytes.Buffer
+	if err := newPrompt(&out).Execute(); err != nil {
+		t.Fatalf("retry prompt error = %v", err)
+	}
+	if !strings.Contains(out.String(), "traceary session refine") {
+		t.Fatalf("retry output = %q", out.String())
+	}
 }
 
 func TestConsolidationRequest_DeliveryPerChannel(t *testing.T) {
@@ -499,10 +667,28 @@ func countConsolidationRequests(t *testing.T, dbPath string) int {
 	return len(listConsolidationRequests(t, dbPath))
 }
 
-func seedTranscriptsAfterNow(t *testing.T, eventDS *sqliteinfra.EventDatasource, sessionID, prefix string, n int) {
+func seedTranscriptsAfterNow(t *testing.T, dbPath string, eventDS *sqliteinfra.EventDatasource, sessionID, prefix string, n int) {
 	t.Helper()
 	ctx := context.Background()
 	base := time.Now().UTC().Add(time.Second)
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	var latest string
+	if err := db.QueryRow(`SELECT COALESCE(MAX(created_at_norm), '') FROM events WHERE session_id = ?`, sessionID).Scan(&latest); err != nil {
+		t.Fatal(err)
+	}
+	if latest != "" {
+		at, err := time.Parse(time.RFC3339Nano, latest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if at.After(base) {
+			base = at.Add(time.Second)
+		}
+	}
 	for i := 0; i < n; i++ {
 		event, err := model.NewEventWithClock(
 			types.EventID(prefix+"-"+strconv.Itoa(i)), types.EventKindTranscript, "cli", "claude",
@@ -516,6 +702,42 @@ func seedTranscriptsAfterNow(t *testing.T, eventDS *sqliteinfra.EventDatasource,
 			t.Fatal(err)
 		}
 	}
+}
+
+func seedCommandsAfterNow(t *testing.T, dbPath string, eventDS *sqliteinfra.EventDatasource, sessionID, prefix string, n int) {
+	t.Helper()
+	base := latestEventTime(t, dbPath, sessionID).Add(time.Second)
+	for i := 0; i < n; i++ {
+		event, err := model.NewEventWithClock(
+			types.EventID(prefix+"-"+strconv.Itoa(i)), types.EventKindCommandExecuted, "cli", "codex",
+			types.SessionID(sessionID), "ws", "command",
+			fixedClock{at: base.Add(time.Duration(i) * time.Second)},
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := eventDS.Save(context.Background(), event); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func latestEventTime(t *testing.T, dbPath, sessionID string) time.Time {
+	t.Helper()
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	var latest string
+	if err := db.QueryRow(`SELECT MAX(created_at_norm) FROM events WHERE session_id = ?`, sessionID).Scan(&latest); err != nil {
+		t.Fatal(err)
+	}
+	at, err := time.Parse(time.RFC3339Nano, latest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return at
 }
 
 func queryLatestEventID(t *testing.T, dbPath, sessionID string) string {

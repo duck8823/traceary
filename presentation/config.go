@@ -51,9 +51,10 @@ type readSection struct {
 // from an absent key (default 64 KiB), the same way readPresetFilters.Failures
 // distinguishes absent from explicit false.
 type consolidationSection struct {
-	ThresholdBytes *int64 `json:"threshold_bytes"`
-	MinCommands    *int64 `json:"min_commands"`
-	StopCadence    *int64 `json:"stop_cadence"`
+	ThresholdBytes  *int64 `json:"threshold_bytes"`
+	MinCommands     *int64 `json:"min_commands"`
+	StopCadence     *int64 `json:"stop_cadence"`
+	CodexPromptOnly *bool  `json:"codex_prompt_only"`
 }
 
 // wakeInjectionSection configures the session-start wake injection budget
@@ -175,6 +176,8 @@ type ConsolidationConfig struct {
 	// the same session may be asked again. The first ask needs no window.
 	// Explicit 0 disables the trigger.
 	StopCadence int64
+	// CodexPromptOnly defers a due Codex Stop request to the next prompt.
+	CodexPromptOnly bool
 	// ThresholdBytes is deprecated as a trigger. Parsed and ignored.
 	ThresholdBytes int64
 	// ThresholdBytesSet is true when the JSON pointer for threshold_bytes was
@@ -301,6 +304,9 @@ func toConsolidationConfig(raw consolidationSection) ConsolidationConfig {
 	}
 	if raw.StopCadence != nil {
 		cfg.StopCadence = *raw.StopCadence
+	}
+	if raw.CodexPromptOnly != nil {
+		cfg.CodexPromptOnly = *raw.CodexPromptOnly
 	}
 	if raw.ThresholdBytes != nil {
 		cfg.ThresholdBytes = *raw.ThresholdBytes

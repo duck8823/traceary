@@ -104,3 +104,27 @@ func (r *ConsolidationRequest) ReRequest() bool { return r.reRequest }
 
 // Delivery returns the delivery path.
 func (r *ConsolidationRequest) Delivery() types.ConsolidationDelivery { return r.delivery }
+
+// CodexPromptClaim is the durable lease returned to the sole prompt winner.
+type CodexPromptClaim struct {
+	request   *ConsolidationRequest
+	requestID types.ConsolidationPromptRequestID
+	token     types.ConsolidationPromptClaimToken
+}
+
+// NewCodexPromptClaim builds the durable lease granted to a prompt delivery winner.
+func NewCodexPromptClaim(request *ConsolidationRequest, requestID types.ConsolidationPromptRequestID, token types.ConsolidationPromptClaimToken) (*CodexPromptClaim, error) {
+	if request == nil || requestID.String() == "" || token.String() == "" {
+		return nil, xerrors.Errorf("invalid Codex prompt claim: %w", ErrInvalidConsolidationRequest)
+	}
+	return &CodexPromptClaim{request: request, requestID: requestID, token: token}, nil
+}
+
+// Request returns the consolidation request covered by this lease.
+func (c *CodexPromptClaim) Request() *ConsolidationRequest { return c.request }
+
+// RequestID returns the stable identifier of the claimed prompt delivery.
+func (c *CodexPromptClaim) RequestID() types.ConsolidationPromptRequestID { return c.requestID }
+
+// Token returns the secret lease token required to confirm or release the claim.
+func (c *CodexPromptClaim) Token() types.ConsolidationPromptClaimToken { return c.token }

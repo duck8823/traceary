@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"path/filepath"
 	"regexp"
+	"sync"
 	"testing"
 	"time"
 
@@ -429,4 +430,172 @@ func rewriteProducedAt(dbPath, sessionID, producedAt string) error {
 		return xerrors.Errorf("rewrite produced_at: %w", err)
 	}
 	return nil
+}
+
+func mustCodexPromptRequest(t *testing.T, sessionID, eventID string, at time.Time) *model.ConsolidationRequest {
+	t.Helper()
+	request, err := model.NewConsolidationRequest(types.SessionID(sessionID), "codex", at, types.EventID(eventID), "work", 20, 20, false, types.ConsolidationDeliveryNone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return request
+}
+
+func mustPromptToken(t *testing.T, value string) types.ConsolidationPromptClaimToken {
+	t.Helper()
+	token, err := types.ConsolidationPromptClaimTokenFrom(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return token
+}
+
+func TestConsolidationRequestDatasource_SaveUsesCollisionProofPromptRequestIDs(t *testing.T) {
+	ctx := context.Background()
+	fx := newConsolidationLedgerFixture(t)
+	now := time.Date(2026, 9, 10, 10, 0, 0, 0, time.UTC)
+
+	// These tuples collided under the former colon-concatenated representation.
+	for _, tuple := range [][2]string{{"session:a", "event"}, {"session", "a:event"}} {
+		ok, err := fx.ledger.Save(ctx, mustCodexPromptRequest(t, tuple[0], tuple[1], now))
+		if err != nil || !ok {
+			t.Fatalf("Save(%q, %q) ok=%v err=%v", tuple[0], tuple[1], ok, err)
+		}
+	}
+
+	db, err := sql.Open("sqlite", fx.dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	rows, err := db.Query(`SELECT prompt_request_id FROM consolidation_requests ORDER BY id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if len(ids) != 2 || ids[0] == ids[1] {
+		t.Fatalf("prompt_request_ids = %v, want two distinct IDs", ids)
+	}
+}
+
+func TestConsolidationRequestDatasource_CodexPromptLifecycle(t *testing.T) {
+	ctx := context.Background()
+	fx := newConsolidationLedgerFixture(t)
+	now := time.Date(2026, 9, 10, 10, 0, 0, 0, time.UTC)
+	if ok, err := fx.ledger.Save(ctx, mustCodexPromptRequest(t, "sess-prompt", "evt-one", now)); err != nil || !ok {
+		t.Fatalf("Save() ok=%v err=%v", ok, err)
+	}
+
+	first, err := fx.ledger.ClaimCodexPrompt(ctx, "sess-prompt", mustPromptToken(t, "token-one"), now, now.Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim, ok := first.Value()
+	if !ok || claim.RequestID().String() == "" {
+		t.Fatalf("first claim = %v ok=%v", claim, ok)
+	}
+	second, err := fx.ledger.ClaimCodexPrompt(ctx, "sess-prompt", mustPromptToken(t, "token-two"), now.Add(time.Second), now.Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := second.Value(); ok {
+		t.Fatal("active lease was claimed twice")
+	}
+	if err := fx.ledger.ReleaseCodexPrompt(ctx, claim.RequestID(), claim.Token()); err != nil {
+		t.Fatal(err)
+	}
+	retry, err := fx.ledger.ClaimCodexPrompt(ctx, "sess-prompt", mustPromptToken(t, "token-two"), now.Add(2*time.Second), now.Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	retryClaim, ok := retry.Value()
+	if !ok {
+		t.Fatal("released request was not retryable")
+	}
+	if err := fx.ledger.ConfirmCodexPrompt(ctx, retryClaim.RequestID(), retryClaim.Token(), now.Add(3*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	none, err := fx.ledger.ClaimCodexPrompt(ctx, "sess-prompt", mustPromptToken(t, "token-three"), now.Add(4*time.Second), now.Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := none.Value(); ok {
+		t.Fatal("confirmed delivery repeated")
+	}
+
+	if ok, err := fx.ledger.Save(ctx, mustCodexPromptRequest(t, "sess-prompt", "evt-two", now.Add(5*time.Second))); err != nil || !ok {
+		t.Fatalf("new due work Save() ok=%v err=%v", ok, err)
+	}
+	newWork, err := fx.ledger.ClaimCodexPrompt(ctx, "sess-prompt", mustPromptToken(t, "token-four"), now.Add(6*time.Second), now.Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := newWork.Value(); !ok {
+		t.Fatal("new due work was not deliverable")
+	}
+}
+
+func TestConsolidationRequestDatasource_CodexPromptReclaimsExpiredLeaseAndHasOneParallelWinner(t *testing.T) {
+	ctx := context.Background()
+	fx := newConsolidationLedgerFixture(t)
+	now := time.Date(2026, 9, 10, 10, 0, 0, 0, time.UTC)
+	if ok, err := fx.ledger.Save(ctx, mustCodexPromptRequest(t, "sess-lease", "evt-one", now)); err != nil || !ok {
+		t.Fatalf("Save() ok=%v err=%v", ok, err)
+	}
+	first, err := fx.ledger.ClaimCodexPrompt(ctx, "sess-lease", mustPromptToken(t, "expired-token"), now, now.Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := first.Value(); !ok {
+		t.Fatal("initial claim missing")
+	}
+	reclaimed, err := fx.ledger.ClaimCodexPrompt(ctx, "sess-lease", mustPromptToken(t, "reclaimed-token"), now.Add(2*time.Second), now.Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := reclaimed.Value(); !ok {
+		t.Fatal("expired lease was not reclaimed")
+	}
+	claim, _ := reclaimed.Value()
+	if err := fx.ledger.ReleaseCodexPrompt(ctx, claim.RequestID(), claim.Token()); err != nil {
+		t.Fatal(err)
+	}
+
+	var wg sync.WaitGroup
+	wins := make(chan bool, 2)
+	for _, token := range []string{"parallel-one", "parallel-two"} {
+		wg.Add(1)
+		go func(token string) {
+			defer wg.Done()
+			got, err := fx.ledger.ClaimCodexPrompt(ctx, "sess-lease", mustPromptToken(t, token), now.Add(3*time.Second), now.Add(time.Minute))
+			if err != nil {
+				wins <- false
+				return
+			}
+			_, ok := got.Value()
+			wins <- ok
+		}(token)
+	}
+	wg.Wait()
+	close(wins)
+	count := 0
+	for won := range wins {
+		if won {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("parallel prompt winners=%d, want 1", count)
+	}
 }

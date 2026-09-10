@@ -492,7 +492,7 @@ func TestHookTranscript_WorkBasedCadenceAndSubagent(t *testing.T) {
 			if code, _ := fx.runTranscriptClient(t, client, "one"); code != 2 {
 				t.Fatalf("first exit = %d, want 2", code)
 			}
-			seedTranscriptsAfterNow(t, fx.eventDS, fx.sessionID, "gap-"+client, 8)
+			seedTranscriptsAfterNow(t, fx.dbPath, fx.eventDS, fx.sessionID, "gap-"+client, 8)
 			code, message := fx.runTranscriptClient(t, client, "after")
 			if code != 2 {
 				t.Fatalf("after cadence exit = %d, want 2; %s", code, message)

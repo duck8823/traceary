@@ -2,6 +2,9 @@ package usecase
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"time"
 
 	"golang.org/x/xerrors"
 
@@ -53,6 +56,50 @@ func (u *consolidationRequestUsecase) Record(
 		return ConsolidationRequestRecorded{}, xerrors.Errorf("failed to save consolidation request: %w", err)
 	}
 	return ConsolidationRequestRecorded{Recorded: recorded, ReRequest: reRequest}, nil
+}
+
+const codexPromptLeaseDuration = 5 * time.Minute
+
+// ClaimCodexPrompt obtains a durable, expiring delivery lease for one prompt.
+func (u *consolidationRequestUsecase) ClaimCodexPrompt(ctx context.Context, sessionID types.SessionID) (types.Optional[*model.CodexPromptClaim], error) {
+	token, err := newCodexPromptClaimToken()
+	if err != nil {
+		return types.None[*model.CodexPromptClaim](), xerrors.Errorf("failed to create Codex prompt claim token: %w", err)
+	}
+	now := u.clock.Now()
+	claimed, err := u.repo.ClaimCodexPrompt(ctx, sessionID, token, now, now.Add(codexPromptLeaseDuration))
+	if err != nil {
+		return types.None[*model.CodexPromptClaim](), xerrors.Errorf("failed to claim Codex prompt consolidation: %w", err)
+	}
+	return claimed, nil
+}
+
+func newCodexPromptClaimToken() (types.ConsolidationPromptClaimToken, error) {
+	bytes := make([]byte, 16)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", xerrors.Errorf("failed to generate Codex prompt claim token: %w", err)
+	}
+	token, err := types.ConsolidationPromptClaimTokenFrom(hex.EncodeToString(bytes))
+	if err != nil {
+		return "", xerrors.Errorf("failed to validate generated Codex prompt claim token: %w", err)
+	}
+	return token, nil
+}
+
+// ReleaseCodexPrompt makes a pre-delivery writer failure retryable.
+func (u *consolidationRequestUsecase) ReleaseCodexPrompt(ctx context.Context, requestID types.ConsolidationPromptRequestID, token types.ConsolidationPromptClaimToken) error {
+	if err := u.repo.ReleaseCodexPrompt(ctx, requestID, token); err != nil {
+		return xerrors.Errorf("failed to release Codex prompt consolidation: %w", err)
+	}
+	return nil
+}
+
+// ConfirmCodexPrompt records delivery after the hook writer completed.
+func (u *consolidationRequestUsecase) ConfirmCodexPrompt(ctx context.Context, requestID types.ConsolidationPromptRequestID, token types.ConsolidationPromptClaimToken) error {
+	if err := u.repo.ConfirmCodexPrompt(ctx, requestID, token, u.clock.Now()); err != nil {
+		return xerrors.Errorf("failed to confirm Codex prompt consolidation: %w", err)
+	}
+	return nil
 }
 
 func (u *consolidationRequestUsecase) RecordRefineOutcome(
