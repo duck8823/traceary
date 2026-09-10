@@ -192,6 +192,8 @@ After `hooks install`, Traceary prints the matching `doctor` command so you can 
 
 **Claude Code plugin interaction.** When the Traceary Claude Code plugin is enabled (detected via `enabledPlugins` in `~/.claude/settings.json`), `hooks install --client claude` skips writing the settings file and prints a notice — the plugin already delivers the same hooks, so installing both would record every audit event twice. Use `--force` only if you deliberately want both registrations (plugin development).
 
+**Codex plugin interaction.** `hooks install --client codex` and `--upgrade` first ask the Codex app-server for the effective Traceary plugin hooks. They skip every manual `~/.codex/hooks.json` write, even with `--force`, only when Codex reports the complete **current** package contract as enabled and trusted (including the usage hook). A plugin entry or `plugin_hooks` feature flag alone does not prove this. Missing, disabled, incomplete, untrusted, changed, or uninspectable plugin hooks retain the manual fallback so recording is not disabled. Plugin reload/refresh changes Codex's effective hook state; it does not remove any existing manual file on disk. If the trusted plugin route and manual entries coexist, use the existing explicit `traceary doctor --fix --dry-run --client codex` reconciliation preview, then `traceary doctor --fix --client codex`; it preserves unrelated entries and never performs cleanup merely because a flag is present.
+
 ### Merge behavior and failure modes
 
 `hooks install` can merge into an existing file when all of the following are true:

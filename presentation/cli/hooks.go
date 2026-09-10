@@ -241,6 +241,27 @@ func (c *RootCLI) runHooksInstall(
 	// audit event to fire twice. Skip by default and tell the user how
 	// to override; require --force for an intentional duplicate.
 	canonicalClient := normalizeHooksClientForDisplay(c, input.client)
+	if canonicalClient == "codex" {
+		pluginState, trust := c.inspectCodexPluginHookTrust(ctx, resolvedProjectDir)
+		if trust.Status == codexPluginHookTrustTrusted {
+			action := "install"
+			if input.upgrade {
+				action = "upgrade"
+			}
+			if _, err := fmt.Fprintf(
+				output,
+				Localize(
+					"Skipped %s: Codex confirms Traceary plugin %q owns all current enabled and trusted hooks. No manual hooks.json was changed, including with --force. Plugin reload/refresh changes Codex's effective hook state; existing manual entries remain on disk until you explicitly reconcile them with traceary doctor --fix.\n",
+					"%s をスキップしました: Codex は Traceary plugin %q が現在の hook をすべて有効かつ trusted と確認しています。--force を指定しても手動 hooks.json は変更しません。plugin の reload/refresh は Codex の有効 hook 状態を変えますが、既存の手動エントリは traceary doctor --fix で明示的に reconcile するまで disk 上に残ります。\n",
+				),
+				action,
+				pluginState.PluginKey,
+			); err != nil {
+				return xerrors.Errorf("%s: %w", Localize("failed to print Codex plugin ownership notice", "Codex plugin ownership 通知の出力に失敗しました"), err)
+			}
+			return nil
+		}
+	}
 	if canonicalClient == "claude" {
 		detection := c.detectClaudeTracearyPluginForCLI()
 		if detection.Active && input.upgrade {

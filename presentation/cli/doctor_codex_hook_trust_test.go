@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -32,9 +31,21 @@ hooks_list = json.loads(sys.stdin.readline())
 assert hooks_list["id"] == 1
 assert hooks_list["method"] == "hooks/list"
 assert hooks_list["params"]["cwds"] == ["/tmp/project"]
+commands = [
+    "'traceary' 'hook' 'session' 'codex' 'start'",
+    "'traceary' 'hook' 'subagent-start' 'codex'",
+    "'traceary' 'hook' 'subagent-stop' 'codex'",
+    "'traceary' 'hook' 'compact' 'codex' 'pre-compact'",
+    "'traceary' 'hook' 'compact' 'codex' 'post-compact'",
+    "'traceary' 'hook' 'prompt' 'codex'",
+    "'traceary' 'hook' 'usage' 'codex'",
+    "'traceary' 'hook' 'transcript' 'codex'",
+    "'traceary' 'hook' 'session' 'codex' 'stop'",
+    "'traceary' 'hook' 'audit' 'codex'",
+]
 print(json.dumps({"id": 1, "result": {"data": [{
     "cwd": "/tmp/project",
-    "hooks": [{"pluginId": "traceary@market", "enabled": True, "trustStatus": "trusted"}] * ` + fmt.Sprintf("%d", expectedCodexPluginHookCount()) + `,
+    "hooks": [{"pluginId": "traceary@market", "enabled": True, "trustStatus": "trusted", "command": command} for command in commands],
     "warnings": [],
     "errors": []
 }]}}), flush=True)
@@ -219,6 +230,33 @@ func TestClassifyCodexPluginHookTrust_NamesMissingCommand(t *testing.T) {
 	}
 }
 
+// TestClassifyCodexPluginHookTrust_RequiresUsageInCurrentContract ensures an
+// equally sized stale route cannot pass by replacing the current usage hook
+// with another trusted command. Install ownership must use this same complete
+// effective-contract evidence as doctor.
+func TestClassifyCodexPluginHookTrust_RequiresUsageInCurrentContract(t *testing.T) {
+	hooks := currentCodexHooks("traceary@market")
+	for i := range hooks {
+		if strings.Contains(hooks[i].Command, "'usage'") {
+			hooks[i].Command = "'traceary' 'hook' 'compact' 'codex' 'legacy-phase'"
+		}
+	}
+	response := codexHooksListResponse{}
+	response.Data = append(response.Data, struct {
+		Hooks    []codexHookListMetadata `json:"hooks"`
+		Warnings []string                `json:"warnings"`
+		Errors   []codexHookErrorInfo    `json:"errors"`
+	}{Hooks: hooks})
+
+	got := classifyCodexPluginHookTrust("traceary@market", response, testCodexManagedKeyExtractor)
+	if got.Status != codexPluginHookTrustIncomplete {
+		t.Fatalf("Status = %q, want %q", got.Status, codexPluginHookTrustIncomplete)
+	}
+	if diff := cmpDiffStrings(got.MissingCommands, []string{"traceary-usage.sh:codex"}); diff != "" {
+		t.Fatalf("MissingCommands mismatch (-got +want):\n%s", diff)
+	}
+}
+
 // currentCodexHooks builds one enabled+trusted codexHookListMetadata entry
 // per command in the current packaged Codex contract, with literal command
 // text matching what Codex's hooks/list reports for the shipped
@@ -316,9 +354,20 @@ func TestCodexPluginHookTrustCheck(t *testing.T) {
 }
 
 func trustedCodexHooksJSON(pluginKey string, count int) string {
-	hooks := make([]string, count)
-	for i := range hooks {
-		hooks[i] = `{"pluginId":` + strconv.Quote(pluginKey) + `,"enabled":true,"trustStatus":"trusted"}`
+	hooks := currentCodexHooks(pluginKey)
+	if count < len(hooks) {
+		hooks = hooks[:count]
 	}
-	return `{"data":[{"hooks":[` + strings.Join(hooks, ",") + `]}]}`
+	for len(hooks) < count {
+		hooks = append(hooks, codexHookListMetadata{
+			PluginID: pluginKey, Enabled: true, TrustState: "trusted",
+			Command: "'traceary' 'hook' 'compact' 'codex' 'legacy-phase'",
+		})
+	}
+	response := map[string]any{"data": []map[string]any{{"hooks": hooks}}}
+	encoded, err := json.Marshal(response)
+	if err != nil {
+		panic(err)
+	}
+	return string(encoded)
 }
