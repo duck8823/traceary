@@ -7,6 +7,17 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 
 ## [Unreleased]
 
+## [v0.52.0] - 2026-09-10
+
+v0.52.0 は、明示的に有効化した Codex consolidation request を非ブロッキング化し、この workflow を支える hook と pre-commit の安全境界を強化します。
+
+### Added
+- **Codex の非ブロッキング consolidation prompt (#2379)。** opt-in の `consolidation.codex_prompt_only` は、due request を Stop で記録しつつ consolidation 起因の blocking exit を返さず、次の prompt で境界付き refinement action を 1 回だけ配送します。後続 prompt がなければ request は pending のままで、manual refinement を実行できます。
+
+### Fixed
+- **信頼済み Codex plugin hook ownership (#2378)。** hook install は信頼済み Codex plugin route を保持し、競合する重複 route を登録しません。
+- **pre-commit の Git environment isolation (#2380)。** staged selection と formatting は committing worktree の context を維持し、test subprocess は Git-local variable を除去するため、fixture repository が実 checkout を変更できません。
+
 ### Changed
 - **自動要約出力が agent UI を埋めないようにしました（#2376）。** 起床注入の既定出力予算を 8 KiB から 2 KiB に縮小し、オペレータが明示した予算の意味は維持します。consolidation reminder に含める直前 refinement の preview は空白を畳み、240 rune で上限を設けます。保存済み要約は変更しません。
 
