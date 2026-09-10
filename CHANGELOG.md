@@ -7,6 +7,17 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ## [Unreleased]
 
+## [v0.52.0] - 2026-09-10
+
+v0.52.0 makes Codex consolidation requests non-blocking when explicitly enabled, strengthens the hook and pre-commit safety boundaries around that workflow, and reduces the default wake-injection output budget from 8 KiB to 2 KiB.
+
+### Added
+- **Non-blocking Codex consolidation prompts (#2379).** The opt-in `consolidation.codex_prompt_only` mode records a due request at Stop without returning a consolidation-caused blocking exit, then delivers one bounded refinement action on the next prompt. Pending requests remain available for manual refinement when no later prompt arrives.
+
+### Fixed
+- **Trusted Codex plugin hook ownership (#2378).** Hook installation preserves the trusted Codex plugin route instead of registering a duplicate competing route.
+- **Pre-commit Git environment isolation (#2380).** Staged selection and formatting retain the committing worktree context, while test subprocesses clear Git-local variables so fixture repositories cannot mutate the real checkout.
+
 ### Changed
 - **Automatic summary output no longer fills the agent UI (#2376).** Wake injection now defaults to a 2 KiB output budget instead of 8 KiB, while explicit operator-configured budgets keep their existing meaning. Consolidation reminders collapse and cap the previous-refinement preview at 240 runes without changing the stored summary.
 
