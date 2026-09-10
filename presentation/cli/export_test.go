@@ -40,6 +40,32 @@ func (c *RootCLI) DrainTestHookSpoolRecords(ctx context.Context, limit int) (rep
 // so black-box doctor tests cannot silently drift from the production contract.
 var ExpectedCodexPluginHookCount = expectedCodexPluginHookCount
 
+// SetCodexPluginHookTrustProbeFunc replaces the Codex effective-hook probe so
+// black-box command tests can cover ownership without launching a real host.
+func SetCodexPluginHookTrustProbeFunc(f func(context.Context, string, string) CodexPluginHookTrustResult) {
+	codexPluginHookTrustProbeFunc = func(ctx context.Context, projectDir, pluginKey string, _ codexManagedKeyExtractorFunc) codexPluginHookTrustResult {
+		return f(ctx, projectDir, pluginKey)
+	}
+}
+
+// ResetCodexPluginHookTrustProbeFunc restores the production app-server probe.
+func ResetCodexPluginHookTrustProbeFunc() {
+	codexPluginHookTrustProbeFunc = probeCodexPluginHookTrust
+}
+
+// CodexPluginHookTrustResult is the effective plugin evidence exposed to
+// black-box CLI tests.
+type CodexPluginHookTrustResult = codexPluginHookTrustResult
+
+const (
+	CodexPluginHookTrustAbsent       = codexPluginHookTrustAbsent
+	CodexPluginHookTrustTrusted      = codexPluginHookTrustTrusted
+	CodexPluginHookTrustIncomplete   = codexPluginHookTrustIncomplete
+	CodexPluginHookTrustUntrusted    = codexPluginHookTrustUntrusted
+	CodexPluginHookTrustDisabled     = codexPluginHookTrustDisabled
+	CodexPluginHookTrustUndetectable = codexPluginHookTrustUndetectable
+)
+
 // SetUserHomeDirFunc replaces the home-directory lookup function for tests.
 func SetUserHomeDirFunc(f func() (string, error)) {
 	storeUserHomeDirFunc(f)

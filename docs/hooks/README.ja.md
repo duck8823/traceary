@@ -192,6 +192,8 @@ traceary hooks install --client codex --upgrade
 
 **Claude Code plugin との関係**: Traceary の Claude Code plugin が有効な場合（`~/.claude/settings.json` の `enabledPlugins` で検知）、`hooks install --client claude` は settings file への書き込みをスキップして通知を出します。plugin がすでに同じ hook を Claude Code に提供しているため、重ねて install すると audit が 1 ツール呼び出しにつき 2 回記録されてしまいます。両方に登録したい場合（plugin 開発など）のみ `--force` を使ってください。
 
+**Codex plugin との関係**: `hooks install --client codex` と `--upgrade` は、まず Codex app-server に有効な Traceary plugin hook を問い合わせます。Codex が現在の package 契約の hook すべて（usage hook を含む）を enabled かつ trusted と報告した場合に限り、`--force` を指定しても手動 `~/.codex/hooks.json` の書き込みをすべて skip します。plugin エントリまたは `plugin_hooks` feature flag だけはこの証拠になりません。plugin hook が missing・disabled・incomplete・untrusted・changed・検査不能の場合は、recording を止めないよう手動 fallback を維持します。plugin の reload/refresh は Codex の有効 hook 状態を変えますが、disk 上の既存手動 file は削除しません。trusted plugin route と手動 entry が共存する場合は、既存の明示的な `traceary doctor --fix --dry-run --client codex` で reconcile を preview し、その後 `traceary doctor --fix --client codex` を実行してください。この経路は無関係な entry を保持し、flag の存在だけで cleanup しません。
+
 ### merge の条件と失敗条件
 
 `hooks install` が既存ファイルへマージできるのは、次をすべて満たす場合です。

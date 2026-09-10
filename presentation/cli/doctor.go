@@ -543,13 +543,8 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 
 		var check doctorCheck
 		if targetClient == "codex" {
-			pluginState := c.detectCodexPluginHookFallback()
-			trust := codexPluginHookTrustResult{
-				PluginKey: pluginState.PluginKey,
-				Status:    codexPluginHookTrustAbsent,
-			}
+			pluginState, trust := c.inspectCodexPluginHookTrust(ctx, resolvedProjectDir)
 			if pluginState.PluginEnabled {
-				trust = codexPluginHookTrustProbeFunc(ctx, resolvedProjectDir, pluginState.PluginKey, c.hooksInspector.ExtractManagedKeyFromEntry)
 				report.Checks = append(report.Checks, codexPluginHookTrustCheck(trust))
 				check = c.inspectCodexConfigWithHookTrust(ctx, outputPath, resolvedProjectDir, trust)
 			} else {

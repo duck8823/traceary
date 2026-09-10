@@ -367,7 +367,18 @@ assert hooks_list["id"] == 1 and hooks_list["method"] == "hooks/list"
 assert hooks_list["params"]["cwds"] == [` + fmt.Sprintf("%q", projectDir) + `]
 print(json.dumps({"id": 1, "result": {"data": [{
     "cwd": ` + fmt.Sprintf("%q", projectDir) + `,
-    "hooks": [{"pluginId": ` + fmt.Sprintf("%q", pluginKey) + `, "enabled": True, "trustStatus": "trusted"}] * ` + fmt.Sprintf("%d", hookCount) + `,
+    "hooks": [{"pluginId": ` + fmt.Sprintf("%q", pluginKey) + `, "enabled": True, "trustStatus": "trusted", "command": command} for command in [
+        "'traceary' 'hook' 'session' 'codex' 'start'",
+        "'traceary' 'hook' 'subagent-start' 'codex'",
+        "'traceary' 'hook' 'subagent-stop' 'codex'",
+        "'traceary' 'hook' 'compact' 'codex' 'pre-compact'",
+        "'traceary' 'hook' 'compact' 'codex' 'post-compact'",
+        "'traceary' 'hook' 'prompt' 'codex'",
+        "'traceary' 'hook' 'usage' 'codex'",
+        "'traceary' 'hook' 'transcript' 'codex'",
+        "'traceary' 'hook' 'session' 'codex' 'stop'",
+        "'traceary' 'hook' 'audit' 'codex'",
+    ][: ` + fmt.Sprintf("%d", hookCount) + `]],
     "warnings": [],
     "errors": []
 }]}}), flush=True)

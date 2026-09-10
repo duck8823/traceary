@@ -47,9 +47,8 @@ func (c *RootCLI) appendFilesystemHostDoctorChecks(
 		}
 		var check doctorCheck
 		if targetClient == "codex" {
-			pluginState := c.detectCodexPluginHookFallback()
+			pluginState, trust := c.inspectCodexPluginHookTrust(ctx, projectDir)
 			if pluginState.PluginEnabled {
-				trust := codexPluginHookTrustProbeFunc(ctx, projectDir, pluginState.PluginKey, c.hooksInspector.ExtractManagedKeyFromEntry)
 				report.Checks = append(report.Checks, codexPluginHookTrustCheck(trust))
 				check = c.inspectCodexConfigWithHookTrust(ctx, outputPath, projectDir, trust)
 			} else {

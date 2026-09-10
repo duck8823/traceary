@@ -210,14 +210,16 @@ func classifyCodexPluginHookTrust(pluginKey string, response codexHooksListRespo
 			}
 		}
 	}
-	if result.Status == codexPluginHookTrustTrusted && result.HookCount != expectedCodexPluginHookCount() {
-		result.Status = codexPluginHookTrustIncomplete
+	if result.Status == codexPluginHookTrustTrusted {
 		result.ExtraCommands, result.MissingCommands = diffCodexPluginHookCommands(matched, extractManagedKey)
-		result.Reason = fmt.Sprintf(
-			"Codex returned %d Traceary plugin hook commands; the current package requires exactly %d",
-			result.HookCount,
-			expectedCodexPluginHookCount(),
-		)
+		if result.HookCount != expectedCodexPluginHookCount() || len(result.ExtraCommands) > 0 || len(result.MissingCommands) > 0 {
+			result.Status = codexPluginHookTrustIncomplete
+			result.Reason = fmt.Sprintf(
+				"Codex returned %d Traceary plugin hook commands; the current package requires exactly the current %d-command contract",
+				result.HookCount,
+				expectedCodexPluginHookCount(),
+			)
+		}
 	}
 	return result
 }

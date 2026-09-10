@@ -131,6 +131,22 @@ func (c *RootCLI) detectCodexPluginHookFallback() codexPluginHookFallbackState {
 	return state
 }
 
+// inspectCodexPluginHookTrust obtains the same effective plugin evidence used
+// by doctor before deciding whether a manual hooks.json remains necessary.
+// Config flags identify a candidate plugin only; the app-server result is the
+// authority for the currently enabled, trusted hook contract.
+func (c *RootCLI) inspectCodexPluginHookTrust(ctx context.Context, projectDir string) (codexPluginHookFallbackState, codexPluginHookTrustResult) {
+	state := c.detectCodexPluginHookFallback()
+	trust := codexPluginHookTrustResult{
+		PluginKey: state.PluginKey,
+		Status:    codexPluginHookTrustAbsent,
+	}
+	if state.PluginEnabled {
+		trust = codexPluginHookTrustProbeFunc(ctx, projectDir, state.PluginKey, c.hooksInspector.ExtractManagedKeyFromEntry)
+	}
+	return state, trust
+}
+
 // codexPluginHookFallbackCheck builds the actionable doctor warning that
 // fires when the Traceary Codex plugin is enabled in config.toml but the
 // effective hooks.json does not register any Traceary-managed hook entry.
