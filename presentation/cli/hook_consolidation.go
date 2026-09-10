@@ -130,6 +130,12 @@ func (c *RootCLI) requestConsolidationIfDue(
 	if !ok {
 		return nil
 	}
+	if client == "codex" && presentation.LoadConfig().Consolidation.CodexPromptOnly {
+		// Prompt-only mode never replaces the primary Stop artifact. Every handoff
+		// dependency is diagnostic-only: a later Stop can reevaluate and retry.
+		_ = c.recordConsolidationRequest(ctx, req, types.ConsolidationDeliveryNone)
+		return nil
+	}
 	// Ledger insert failures still fail open (ask delivered).
 	_ = c.recordConsolidationRequest(ctx, req, types.ConsolidationDeliveryStopExit2)
 	return consolidationExitError{

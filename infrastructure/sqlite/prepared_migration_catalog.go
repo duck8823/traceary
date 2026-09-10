@@ -217,6 +217,9 @@ var preparedMigrationManifest = map[int64]migrationManifestEntry{
 	// is NULL). The hook value is a pure function of (source_hook, kind,
 	// body); dropping all-NULL data under the refuse gate is conserving.
 	86: {86, "000086_drop_legacy_source_hook.sql", "016dd848dc0b4f217bc007f1f0596478c0e62480b775453661d2fdacd58f83e9", MigrationDataDependentOffline, ConservationLawBaseConserving, SemanticVerifierDropCompatSurface, "2322"},
+	// 87 adds prompt lifecycle state, then backfills stable request IDs and builds indexes.
+	// SQLite visits existing ledger rows; cost is not benchmarked, so it is offline.
+	87: {Version: 87, Name: "000087_add_consolidation_prompt_delivery.sql", SHA256: "2efcdae07bffbfc67dd8a4f61dbd5f1b4f030282103690b530b026eeb65a6ed6", Class: MigrationDataDependentOffline, ConservationLawID: ConservationLawBaseConserving},
 }
 
 func conservationLawFor(version int64) ConservationLawID {

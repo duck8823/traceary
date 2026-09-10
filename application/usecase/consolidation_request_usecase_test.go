@@ -54,6 +54,16 @@ func (s *consolidationRequestRepoStub) FindLatest(
 	return s.FindLatestOpen(ctx, sessionID)
 }
 
+func (s *consolidationRequestRepoStub) ClaimCodexPrompt(context.Context, types.SessionID, types.ConsolidationPromptClaimToken, time.Time, time.Time) (types.Optional[*model.CodexPromptClaim], error) {
+	return types.None[*model.CodexPromptClaim](), nil
+}
+func (s *consolidationRequestRepoStub) ReleaseCodexPrompt(context.Context, types.ConsolidationPromptRequestID, types.ConsolidationPromptClaimToken) error {
+	return nil
+}
+func (s *consolidationRequestRepoStub) ConfirmCodexPrompt(context.Context, types.ConsolidationPromptRequestID, types.ConsolidationPromptClaimToken, time.Time) error {
+	return nil
+}
+
 func (s *consolidationRequestRepoStub) MarkRefineOutcome(_ context.Context, stamp model.ConsolidationRefineStamp) (bool, error) {
 	s.stamp = stamp
 	if s.stampErr != nil {

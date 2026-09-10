@@ -38,6 +38,9 @@ type ConsolidationRequestRecorded struct {
 // ConsolidationRequestUsecase records fold-request facts and refine outcomes.
 type ConsolidationRequestUsecase interface {
 	Record(ctx context.Context, in ConsolidationRequestInput) (ConsolidationRequestRecorded, error)
+	ClaimCodexPrompt(ctx context.Context, sessionID types.SessionID) (types.Optional[*model.CodexPromptClaim], error)
+	ReleaseCodexPrompt(ctx context.Context, requestID types.ConsolidationPromptRequestID, token types.ConsolidationPromptClaimToken) error
+	ConfirmCodexPrompt(ctx context.Context, requestID types.ConsolidationPromptRequestID, token types.ConsolidationPromptClaimToken) error
 	RecordRefineOutcome(ctx context.Context, stamp model.ConsolidationRefineStamp) (bool, error)
 }
 

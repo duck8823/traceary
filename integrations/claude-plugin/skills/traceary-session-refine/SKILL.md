@@ -69,3 +69,7 @@ saying why is not — that is what the mechanical fallback already produces for 
 - **No durable L3 memory here.** Explicit "remember that …" facts go to `traceary-memory-remember`.
 - **No secrets.** Do not put secret-shaped values into `--summary` or `--keywords`.
 - **Do not invent coverage.** If you cannot name a real `--covers-to` event id, stop and re-run Discovery instead of guessing.
+
+## Codex prompt-only delivery
+
+When a bounded Codex prompt requests consolidation, preserve the primary task artifact and run the refinement as maintenance. Do not copy the ordinary prompt or transcript into the summary. The request may refer to a prior summary only when performing an actual merge.

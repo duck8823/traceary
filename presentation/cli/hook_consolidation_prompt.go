@@ -8,7 +8,9 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/types"
+	"github.com/duck8823/traceary/presentation"
 	"golang.org/x/xerrors"
 )
 
@@ -59,7 +61,12 @@ func (c *RootCLI) maybeInjectConsolidationAtPrompt(
 	if payload == nil {
 		return
 	}
-	write, ok := consolidationPromptClients[strings.TrimSpace(client)]
+	client = strings.TrimSpace(client)
+	if client == "codex" && presentation.LoadConfig().Consolidation.CodexPromptOnly {
+		c.maybeDeliverPendingCodexConsolidation(ctx, output, payload, client)
+		return
+	}
+	write, ok := consolidationPromptClients[client]
 	if !ok {
 		return
 	}
@@ -121,4 +128,39 @@ func formatConsolidationContext(req consolidationRequest) string {
 		req.SessionID.String(),
 		coversTo,
 	)
+}
+
+// maybeDeliverPendingCodexConsolidation writes only a bounded action request.
+// Prompt payload content and prior summaries intentionally never enter this route.
+func (c *RootCLI) maybeDeliverPendingCodexConsolidation(ctx context.Context, output io.Writer, payload []byte, client string) {
+	if c.consolidationRequest == nil {
+		return
+	}
+	sessionID, err := resolveHookTranscriptSessionIDFunc(payload, client)
+	if err != nil {
+		return
+	}
+	claimed, err := c.consolidationRequest.ClaimCodexPrompt(ctx, sessionID)
+	if err != nil {
+		slog.Debug("Codex prompt consolidation claim failed", "session_id", sessionID.String(), "error", err)
+		return
+	}
+	claim, ok := claimed.Value()
+	if !ok {
+		return
+	}
+	request := claim.Request()
+	req := consolidationRequest{SessionID: request.SessionID(), Client: client, AtEventID: types.Some(request.AtEventID()), MinCommands: request.ThresholdValue(), Result: usecase.ConsolidationPressureResult{Commands: request.PressureValue(), Due: true}}
+	if err := writeConsolidationPlainText(output, formatConsolidationContext(req)); err != nil {
+		if releaseErr := c.consolidationRequest.ReleaseCodexPrompt(ctx, claim.RequestID(), claim.Token()); releaseErr != nil {
+			slog.Debug("Codex prompt consolidation release failed", "session_id", sessionID.String(), "error", releaseErr)
+		}
+		slog.Debug("Codex prompt consolidation injection failed", "session_id", sessionID.String(), "error", err)
+		return
+	}
+	if err := c.consolidationRequest.ConfirmCodexPrompt(ctx, claim.RequestID(), claim.Token()); err != nil {
+		// stdout was already written. An expired lease deliberately permits a later
+		// prompt to redeliver, preserving at-least-once rather than losing work.
+		slog.Debug("Codex prompt consolidation confirmation failed", "session_id", sessionID.String(), "error", err)
+	}
 }
