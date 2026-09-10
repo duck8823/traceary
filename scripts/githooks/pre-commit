@@ -17,8 +17,17 @@ SELECTED="$(./scripts/test-select-staged.sh)"
 if [ "${SELECTED}" = "DOCS-CHECKS" ]; then
   python3 scripts/verify_docs_no_removed_aliases.py
 else
-  # shellcheck disable=SC2086
-  go test ${SELECTED}
+  # Git exports repository-local variables to hooks. Test fixtures must not
+  # inherit them: otherwise their git -C/init commands can mutate this repo.
+  # Keep selection and formatting in the committing repository context.
+  GIT_LOCAL_ENV_VARS="$(git rev-parse --local-env-vars)"
+  (
+    while IFS= read -r name; do
+      [ -z "$name" ] || unset "$name"
+    done <<< "$GIT_LOCAL_ENV_VARS"
+    # shellcheck disable=SC2086
+    go test ${SELECTED}
+  )
 fi
 
 STAGED_GO="$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$' || true)"

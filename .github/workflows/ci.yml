@@ -73,6 +73,9 @@ jobs:
       - name: Verify staged test selector
         run: ./scripts/smoke_test_integrations.sh staged-selector
 
+      - name: Verify pre-commit Git environment isolation
+        run: python3 scripts/test-precommit-env.py
+
       - name: Verify wave E2E gate
         run: ./scripts/smoke_test_integrations.sh wave-e2e
 
