@@ -9,7 +9,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 
 ## [v0.52.0] - 2026-09-10
 
-v0.52.0 は、明示的に有効化した Codex consolidation request を非ブロッキング化し、この workflow を支える hook と pre-commit の安全境界を強化します。
+v0.52.0 は、明示的に有効化した Codex consolidation request を非ブロッキング化し、この workflow を支える hook と pre-commit の安全境界を強化します。あわせて、起床注入の既定出力予算を 8 KiB から 2 KiB に縮小します。
 
 ### Added
 - **Codex の非ブロッキング consolidation prompt (#2379)。** opt-in の `consolidation.codex_prompt_only` は、due request を Stop で記録しつつ consolidation 起因の blocking exit を返さず、次の prompt で境界付き refinement action を 1 回だけ配送します。後続 prompt がなければ request は pending のままで、manual refinement を実行できます。

@@ -9,7 +9,7 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ## [v0.52.0] - 2026-09-10
 
-v0.52.0 makes Codex consolidation requests non-blocking when explicitly enabled, and strengthens the hook and pre-commit safety boundaries around that workflow.
+v0.52.0 makes Codex consolidation requests non-blocking when explicitly enabled, strengthens the hook and pre-commit safety boundaries around that workflow, and reduces the default wake-injection output budget from 8 KiB to 2 KiB.
 
 ### Added
 - **Non-blocking Codex consolidation prompts (#2379).** The opt-in `consolidation.codex_prompt_only` mode records a due request at Stop without returning a consolidation-caused blocking exit, then delivers one bounded refinement action on the next prompt. Pending requests remain available for manual refinement when no later prompt arrives.
