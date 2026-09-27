@@ -65,15 +65,20 @@ Host identity ambiguities require verified namespace/store routing, not invented
 | --- | --- | --- |
 | Session identity | Groups recorded work and metadata | Appendability/retrievability does not depend on `endedAt`, active/stale status or start age |
 | Event | Recorded audit/content fact with identity and provenance | Preserve useful history, redaction and reliable delivery; do not fabricate current state |
-| Refinement | Summary plus explicit coverage | Coverage remains monotonic; include subsequent uncovered events within budget |
+| Refinement | Summary plus explicit coverage | Coverage remains monotonic; preserve existing consumers without requiring a new event-stream assembler |
 | Context selection | Explicit identity/selector or latest relevant recorded session | Relevance and explicit filters govern selection, not terminal state |
 | Invocation / ExecutionResult | One-shot process completion with success/failure/timeout/signal and usage | Execution owner owns completion/idempotency; later logs cannot overwrite outcome |
 | Parent lineage | Delegation relationship | Parent completion does not deny child append; lineage is not process cancellation |
-| Legacy lifecycle fields | Historical compatibility data | Initially retained; not authoritative eligibility or execution-result inputs |
+| Legacy lifecycle fields | Historical compatibility data | Retained, not ordinary eligibility authority; typed one-shot outcomes use an isolated adapter |
 
 An Invocation is a conceptual responsibility, not an approved new table or API schema.
-A compatibility implementation may initially retain existing storage while preserving process outcomes; any additive invocation storage needs a separate approved migration plan.
-An InvocationID must be distinct from SessionID and delivery ID, acquired and fixed before retry; repeated executions in one recorded Session must not conflict.
+The compatibility implementation retains current one-shot mode/end/reason storage with its dedicated wrapper SID binding; optional additive invocation storage needs a separate approved migration plan.
+Historical `runtime_mode=one_shot` rows with a typed reason other than `legacy_unknown` remain authoritative historical execution outcomes through an isolated read-time compatibility adapter, without backfill.
+Interactive End also writes success: a success reason without one-shot provenance is not an execution outcome; unknown stays unknown.
+Later appended logs cannot erase or override those historical outcomes.
+Keep the current `session run` behavior: each invocation creates a dedicated new SID.
+The acquired wrapper SID can identify the execution through an explicit immutable 1:1 compatibility binding; delivery receipts remain distinct from execution identity.
+No new Invocation ID/table is needed now. Multiple invocations attached to one conversation are not requested and require a separate future identity/migration design.
 Move the old first-terminal invariant from Session to the execution owner where completion is meaningful.
 Do not erase or recompute an execution result when later Session events arrive.
 
@@ -84,14 +89,16 @@ Do not erase or recompute an execution result when later Session events arrive.
 | Domain Session/identity | Identity, source AI, Workspace and delegation metadata | Authorize logging or reading based on lifecycle |
 | Domain execution owner | Completion and immutable invocation outcome | Treat outcome as Session closure or deny later logs |
 | Application event/refinement writes | Append useful records, preserve coverage and delivery idempotency | Reject resumed logs because of historical end/GC markers |
-| Application context query | Return relevant refinement and uncovered events for selection, cutoff and budgets | Route context through `Active`/`Latest` merely to obtain a lifecycle snapshot |
+| Application context query | Return existing relevant context/refinement with current filters, MemoryAsOf and bounds | Route context through `Active`/`Latest` merely to obtain a lifecycle snapshot |
 | Presentation context/handoff | Render selected content and recorded provenance | Add `STATUS`, lifecycle-derived duration or runtime availability; rewrite human summary prose |
 | Presentation host adapter | Individually interpret callbacks; acquire fixed SID/DB routing before enqueue; Workspace pinning remains a target/gap | Infer closure from inactivity or discard logs during cleanup |
 | Application invocation / supervisor | Own process completion, cancellation, usage and wrapper routing | Confuse removal of recursive Session End with removal of subprocess cancellation |
 | Infrastructure | Persist compatible legacy data, implement bounded retrieval and reliable replay | Re-enable read exclusions from old end/import data; silently migrate schema |
 
-Use narrow consumer contracts: append to an acquired identity; select context using identity/relevance, coverage, filters and budgets; finalize an invocation using its outcome.
+Use narrow consumer contracts: append to an acquired identity; select existing context using identity/relevance, current coverage consumers, filters and bounds; finalize an invocation using its outcome.
 Audit callers of existing `Active`/`Latest` Event-returning interfaces before adding or replacing a method.
+Include `List ActiveOnly`, `FindEndedSessionIDs`, parent inference, doctor stale diagnostics/fixes and hook-local end markers in the lifecycle-gate audit.
+Do not broaden inferred parent selection when removing active/stale eligibility; preserve evidenced spawn lineage and report unknown when evidence is insufficient.
 Do not introduce a broad lifecycle facade or a generic monitoring framework.
 Remove unused `sessionSummaryOutput` and derived `SessionStatus` propagation only after a caller audit proves the affected paths and any public output compatibility obligations.
 A SessionSummary may still carry content aggregates and coverage; removing an unused DTO does not remove all summary types.
@@ -103,20 +110,26 @@ Explicit identity selection wins over implicit latest selection.
 Implicit selection chooses the latest relevant recorded session in the requested source/workspace scope.
 Preserve existing latest-selection scope, order and tie-breaking wherever independent of lifecycle; remove only active/stale eligibility.
 Any ranking change to prefer meaningful content over registration-only records requires a separate follow-up checkpoint, not a silent change bundled here.
-Use summary coverage and subsequent events with item, token and time budgets.
+Phase 1 is removal-only: preserve actual existing selection/order, fields, refinement/compact behavior, recent-command limits and memory-count budgets.
+Do not require a new generic context assembly engine.
+Current handoff as-of is `MemoryAsOf`, not an event cutoff; preserve that actual scope.
+Summary coverage is already recorded, but general uncovered-event inclusion and event-as-of/token/time budgets are not all current handoff features.
+Any coverage-bounded event stream, event cutoff or new token/time framework is a separate future feature only if needed.
 A session older than 24 hours remains eligible for explicit lookup; `startedAt` age alone cannot reject it.
 Remove stale-triggered handoff re-query and guidance to close work with `session end`, not only the stale rejection.
-Explicit user date/content filters and an as-of cutoff remain supported: timestamps are recorded data, not lifecycle boundaries.
+Preserve explicit date/content filters where supported and the existing memory as-of cutoff: timestamps are data, not lifecycle boundaries.
 Deliberately remove generated `STATUS`, lifecycle-derived duration and running/stopped assertions from handoff/context with versioned release documentation, golden output tests and a JSON/downstream field audit.
 Inventory `--allow-stale` and stale-after consumers; the recommended transition is documented deprecated no-op compatibility flags once lifecycle eligibility is removed, subject to public version policy.
 Do not edit a human-authored summary that happens to contain those words.
-A close note covered by a refinement is not redundantly emitted as an uncovered note; an uncovered historical note remains eligible under the same content budget rules.
+Preserve existing refinement coverage and historical notes without introducing a new uncovered-event handoff stream in this change.
 
 ## Host callback and delivery contract
 
 Ordinary tracked-session `SessionEnd` stops terminalizing the Session and its descendants.
 It may still flush usage/transcript records, emit bounded diagnostics, and clean hook state using acquired SID and fixed DB routing.
 Flush and replay must not silently discard logs when hook state is cleaned or a callback arrives late.
+Audit hook-local end markers: an already-existing start can succeed without clearing a marker, and Stop stale-marker handling can clear state or suppress flush/extract/routing fallback.
+Remove semantic end gates while preserving callback/delivery dedup through scoped receipts; do not disable dedup wholesale.
 Propose ceasing default inferred host-close content notes for end-only empty payloads: that is noise reduction, not blanket event removal.
 Retain useful Interrupt/StopFailure audit outcomes when needed, with accurate provenance and no labels pretending to describe Session state.
 Retain existing start/end/close events as history; no retroactive purge or body rewrite.
@@ -145,7 +158,12 @@ This table prescribes future contract checks, not certified host coverage or exe
 Preserve one-shot CLI exit code, process cancellation, signals, timeout behavior, usage capture, fixed wrapper SID/DB routing, and active-execution protection.
 Session remains appendable after the process completes.
 Disabling recursive Session End does not cancel the supervisor's responsibility to stop child processes.
-Execution-result isolation must ensure legacy end imports or replay cannot override a new invocation outcome.
+Execution-result isolation must ensure legacy end imports or replay cannot override an execution outcome.
+Before or atomically with phase 2, protect one-shot rows from GC, parent cascade (`FindOpenChildSessionIDs` currently lacks a mode filter), host end, and direct `session end`.
+Only supervisor `FinalizeOneShot` may write an execution result; leave its current finalization and first-result reconciliation intact until a proven atomic replacement.
+For explicit `session end` against one-shot work, return an actionable refusal without changing logs/outcome, not fake success.
+Stop automatically overwriting content refinements with the current `cli:session-finalize` text “one-shot process finished: reason”; outcome belongs to its execution record/projection.
+Historical generated refinements remain unchanged; any display policy is separate.
 
 Do not silently reinterpret the current public `session end` command.
 Choose the target: `session start` registers identity and a start marker idempotently; `session end` records an explicit end marker only, without terminalization or a retrieval gate.
@@ -173,22 +191,26 @@ These are proposed acceptance tests, not tests run by this documentation-only ch
 | Duplicate start/end deliveries | No loss of useful logs or duplicate completion; preserve documented receipt scope | Delivery integration |
 | Missing host event ID | Do not invent occurrence/order; preserve local replay reliability and redaction | Spool integration |
 | Idle session started over 24 hours ago selected explicitly | Relevant events/refinement returned without stale-start denial | Context integration |
-| Summary-covered and later uncovered historical close notes | Coverage respected; uncovered notes budgeted normally; no history purge | Context query |
-| Two invocations share one Session and retry independently | Distinct acquired InvocationIDs preserve each outcome without Session/delivery identity collision | Invocation integration |
+| Historical refinement coverage and close notes | Existing coverage/content behavior preserved; no purge or required new event stream | Context query |
+| Current distinct runs create dedicated SIDs and retry independently | Immutable wrapper binding and per-run first result/reconciliation retained; later same-SID log remains queryable | Invocation integration |
+| Historical one-shot typed outcome versus interactive success/legacy_unknown | Only proven one-shot typed outcome is projected; unknown remains unknown, no backfill or later-log override | Compatibility query |
+| Host/direct end, GC or parent cascade reaches one-shot row | Atomic guard protects outcome; direct end refuses actionably; supervisor finalization remains intact | Use case + SQLite |
+| Resume after local end marker, then end/Stop | Flush/extract, fixed routing and cleanup work without loss; receipt dedup still works | Hook fixtures |
+| Implicit latest with only old unended records, or old-unended/new-ended mixture | All remain eligible, preserving actual existing deterministic order and proven parent inference | Query integration |
 | Explicit end supplies summary/refinement | Marker-only target preserves summary and coverage, not recursive terminal side effects | Use case + CLI |
 | One-shot success/failure/timeout/signal, then later Session event | CLI/process outcome preserved, event appended, no completion conflict | Supervisor + use case |
 | Parent execution finishes, child emits later log | Child lineage and content retained; process supervision rules remain independent | Domain + integration |
 | Host end callback has useful usage/transcript data | Data flushed with acquired SID/DB, bounded diagnostics and cleanup; no terminalization or silent drop | Host fixtures |
 | End-only empty callback | No default inferred close content note; operational receipt reliability remains | Host + delivery |
 | Legacy bundle imported with end/runtime fields, no schema change | History preserved; fields do not restore read exclusions or override new execution outcome | Bundle integration |
-| Context exceeds item/token/time budget or as-of cutoff | Deterministic bounded relevant content; no STATUS/availability/duration; explicit filters honored | Query + CLI |
+| Existing command/memory limits, compact behavior and MemoryAsOf apply | Actual existing bounds/fields preserved; no generated STATUS/availability/duration; no invented event cutoff | Query + CLI |
 | Human summary contains status prose | Summary unchanged; only generated lifecycle scaffolding removed | Rendering |
 | GC sees idle nonempty record or active execution | No synthetic close/nonempty purge; execution and references protected | Storage integration |
 | Each of seven host integrations changes contract | Host-specific fixtures prove flush, routing, cleanup, useful failures and receipt behavior | Adapter integration |
 
 | TDD step | Red | Minimal green | Refactor boundary |
 | --- | --- | --- | --- |
-| Read dependence first | End/stale-start rejects relevant context or produces STATUS | Identity/relevance/coverage/budget query; remove generated lifecycle rendering | Consumer query versus old Event-returning helpers |
+| Read dependence first | End/stale-start rejects relevant context or produces STATUS | Existing scoped/order-preserving query without lifecycle gates; remove generated lifecycle rendering | Consumer query versus old Event-returning helpers |
 | Ordinary closure writers | Host callback or GC creates authoritative terminal state | Preserve flush/diagnostics/cleanup without closure; no default empty close note | Host interpretation versus useful event capture |
 | Execution isolation | Session append/import/replay conflicts with one-shot result | Completion belongs to execution owner; preserve process outcome and active protection | Invocation outcome versus Session identity |
 | Compatibility | Old bundle/end marker restores exclusion or loses history | Legacy wire retained and read nonauthoritative; public adapter explicitly tested | Storage compatibility versus product semantics |
@@ -200,22 +222,23 @@ Independent review and fresh CI are required before delivery; documentation chec
 ## Human checkpoint and proposed delivery phases
 
 The conversation approved the direction, not every public transition or migration detail.
-Before implementation, approve context ranking/output migration, explicit-end deprecation, host contract changes, execution protection and compatibility boundaries.
+Before implementation, approve existing context selection preservation/output migration, explicit-end deprecation, host contract changes, execution protection and compatibility boundaries.
 Use one ticket, branch and PR per bounded implementation phase after that checkpoint; these are proposals, not authorization to create tickets now.
 
 1. Audit callers, remove context/read lifecycle dependence and unused status DTO propagation, retaining legacy wire/storage.
-2. Remove ordinary closure writers and synthetic GC close; review each host's flush/cleanup, useful outcomes and empty-note policy; design only opt-in safe housekeeping.
-3. Isolate one-shot outcomes behind an execution owner with compatibility storage where possible; additive Invocation storage needs a separate approved schema/bundle plan.
+2. First install atomic one-shot guards for GC, parent cascade, host/direct end while retaining FinalizeOneShot reconciliation; then remove ordinary closure writers and synthetic GC close; review each host's flush/cleanup, useful outcomes and empty-note policy; design only opt-in safe housekeeping.
+3. Isolate one-shot outcomes using the current dedicated wrapper SID and typed compatibility storage; stop generated outcome refinements. No shared-session invocations or new identity/table are required; any optional additive storage needs a separate approved design.
 4. Consider optional physical lifecycle-column removal only in a separate decision; it is not necessary for this feature.
 
 Dogfood before release using isolated DB/store fixtures and sanitized controlled real sessions to exercise resume, flush, refinement, replay and one-shot outcomes.
-Define fixture routing and redaction in advance; do not use existing private logs as test input by default.
+Isolate DB/store, `HOOK_STATE_DIR`, spool/queue roots, receipts, GC markers, leases, diagnostics and usage offsets as applicable, and verify overrides are actually honored before dogfood.
+Define fixture routing and redaction in advance; leave authentication untouched, never use private logs as default input, and do not change production host configuration.
 The design task performs no install, login, production operation or release.
 
 ## Migration and rollback safety
 
 Initially retain `endedAt`, `runtimeMode`, `terminalReason` and their existing bundle wire representations without DROP, backfill or historical mutation.
-Legacy fields may be read for compatibility/history, not as authoritative derived status or execution outcome.
+Legacy fields are not ordinary Session status authority; proven historical one-shot typed outcomes remain authoritative through the isolated execution compatibility adapter.
 Preserve existing wire fields and recorded timestamps initially; date diagnostics, explicitly scoped retention inputs and content filters are not blanket-removed with lifecycle-derived context scaffolding.
 Read changes precede removal of ordinary closure writers and GC behavior; execution-result projection follows as an isolated phase.
 Mixed-version imports/replay of old end data must not silently restore exclusion or replace new outcomes in the new implementation.
@@ -223,7 +246,9 @@ Retained legacy boundary events/columns support old bundle representation, but c
 Document intentional new-contract incompatibilities and version gates.
 Old binaries do not implement these semantics; mixed-version operation is not a semantic guarantee.
 
-Without a schema migration, reverting the application version is technically possible but restores old semantics; require explicit operational acceptance and preserve recorded data.
+Without a schema migration, application rollback is technically possible but not automatically safe.
+An old binary's first GC/doctor run can synthesize closes across newly unended records and stale reads can reject them.
+Require freezing old closure writers or using an isolated recovery copy plus explicit operational acceptance; no existing freeze flag is claimed. Preserve all recorded data.
 If choosing a feature/config rollback switch, define its affected read/writer scope and compatibility behavior at checkpoint; no such current flag is claimed.
 Future Invocation schema/index changes require versioned migration and bundle gates; older builds reject newer bundle versions.
 No universal downgrade promise is made, even for additive SQL changes.
@@ -238,7 +263,7 @@ Workspace replay pinning remains a separately scoped gap throughout.
 - Exact latest-relevant ranking, source namespace/collision handling, context output migration and public list/status consumers.
 - Explicit-end deprecation schedule and marker/output compatibility details.
 - Per-host evidence for flush/cleanup and useful Interrupt/StopFailure retention; exact minimal receipt storage if existing ledger is insufficient.
-- Invocation identity/storage, active-execution protection and compatibility adapter limits.
+- Dedicated-run SID binding, atomic active-execution protection and typed compatibility adapter limits; optional shared-session invocation identity/storage is a separate future decision.
 - Opt-in orphan criteria, reference/lineage/spool protection and any separately authorized retention scope.
 - Whether a rollback switch is needed and its exact scope; versioned recovery if Invocation storage is introduced.
 
