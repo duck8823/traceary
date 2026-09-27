@@ -7,10 +7,11 @@ import (
 	"strings"
 	"time"
 
-	apptypes "github.com/duck8823/traceary/application/types"
-	"github.com/duck8823/traceary/domain/types"
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
+
+	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/domain/types"
 )
 
 func (c *RootCLI) newHookPassiveCommand() *cobra.Command {
@@ -56,10 +57,14 @@ func (c *RootCLI) runPassiveHookDurably(ctx context.Context, input io.Reader, cl
 		if err != nil {
 			return xerrors.Errorf("failed to normalize passive hook: %w", err)
 		}
+		resolvedDBPath, err := resolveDBPath(dbPath)
+		if err != nil {
+			return err
+		}
 		ctx, cancel := context.WithTimeout(ctx, 2500*time.Millisecond)
 		defer cancel()
-		return c.runHookDurably(ctx, "passive", hookInvocationSpec{Command: "passive", Client: client, Action: action, DBPath: dbPath}, newExplicitHookPayloadReader(payload), func(input io.Reader) error {
-			return c.runHookPassive(ctx, input, client, action, dbPath)
+		return c.runHookDurably(ctx, "passive", hookInvocationSpec{Command: "passive", Client: client, Action: action, DBPath: resolvedDBPath}, newExplicitHookPayloadReader(payload), func(input io.Reader) error {
+			return c.runHookPassive(ctx, input, client, action, resolvedDBPath)
 		})
 	})
 }

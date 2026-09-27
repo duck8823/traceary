@@ -2,15 +2,20 @@ package cli
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
-	apptypes "github.com/duck8823/traceary/application/types"
-	"github.com/duck8823/traceary/application/usecase"
-	"github.com/duck8823/traceary/domain/types"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"golang.org/x/xerrors"
+
+	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/application/usecase"
+	"github.com/duck8823/traceary/domain/types"
+	sqliteinfra "github.com/duck8823/traceary/infrastructure/sqlite"
 )
 
 func TestBoundedLifecycleDoesNotDrainBacklog(t *testing.T) {
@@ -110,6 +115,9 @@ func TestPassiveSpoolBindsAcquiredSessionAcrossWrapperEnvironments(t *testing.T)
 				t.Errorf("spooled session=%q want=%q", got, tc.want)
 			}
 			t.Setenv(runtimeSessionIDEnvKey, tc.replayWrapper)
+			if tc.replayWrapper == "" {
+				t.Setenv(runtimeModeEnvKey, "")
+			}
 			store.err = nil
 			if err := root.replayHookSpoolRecord(context.Background(), record); err != nil {
 				t.Fatal(err)
@@ -118,5 +126,124 @@ func TestPassiveSpoolBindsAcquiredSessionAcrossWrapperEnvironments(t *testing.T)
 				t.Fatalf("replayed sessions=%v want=%s", events.sessions, tc.want)
 			}
 		})
+	}
+}
+
+// Store initialization can be deferred independently of a real scratch SQLite adapter.
+type passiveDeferredRealStore struct {
+	usecase.StoreManagementUsecase
+	pending bool
+}
+
+func (s *passiveDeferredRealStore) Initialize(ctx context.Context) error {
+	if s.pending {
+		return &apptypes.StoreMaintenancePendingError{StorePath: "store.db"}
+	}
+	if err := s.StoreManagementUsecase.Initialize(ctx); err != nil {
+		return xerrors.Errorf("failed to initialize scratch passive store: %w", err)
+	}
+	return nil
+}
+
+func TestPassiveSpoolPinsAcquiredStoreRouting(t *testing.T) {
+	for _, replayEnv := range []string{"default", "other store"} {
+		t.Run(replayEnv, func(t *testing.T) {
+			dir := t.TempDir()
+			a := filepath.Join(dir, "a.db")
+			b := filepath.Join(dir, "b.db")
+			home := t.TempDir()
+			SetUserHomeDirFunc(func() (string, error) { return home, nil })
+			t.Cleanup(ResetUserHomeDirFunc)
+			state := t.TempDir()
+			t.Setenv(hookStateDirEnvKey, state)
+			t.Setenv(dbPathEnvKey, a)
+			db := sqliteinfra.NewDatabase(a, os.DirFS(filepath.Join("..", "..", "schema", "sqlite", "migrations")))
+			realStore := usecase.NewStoreManagementUsecase(sqliteinfra.NewStoreManagementDatasource(db))
+			if err := realStore.Initialize(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			sessionDS := sqliteinfra.NewSessionDatasource(db)
+			sessions := usecase.NewSessionUsecase(nil, sessionDS, sessionDS, nil)
+			if _, err := sessions.Start(context.Background(), "hook", "codex", "store-session", "/tmp", ""); err != nil {
+				t.Fatal(err)
+			}
+			events := sqliteinfra.NewEventDatasource(db)
+			store := &passiveDeferredRealStore{StoreManagementUsecase: realStore, pending: true}
+			root := NewRootCLI(WithStoreManagement(store), WithEvent(usecase.NewEventUsecase(events, events)), WithDatabasePathSetter(db.SetPath))
+			if err := root.runPassiveHookDurably(context.Background(), strings.NewReader(`{"session_id":"store-session","cwd":"/tmp","event_id":"delivery-a"}`), "codex", "interrupt", ""); err != nil {
+				t.Fatal(err)
+			}
+			files, err := filepath.Glob(filepath.Join(state, "spool", "*.json"))
+			if err != nil || len(files) != 1 {
+				t.Fatalf("spool=%v err=%v", files, err)
+			}
+			raw, err := os.ReadFile(files[0])
+			if err != nil {
+				t.Fatal(err)
+			}
+			var record hookSpoolRecord
+			if err := json.Unmarshal(raw, &record); err != nil {
+				t.Fatal(err)
+			}
+			if record.DBPath != a {
+				t.Errorf("spooled db=%q want=%q", record.DBPath, a)
+			}
+			if replayEnv == "default" {
+				t.Setenv(dbPathEnvKey, "")
+			} else {
+				t.Setenv(dbPathEnvKey, b)
+			}
+			store.pending = false
+			if err := root.replayHookSpoolRecord(context.Background(), record); err != nil {
+				t.Fatal(err)
+			}
+			sqlDB, err := sql.Open("sqlite", a)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = sqlDB.Close() }()
+			var count int
+			if err := sqlDB.QueryRow(`SELECT COUNT(*) FROM events WHERE kind='note' AND session_id='store-session'`).Scan(&count); err != nil {
+				t.Fatal(err)
+			}
+			if count != 1 {
+				t.Fatalf("notes in acquired store=%d want=1", count)
+			}
+			for _, wrong := range []string{b, filepath.Join(home, ".config", "traceary", "traceary.db")} {
+				if _, err := os.Stat(wrong); !os.IsNotExist(err) {
+					t.Fatalf("replay touched other store %q", wrong)
+				}
+			}
+		})
+	}
+}
+
+func TestPassiveAcquiredRelativeFlagPrecedesEnvironment(t *testing.T) {
+	state := t.TempDir()
+	t.Setenv(hookStateDirEnvKey, state)
+	t.Setenv(dbPathEnvKey, filepath.Join(t.TempDir(), "env.db"))
+	relative := filepath.Join("relative-store", "flag.db")
+	want, err := filepath.Abs(relative)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := NewRootCLI(WithEvent(&passiveAttributionEventStub{}), WithStoreManagement(&maintenancePendingStoreStub{err: &apptypes.StoreMaintenancePendingError{StorePath: "store.db"}}))
+	if err := root.runPassiveHookDurably(context.Background(), strings.NewReader(`{"session_id":"relative-session","cwd":"/tmp"}`), "codex", "interrupt", relative); err != nil {
+		t.Fatal(err)
+	}
+	files, err := filepath.Glob(filepath.Join(state, "spool", "*.json"))
+	if err != nil || len(files) != 1 {
+		t.Fatalf("spool=%v err=%v", files, err)
+	}
+	raw, err := os.ReadFile(files[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record hookSpoolRecord
+	if err := json.Unmarshal(raw, &record); err != nil {
+		t.Fatal(err)
+	}
+	if record.DBPath != want {
+		t.Fatalf("db=%q want absolute flag=%q", record.DBPath, want)
 	}
 }
