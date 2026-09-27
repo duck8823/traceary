@@ -74,7 +74,7 @@ traceary bundle import --in ~/Downloads/traceary-*.tbun
    done
    ```
 
-`bundle import` defaults to `--on-conflict skip`: an event or memory already present in the destination store is skipped (counted under `events_skipped` / `memories_skipped`), so re-importing the same bundle any number of times is safe. Use `--on-conflict replace` to overwrite existing rows from the bundle, or `--on-conflict error` to fail on the first UNIQUE collision and roll back the import.
+`bundle import` defaults to `--on-conflict skip`: an event or memory already present in the destination store is skipped (counted under `events_skipped` / `memories_skipped`), so re-importing the same bundle any number of times is safe. Use `--on-conflict replace` to update compatible existing rows from the bundle (one-shot identity/outcome guards still apply), or `--on-conflict error` to fail on the first UNIQUE collision and roll back the import.
 
 Imported memories use the candidate trust default: newly inserted rows are always written as `candidate`, even when the source machine had already accepted them. A memory fact can influence prompt context after acceptance, so importing from another machine keeps the existing memory inbox review step in the loop. Existing destination rows are untouched under the default `skip` policy; re-importing a bundle does not downgrade a memory you already reviewed and accepted locally.
 
@@ -122,8 +122,18 @@ Import verifies every registered file checksum before opening the write transact
 | Legacy empty `run_lineages` or `memory_edges` entry | Skip after checksum/count validation | n/a | Rest of the bundle imports. |
 | Legacy non-empty `run_lineages` or `memory_edges` entry | Reject | n/a | Atomic refuse before the write transaction; retrieve facts with the 0.48.2 binary. |
 | Imported session parent missing | Reject the import (`--missing-parent=reject`) | `--missing-parent=skip` / `backfill` | Reject rolls back; `skip` drops the row, `backfill` reconstructs a placeholder parent. |
+| Incompatible existing one-shot result/binding, or ordinary SID promoted to one-shot | Skip and preserve the destination row | `--on-conflict=replace` | Replacement is refused; the whole import transaction rolls back. |
+| Backfilled parent SID followed by the real one-shot parent | Skip the parent row; placeholder remains interactive | `--on-conflict=replace` | Promotion is refused; the attempted replacement transaction rolls back, while earlier committed imports remain. |
 | Bundle schema newer than local store | Reject | n/a | No write transaction starts. |
 | Manifest checksum / row-count mismatch | Reject | n/a | No write transaction starts. |
+
+### Backfill placeholders and one-shot ancestry
+
+`--missing-parent=backfill` creates an ordinary `interactive` placeholder. It is an existing SID, not a reserved slot that can later become a one-shot parent. Its `traceary:bundle-backfilled-parent` label (or any edited/forged label) grants no exception to the stored-mode guard. A later `--on-conflict=replace` import of the real one-shot parent fails closed; it does not promote the placeholder or infer an outcome.
+
+Session rows currently sort roots first, then by parent/session identifiers; this is not a full ancestor traversal. A descendant can therefore be applied before its one-shot ancestor even in the same bundle. Backfill can create a placeholder before that real parent is reached, causing the entire transaction, including newly imported child/root rows, to roll back.
+
+Restore the real ancestors before their descendants, using an ancestor-first import sequence validated in an isolated recovery store. Do not delete production rows or alter labels to bypass the guard. Traceary does not infer a repair or automatically merge these identities.
 
 ## Schema safety
 

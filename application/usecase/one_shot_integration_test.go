@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
@@ -80,6 +81,14 @@ func TestSessionUsecase_FinalizeOneShot_ConcurrentSameReasonPersistsOneBoundary(
 	}
 	if reason, ok := session.TerminalReason().Value(); !ok || reason != types.TerminalReasonSuccess {
 		t.Fatalf("stored terminal reason = %q/%v, want success/present", reason, ok)
+	}
+	boundaries, err := sqliteinfra.NewEventDatasource(database).ListRecent(ctx, 10, 0, types.EventKindSessionEnded, "", "", "concurrent-one-shot", "", false, time.Time{}, time.Time{}, "")
+	if err != nil || len(boundaries) != 1 {
+		t.Fatalf("boundary count = %d/%v", len(boundaries), err)
+	}
+	firstAt, _ := session.EndedAt().Value()
+	if !firstAt.Equal(boundaries[0].CreatedAt()) {
+		t.Fatal("first supervisor timestamp changed")
 	}
 }
 

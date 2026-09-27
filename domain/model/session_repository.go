@@ -30,3 +30,9 @@ type SessionRepository interface {
 	// parentSessionID that have not yet ended.
 	FindOpenChildSessionIDs(ctx context.Context, parentSessionID types.SessionID) ([]types.SessionID, error)
 }
+
+// OneShotSessionRepository is the supervisor-only outcome persistence port.
+// Ordinary SessionRepository boundary writes cannot finalize a stored one-shot.
+type OneShotSessionRepository interface {
+	SaveOneShotBoundary(ctx context.Context, session *Session, event *Event) error
+}

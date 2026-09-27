@@ -17,6 +17,8 @@ import (
 	"github.com/duck8823/traceary/domain/types"
 )
 
+var _ model.OneShotSessionRepository = (*SessionDatasource)(nil)
+
 //go:embed sql/insert_session.sql
 var insertSessionQuery string
 
@@ -90,6 +92,23 @@ func (d *SessionDatasource) Save(ctx context.Context, session *model.Session) er
 // SaveBoundary atomically persists a session aggregate together with its
 // boundary event. Both writes are committed in a single transaction.
 func (d *SessionDatasource) SaveBoundary(ctx context.Context, session *model.Session, event *model.Event) error {
+	return d.saveBoundary(ctx, session, event, false)
+}
+
+// SaveOneShotBoundary is reserved for the process supervisor's result write.
+func (d *SessionDatasource) SaveOneShotBoundary(ctx context.Context, session *model.Session, event *model.Event) error {
+	if session == nil || event == nil || session.RuntimeMode() != types.RuntimeModeOneShot || event.Kind() != types.EventKindSessionEnded {
+		return model.ErrInvalidSessionState
+	}
+	endedAt, ended := session.EndedAt().Value()
+	reason, hasReason := session.TerminalReason().Value()
+	if !ended || !hasReason || reason == types.TerminalReasonLegacyUnknown || event.SessionID() != session.SessionID() || !event.CreatedAt().Equal(endedAt) {
+		return model.ErrInvalidSessionState
+	}
+	return d.saveBoundary(ctx, session, event, true)
+}
+
+func (d *SessionDatasource) saveBoundary(ctx context.Context, session *model.Session, event *model.Event, supervised bool) error {
 	if session == nil {
 		return xerrors.Errorf("session must not be nil")
 	}
@@ -108,8 +127,10 @@ func (d *SessionDatasource) SaveBoundary(ctx context.Context, session *model.Ses
 		}
 	}()
 
-	return saveEventTransaction(ctx, db, event, nil, func(ctx context.Context, tx *sql.Tx) error {
-		if err := saveSessionBoundary(ctx, tx, session); err != nil {
+	return saveGuardedEventTransaction(ctx, db, event, nil, func(ctx context.Context, tx *sql.Tx) error {
+		return guardSessionBoundaryOwnership(ctx, tx, session, event, supervised)
+	}, func(ctx context.Context, tx *sql.Tx) error {
+		if err := saveSessionBoundary(ctx, tx, session, supervised); err != nil {
 			return xerrors.Errorf("failed to save session: %w", err)
 		}
 		return nil
@@ -206,7 +227,7 @@ func saveSessionLabel(ctx context.Context, exec sqlExecer, session *model.Sessio
 // delivery raced with, or followed, an already committed terminal state; the
 // stored and proposed reasons are compared for diagnostic errors while the
 // caller's transaction (including the new boundary event) rolls back.
-func saveSessionBoundary(ctx context.Context, exec sqlExecer, session *model.Session) error {
+func saveSessionBoundary(ctx context.Context, exec sqlExecer, session *model.Session, supervised bool) error {
 	inserted, err := insertSessionRowIfMissing(ctx, exec, session)
 	if err != nil {
 		return err
@@ -228,9 +249,13 @@ func saveSessionBoundary(ctx context.Context, exec sqlExecer, session *model.Ses
 	// summary is bound twice: once for the empty-check, once for the
 	// SET branch. Empty new summaries leave any previously-synced
 	// summary (e.g. from PreCompact) untouched. See #811.
+	query := updateSessionEndQuery + " AND runtime_mode <> 'one_shot'"
+	if supervised {
+		query = updateSessionEndQuery + " AND runtime_mode = 'one_shot'"
+	}
 	result, err := exec.ExecContext(
 		ctx,
-		updateSessionEndQuery,
+		query,
 		formatTimestamp(endedAt),
 		terminalReason.String(),
 		summary,
@@ -504,7 +529,7 @@ func (d *SessionDatasource) FindOpenChildSessionIDs(ctx context.Context, parentS
 
 	rows, err := db.QueryContext(
 		ctx,
-		`SELECT session_id FROM sessions WHERE parent_session_id = ? AND ended_at IS NULL`,
+		`SELECT session_id FROM sessions WHERE parent_session_id = ? AND ended_at IS NULL AND runtime_mode <> 'one_shot'`,
 		parentSessionID.String(),
 	)
 	if err != nil {
@@ -902,4 +927,50 @@ func optionalIntFromNullInt64(value sql.NullInt64) types.Optional[int] {
 		return types.None[int]()
 	}
 	return types.Some(int(value.Int64))
+}
+
+// The stored row, not a caller-supplied aggregate mode, owns eligibility.
+func guardSessionBoundaryOwnership(ctx context.Context, tx *sql.Tx, session *model.Session, event *model.Event, supervised bool) error {
+	_, ending := session.EndedAt().Value()
+	if !ending && event.Kind() != types.EventKindSessionEnded {
+		return nil
+	}
+	// Acquire the transaction's writer reservation before reading stored mode.
+	// Deferred read-to-write upgrades can otherwise make two legitimate
+	// finalizers exhaust retries instead of reconciling the first result.
+	// Values are unchanged; refusal rolls back this reservation with the event.
+	if _, err := tx.ExecContext(ctx, `UPDATE sessions SET session_id = session_id WHERE session_id = ?`, session.SessionID().String()); err != nil {
+		return xerrors.Errorf("failed to reserve session boundary write: %w", err)
+	}
+	var mode, reason string
+	var ended sql.NullString
+	err := tx.QueryRowContext(ctx, `SELECT runtime_mode, ended_at, terminal_reason FROM sessions WHERE session_id = ?`, session.SessionID().String()).Scan(&mode, &ended, &reason)
+	if errors.Is(err, sql.ErrNoRows) {
+		if supervised {
+			return model.ErrInvalidSessionState
+		}
+		if session.RuntimeMode() == types.RuntimeModeOneShot {
+			return model.ErrSupervisorOwnedSession
+		}
+		return nil
+	}
+	if err != nil {
+		return xerrors.Errorf("failed to inspect session boundary ownership: %w", err)
+	}
+	if !supervised && mode == types.RuntimeModeOneShot.String() {
+		return model.ErrSupervisorOwnedSession
+	}
+	if supervised && mode != types.RuntimeModeOneShot.String() {
+		return model.ErrInvalidSessionState
+	}
+	if supervised && ended.Valid {
+		proposed, ok := session.TerminalReason().Value()
+		if !ok {
+			return model.ErrInvalidSessionState
+		}
+		if reason != proposed.String() {
+			return model.ErrConflictingTerminalState
+		}
+	}
+	return nil
 }

@@ -669,6 +669,16 @@ writes the typed terminal reason. A nested host `SessionEnd` hook is a no-op
 while running under the wrapper, so it cannot finalize the session first or
 replace the wrapper's reason.
 
+If SIGKILL or power loss prevents supervisor finalization, the raw outcome remains unknown. An open row is not proof that a process is still running. Ordinary end, GC, and doctor never infer or synthesize a one-shot result; Traceary does not monitor or repair these unfinished one-shot outcomes.
+
+Ordinary `session end` refuses a stored `one_shot` session with an actionable supervisor-ownership error, including after its result is recorded. Host end/replay drains that refusal harmlessly even when wrapper environment variables are gone; cleanup does not create or confirm a result. Stale GC/doctor and parent cascade exclude one-shot outcomes. Later event logging is still allowed.
+
+Bundle import may restore an absent legacy SID with its raw fields, but cannot promote an existing ordinary SID into one-shot ownership, terminalize or rebind an existing one-shot session, reopen it, or rewrite its recorded result. Exact compatible restoration and labels remain allowed. These guards are atomic with persistence; they do not authenticate historical writers. Stored reason/mode, `cli` attribution, empty source, or delivery fingerprints do not prove who finalized a historical session: ambiguous actual outcome remains unknown. Same-reason retry reconciliation preserves the first recorded timestamp and reason; it is not actor verification. No new confirmed-outcome projection is exposed.
+
+`--missing-parent=backfill` creates an existing `interactive` placeholder SID, which cannot later be promoted to one-shot by `--on-conflict=replace`. Labels grant no exception. A child-before-ancestor lexical order can trigger this refusal within the same bundle, rolling back the whole transaction. Restore the real ancestors before descendants and validate the sequence in an isolated recovery store; do not delete production rows or infer repairs. See the [handoff conflict matrix](../operations/cross-machine-handoff.md#conflict-matrix).
+
+Finalization no longer generates `one-shot process finished: ...` / `cli:session-finalize` refinements. Human `session end --summary`, existing refinements, and their recorded coverage remain unchanged.
+
 | Terminal reason | Process result | Wrapper exit code |
 | --- | --- | ---: |
 | `success` | Child exits successfully | `0` |
@@ -700,8 +710,8 @@ The terminal-reason taxonomy above is distinct from the command-audit
 `--failure-reason` enum.
 
 The former [`session repair-one-shot`](../operations/one-shot-repair.md) leaf
-was retired in v0.43.0 (#2122). Idle sessions are closed by hook opportunistic
-GC and `traceary doctor --fix`.
+was retired in v0.43.0 (#2122). Ordinary idle sessions are closed by hook opportunistic
+GC and `traceary doctor --fix`; one-shot sessions are excluded.
 
 ### `traceary session refine <session-id>`
 

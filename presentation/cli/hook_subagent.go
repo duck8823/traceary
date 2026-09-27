@@ -186,11 +186,15 @@ func (c *RootCLI) runHookSubagentStop(
 			lazySynthesizedChild = true
 		}
 		if _, err := c.session.End(ctx, types.Client("hook"), types.Agent(""), childSessionID, workspace, ""); err != nil {
-			if !errors.Is(err, model.ErrInvalidSessionState) {
+			if !errors.Is(err, model.ErrInvalidSessionState) && !errors.Is(err, model.ErrSupervisorOwnedSession) {
 				return xerrors.Errorf("failed to end subagent session: %w", err)
 			}
-			// Already ended before the kill — stop boundary is durable.
-			slog.Debug("hook subagent stop already recorded; treating as success", "client", client, "child_session_id", childSessionID)
+			if errors.Is(err, model.ErrSupervisorOwnedSession) {
+				slog.Debug("supervisor owns subagent outcome; ordinary stop drained", "client", client)
+			} else {
+				// Already ended before the kill — stop boundary is durable.
+				slog.Debug("hook subagent stop already recorded; treating as success", "client", client, "child_session_id", childSessionID)
+			}
 		}
 		request := hookMemoryExtractRequest{
 			SessionID: childSessionID, Workspace: workspace, DBPath: resolvedDBPath, SourceBoundary: "subagent_stop",

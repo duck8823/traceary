@@ -667,10 +667,24 @@ ON CONFLICT(session_id) DO UPDATE SET
   spawn_order = excluded.spawn_order,
   runtime_mode = CASE WHEN sessions.ended_at IS NULL THEN excluded.runtime_mode ELSE sessions.runtime_mode END,
   terminal_reason = CASE WHEN sessions.ended_at IS NULL THEN excluded.terminal_reason ELSE sessions.terminal_reason END
-WHERE sessions.ended_at IS NULL
+WHERE (sessions.ended_at IS NULL
    OR (excluded.ended_at IS NOT NULL
 	   AND sessions.runtime_mode = excluded.runtime_mode
-       AND COALESCE(NULLIF(sessions.terminal_reason, ''), 'legacy_unknown') = excluded.terminal_reason)`,
+       AND COALESCE(NULLIF(sessions.terminal_reason, ''), 'legacy_unknown') = excluded.terminal_reason))
+  AND (excluded.runtime_mode <> 'one_shot' OR sessions.runtime_mode = 'one_shot')
+  AND (sessions.runtime_mode <> 'one_shot' OR (
+    sessions.runtime_mode = excluded.runtime_mode
+    AND sessions.started_at = excluded.started_at
+    AND sessions.ended_at IS excluded.ended_at
+    AND COALESCE(NULLIF(sessions.terminal_reason, ''), 'legacy_unknown') = COALESCE(NULLIF(excluded.terminal_reason, ''), 'legacy_unknown')
+    AND sessions.client = excluded.client
+    AND sessions.agent = excluded.agent
+    AND sessions.workspace = excluded.workspace
+    AND sessions.parent_session_id IS excluded.parent_session_id
+    AND sessions.spawn_event_id IS excluded.spawn_event_id
+    AND sessions.subagent_kind = excluded.subagent_kind
+    AND sessions.spawn_order IS excluded.spawn_order
+  ))`,
 		session.SessionID().String(),
 		formatTimestamp(session.StartedAt()),
 		endedAt,

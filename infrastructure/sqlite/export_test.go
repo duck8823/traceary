@@ -7,6 +7,7 @@ import (
 
 	"github.com/duck8823/traceary/domain/attestation"
 	"github.com/duck8823/traceary/domain/model"
+	"github.com/duck8823/traceary/domain/types"
 )
 
 // SetListWindowBatchHookForTest installs a hook that fires once per internal
@@ -28,7 +29,7 @@ func (d *SessionDatasource) SaveSessionBoundaryForTest(ctx context.Context, sess
 		return err
 	}
 	defer func() { _ = db.Close() }()
-	return saveSessionBoundary(ctx, db, session)
+	return saveSessionBoundary(ctx, db, session, session.RuntimeMode() == types.RuntimeModeOneShot)
 }
 
 // LoadEventPlaintextForTest exposes codec decoding for persistence assertions.

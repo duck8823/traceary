@@ -64,6 +64,9 @@ func TestRootCLI_SessionRunCommand_FinalizesAuthoritativeOutcomes(t *testing.T) 
 			if got := sessionStub.startCall.runtimeMode; got != types.RuntimeModeOneShot {
 				t.Fatalf("StartWithRuntimeMode mode = %q, want one_shot", got)
 			}
+			if sessionStub.finalizeSummary != "" {
+				t.Fatal("session run generated completion prose")
+			}
 			if sessionStub.finalizeSessionID != sessionID || sessionStub.finalizeReason != tc.wantReason {
 				t.Fatalf("FinalizeOneShot() = (%q, %q), want (%q, %q)", sessionStub.finalizeSessionID, sessionStub.finalizeReason, sessionID, tc.wantReason)
 			}
@@ -1091,4 +1094,20 @@ func mustAgent(t *testing.T, value string) types.Agent {
 	}
 
 	return agent
+}
+
+func TestRootCLI_SessionEndRefusesSupervisorOwnership(t *testing.T) {
+	sessions := &sessionUsecaseStub{endErr: model.ErrSupervisorOwnedSession}
+	cmd := cli.NewRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{}), cli.WithSession(sessions)).Command()
+	out, errs := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errs)
+	cmd.SetArgs([]string{"session", "end", "--db-path", filepath.Join(t.TempDir(), "traceary.db"), "--session-id", "owned", "--agent", "codex"})
+	err := cmd.Execute()
+	if !errors.Is(err, model.ErrSupervisorOwnedSession) || !strings.Contains(err.Error(), "supervisor") {
+		t.Fatalf("direct end error = %v", err)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("refused end polluted stdout: %q", out.String())
+	}
 }

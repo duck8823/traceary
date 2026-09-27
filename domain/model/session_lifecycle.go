@@ -41,7 +41,8 @@ func (e *SessionTerminalConflictError) CurrentReason() types.TerminalReason { re
 // ProposedReason returns the rejected reason.
 func (e *SessionTerminalConflictError) ProposedReason() types.TerminalReason { return e.proposed }
 
-// Terminate applies the session's single effective terminal state. Repeating
+// Terminate applies an ordinary (non-supervised) terminal state. One-shot
+// outcomes are refused even after finalization. Repeating
 // the same reason is idempotent and preserves the first timestamp and summary;
 // a different reason fails closed with diagnostic reason values.
 func (s *Session) Terminate(
@@ -49,6 +50,13 @@ func (s *Session) Terminate(
 	reason types.TerminalReason,
 	summary string,
 ) (SessionTerminalTransition, error) {
+	if s != nil && s.runtimeMode == types.RuntimeModeOneShot {
+		return "", ErrSupervisorOwnedSession
+	}
+	return s.terminate(endedAt, reason, summary)
+}
+
+func (s *Session) terminate(endedAt time.Time, reason types.TerminalReason, summary string) (SessionTerminalTransition, error) {
 	if s == nil {
 		return SessionTerminalTransition(""), ErrInvalidSessionState
 	}
@@ -86,5 +94,5 @@ func (s *Session) FinalizeOneShot(endedAt time.Time, reason types.TerminalReason
 	if s == nil || s.runtimeMode != types.RuntimeModeOneShot {
 		return SessionTerminalTransition(""), ErrInvalidSessionState
 	}
-	return s.Terminate(endedAt, reason, summary)
+	return s.terminate(endedAt, reason, summary)
 }

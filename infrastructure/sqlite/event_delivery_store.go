@@ -39,13 +39,28 @@ func saveEventTransaction(
 	afterInsert func(context.Context, *sql.Tx) error,
 	storePath string,
 ) error {
+	return saveGuardedEventTransaction(ctx, db, event, audit, nil, afterInsert, storePath)
+}
+
+// beforeDelivery runs under the same transaction even for exact redelivery.
+// Ownership guards must not be bypassed by event idempotency.
+func saveGuardedEventTransaction(ctx context.Context, db *sql.DB, event *model.Event, audit *model.CommandAudit, beforeDelivery, afterInsert func(context.Context, *sql.Tx) error, storePath string) error {
 	for attempt := 0; attempt < maxDeliveryDecisionAttempts; attempt++ {
 		tx, err := db.BeginTx(ctx, nil)
 		if err != nil {
 			return xerrors.Errorf("failed to begin event delivery transaction: %w", err)
 		}
 
-		inserted, persistedID, published, persistErr := persistEventDelivery(ctx, tx, event, audit)
+		var inserted bool
+		var published *attestation.AnchorRecord
+		var persistedID string
+		var persistErr error
+		if beforeDelivery != nil {
+			persistErr = beforeDelivery(ctx, tx)
+		}
+		if persistErr == nil {
+			inserted, persistedID, published, persistErr = persistEventDelivery(ctx, tx, event, audit)
+		}
 		if persistErr == nil && inserted && afterInsert != nil {
 			persistErr = afterInsert(ctx, tx)
 		}

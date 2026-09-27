@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
@@ -95,7 +96,7 @@ func TestSessionUsecase_FinalizeOneShot_IsIdempotentAndRejectsConflicts(t *testi
 
 	t.Run("same reason redelivery is a no-op", func(t *testing.T) {
 		session := newOneShot(t)
-		if _, err := session.Terminate(startedAt.Add(time.Minute), types.TerminalReasonSuccess, "done"); err != nil {
+		if _, err := session.FinalizeOneShot(startedAt.Add(time.Minute), types.TerminalReasonSuccess, "done"); err != nil {
 			t.Fatal(err)
 		}
 		sessionStub := &sessionRepositoryStub{session: session}
@@ -108,7 +109,7 @@ func TestSessionUsecase_FinalizeOneShot_IsIdempotentAndRejectsConflicts(t *testi
 
 	t.Run("different reason conflicts", func(t *testing.T) {
 		session := newOneShot(t)
-		if _, err := session.Terminate(startedAt.Add(time.Minute), types.TerminalReasonSuccess, "done"); err != nil {
+		if _, err := session.FinalizeOneShot(startedAt.Add(time.Minute), types.TerminalReasonSuccess, "done"); err != nil {
 			t.Fatal(err)
 		}
 		sut := usecase.NewSessionUsecase(nil, &sessionRepositoryStub{session: session}, nil, nil)
@@ -745,4 +746,62 @@ func TestSessionUsecase_SessionSaver(t *testing.T) {
 			t.Fatalf("Start() error = nil, want error")
 		}
 	})
+}
+
+func (s *sessionRepositoryStub) SaveOneShotBoundary(ctx context.Context, session *model.Session, event *model.Event) error {
+	return s.SaveBoundary(ctx, session, event)
+}
+
+func TestOrdinaryEndRefusesSupervisorOwnedSessionEvenWithStableDelivery(t *testing.T) {
+	for _, ended := range []bool{false, true} {
+		for _, stable := range []bool{false, true} {
+			session, err := model.NewSessionWithRuntimeMode("owned", time.Now().Add(-time.Hour), "cli", "codex", "workspace", types.RuntimeModeOneShot)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if ended {
+				if _, err := session.FinalizeOneShot(session.StartedAt().Add(time.Minute), types.TerminalReasonFailure, ""); err != nil {
+					t.Fatal(err)
+				}
+			}
+			repo := &sessionRepositoryStub{session: session}
+			sut := usecase.NewSessionUsecase(nil, repo, nil, nil)
+			ctx := context.Background()
+			if stable {
+				ctx = apptypes.WithHookDelivery(ctx, apptypes.HookDeliveryInputOf("stable-end", "workspace"))
+			}
+			if _, err := sut.End(ctx, "hook", "codex", "owned", "workspace", "human"); !errors.Is(err, model.ErrSupervisorOwnedSession) {
+				t.Fatalf("ordinary end = %v", err)
+			}
+			if repo.saveBoundaryCalled {
+				t.Fatal("ownership refusal reached persistence")
+			}
+			reason, ok := session.TerminalReason().Value()
+			if ok != ended || (ok && reason != types.TerminalReasonFailure) {
+				t.Fatal("stored result changed")
+			}
+		}
+	}
+}
+
+// Erase the supplemental supervisor capability without changing the ordinary
+// repository contract, proving FinalizeOneShot has no generic write fallback.
+type ordinaryOnlySessionRepository struct{ model.SessionRepository }
+
+func TestFinalizeOneShotRequiresSupervisorRepositoryPort(t *testing.T) {
+	session, err := model.NewSessionWithRuntimeMode("owned", time.Now().Add(-time.Hour), "cli", "codex", "workspace", types.RuntimeModeOneShot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	underlying := &sessionRepositoryStub{session: session}
+	sut := usecase.NewSessionUsecase(nil, &ordinaryOnlySessionRepository{underlying}, nil, nil)
+	if _, _, err := sut.FinalizeOneShot(context.Background(), "cli", "codex", "owned", "workspace", types.TerminalReasonSuccess, ""); err == nil {
+		t.Fatal("generic repository accepted finalization")
+	}
+	if underlying.saveBoundaryCalled {
+		t.Fatal("generic boundary fallback called")
+	}
+	if _, ok := session.TerminalReason().Value(); ok {
+		t.Fatal("missing capability mutated aggregate")
+	}
 }

@@ -103,11 +103,11 @@ func TestSessionDatasource_SaveBoundary_RoundTripsRuntimeModeAndTerminalReason(t
 			}
 
 			endedAt := startedAt.Add(time.Minute)
-			if _, err := session.Terminate(endedAt, reason, "terminal summary"); err != nil {
+			if _, err := session.FinalizeOneShot(endedAt, reason, "terminal summary"); err != nil {
 				t.Fatalf("Terminate() error = %v", err)
 			}
 			endEvent := model.EventOf(types.EventID("end-"+reason.String()), types.EventKindSessionEnded, types.Client("hook"), agent, sessionID, types.Workspace("workspace"), "ended", endedAt)
-			if err := ds.SaveBoundary(ctx, session, endEvent); err != nil {
+			if err := ds.SaveOneShotBoundary(ctx, session, endEvent); err != nil {
 				t.Fatalf("SaveBoundary(end) error = %v", err)
 			}
 
@@ -148,7 +148,7 @@ func TestSessionDatasource_SaveBoundary_ConflictingTerminalReasonFailsClosed(t *
 	if err := ds.SaveSessionBoundaryForTest(ctx, first); err != nil {
 		t.Fatalf("SaveSessionBoundaryForTest(start) error = %v", err)
 	}
-	if _, err := first.Terminate(startedAt.Add(time.Minute), types.TerminalReasonSuccess, "first"); err != nil {
+	if _, err := first.FinalizeOneShot(startedAt.Add(time.Minute), types.TerminalReasonSuccess, "first"); err != nil {
 		t.Fatalf("Terminate(first) error = %v", err)
 	}
 	if err := ds.SaveSessionBoundaryForTest(ctx, first); err != nil {
@@ -159,7 +159,7 @@ func TestSessionDatasource_SaveBoundary_ConflictingTerminalReasonFailsClosed(t *
 	if err != nil {
 		t.Fatalf("NewSessionWithRuntimeMode(stale) error = %v", err)
 	}
-	if _, err := stale.Terminate(startedAt.Add(2*time.Minute), types.TerminalReasonFailure, "conflict"); err != nil {
+	if _, err := stale.FinalizeOneShot(startedAt.Add(2*time.Minute), types.TerminalReasonFailure, "conflict"); err != nil {
 		t.Fatalf("Terminate(stale) error = %v", err)
 	}
 	if err := ds.SaveSessionBoundaryForTest(ctx, stale); err == nil || !errors.Is(err, model.ErrConflictingTerminalState) {

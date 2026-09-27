@@ -14,6 +14,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 - **Context stale 互換 flag（#2399）。** `--allow-stale` と `--stale-after` は v0.53 の移行期間中、置き換え先のない no-op として受理し、削除予定は v0.54 です。明示指定では集約 `DEPRECATED:` stderr notice を invocation ごとに 1 回出します。内容選択は lifecycle eligibility に依存しなくなるため、機能は失われません。実際の削除には別 PR/checkpoint 承認が必要です。
 
 ### Fixed
+- **one-shot outcome の supervisor 専有（#2400）。** 通常 end、stale GC/doctor、親 cascade、競合 bundle import は保存済み one-shot 結果や wrapper binding を変更できません。host end/replay は結果を捏造せず ownership 拒否を無害に処理します。プロセスの exit/usage と過去の raw metadata は維持し、自動 completion refinement は生成しなくなります。
 - **SQLite テストの時間計測を分離（#2395）。** ロック競合時の hook 書き込み時間テストを package 内で直列実行し、attestation 検証テストは fixture 初期化後に呼び出し元の期限を開始します。timeout 値、検証条件、本番の競合 retry は変更しません。
 
 ## [v0.52.0] - 2026-09-10

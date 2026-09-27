@@ -74,7 +74,7 @@ traceary bundle import --in ~/Downloads/traceary-*.tbun
    done
    ```
 
-`bundle import` の既定は `--on-conflict skip` です。送信先にすでに存在する event / memory は skip され (`events_skipped` / `memories_skipped` にカウント)、同じ bundle を何度取り込んでも安全です。`--on-conflict replace` は bundle 側の row で上書きし、`--on-conflict error` は最初の UNIQUE 衝突で失敗して import 全体を rollback します。
+`bundle import` の既定は `--on-conflict skip` です。送信先にすでに存在する event / memory は skip され (`events_skipped` / `memories_skipped` にカウント)、同じ bundle を何度取り込んでも安全です。`--on-conflict replace` は互換な既存 row を bundle 側の値で更新します（one-shot identity/outcome guard は引き続き適用します）。`--on-conflict error` は最初の UNIQUE 衝突で失敗して import 全体を rollback します。
 
 Imported memory は candidate trust default を使います。新規 insert される row は、source machine で accepted だった場合でも常に `candidate` として保存されます。memory fact は accept 後に prompt context へ影響するため、別 machine からの import では既存の memory inbox review を必ず通します。既定の `skip` policy では送信先の既存 row は変更しないため、一度ローカルで review / accept した memory が re-import で candidate に戻ることはありません。
 
@@ -122,8 +122,25 @@ Import は write transaction を開く前に登録 file の checksum を検証�
 | 旧空の `run_lineages` または `memory_edges` entry | checksum/count 検証後に skip | n/a | 残りの table は import する。 |
 | 旧非空の `run_lineages` または `memory_edges` entry | reject | n/a | write transaction の前に原子的に拒否。事実の取り出しは 0.48.2 binary。 |
 | import する session の親が missing | import を reject (`--missing-parent=reject`) | `--missing-parent=skip` / `backfill` | reject は rollback。`skip` は row を破棄、`backfill` は placeholder の親を補完。 |
+| 既存 one-shot の結果と binding が非互換、または通常 SID を one-shot へ変更 | skip して送信先 row を保持 | `--on-conflict=replace` | 置換を拒否し、import transaction 全体を rollback。 |
+| backfill 親 SID の後に本来の one-shot 親を import | 親 row を skip。placeholder は interactive のまま | `--on-conflict=replace` | 所有変更を拒否し、その置換 transaction を rollback。以前に commit 済みの import は保持。 |
 | bundle schema が local store より新しい | reject | n/a | write transaction は開始しない。 |
 | manifest checksum / row-count mismatch | reject | n/a | write transaction は開始しない。 |
+
+### Backfill placeholder と one-shot の祖先
+
+`--missing-parent=backfill` は通常の `interactive` placeholder を作成します。
+これは既存 SID であり、後から one-shot 親に変更できる予約枠ではありません。
+`traceary:bundle-backfilled-parent` label（編集・偽装した label を含む）は stored-mode guard の例外を認める根拠になりません。
+後から本来の one-shot 親を `--on-conflict=replace` で import しても fail-closed で拒否し、placeholder の所有変更や outcome の推測は行いません。
+
+現在の session row は root を先にし、その後は親/session 識別子で並べます。
+完全な祖先順の走査ではないため、同じ bundle 内でも子孫が one-shot 祖先より先に適用される場合があります。
+backfill が本来の親より先に placeholder を作ると、新しく取り込んだ子/root row を含む transaction 全体を rollback します。
+
+隔離した recovery store で検証した祖先優先の import 手順を使い、本来の祖先を子孫より先に復元してください。
+guard を回避するために production row を削除したり label を変更したりしないでください。
+Traceary は repair を推測せず、この identity を自動で統合しません。
 
 ## スキーマ安全性
 

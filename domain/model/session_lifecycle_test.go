@@ -27,18 +27,18 @@ func TestNewSessionWithRuntimeModeRejectsZeroMode(t *testing.T) {
 	}
 }
 
-func TestSessionTerminateAppliesOneTerminalState(t *testing.T) {
+func TestSessionFinalizeOneShotAppliesOneTerminalState(t *testing.T) {
 	t.Parallel()
 
 	session := newLifecycleTestSession(t, types.RuntimeModeOneShot)
 	endedAt := session.StartedAt().Add(time.Minute)
 
-	transition, err := session.Terminate(endedAt, types.TerminalReasonSuccess, "completed")
+	transition, err := session.FinalizeOneShot(endedAt, types.TerminalReasonSuccess, "completed")
 	if err != nil {
-		t.Fatalf("Terminate() error = %v", err)
+		t.Fatalf("FinalizeOneShot() error = %v", err)
 	}
 	if transition != model.SessionTerminalTransitionApplied {
-		t.Fatalf("Terminate() transition = %q, want applied", transition)
+		t.Fatalf("FinalizeOneShot() transition = %q, want applied", transition)
 	}
 	if session.RuntimeMode() != types.RuntimeModeOneShot {
 		t.Fatalf("RuntimeMode() = %q, want one_shot", session.RuntimeMode())
@@ -54,18 +54,18 @@ func TestSessionTerminateAppliesOneTerminalState(t *testing.T) {
 	}
 }
 
-func TestSessionTerminateSameReasonIsIdempotent(t *testing.T) {
+func TestSessionFinalizeOneShotSameReasonIsIdempotent(t *testing.T) {
 	t.Parallel()
 
 	session := newLifecycleTestSession(t, types.RuntimeModeOneShot)
 	firstAt := session.StartedAt().Add(time.Minute)
-	if _, err := session.Terminate(firstAt, types.TerminalReasonTimeout, "first"); err != nil {
-		t.Fatalf("first Terminate() error = %v", err)
+	if _, err := session.FinalizeOneShot(firstAt, types.TerminalReasonTimeout, "first"); err != nil {
+		t.Fatalf("first FinalizeOneShot() error = %v", err)
 	}
 
-	transition, err := session.Terminate(firstAt.Add(time.Minute), types.TerminalReasonTimeout, "redelivery")
+	transition, err := session.FinalizeOneShot(firstAt.Add(time.Minute), types.TerminalReasonTimeout, "redelivery")
 	if err != nil {
-		t.Fatalf("duplicate Terminate() error = %v", err)
+		t.Fatalf("duplicate FinalizeOneShot() error = %v", err)
 	}
 	if transition != model.SessionTerminalTransitionAlreadyApplied {
 		t.Fatalf("duplicate transition = %q, want already_applied", transition)
@@ -78,25 +78,25 @@ func TestSessionTerminateSameReasonIsIdempotent(t *testing.T) {
 	}
 }
 
-func TestSessionTerminateConflictFailsClosed(t *testing.T) {
+func TestSessionFinalizeOneShotConflictFailsClosed(t *testing.T) {
 	t.Parallel()
 
 	session := newLifecycleTestSession(t, types.RuntimeModeOneShot)
 	firstAt := session.StartedAt().Add(time.Minute)
-	if _, err := session.Terminate(firstAt, types.TerminalReasonSuccess, "first"); err != nil {
-		t.Fatalf("first Terminate() error = %v", err)
+	if _, err := session.FinalizeOneShot(firstAt, types.TerminalReasonSuccess, "first"); err != nil {
+		t.Fatalf("first FinalizeOneShot() error = %v", err)
 	}
 
-	_, err := session.Terminate(firstAt.Add(time.Minute), types.TerminalReasonFailure, "conflict")
+	_, err := session.FinalizeOneShot(firstAt.Add(time.Minute), types.TerminalReasonFailure, "conflict")
 	if err == nil {
-		t.Fatal("conflicting Terminate() error = nil")
+		t.Fatal("conflicting FinalizeOneShot() error = nil")
 	}
 	if !errors.Is(err, model.ErrConflictingTerminalState) {
-		t.Fatalf("conflicting Terminate() error = %v, want ErrConflictingTerminalState", err)
+		t.Fatalf("conflicting FinalizeOneShot() error = %v, want ErrConflictingTerminalState", err)
 	}
 	var conflict *model.SessionTerminalConflictError
 	if !errors.As(err, &conflict) {
-		t.Fatalf("conflicting Terminate() error = %T, want SessionTerminalConflictError", err)
+		t.Fatalf("conflicting FinalizeOneShot() error = %T, want SessionTerminalConflictError", err)
 	}
 	if conflict.CurrentReason() != types.TerminalReasonSuccess || conflict.ProposedReason() != types.TerminalReasonFailure {
 		t.Fatalf("conflict reasons = %q/%q", conflict.CurrentReason(), conflict.ProposedReason())
@@ -112,7 +112,7 @@ func TestSessionTerminateConflictFailsClosed(t *testing.T) {
 	}
 }
 
-func TestSessionTerminateRejectsInvalidInput(t *testing.T) {
+func TestSessionFinalizeOneShotRejectsInvalidInput(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -130,8 +130,8 @@ func TestSessionTerminateRejectsInvalidInput(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			session := newLifecycleTestSession(t, types.RuntimeModeOneShot)
-			if _, err := session.Terminate(tt.endedAt, tt.reason, "summary"); err == nil {
-				t.Fatal("Terminate() error = nil, want validation error")
+			if _, err := session.FinalizeOneShot(tt.endedAt, tt.reason, "summary"); err == nil {
+				t.Fatal("FinalizeOneShot() error = nil, want validation error")
 			}
 			if _, ok := session.EndedAt().Value(); ok {
 				t.Fatal("invalid transition mutated EndedAt()")
@@ -191,4 +191,37 @@ func newLifecycleTestSession(t *testing.T, mode types.RuntimeMode) *model.Sessio
 		t.Fatalf("NewSessionWithRuntimeMode() error = %v", err)
 	}
 	return session
+}
+
+func TestOrdinaryTerminalWritersRefuseOneShot(t *testing.T) {
+	for _, ended := range []bool{false, true} {
+		session := newLifecycleTestSession(t, types.RuntimeModeOneShot)
+		at := session.StartedAt().Add(time.Minute)
+		if ended {
+			if _, err := session.FinalizeOneShot(at, types.TerminalReasonFailure, "human"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := session.Terminate(at.Add(time.Minute), types.TerminalReasonSuccess, "forged"); err == nil {
+			t.Fatal("ordinary Terminate accepted one-shot")
+		}
+		if err := session.End(at.Add(time.Minute), "forged"); err == nil {
+			t.Fatal("ordinary End accepted one-shot")
+		}
+		if reason, ok := session.TerminalReason().Value(); ok != ended || (ok && reason != types.TerminalReasonFailure) {
+			t.Fatal("result changed")
+		}
+	}
+}
+
+func TestOrdinaryTerminateKeepsInteractiveContract(t *testing.T) {
+	session := newLifecycleTestSession(t, types.RuntimeModeInteractive)
+	at := session.StartedAt().Add(time.Minute)
+	transition, err := session.Terminate(at, types.TerminalReasonSuccess, "human summary")
+	if err != nil || transition != model.SessionTerminalTransitionApplied {
+		t.Fatalf("ordinary terminate = %s/%v", transition, err)
+	}
+	if session.Summary() != "human summary" {
+		t.Fatal("ordinary summary changed")
+	}
 }
