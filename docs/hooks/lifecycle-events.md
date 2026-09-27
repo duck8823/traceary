@@ -2,6 +2,8 @@
 
 [日本語](./lifecycle-events.ja.md)
 
+> See the [2026-09-27 lifecycle audit](lifecycle-audit.md) for current host contracts and adoption decisions. Historical live evidence does not certify the refreshed runtime subscriptions.
+
 This page documents Traceary's **canonical lifecycle event kinds** — the six `EventKind` values that are normally emitted by hooks and form the audit (L1) timeline of a session.
 
 The full enum lives in [`domain/types/event_kind.go`](../../domain/types/event_kind.go). The two non-lifecycle kinds (`note`, `reviewed`) are operator-driven and not covered here. For the per-client hook → event mapping see [Event Lifecycle](../lifecycle.md); for the hook capability tiers see [Hook Contract](./contract.md).

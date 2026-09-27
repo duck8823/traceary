@@ -38,6 +38,9 @@ func (c *RootCLI) newHookKimiCommand() *cobra.Command {
 	// consolidation with exit 2, which cannot escape from inside runHookDurably
 	// (see newHookKimiStopCommand / hook transcript's RunE).
 	cmd.AddCommand(c.newHookKimiStopCommand())
+	cmd.AddCommand(&cobra.Command{Use: "interrupt", Hidden: true, Args: noArgsLocalized(), RunE: func(cmd *cobra.Command, _ []string) error {
+		return c.runPassiveHookDurably(cmd.Context(), cmd.InOrStdin(), kimiHookClient, "interrupt", "")
+	}})
 	cmd.AddCommand(c.newHookKimiEventCommand("pre-compact", c.runHookKimiPreCompact))
 	cmd.AddCommand(c.newHookKimiEventCommand("post-compact", c.runHookKimiPostCompact))
 	cmd.AddCommand(c.newHookKimiEventCommand("subagent-stop", c.runHookKimiSubagentStop))

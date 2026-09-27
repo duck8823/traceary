@@ -2,6 +2,8 @@
 
 [日本語](./README.ja.md)
 
+> See the [2026-09-27 lifecycle audit](lifecycle-audit.md) for current host contracts and adoption decisions. Historical live evidence does not certify the refreshed runtime subscriptions.
+
 Traceary ingests session boundaries, command audits, compact summaries, and prompt captures from Claude Code, Codex CLI, and Gemini CLI through hidden `traceary hook ...` runtime entrypoints.
 
 Generated hook configs and packaged host hooks call those Go entrypoints directly. The shell scripts under `scripts/hooks/` remain compatibility wrappers for packaged assets and legacy hook installs; they are no longer the primary runtime implementation.
@@ -289,3 +291,5 @@ When a Traceary CLI command fails, stderr is a plain `Error: ...` line. Hook wra
 - Claude Code hooks reference: https://code.claude.com/docs/en/hooks
 - Claude Code hooks guide: https://code.claude.com/docs/en/hooks-guide
 - Gemini CLI hooks reference in the local install used for validation: `/opt/homebrew/Cellar/gemini-cli/0.36.0/libexec/lib/node_modules/@google/gemini-cli/bundle/docs/hooks/reference.md`
+
+> New subscriptions require current official host contract support: verify/update the host before hook refresh. Historical fixtures are not minimum-version guarantees or live certification. New passive commands require this HEAD build / the next release; installed Traceary 0.52.0 and host settings are not updated by this change.

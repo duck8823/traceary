@@ -649,6 +649,7 @@ func checkKimi(root, version string) error {
 		{"PreToolUse", "Agent", "pre-tool-use"},
 		{"PostToolUse", "", "post-tool-use"},
 		{"PostToolUseFailure", "", "post-tool-use-failure"},
+		{"Interrupt", "", "interrupt"},
 		{"Stop", "", "stop"},
 		{"SubagentStop", "", "subagent-stop"},
 		{"PreCompact", "", "pre-compact"},
@@ -921,7 +922,7 @@ func checkClaude(root, version string) error {
 	if err := checkNoDuplicateTracearyHookEntries(hooksPath, hooks); err != nil {
 		return err
 	}
-	for _, event := range []string{"SessionStart", "SessionEnd", "PostToolUse", "PostCompact"} {
+	for _, event := range []string{"SessionStart", "SessionEnd", "StopFailure", "PostToolUse", "PostCompact"} {
 		if _, ok := hooks.Hooks[event]; !ok {
 			return xerrors.Errorf("claude hooks must include %s", event)
 		}
@@ -1017,7 +1018,7 @@ func checkCodex(root, version string, runCLISmoke bool) error {
 	if err := checkNoDuplicateTracearyHookEntries("plugins/traceary/hooks.json", hooks); err != nil {
 		return err
 	}
-	for _, event := range []string{"SessionStart", "SubagentStart", "SubagentStop", "PreCompact", "PostCompact", "UserPromptSubmit", "Stop", "PostToolUse"} {
+	for _, event := range []string{"SessionStart", "SessionEnd", "Interrupt", "SubagentStart", "SubagentStop", "PreCompact", "PostCompact", "UserPromptSubmit", "Stop", "PostToolUse"} {
 		if _, ok := hooks.Hooks[event]; !ok {
 			return xerrors.Errorf("codex hooks must include %s", event)
 		}

@@ -131,6 +131,7 @@ func TestProbeKimiDoctorStateReadsManagedPluginAndRecord(t *testing.T) {
     {"event": "PreToolUse", "matcher": "Agent", "command": "traceary hook kimi pre-tool-use", "timeout": 10},
     {"event": "PostToolUse", "command": "traceary hook kimi post-tool-use", "timeout": 10},
     {"event": "PostToolUseFailure", "command": "traceary hook kimi post-tool-use-failure", "timeout": 10},
+    {"event": "Interrupt", "command": "traceary hook kimi interrupt", "timeout": 10},
     {"event": "Stop", "command": "traceary hook kimi stop", "timeout": 10},
     {"event": "SubagentStop", "command": "traceary hook kimi subagent-stop", "timeout": 10},
     {"event": "PreCompact", "command": "traceary hook kimi pre-compact", "timeout": 10},

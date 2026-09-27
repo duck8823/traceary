@@ -129,6 +129,7 @@ func (h *ClaudeHooksHandler) BuildWithMatcher(tracearyBin string, preset ClaudeM
 	eventOrder := []string{
 		"SessionStart",
 		"SessionEnd",
+		"StopFailure",
 		"Stop",
 		"SubagentStop",
 		"PreToolUse",
@@ -139,6 +140,7 @@ func (h *ClaudeHooksHandler) BuildWithMatcher(tracearyBin string, preset ClaudeM
 		"UserPromptSubmit",
 	}
 	events := map[string][]model.HookEntry{
+		"StopFailure": {model.HookEntryOf(types.None[string](), []model.HookCommand{model.HookCommandOf("traceary-stop_failure", "command", newHookRuntimeCommand(tracearyBin, "hook", "passive", "claude", "stop_failure"), types.Some(3), "", managedKeyOf("traceary-passive.sh", "claude", "stop_failure"))})},
 		"SessionStart": {
 			model.HookEntryOf(types.Some("*"), []model.HookCommand{
 				model.HookCommandOf("traceary-session-start", "command", sessionStartCommand, types.None[int](), "", managedKeyOf("traceary-session.sh", "claude", "start")),

@@ -61,11 +61,15 @@ func (c *RootCLI) newHookCommand() *cobra.Command {
 		Use:    "hook",
 		Short:  "Runtime entrypoints used by packaged Traceary hooks",
 		Hidden: true,
-		PersistentPreRun: func(*cobra.Command, []string) {
+		PersistentPreRun: func(cmd *cobra.Command, _ []string) {
+			if cmd.Name() == "passive" || (cmd.Name() == "interrupt" && cmd.Parent().Name() == "kimi") {
+				return
+			}
 			maybeGCHookStateResidues()
 		},
 	}
 	hookCmd.AddCommand(c.newHookSessionCommand())
+	hookCmd.AddCommand(c.newHookPassiveCommand())
 	hookCmd.AddCommand(c.newHookAuditCommand())
 	hookCmd.AddCommand(c.newHookCompactCommand())
 	hookCmd.AddCommand(c.newHookSubagentStartCommand())

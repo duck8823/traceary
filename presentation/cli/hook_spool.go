@@ -240,7 +240,7 @@ func (c *RootCLI) runHookDurably(
 		// change current delivery success. Drain is skipped entirely when the
 		// remaining budget is inside the reserve window so host watchdogs do
 		// not kill an already-successful hook.
-		if ctx.Err() == nil {
+		if !boundedPassiveHook(spec) && ctx.Err() == nil {
 			if hookSpoolDrainEntryProbe != nil {
 				hookSpoolDrainEntryProbe()
 			}
@@ -426,6 +426,8 @@ func (c *RootCLI) replayHookSpoolRecord(ctx context.Context, record hookSpoolRec
 	client := record.Client
 	action := record.Action
 	switch strings.TrimSpace(record.Command) {
+	case "passive":
+		return c.runHookPassive(ctx, input, client, action, dbPath)
 	case "session":
 		return c.runHookSession(ctx, nil, input, client, action, dbPath)
 	case "audit":

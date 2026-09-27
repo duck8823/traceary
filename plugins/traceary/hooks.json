@@ -88,6 +88,30 @@
           }
         ]
       }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "name": "traceary-session-end",
+            "type": "command",
+            "command": "'traceary' 'hook' 'passive' 'codex' 'session_end'",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "Interrupt": [
+      {
+        "hooks": [
+          {
+            "name": "traceary-interrupt",
+            "type": "command",
+            "command": "'traceary' 'hook' 'passive' 'codex' 'interrupt'",
+            "timeout": 3
+          }
+        ]
+      }
     ]
   }
 }

@@ -46,7 +46,7 @@ func TestKimiHooksHandler_RendersTOMLHookRules(t *testing.T) {
 	// rule uses PreToolUse.
 	expectedEvents := []string{
 		"SessionStart", "SessionEnd", "UserPromptSubmit",
-		"PreToolUse", "PostToolUse", "PostToolUseFailure", "Stop",
+		"PreToolUse", "PostToolUse", "PostToolUseFailure", "Interrupt", "Stop",
 		"SubagentStop", "PreCompact", "PostCompact",
 	}
 	if got := strings.Count(text, "[[hooks]]"); got != len(expectedEvents) {
@@ -62,7 +62,7 @@ func TestKimiHooksHandler_RendersTOMLHookRules(t *testing.T) {
 	}
 	for _, action := range []string{
 		"session-start", "session-end", "user-prompt-submit",
-		"pre-tool-use", "post-tool-use", "post-tool-use-failure", "stop",
+		"pre-tool-use", "post-tool-use", "post-tool-use-failure", "interrupt", "stop",
 		"subagent-stop", "pre-compact", "post-compact",
 	} {
 		if !strings.Contains(text, "'traceary' 'hook' 'kimi' '"+action+"'") {
@@ -133,8 +133,8 @@ func TestKimiHooksHandler_RenderedTOMLParses(t *testing.T) {
 	if err := toml.Unmarshal(document, &parsed); err != nil {
 		t.Fatalf("rendered document is not valid TOML: %v\n%s", err, document)
 	}
-	if len(parsed.Hooks) != 10 {
-		t.Fatalf("parsed hook rules = %d, want 10", len(parsed.Hooks))
+	if len(parsed.Hooks) != 11 {
+		t.Fatalf("parsed hook rules = %d, want 11", len(parsed.Hooks))
 	}
 	agentMatcherRules := 0
 	for _, hook := range parsed.Hooks {

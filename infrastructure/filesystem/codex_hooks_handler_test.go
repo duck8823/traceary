@@ -14,7 +14,7 @@ func TestCodexHooksHandler_Build(t *testing.T) {
 	handler := filesystem.NewCodexHooksHandler()
 	hooks := handler.Build("traceary")
 
-	wantEventOrder := []string{"SessionStart", "SubagentStart", "SubagentStop", "PreCompact", "PostCompact", "UserPromptSubmit", "Stop", "PostToolUse"}
+	wantEventOrder := []string{"SessionStart", "SessionEnd", "Interrupt", "SubagentStart", "SubagentStop", "PreCompact", "PostCompact", "UserPromptSubmit", "Stop", "PostToolUse"}
 	if diff := cmp.Diff(wantEventOrder, hooks.EventOrder()); diff != "" {
 		t.Fatalf("EventOrder() mismatch (-want +got):\n%s", diff)
 	}
