@@ -27,6 +27,7 @@ Before implementation, the maintainer must accept:
 - Scope of isolated dogfood and recovery evidence, including degraded/unavailable-host decisions.
 
 This plan provides sequencing and acceptance criteria; the detailed audits above still block implementation readiness.
+Conditional autonomous progress requires verified review findings closed and gate facts checked; it does not waive the human UI design checkpoint. The plan remains Proposed and the design PR remains draft until that gate is satisfied. Main may prepare issue bodies, not start gated source work.
 At the last supplied observation, design CI for `3df81e18` was in progress; this document does not assert CI success.
 
 ## Scope and sequencing
@@ -55,16 +56,17 @@ Keep acquired SID/store routing; fully resolved Workspace replay pinning remains
 ## P1: Remove lifecycle gates from context and handoff
 
 **Ownership:** context/handoff consumer code in `presentation/cli/`, relevant `application/queryservice/` and `application/usecase/` query/build paths, their existing tests and user-facing docs.
-Existing entrypoints include `presentation/cli/handoff.go`, `presentation/cli/context_command.go`, and `presentation/cli/output.go`.
+Existing entrypoints include `presentation/cli/handoff.go` and `presentation/cli/context_command.go`; `presentation/cli/output.go` contains the DTO definition.
 Do not change shared parent-selection `Active` semantics in this package.
 
 **Work:**
 
-- Inventory stale-start rejection, handoff stale re-query and generated `STATUS`/close guidance; remove lifecycle eligibility and scaffolding.
+- Inventory stale-start rejection, handoff stale re-query and generated `STATUS`/close guidance; remove lifecycle eligibility and delete the text `STATUS` line, not leave it blank.
+- Audit downstream/JSON consumers for actual exposure or absence; do not invent a current context JSON contract.
 - Preserve latest-selection scope/order/tie fallback, existing fields, compact/refinement behavior, human prose and supported explicit filters.
 - Keep `MemoryAsOf` memory-only, recent-command/memory-count limits and recorded coverage semantics; do not add event-as-of or generic uncovered-event streams.
 - Audit unused `sessionSummaryOutput` and `SessionStatus` consumers before removal; retain content aggregates/coverage summary types.
-- Inventory actual context stale flags. Recommend deprecated no-op compatibility flags for one transition period, with dates/version policy separately approved.
+- Retain actual `--stale-after`/`--allow-stale` handoff/compact-only flags as deprecated no-ops for one documented transition period; preserve flags-require-handoff/compact validation. Version/removal boundaries require checkpoint approval.
 - Warn on stderr only when a deprecated flag is explicitly supplied; do not contaminate stdout JSON/ID output.
 
 **Positive acceptance:** explicit lookup returns old/unended and legacy-ended relevant content; implicit latest across old-unended/new-ended records preserves deterministic existing ordering; generated lifecycle scaffolding disappears through a documented output transition.
@@ -81,7 +83,8 @@ No ordinary-session closure removal yet.
 
 **Work:**
 
-- Audit every result writer and evidence source before defining confirmed-supervisor projection.
+- Audit every result writer and evidence source before defining confirmed-supervisor projection. Ordinary manual End can share CLI/empty-source attributes with finalization; those attributes alone are not reliable proof.
+- Inspect transactional guard sites: ordinary End repository writes, stale GC/doctor SQL, cascade FindOpenChild/domain guard, and bundle ImportSession including BundleConflictReplace. Env-only nested one-shot skipping is insufficient after replay; do not prescribe a guessed actor SQL field.
 - Guard one-shot rows atomically against GC/doctor, parent cascade, host/direct end and outcome-changing import/replay; only supervisor `FinalizeOneShot` can write the current result.
 - Direct `session end` against one-shot returns actionable non-success with no log/outcome mutation.
 - Keep dedicated new SID per run, immutable wrapper binding, existing finalization/first-result reconciliation, exit code, cancellation, timeout, signals, usage and fixed routing.
@@ -106,17 +109,20 @@ P2 execution protection and finalization remain intact.
 
 **Atomic prerequisite and work:**
 
-- Migrate parent inference, `Active`, `List ActiveOnly`, `FindEndedSessionIDs`, doctor stale diagnostics/fixes, local end markers and closure writers before or in the same cutover.
+- Migrate parent inference, `Active`, `List ActiveOnly`, `FindEndedSessionIDs`, doctor stale diagnostics/fixes, local end markers and closure writers before or in the same cutover. Remove obsolete doctor stale lifecycle WARN/fix behavior without adding unnecessary monitoring.
+- Include `presentation/cli/session_resolution.go` log/audit implicit destination in this atomic consumer cutover, not P1. Preserve explicit SID; implicit lookup chooses the latest matching recorded grouping identity using existing workspace/scope/order independent of lifetime. With no match, retain existing default fallback. Never implicitly change metadata or attribution; update docs/help from active/stale wording to recorded lookup.
+- Include `presentation/cli/hook_subagent.go` SubagentStop and Kimi spool replay in the same cutover. Current lazy StartChild then End/extract becomes marker-only stop without child terminalization; preserve explicit lineage, justified lazy registration, completion fact, extraction, cleanup and scoped receipt behavior.
 - Do not let unended-record growth broaden inferred parents. Accept only proven spawn/lineage; insufficient evidence is unknown, not nearest active/unended Session.
 - Doctor fix must not remain a synthetic stale-close writer; no GC-generated `endedAt`.
-- Target `session start`: idempotent identity/start-marker registration with consistent metadata. Checkpoint defines conflicting metadata, internal API/alias choice and dedup scope.
-- Target ordinary `session end`: explicit marker plus supplied summary/refinement coverage, no terminal gate/cascade. Preserve output IDs/flags where feasible; approve exact return/warning migration first.
+- Recommend `session start` with same ID and same metadata returns exit 0/existing ID without another start record. Conflicting client/agent/workspace/parent fails closed with actionable error and no overwrite, not warning-only success; checkpoint approves exact internal API/alias contract.
+- Target ordinary `session end`: explicit marker plus supplied summary/refinement coverage, no terminal gate/cascade. Recommend each separate explicit invocation records a new marker; only an actual same-delivery receipt retry is idempotent. Never collapse all boundary occurrences solely by SessionID. Preserve output IDs/flags where feasible; approve return/warning/dedup migration first.
 - Remove local semantic end gates, including already-existing starts not clearing markers and Stop stale-marker cleanup paths, without disabling scoped receipt dedup.
 - Individually verify Claude, Codex, Gemini, Grok, Kimi, Muse and Antigravity against actual supported callbacks; do not invent absent hooks.
 - Preserve useful usage/transcript flush, redaction, acquired SID/fixed store routing, receipts and cleanup.
 - Stop default empty inferred close content notes; retain correctly scoped useful Interrupt/StopFailure outcomes and all historical boundary events.
 
 **Positive acceptance:** same-ID resume after old explicit/GC marker appends and retrieves; resume → end/Stop flushes and cleans safely; end with summary preserves coverage; sibling/newer unrelated records cannot become a guessed parent.
+Destination fixtures cover old ended/unended/stale, explicit SID and no candidate while preserving attribution/fallback. Subagent-stop followed by late logs remains queryable; duplicate stop and Kimi replay keep extraction idempotent/provenanced without terminalization or result override. Start fixtures cover same metadata success and conflicting metadata refusal; explicit-end fixtures distinguish a new invocation from receipt retry.
 **Negative acceptance:** no ordinary recursive terminalization, stale closure, nonempty-log purge, schema DROP or blanket dedup disablement; no removal of supervisor subprocess cancellation.
 
 **Validation:** host-specific fixtures, CLI start/end contracts, query/domain/SQLite, parent lineage, hook-local state, spool/replay, transcript/usage and redaction tests for each supported host contract.

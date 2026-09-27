@@ -27,6 +27,7 @@ architecture の Ready/merge 判断は人間が GitHub UI で行う。
 - isolated dogfood/recovery evidence の scope と、利用不能 host の縮退判断。
 
 この計画は順序と受け入れ条件を用意するが、上の詳細 audit は実装開始をまだ阻む。
+条件付き自律進行には検証済み review finding の解消と gate fact の確認が必要で、人間の UI design checkpoint を解除しない。gate が満たされるまで計画は Proposed、design PR は draft とし、main は issue body を準備できるが gated source work は開始しない。
 最後に提供された観測では `3df81e18` の design CI は in progress であり、この文書は CI 成功を主張しない。
 
 ## 範囲と順序
@@ -55,16 +56,17 @@ S/M/L は相対的な工数であり、日付の約束ではない。
 ## P1: Context と handoff の lifecycle gate を除去する
 
 **Ownership:** `presentation/cli/` の context/handoff consumer、関連する `application/queryservice/` と `application/usecase/` の query/build 経路、既存 test、利用者向け文書。
-実在する入口には `presentation/cli/handoff.go`、`presentation/cli/context_command.go`、`presentation/cli/output.go` がある。
+実在する入口には `presentation/cli/handoff.go` と `presentation/cli/context_command.go` があり、`presentation/cli/output.go` は DTO 定義を含む。
 この作業単位では parent selection が共有する `Active` の意味を変更しない。
 
 **作業:**
 
-- stale-start 拒否、handoff stale re-query、生成 `STATUS` と close 案内を調べ、lifecycle eligibility と scaffold を除去する。
+- stale-start 拒否、handoff stale re-query、生成 `STATUS` と close 案内を調べ、lifecycle eligibility と scaffold を除去する。text の `STATUS` 行は空欄で残さず削除する。
+- downstream/JSON consumer の実際の公開範囲または不在を調べ、存在しない現在の context JSON 契約を捏造しない。
 - latest selection の scope/order/tie fallback、既存 field、compact/refinement、human prose、対応する明示 filter を維持する。
 - `MemoryAsOf` は memory のみに適用し、recent-command/memory-count limit、記録済み coverage の意味を維持する。event-as-of や汎用未 coverage event stream は追加しない。
 - 未使用 `sessionSummaryOutput` と `SessionStatus` consumer を調べてから除去し、content aggregate/coverage の summary type は維持する。
-- 実在する context stale flag を調べ、一移行期間の deprecated no-op compatibility flag を推奨する。日付/version policy は別途承認する。
+- 実在する handoff/compact-only の `--stale-after`/`--allow-stale` は、文書化した一移行期間 deprecated no-op として保持し、flags-require-handoff/compact validation は維持する。version/除去境界は checkpoint で承認する。
 - deprecated flag が明示された場合のみ stderr に warning を出し、stdout JSON/ID を汚さない。
 
 **肯定の受け入れ条件:** 古い unended/legacy ended の関連 content を明示 lookup できる。old-unended/new-ended が混在する暗黙 latest で、既存の決定的な順序を維持する。文書化した output 移行として生成 lifecycle scaffold が消える。
@@ -81,7 +83,8 @@ S/M/L は相対的な工数であり、日付の約束ではない。
 
 **作業:**
 
-- confirmed-supervisor projection を定義する前に、すべての result writer と根拠の取得元を調べる。
+- confirmed-supervisor projection を定義する前に、すべての result writer と根拠の取得元を調べる。通常の manual End も CLI/empty-source 属性を持ち得るため、それだけを信頼できる証明にしない。
+- transactional guard site として通常 End repository write、stale GC/doctor SQL、cascade FindOpenChild/domain guard、BundleConflictReplace を含む bundle ImportSession を調べる。env-only の nested one-shot skip は replay 後に不十分であり、架空の actor SQL field を指定しない。
 - GC/doctor、parent cascade、host/直接 end、outcome を変える import/replay から one-shot row を atomic に保護する。現在 result を書けるのは supervisor `FinalizeOneShot` のみとする。
 - one-shot への直接 `session end` は対処方法のある non-success を返し、log/outcome を変更しない。
 - run ごとの専用新 SID、不変 wrapper binding、既存 finalization/first-result reconciliation、exit code、cancellation、timeout、signal、usage、固定 routing を維持する。
@@ -106,17 +109,20 @@ P2 の execution protection/finalization を維持する。
 
 **atomic な前提と作業:**
 
-- parent inference、`Active`、`List ActiveOnly`、`FindEndedSessionIDs`、doctor stale diagnostic/fix、local end marker、closure writer を切替前または同時に移行する。
+- parent inference、`Active`、`List ActiveOnly`、`FindEndedSessionIDs`、doctor stale diagnostic/fix、local end marker、closure writer を切替前または同時に移行する。不要になった doctor stale lifecycle WARN/fix は除去し、不要な monitoring を追加しない。
+- `presentation/cli/session_resolution.go` の log/audit implicit destination も P1 ではなく atomic consumer cutover に含める。明示 SID は保持し、暗黙 lookup は lifetime に依存せず既存 workspace/scope/order で関連する最新の記録 grouping identity を選ぶ。該当がなければ既存 default fallback を維持する。metadata/attribution を暗黙変更せず、docs/help は active/stale から recorded lookup の説明に更新する。
+- `presentation/cli/hook_subagent.go` の SubagentStop と Kimi spool replay も同時に切り替える。現在の lazy StartChild と End/extract は、child を terminalize しない marker-only stop にする。明示 lineage、根拠のある lazy registration、completion fact、extract、cleanup、scoped receipt を維持する。
 - unended record の増加で推定 parent を広げない。根拠のある spawn/lineage のみ受理し、不十分なら unknown として近い active/unended Session を選ばない。
 - doctor fix を synthetic stale-close writer として残さず、GC は `endedAt` を生成しない。
-- `session start` の目標は metadata が整合する冪等な identity/start-marker 登録。metadata 衝突、internal API/alias、dedup scope は checkpoint で定める。
-- 通常 `session end` の目標は明示 marker と提供 summary/refinement coverage。terminal gate/cascade は行わない。可能な範囲で output ID/flag を維持し、return/warning 移行を先に承認する。
+- 同じ ID/metadata の `session start` は exit 0/既存 ID を返し、start record を増やさない案とする。client/agent/workspace/parent が衝突する場合は actionable error で fail closed とし、上書きや warning-only success にしない。internal API/alias の詳細は checkpoint で承認する。
+- 通常 `session end` の目標は明示 marker と提供 summary/refinement coverage。terminal gate/cascade は行わない。別の明示 invocation ごとに新 marker を記録し、実際の同じ delivery receipt retry のみ冪等とする案を推奨する。SessionID だけで全 boundary occurrence をまとめない。可能な範囲で output ID/flag を維持し、return/warning/dedup 移行を先に承認する。
 - marker を消さない既存 start と Stop stale-marker cleanup を含む local semantic end gate を除去し、scoped receipt dedup は維持する。
 - Claude、Codex、Gemini、Grok、Kimi、Muse、Antigravity を実際に対応する callback で個別検証し、不在の hook を捏造しない。
 - 有用 usage/transcript flush、redaction、取得 SID/固定 store routing、receipt、cleanup を維持する。
 - 空の推測 close content note の既定生成を止め、正しい scope の有用 Interrupt/StopFailure outcome と過去 boundary event を維持する。
 
 **肯定の受け入れ条件:** 旧 explicit/GC marker 後の同一 ID resume が append/retrieve できる。resume → end/Stop が安全に flush/cleanup する。summary 付き end は coverage を保つ。sibling や新しい無関係 record を parent に推測しない。
+destination fixture は old ended/unended/stale、明示 SID、candidate 不在を扱い、attribution/fallback を維持する。subagent-stop 後の late log を query でき、重複 stop と Kimi replay の extract は provenance と冪等性を守り、terminalization/result override を行わない。start fixture は同じ metadata の成功と衝突拒否を扱い、explicit-end fixture は新 invocation と receipt retry を区別する。
 **否定の受け入れ条件:** 通常の再帰 terminalization、stale closure、非空 log purge、schema DROP、dedup 全無効化を行わない。supervisor の subprocess cancellation を除去しない。
 
 **検証:** 対応する各 host contract の fixture、CLI start/end 契約、query/domain/SQLite、parent lineage、hook-local state、spool/replay、transcript/usage、redaction test。
