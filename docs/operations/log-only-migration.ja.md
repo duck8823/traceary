@@ -15,8 +15,12 @@ P1 #2404、テスト隔離 #2405、P2 #2406、P3 #2407 はマージ済みです�
 同一登録の既存 event 再利用、別 end の区別、境界後の追記、暗黙検索、旧 ended 記録の再利用、生成 STATUS の不在、supervisor 結果の保護を確認しました。
 暗号化 export/import と再 import で、生の session 列と event 件数が復旧先に保持されました。
 本番履歴は取得・変更していません。
-CLI 証跡の digest は `5af5091336b7f1bb025adf1494f22f57f5903c006ed4e7f573c933f42ce379b8` です。
+CLI 証跡の digest は `44307bc3eb800fee392b173ea11e953f7638f7dc5836ac1946a5b574335708a9` です。
 raw 出力はローカルに保持し、credential や暗号化入力は公開しません。
+暗号化 portability bundle は全 store の backup ではありません。
+実測した session_refinements は source1・復旧先0で、現在の bundle 形式は L2 refinement/coverage を export しません。
+別途、新しい隔離 store への SQLite backup で、実際の refinement/coverage 行と event 件数の保持を確認しました。
+それらを保持する復旧には full-store copy を使用し、今回 bundle schema は拡張しません。
 
 ## 実ホストの検証
 

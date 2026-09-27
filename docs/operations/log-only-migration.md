@@ -12,7 +12,8 @@ P1 #2404, test isolation #2405, P2 #2406 and P3 #2407 are merged.
 - Selected `-race` registration/receipt/nested-capture/supervisor tests, count3, passed.
 - Real integrated CLI: 18 controlled invocations passed on isolated synthetic stores/home/hook-state. Repeated start reused the real event; distinct ends stayed distinct; late/implicit logging and legacy-ended resume worked; generated handoff STATUS was absent; ordinary end could not change supervisor results.
 - Encrypted export/import and repeated import preserved raw session fields and event counts in a fresh isolated recovery store. No production history was read or rewritten.
-- CLI evidence digest: `5af5091336b7f1bb025adf1494f22f57f5903c006ed4e7f573c933f42ce379b8`. Raw outputs remain local; no credentials/encryption input are published.
+- CLI evidence digest: `44307bc3eb800fee392b173ea11e953f7638f7dc5836ac1946a5b574335708a9`. Raw outputs remain local; no credentials/encryption input are published.
+Encrypted portability bundles are not full-store backups: the measured session_refinements count was source1/recovered0. L2 refinements/coverage are not exported by the current bundle format. A separate SQLite backup into a fresh isolated store preserved the actual refinement/coverage row and event counts; use full-store recovery when those records must be retained. No bundle schema expansion is included.
 
 ## Native host matrix
 
