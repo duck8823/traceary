@@ -13,7 +13,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -505,6 +504,7 @@ func TestRootCLI_HookSessionCommand_StartRecordsSessionAndState(t *testing.T) {
 func TestRootCLI_HookSessionCommand_OneShotWrapperOverridesHostIdentity(t *testing.T) {
 	t.Setenv("TRACEARY_RUNTIME_MODE", "one_shot")
 	t.Setenv("TRACEARY_RUNTIME_SESSION_ID", "wrapper-session")
+	t.Setenv("TRACEARY_DB_PATH", filepath.Join(t.TempDir(), "wrapper.db"))
 	t.Setenv("TRACEARY_HOOK_STATE_KEY", "test-key")
 	homeDir := t.TempDir()
 	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
@@ -528,8 +528,8 @@ func TestRootCLI_HookSessionCommand_OneShotWrapperOverridesHostIdentity(t *testi
 	if got := sessionStub.startCall.sessionID; got != "wrapper-session" {
 		t.Fatalf("StartWithRuntimeMode session ID = %q, want wrapper-session", got)
 	}
-	if got := sessionStub.startCall.runtimeMode; got != types.RuntimeModeOneShot {
-		t.Fatalf("StartWithRuntimeMode runtime mode = %q, want one_shot", got)
+	if got := sessionStub.startCall.runtimeMode; got != "" {
+		t.Fatalf("StartWithRuntimeMode runtime mode = %q, want no reacquisition", got)
 	}
 	if got := sessionStub.startCall.parentSessionID; got != "" {
 		t.Fatalf("StartWithRuntimeMode parent session ID = %q, want empty", got)
@@ -593,26 +593,18 @@ func TestRootCLI_HookSessionCommand_StartRunsRateLimitedSessionGC(t *testing.T) 
 
 	runStart()
 	runStart()
-	if got, want := len(storeStub.staleCalls), 1; got != want {
-		t.Fatalf("CloseStaleSessions calls within rate window = %d, want %d", got, want)
-	}
-	if call := storeStub.staleCalls[0]; call.staleAfter != 24*time.Hour || call.dryRun {
-		t.Fatalf("CloseStaleSessions call = %+v, want 24h non-dry-run", call)
-	} else if !slices.Contains(call.protectedSessionIDs, types.SessionID("gc-session")) {
-		t.Fatalf("protected session IDs = %q, want gc-session", call.protectedSessionIDs)
+	if got := len(storeStub.staleCalls); got != 0 {
+		t.Fatalf("synthetic stale close calls = %d", got)
 	}
 	markers, err := filepath.Glob(filepath.Join(os.Getenv("TRACEARY_HOOK_STATE_DIR"), "session-gc", "*.stamp"))
-	if err != nil || len(markers) != 1 {
-		t.Fatalf("session GC markers = %v, err = %v, want one", markers, err)
+	if err != nil || len(markers) != 0 {
+		t.Fatalf("obsolete GC markers = %v, err = %v", markers, err)
 	}
-	old := time.Now().Add(-7 * time.Hour)
-	if err := os.Chtimes(markers[0], old, old); err != nil {
-		t.Fatalf("Chtimes(marker) error = %v", err)
+	leases, err := filepath.Glob(filepath.Join(os.Getenv("TRACEARY_HOOK_STATE_DIR"), "session-activity", "*.lease"))
+	if err != nil || len(leases) != 1 {
+		t.Fatalf("activity protection leases = %v, err = %v", leases, err)
 	}
-	runStart()
-	if got, want := len(storeStub.staleCalls), 2; got != want {
-		t.Fatalf("CloseStaleSessions calls after rate window = %d, want %d", got, want)
-	}
+
 }
 
 func TestRootCLI_HookSessionCommand_ConcurrentStartsRunOneSessionGC(t *testing.T) {
@@ -660,7 +652,7 @@ func TestRootCLI_HookSessionCommand_ConcurrentStartsRunOneSessionGC(t *testing.T
 	}
 	storeStub.staleMu.Lock()
 	defer storeStub.staleMu.Unlock()
-	if got := len(storeStub.staleCalls); got != 1 {
+	if got := len(storeStub.staleCalls); got != 0 {
 		t.Fatalf("CloseStaleSessions concurrent calls = %d, want 1", got)
 	}
 }
@@ -708,7 +700,7 @@ func TestRootCLI_HookSessionCommand_StartConvergesStaleStoreWithoutClosingRecent
 		sessionID  string
 		wantClosed bool
 	}{
-		{sessionID: "idle-old", wantClosed: true},
+		{sessionID: "idle-old", wantClosed: false},
 		{sessionID: "active-old", wantClosed: false},
 		{sessionID: "new-session", wantClosed: false},
 	} {
@@ -739,7 +731,7 @@ func TestRootCLI_HookSessionCommand_StartRetriesSessionGCAfterFailure(t *testing
 			t.Fatalf("session start must ignore opportunistic GC failure: %v", err)
 		}
 	}
-	if got, want := len(storeStub.staleCalls), 2; got != want {
+	if got, want := len(storeStub.staleCalls), 0; got != want {
 		t.Fatalf("CloseStaleSessions retry calls = %d, want %d", got, want)
 	}
 }
@@ -796,7 +788,7 @@ func TestRootCLI_HookSessionCommand_StartInfersParentFromActiveSubagentState(t *
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
-	if got, want := sessionStub.startCall.parentSessionID, types.SessionID("parent-session"); got != want {
+	if got, want := sessionStub.startCall.parentSessionID, types.SessionID(""); got != want {
 		t.Fatalf("inferred parentSessionID = %q, want %q", got, want)
 	}
 }
@@ -853,7 +845,7 @@ func TestRootCLI_HookSessionCommand_StartInfersParentWhenActiveSessionIsSyntheti
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
-	if got, want := sessionStub.startCall.parentSessionID, types.SessionID("parent-session"); got != want {
+	if got, want := sessionStub.startCall.parentSessionID, types.SessionID(""); got != want {
 		t.Fatalf("inferred parentSessionID = %q, want %q", got, want)
 	}
 }
@@ -945,7 +937,7 @@ func TestRootCLI_HookSessionCommand_EndUsesStateAndCreatesEndMarker(t *testing.T
 	if _, err := os.Stat(filepath.Join(stateDir, "claude-test-key-repo")); !os.IsNotExist(err) {
 		t.Fatalf("workspace state still exists: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(stateDir, "ended", cli.HookSessionBoundStateFileName("claude", types.SessionID("claude-session")))); err != nil {
+	if _, err := os.Stat(filepath.Join(stateDir, "ended", cli.HookSessionBoundStateFileName("claude", types.SessionID("claude-session")))); !os.IsNotExist(err) {
 		t.Fatalf("Stat(end marker) error = %v", err)
 	}
 	diagnosticsDir := filepath.Join(stateDir, "diagnostics")
@@ -1301,7 +1293,7 @@ func TestRootCLI_HookSessionCommand_EndQueuesMemoryAutoExtractWithoutBlocking(t 
 			_, sessionErr := os.Stat(filepath.Join(stateDir, "claude-test-key-extract-fail"))
 			_, workspaceErr := os.Stat(filepath.Join(stateDir, "claude-test-key-extract-fail-repo"))
 			_, markerErr := os.Stat(filepath.Join(stateDir, "ended", cli.HookSessionBoundStateFileName("claude", types.SessionID("auto-extract-fail-session"))))
-			primaryCleanupCompleteAtLaunch = os.IsNotExist(sessionErr) && os.IsNotExist(workspaceErr) && markerErr == nil
+			primaryCleanupCompleteAtLaunch = os.IsNotExist(sessionErr) && os.IsNotExist(workspaceErr) && os.IsNotExist(markerErr)
 			return nil
 		}),
 	).Command()
@@ -1854,11 +1846,11 @@ func TestRootCLI_HookSessionCommand_StopClearsDuplicateEndStateBeforeStoreInitia
 	if got := sessionStub.endCall.sessionID; got != "" {
 		t.Fatalf("session end call sessionID = %q, want empty for duplicate cleanup", got)
 	}
-	if _, err := os.Stat(filepath.Join(stateDir, "claude-test-key")); !os.IsNotExist(err) {
-		t.Fatalf("session state still exists: %v", err)
+	if _, err := os.Stat(filepath.Join(stateDir, "claude-test-key")); err != nil {
+		t.Fatalf("routing state must survive historical end marker: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(stateDir, "claude-test-key-repo")); !os.IsNotExist(err) {
-		t.Fatalf("workspace state still exists: %v", err)
+	if _, err := os.Stat(filepath.Join(stateDir, "claude-test-key-repo")); err != nil {
+		t.Fatalf("workspace routing must survive historical end marker: %v", err)
 	}
 }
 
@@ -3123,7 +3115,7 @@ func TestRootCLI_HookSubagentState_TracksOverlappingTaskChildren(t *testing.T) {
 	if err := sqlDB.QueryRow(`SELECT ended_at IS NOT NULL FROM sessions WHERE session_id = ?`, "parent-session:sub:toolu_3").Scan(&child3Ended); err != nil {
 		t.Fatalf("query child3 ended error = %v", err)
 	}
-	if !child1Ended || child2Ended || child3Ended {
+	if child1Ended || child2Ended || child3Ended {
 		t.Fatalf("after stopping toolu_1: child1 ended=%v child2 ended=%v child3 ended=%v, want true/false/false", child1Ended, child2Ended, child3Ended)
 	}
 	activeState, err := os.ReadFile(filepath.Join(stateDir, "active-subagents", cli.HookSessionBoundStateFileName("claude", types.SessionID("parent-session"))))

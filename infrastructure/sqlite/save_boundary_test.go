@@ -182,7 +182,8 @@ func TestSessionDatasource_SaveBoundary_ConflictingTerminalReasonFailsClosed(t *
 func TestSessionDatasource_FindEndedSessionIDs(t *testing.T) {
 	t.Parallel()
 
-	db := infra.NewDatabase(filepath.Join(t.TempDir(), "traceary.db"), listSessionsTestMigrations())
+	dbPath := filepath.Join(t.TempDir(), "traceary.db")
+	db := infra.NewDatabase(dbPath, listSessionsTestMigrations())
 	ctx := context.Background()
 	if err := infra.NewStoreManagementDatasource(db).Initialize(ctx); err != nil {
 		t.Fatalf("Initialize() error = %v", err)
@@ -215,6 +216,8 @@ func TestSessionDatasource_FindEndedSessionIDs(t *testing.T) {
 	if err := ds.SaveBoundary(ctx, endedSession, endEvent); err != nil {
 		t.Fatalf("SaveBoundary(end) error = %v", err)
 	}
+
+	setLegacySessionEnd(t, dbPath, endedID, endedAt, "done")
 
 	got, err := ds.FindEndedSessionIDs(ctx, []types.SessionID{activeID, endedID, "missing-session"})
 	if err != nil {
@@ -379,16 +382,13 @@ func TestSessionDatasource_SaveBoundary_End(t *testing.T) {
 		t.Fatalf("FindByID(after end) error = %v", err)
 	}
 	updated, _ := updatedOpt.Value()
-	if _, ok := updated.EndedAt().Value(); !ok {
+	if _, ok := updated.EndedAt().Value(); ok {
 		t.Fatalf("EndedAt() should be present after end")
 	}
-	gotEndedAt, _ := updated.EndedAt().Value()
-	if !gotEndedAt.Equal(endedAt) {
-		t.Errorf("EndedAt() = %v, want %v", gotEndedAt, endedAt)
+	if diff := cmp.Diff("", updated.Summary()); diff != "" {
+		t.Errorf("legacy summary rewritten: %s", diff)
 	}
-	if diff := cmp.Diff("wrapped up", updated.Summary()); diff != "" {
-		t.Errorf("Summary mismatch (-want +got):\n%s", diff)
-	}
+
 }
 
 // TestSessionDatasource_SaveBoundary_EndPreservesPreviouslySyncedSummary
@@ -589,10 +589,10 @@ func TestSessionDatasource_SaveBoundary_EndPreservesLabel(t *testing.T) {
 	if diff := cmp.Diff("sprint-1", got.Label()); diff != "" {
 		t.Errorf("Label should be preserved across end (-want +got):\n%s", diff)
 	}
-	if _, ok := got.EndedAt().Value(); !ok {
-		t.Fatalf("EndedAt() should be present after end")
+	if _, ok := got.EndedAt().Value(); ok {
+		t.Fatalf("ordinary end must not set EndedAt")
 	}
-	if diff := cmp.Diff("wrapped up", got.Summary()); diff != "" {
+	if diff := cmp.Diff("", got.Summary()); diff != "" {
 		t.Errorf("Summary mismatch (-want +got):\n%s", diff)
 	}
 }
@@ -668,11 +668,8 @@ func TestSessionDatasource_SaveBoundary_DuplicateEndRejected(t *testing.T) {
 		"session ended", secondEndedAt,
 	)
 	err := sessionDS.SaveBoundary(ctx, secondEnding, secondEndEvent)
-	if err == nil {
-		t.Fatalf("SaveBoundary(duplicate end) error = nil, want ErrInvalidSessionState")
-	}
-	if !errors.Is(err, model.ErrInvalidSessionState) {
-		t.Fatalf("SaveBoundary(duplicate end) error = %v, want ErrInvalidSessionState", err)
+	if err != nil {
+		t.Fatalf("distinct ordinary end refused: %v", err)
 	}
 
 	// ended_at must still point at the first end, not the second.
@@ -681,12 +678,11 @@ func TestSessionDatasource_SaveBoundary_DuplicateEndRejected(t *testing.T) {
 		t.Fatalf("FindByID() error = %v", err)
 	}
 	got, _ := after.Value()
-	gotEndedAt, _ := got.EndedAt().Value()
-	if !gotEndedAt.Equal(firstEndedAt) {
-		t.Errorf("EndedAt() = %v, want %v (the first end must win)", gotEndedAt, firstEndedAt)
+	if _, ended := got.EndedAt().Value(); ended {
+		t.Fatal("ordinary end set legacy end")
 	}
-	if diff := cmp.Diff("first", got.Summary()); diff != "" {
-		t.Errorf("Summary should remain from first end (-want +got):\n%s", diff)
+	if got.Summary() != "" {
+		t.Fatal("ordinary end rewrote legacy summary")
 	}
 
 	// The duplicate session_ended event must also have been rolled back —
@@ -695,12 +691,10 @@ func TestSessionDatasource_SaveBoundary_DuplicateEndRejected(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListRecent() error = %v", err)
 	}
-	if len(events) != 1 {
-		t.Fatalf("ListRecent() len = %d, want 1 (duplicate end event must be rolled back)", len(events))
+	if len(events) != 2 {
+		t.Fatalf("distinct boundaries = %d, want 2", len(events))
 	}
-	if diff := cmp.Diff("event-end-1", events[0].EventID().String()); diff != "" {
-		t.Errorf("EventID mismatch (-want +got):\n%s", diff)
-	}
+
 }
 
 // TestSessionDatasource_SaveBoundary_DuplicateStartRejected asserts that a
@@ -745,11 +739,11 @@ func TestSessionDatasource_SaveBoundary_DuplicateStartRejected(t *testing.T) {
 		"session started", startedAt.Add(time.Minute),
 	)
 	err := sessionDS.SaveBoundary(ctx, secondSession, secondEvent)
-	if err == nil {
-		t.Fatalf("SaveBoundary(second start) error = nil, want ErrInvalidSessionState")
+	if err != nil {
+		t.Fatalf("same metadata registration refused: %v", err)
 	}
-	if !errors.Is(err, model.ErrInvalidSessionState) {
-		t.Fatalf("SaveBoundary(second start) error = %v, want ErrInvalidSessionState", err)
+	if secondEvent.EventID() != firstEvent.EventID() || secondEvent.PersistInserted() {
+		t.Fatal("canonical registration return/outcome mismatch")
 	}
 
 	// Only the first session_started event must remain; the second must
@@ -815,6 +809,8 @@ func TestSessionDatasource_Save_LabelOnEndedSession(t *testing.T) {
 	if err := sessionDS.SaveBoundary(ctx, endingSession, endEvent); err != nil {
 		t.Fatalf("SaveBoundary(end) error = %v", err)
 	}
+
+	setLegacySessionEnd(t, dbPath, sessionID, endedAt, "done")
 
 	// Retroactively label the ended session (SessionUsecase.Label flow).
 	loadedOpt, err := sessionDS.FindByID(ctx, sessionID)
@@ -909,5 +905,19 @@ func TestSessionDatasource_Save_ClearLabel(t *testing.T) {
 	got, _ := after.Value()
 	if diff := cmp.Diff("", got.Label()); diff != "" {
 		t.Errorf("Label should be cleared (-want +got):\n%s", diff)
+	}
+}
+
+// Legacy fixture setup preserves imported pre-cutover history without using
+// the new ordinary boundary writer as a synthetic terminalization path.
+func setLegacySessionEnd(t *testing.T, path string, id types.SessionID, at time.Time, summary string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	if _, err := db.Exec(`UPDATE sessions SET ended_at = ?, terminal_reason = 'legacy_unknown', summary = ? WHERE session_id = ?`, at.Format(time.RFC3339Nano), summary, id.String()); err != nil {
+		t.Fatal(err)
 	}
 }

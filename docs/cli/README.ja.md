@@ -22,7 +22,7 @@ note event を追記します。
 既定値:
 
 - `--client` / `--agent` / `--workspace`: flag → `TRACEARY_CLIENT` / `TRACEARY_AGENT` / `TRACEARY_WORKSPACE` → `cli` / `manual` / 検出した workspace
-- `--session-id`: flag → `TRACEARY_SESSION_ID` → 解決した workspace の最新 non-stale active session → `default`
+- `--session-id`: flag → `TRACEARY_SESSION_ID` → 解決した workspace の一致する最新の記録済み session → `default`
 
 主な flag:
 
@@ -38,9 +38,9 @@ note event を追記します。
 session 解決ルール:
 
 - 明示 `--session-id` または `TRACEARY_SESSION_ID` を最優先
-- それ以外では、解決できた workspace に対応する最新の non-stale active session を再利用
+- それ以外では、解決できた workspace に対応する一致する最新の記録済み session を再利用
 - `remote.origin.url` が無い Git worktree でも、work-context key として worktree ルートパスを使います
-- workspace を解決できない、または一致する active session が無い場合は、従来どおり `default` session ID を使います
+- workspace を解決できない、または一致する記録済み session が無い場合は、従来どおり `default` session ID を使います
 
 > **注意:** `log` と `audit` は `--session-id` の値をそのまま受け入れ、存在確認は行いません。これは意図的な設計です。hook では高頻度にイベントを書き込むため、毎回 DB ルックアップを挟むとオーバーヘッドが大きくなります。存在しない session ID を渡した場合でもイベント自体は記録されますが、session 単位のクエリには現れません。
 
@@ -616,7 +616,7 @@ durable memory の content validity 窓 (`valid_from` / `valid_to`) を設定ま
 
 ### `traceary session start`
 
-session start 境界を記録し、session ID を出力します。
+log grouping と最初の開始境界を登録し、session ID を出力します。同一 ID・不変メタデータは元の保存済み境界を返します（JSON も同じ event）。競合は拒否します。
 
 既定値:
 
@@ -635,7 +635,7 @@ session start 境界を記録し、session ID を出力します。
 
 ### `traceary session end`
 
-session end 境界を記録し、生成された event ID を出力します。
+明示的な終了境界を記録し、その event ID を出力します。grouping や子孫を終了しないため、後続ログは引き続き追記できます。個別の実行は個別イベントとなり、指定要約の refinement coverage はその保存済みイベントを参照します。
 
 既定値:
 
@@ -710,8 +710,7 @@ deadline の経過がキャンセルより優先され、続いて signal によ
 異なります。
 
 旧 [`session repair-one-shot`](../operations/one-shot-repair.ja.md) は
-v0.43.0 (#2122) で廃止されました。通常の idle session は hook の opportunistic GC と
-`traceary doctor --fix` が終了します。one-shot session は除外します。
+v0.43.0 (#2122) で廃止されました。idle grouping は引き続き利用できます。hook GC と `traceary doctor --fix` は session 終了を合成しません。
 
 ### `traceary session refine <session-id>`
 

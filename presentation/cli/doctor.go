@@ -448,7 +448,6 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 			Status:  doctorStatusPass,
 			Message: localizef("initialized SQLite store: %s", "SQLite ストアを初期化しました: %s", resolvedDBPath),
 		})
-		report.Checks = append(report.Checks, c.inspectStaleActiveSessions(ctx))
 		report.Checks = append(report.Checks, c.inspectOfflineMigrations(ctx))
 		report.Checks = append(report.Checks, c.inspectUnavailableRetention(ctx))
 		report.Checks = append(report.Checks, c.inspectOneOffRepairs(ctx))
@@ -613,81 +612,6 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 	report.Checks = append(report.Checks, checkLatestVersion(input.currentVersion))
 
 	return report, nil
-}
-
-// inspectStaleActiveSessions reports how many unended sessions are
-// idle beyond the default stale threshold (24h), using each session
-// latest event as activity. Stale active sessions
-// silently shadow host context retrieval (top default view, session
-// handoff implicit selection, MCP session_status), so doctor surfaces a
-// count plus the actionable cleanup command. The check uses
-// CloseStaleSessions with dryRun=true so it never mutates state; an
-// underlying query error is reported as fail with the original error.
-func (c *RootCLI) inspectStaleActiveSessions(ctx context.Context) doctorCheck {
-	const checkName = "stale-active-sessions"
-	if c.storeManagement == nil {
-		return doctorCheck{
-			Name:    checkName,
-			Status:  doctorStatusSkip,
-			Message: localizef("store management usecase is not configured", "ストア管理ユースケースが設定されていません"),
-		}
-	}
-	result, err := c.storeManagement.CloseStaleSessions(ctx, defaultActiveSessionStaleAfter, true, nil)
-	if err != nil {
-		return doctorCheck{
-			Name:    checkName,
-			Status:  doctorStatusFail,
-			Message: localizef("failed to count stale active sessions: %v", "stale active session の集計に失敗しました: %v", err),
-		}
-	}
-	count := result.ClosedCount()
-	if count <= 0 {
-		return doctorCheck{
-			Name:   checkName,
-			Status: doctorStatusPass,
-			Message: localizef(
-				"no active sessions idle for more than %s",
-				"%s を超えて活動のない active session はありません",
-				defaultActiveSessionStaleAfter,
-			),
-		}
-	}
-	fixCommand := "traceary doctor --fix"
-	return doctorCheck{
-		Name:   checkName,
-		Status: doctorStatusWarn,
-		Hint: Localize(
-			"preview with `traceary doctor --fix --dry-run`, apply via `traceary doctor --fix`; opportunistic hook GC also drains on session start (detached from soft deadline)",
-			"`traceary doctor --fix --dry-run` でプレビューし、`traceary doctor --fix` で適用。hook の session start でも soft deadline から切り離して drain します",
-		),
-		FixCommand:       fixCommand,
-		AutoFixAvailable: true,
-		FixFunc: func(ctx context.Context, dryRun bool) (string, error) {
-			result, err := c.storeManagement.CloseStaleSessions(ctx, defaultActiveSessionStaleAfter, dryRun, nil)
-			if err != nil {
-				return "", xerrors.Errorf("%s: %w", Localize("stale session cleanup failed", "stale session の cleanup に失敗しました"), err)
-			}
-			if dryRun {
-				return localizef(
-					"would close %d stale active session(s)",
-					"%d 件の stale active session を終了します",
-					result.ClosedCount(),
-				), nil
-			}
-			return localizef(
-				"closed %d stale active session(s)",
-				"%d 件の stale active session を終了しました",
-				result.ClosedCount(),
-			), nil
-		},
-		Message: localizef(
-			"%d active session(s) have no activity within %s; they shadow the default host context retrieval. Run `%s`; hook starts also drain with a dedicated timeout.",
-			"%d 件の active session は %s の間活動がなく、host context 取得の既定動作を阻害します。`%s` を実行してください。hook start でも専用 timeout で drain します。",
-			count,
-			defaultActiveSessionStaleAfter,
-			fixCommand,
-		),
-	}
 }
 
 const commandAuditReliabilityScanLimit = 200

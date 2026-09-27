@@ -33,7 +33,7 @@ func TestContextPackBuilder_LoadRecentCommandsUsesBoundedPreview(t *testing.T) {
 	builder := &contextPackBuilder{previewQuery: previewQuery}
 	session := apptypes.SessionSummaryOf(
 		domtypes.SessionID("session-1"), domtypes.Workspace("ws"), now,
-		domtypes.None[time.Time](), "active", 1, 1, nil, "", "", domtypes.SessionID(""),
+		domtypes.None[time.Time](), 1, 1, nil, "", "", domtypes.SessionID(""),
 	)
 
 	legacy, items, err := builder.loadRecentCommands(context.Background(), session, 1)

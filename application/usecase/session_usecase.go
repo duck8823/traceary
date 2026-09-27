@@ -9,10 +9,10 @@ import (
 	"github.com/duck8823/traceary/domain/types"
 )
 
-// SessionUsecase consolidates session lifecycle operations plus the legacy
+// SessionUsecase consolidates log-group boundary operations plus the legacy
 // session-level query surfaces that remain for compatibility.
 type SessionUsecase interface {
-	// Start begins a new session. If sessionID is zero, a new ID is generated.
+	// Start registers an ordinary grouping and its first start boundary idempotently. If sessionID is zero, a new ID is generated.
 	// Zero-value parentSessionID means no parent (top-level session).
 	Start(ctx context.Context, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, parentSessionID types.SessionID) (*model.Event, error)
 
@@ -23,7 +23,7 @@ type SessionUsecase interface {
 	// StartChild begins a child session spawned from an existing parent.
 	StartChild(ctx context.Context, parent types.SessionID, childID types.SessionID, agent types.Agent, workspace types.Workspace, spawnEventID types.EventID, kind string, startedAt time.Time) (*model.Event, error)
 
-	// End closes an existing session. Zero-value client/agent/workspace
+	// End appends an explicit boundary without terminalizing an existing grouping. Zero-value client/agent/workspace
 	// falls back to values from the corresponding session_started event.
 	End(ctx context.Context, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, summary string) (*model.Event, error)
 
@@ -49,8 +49,8 @@ type SessionUsecase interface {
 	// Lineage returns the full hierarchy rooted at the topmost ancestor of sessionID.
 	Lineage(ctx context.Context, sessionID types.SessionID) ([]apptypes.SessionSummary, error)
 
-	// Active returns the session_started event for the active session matching the criteria.
-	// Returns an empty Optional when no active session exists.
+	// Active is a compatibility alias for lifecycle-independent Latest.
+	// Returns an empty Optional when no recorded grouping matches.
 	Active(ctx context.Context, criteria apptypes.SessionLookupCriteria) (types.Optional[*model.Event], error)
 
 	// Latest returns the session_started event for the latest session matching the criteria.
@@ -69,4 +69,10 @@ type SessionUsecase interface {
 	// ContextUsecase.Handoff instead. Zero-value workspace means no workspace
 	// filter. Returns an empty Optional when no matching session exists.
 	Handoff(ctx context.Context, sessionID types.SessionID, workspace types.Workspace, recent int) (types.Optional[apptypes.HandoffSummary], error)
+}
+
+// OneShotCaptureUsecase validates nested capture against an already acquired
+// wrapper identity. It does not register or acquire another invocation.
+type OneShotCaptureUsecase interface {
+	CaptureOneShotStart(ctx context.Context, sessionID, parentSessionID types.SessionID) (*model.Event, error)
 }

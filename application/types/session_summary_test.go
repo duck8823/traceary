@@ -22,7 +22,6 @@ func TestSessionSummaryOf_Getters(t *testing.T) {
 		domtypes.Workspace("github.com/org/repo"),
 		startedAt,
 		endedAt,
-		"active",
 		42,
 		7,
 		agents,
@@ -51,9 +50,6 @@ func TestSessionSummaryOf_Getters(t *testing.T) {
 	}
 	if !gotEndedAt.Equal(startedAt.Add(1 * time.Hour)) {
 		t.Errorf("EndedAt() = %v, want %v", gotEndedAt, startedAt.Add(1*time.Hour))
-	}
-	if diff := cmp.Diff("active", summary.Status()); diff != "" {
-		t.Errorf("Status() mismatch (-want +got):\n%s", diff)
 	}
 	if diff := cmp.Diff(42, summary.TotalEvents()); diff != "" {
 		t.Errorf("TotalEvents() mismatch (-want +got):\n%s", diff)
@@ -106,7 +102,6 @@ func TestSessionSummaryOf_EmptyEndedAt(t *testing.T) {
 		domtypes.Workspace("ws"),
 		time.Date(2024, time.January, 2, 3, 4, 5, 0, time.UTC),
 		domtypes.None[time.Time](),
-		"active",
 		0,
 		0,
 		nil,
@@ -129,7 +124,6 @@ func TestSessionSummary_AgentsDefensiveCopy(t *testing.T) {
 		domtypes.Workspace("ws"),
 		time.Date(2024, time.January, 2, 3, 4, 5, 0, time.UTC),
 		domtypes.None[time.Time](),
-		"active",
 		0,
 		0,
 		original,

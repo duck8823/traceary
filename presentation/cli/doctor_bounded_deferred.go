@@ -13,7 +13,6 @@ var doctorInspectCallCheckNames = map[string][]string{
 	"inspectTracearyOnPath":                {"path"},
 	"inspectStaleTracearyProcesses":        {"stale-processes"},
 	"inspectDoctorConfig":                  {"config"},
-	"inspectStaleActiveSessions":           {"stale-active-sessions"},
 	"inspectOfflineMigrations":             {"offline-migrations"},
 	"inspectUnavailableRetention":          {"unavailable-retention"},
 	"inspectOneOffRepairs":                 {"one-off-repairs"},

@@ -22,7 +22,7 @@ func CapacityBenchmarkQueries(ctx context.Context, db *sql.DB) ([]CapacityBenchm
 	searchSQL, searchArgs := buildTwoTierFallbackScanQuery(searchCriteria)
 	latestSQL := latestSessionBoundarySQL(ctx, db)
 	return []CapacityBenchmarkQuery{
-		{Name: "active", SQL: findActiveSessionQuery, Args: []any{"session_started", "", "", "", "", "", "", "session_started", "session_ended"}},
+		{Name: "active", SQL: latestSQL, Args: []any{"session_started", "", "", "", "", "", "", "session_started"}},
 		{Name: "latest", SQL: latestSQL, Args: []any{"session_started", "", "", "", "", "", "", "session_started"}},
 		{Name: "search", SQL: searchSQL, Args: searchArgs},
 	}, nil
@@ -31,7 +31,7 @@ func CapacityBenchmarkQueries(ctx context.Context, db *sql.DB) ([]CapacityBenchm
 // CapacityHandoffPlanQueries returns fixed SQL constituents selected by the production ContextPackBuilder path.
 func CapacityHandoffPlanQueries() []CapacityBenchmarkQuery {
 	return []CapacityBenchmarkQuery{
-		{Name: "session_resolution", SQL: listSessionsQuery, Args: []any{"", "", "", "", "", "", "", "", "", "", "", "", false, "", "", "", "", 1, 0}},
+		{Name: "session_resolution", SQL: listSessionsQuery, Args: []any{"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", 1, 0}},
 		{Name: "recent_command_previews", SQL: selectRecentCommandPreviewsQuery, Args: []any{"", "", 5}},
 		{Name: "compact_summary", SQL: selectLatestPostCompactSummaryQuery, Args: []any{"", "", "", "", "", "", "", 32}},
 	}

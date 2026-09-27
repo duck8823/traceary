@@ -206,7 +206,7 @@ func TestRootCLI_HookSessionRedeliveryKeepsCanonicalWorkspace(t *testing.T) {
 	if err := sqldb.QueryRow(`SELECT COUNT(*) FROM session_workspace_observations WHERE observation_kind = 'supplemental' AND session_id = 'session-canonical'`).Scan(&supplemental); err != nil {
 		t.Fatalf("count supplemental observations: %v", err)
 	}
-	if starts != 1 || supplemental != 1 {
-		t.Fatalf("session starts/supplemental = %d/%d, want 1/1", starts, supplemental)
+	if starts != 1 || supplemental != 0 {
+		t.Fatalf("session starts/supplemental = %d/%d, want 1/0 (conflicting registration refused)", starts, supplemental)
 	}
 }

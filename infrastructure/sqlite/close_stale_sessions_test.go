@@ -23,8 +23,8 @@ func TestStoreManagementDatasource_CloseStaleSessions_UsesLatestActivity(t *test
 		latestEventAt *time.Time
 		wantClosed    int
 	}{
-		{name: "old session without recent event closes", startedAt: now.Add(-48 * time.Hour), wantClosed: 1},
-		{name: "old session with old event closes", startedAt: now.Add(-48 * time.Hour), latestEventAt: timePtr(now.Add(-25 * time.Hour)), wantClosed: 1},
+		{name: "old session without recent event closes", startedAt: now.Add(-48 * time.Hour), wantClosed: 0},
+		{name: "old session with old event closes", startedAt: now.Add(-48 * time.Hour), latestEventAt: timePtr(now.Add(-25 * time.Hour)), wantClosed: 0},
 		{name: "old session with recent event stays active", startedAt: now.Add(-48 * time.Hour), latestEventAt: timePtr(now.Add(-time.Hour)), wantClosed: 0},
 		{name: "fresh session stays active", startedAt: now.Add(-time.Hour), wantClosed: 0},
 	}
@@ -108,14 +108,14 @@ func TestStoreManagementDatasource_CloseStaleSessions_ProtectsCurrentSession(t *
 	if err != nil {
 		t.Fatalf("CloseStaleSessions(dry-run) error = %v", err)
 	}
-	if dryRunCount != 1 {
+	if dryRunCount != 0 {
 		t.Fatalf("dry-run count = %d, want 1", dryRunCount)
 	}
 	closedCount, err := store.CloseStaleSessions(context.Background(), 24*time.Hour, false, []types.SessionID{"current-session"})
 	if err != nil {
 		t.Fatalf("CloseStaleSessions() error = %v", err)
 	}
-	if closedCount != 1 {
+	if closedCount != 0 {
 		t.Fatalf("closed count = %d, want 1", closedCount)
 	}
 
@@ -124,7 +124,7 @@ func TestStoreManagementDatasource_CloseStaleSessions_ProtectsCurrentSession(t *
 		wantClosed bool
 	}{
 		{sessionID: "current-session", wantClosed: false},
-		{sessionID: "abandoned-session", wantClosed: true},
+		{sessionID: "abandoned-session", wantClosed: false},
 	} {
 		var endedAt sql.NullString
 		if err := db.QueryRow(`SELECT ended_at FROM sessions WHERE session_id = ?`, tc.sessionID).Scan(&endedAt); err != nil {

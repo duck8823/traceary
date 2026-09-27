@@ -3,9 +3,11 @@ package cli
 import (
 	"context"
 	"errors"
+	"github.com/duck8823/traceary/application/usecase"
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"golang.org/x/xerrors"
@@ -23,6 +25,7 @@ func (c *RootCLI) runHookSession(
 	action string,
 	dbPath string,
 ) error {
+	ctx = withHookSpoolReceipt(ctx, input)
 	if c.storeManagement == nil {
 		return xerrors.Errorf("initialize store usecase is not configured")
 	}
@@ -60,6 +63,13 @@ func (c *RootCLI) runHookSession(
 		if err != nil {
 			return err
 		}
+		wrapperSessionID := explicitOneShotRuntimeSessionID()
+		if strings.TrimSpace(os.Getenv(runtimeModeEnvKey)) == types.RuntimeModeOneShot.String() {
+			inheritedStore := strings.TrimSpace(os.Getenv("TRACEARY_DB_PATH"))
+			if wrapperSessionID == "" || !filepath.IsAbs(inheritedStore) || filepath.Clean(inheritedStore) != resolvedDBPath {
+				return xerrors.Errorf("nested session start contradicts fixed wrapper SID/store binding: %w", model.ErrInvalidSessionState)
+			}
+		}
 		c.applyDatabasePath(resolvedDBPath)
 		if err := c.storeManagement.Initialize(ctx); err != nil {
 			return xerrors.Errorf("failed to initialize store: %w", err)
@@ -74,7 +84,7 @@ func (c *RootCLI) runHookSession(
 		}
 		sessionID := types.SessionID(hookPayloadString(payload, "session_id", ""))
 		runtimeMode := types.RuntimeModeInteractive
-		if wrapperSessionID := explicitOneShotRuntimeSessionID(); wrapperSessionID != "" {
+		if wrapperSessionID != "" {
 			sessionID = wrapperSessionID
 			runtimeMode = types.RuntimeModeOneShot
 		}
@@ -88,24 +98,15 @@ func (c *RootCLI) runHookSession(
 		}
 		var event *model.Event
 		if runtimeMode == types.RuntimeModeOneShot {
-			event, err = c.session.StartWithRuntimeMode(ctx, types.Client("hook"), agent, sessionID, workspace, parentSessionID, runtimeMode)
+			capture, ok := c.session.(usecase.OneShotCaptureUsecase)
+			if !ok {
+				return xerrors.Errorf("one-shot capture binding lookup is not configured")
+			}
+			event, err = capture.CaptureOneShotStart(ctx, sessionID, parentSessionID)
 		} else {
 			event, err = c.session.Start(ctx, types.Client("hook"), agent, sessionID, workspace, parentSessionID)
 		}
 		if err != nil {
-			// Spool replay (and hosts that re-fire SessionStart) often hit a
-			// session that already committed before the kill. Treat "already
-			// exists" as an idempotent success so the spool record can drain.
-			if sessionID != "" && errors.Is(err, model.ErrInvalidSessionState) {
-				slog.Debug("hook session start already recorded; treating as success", "client", client, "session_id", sessionID)
-				if err := writeHookSessionState(client, sessionID); err != nil {
-					return err
-				}
-				// SessionStart stdout is the wake-injection channel only —
-				// never print the bare session id (#1684).
-				c.maybeInjectWakeSummaries(ctx, output, client, sessionID, workspace, dbPath)
-				return nil
-			}
 			return xerrors.Errorf("failed to record hook session start: %w", err)
 		}
 		// Host-reported model is optional. Claude may omit it; Gemini/Antigravity
@@ -138,7 +139,7 @@ func (c *RootCLI) runHookSession(
 		} else if err := clearHookWorkspaceState(client); err != nil {
 			return err
 		}
-		c.runOpportunisticSessionGC(ctx, resolvedDBPath, event.SessionID())
+		c.maintainHookActivityLeases(event.SessionID())
 		// SessionStart stdout is the wake-injection channel only — never print
 		// the bare session id (#1684). Prefer the canonical workspace when known.
 		injectWorkspace := workspace
@@ -169,22 +170,6 @@ func (c *RootCLI) runHookSession(
 		}
 		if sessionID == "" {
 			return nil
-		}
-		if alreadyEnded, err := hookSessionEndAlreadyRecorded(client, sessionID); err == nil && alreadyEnded {
-			if clearErr := clearHookSessionState(client); clearErr != nil {
-				return clearErr
-			}
-			if clearErr := clearHookWorkspaceState(client); clearErr != nil {
-				return clearErr
-			}
-			if strings.TrimSpace(client) == "claude" {
-				if clearErr := clearHookCancellationDiagnosticsForSession(client, "SessionEnd", sessionID); clearErr != nil {
-					slog.Debug("hook already-ended cancellation diagnostic cleanup failed", "client", client, "session_id", sessionID, "error", clearErr)
-				}
-			}
-			return nil
-		} else if err != nil {
-			return err
 		}
 
 		resolvedDBPath, err := resolveDBPath(dbPath)
@@ -252,30 +237,18 @@ func (c *RootCLI) runHookSession(
 		if err := cleanupHookActiveSubagentStates(client); err != nil {
 			return err
 		}
-		if err := markHookSessionEnded(client, sessionID); err != nil {
-			return err
-		}
 		// Schedule only after every primary event and hook-state transition is
 		// complete, so worker startup cannot consume the cleanup budget.
 		c.scheduleHookMemoryExtract(hookMemoryExtractRequest{
 			SessionID: sessionID, Workspace: workspace, DBPath: resolvedDBPath, SourceBoundary: "session_end",
 		})
 		c.runHookMemoryDecayBestEffort(ctx, resolvedDBPath)
-		// Drain stale active sessions after the session ends so multi-agent
-		// dogfood does not depend only on the next session start (#1363).
-		c.runOpportunisticSessionGC(ctx, resolvedDBPath, sessionID)
+		// Retain lease cleanup independently of any grouping lifecycle.
+		c.maintainHookActivityLeases(sessionID)
 		return nil
 	case "stop":
-		// Codex fires Stop after every assistant response, not when the
-		// conversation is over: the same Codex session keeps receiving
-		// turns afterwards (one rollout JSONL spans days), so treating
-		// Stop as a session end closed multi-turn sessions early and
-		// emptied active-session reads (#1170). Stop is a turn boundary:
-		// keep the session row open and the hook state intact so later
-		// prompts and tool audits resolve to the same session. A session
-		// now ends via an explicit end signal (hook end action,
-		// `traceary session end`) or stale GC (hook opportunistic GC /
-		// `traceary doctor --fix`).
+		// Stop is a turn boundary. Recorded grouping and routing remain
+		// available for later prompts/audits, independent of old end markers.
 		sessionID := types.SessionID(hookPayloadString(payload, "session_id", ""))
 		if sessionID == "" {
 			var err error
@@ -286,17 +259,6 @@ func (c *RootCLI) runHookSession(
 		}
 		if sessionID == "" {
 			return nil
-		}
-		if alreadyEnded, err := hookSessionEndAlreadyRecorded(client, sessionID); err == nil && alreadyEnded {
-			// The session was already ended explicitly; a late stop only
-			// cleans up leftover state so later events cannot re-attach
-			// to the ended session through stale state.
-			if clearErr := clearHookSessionState(client); clearErr != nil {
-				return clearErr
-			}
-			return clearHookWorkspaceState(client)
-		} else if err != nil {
-			return err
 		}
 		// Codex exposes no true session-end hook, so keep requesting
 		// extraction at each turn boundary. The durable queue coalesces

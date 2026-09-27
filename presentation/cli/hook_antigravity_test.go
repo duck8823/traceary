@@ -129,12 +129,8 @@ func TestRootCLI_HookAntigravityPreInvocationProtectsCurrentSessionFromGC(t *tes
 		t.Fatalf("age current events: %v", err)
 	}
 	markers, err := filepath.Glob(filepath.Join(os.Getenv("TRACEARY_HOOK_STATE_DIR"), "session-gc", "*.stamp"))
-	if err != nil || len(markers) != 1 {
-		t.Fatalf("session GC markers = %v, err = %v, want one", markers, err)
-	}
-	markerExpired := time.Now().Add(-7 * time.Hour)
-	if err := os.Chtimes(markers[0], markerExpired, markerExpired); err != nil {
-		t.Fatalf("expire GC marker: %v", err)
+	if err != nil || len(markers) != 0 {
+		t.Fatalf("obsolete session GC markers = %v, err = %v", markers, err)
 	}
 
 	if out, _, _ := runAntigravityHook(t, "pre-invocation", payload, opts...); out != "{}" {
@@ -186,7 +182,7 @@ func TestRootCLI_HookAntigravityConcurrentPreInvocationsProtectAllActiveSessions
 	t.Cleanup(func() { _ = sqlDB.Close() })
 	old := time.Now().UTC().Add(-48 * time.Hour).Format(time.RFC3339Nano)
 	for _, sessionID := range []string{"conv-a", "conv-b", "abandoned"} {
-		if _, err := sqlDB.Exec(`INSERT INTO sessions(session_id, started_at) VALUES (?, ?)`, sessionID, old); err != nil {
+		if _, err := sqlDB.Exec(`INSERT INTO sessions(session_id, started_at, client, agent, workspace) VALUES (?, ?, 'hook', 'antigravity', 'github.com/duck8823/traceary')`, sessionID, old); err != nil {
 			t.Fatalf("insert %s: %v", sessionID, err)
 		}
 	}
@@ -259,7 +255,7 @@ func TestRootCLI_HookAntigravityConcurrentPreInvocationsProtectAllActiveSessions
 	}{
 		{sessionID: "conv-a", wantClosed: false},
 		{sessionID: "conv-b", wantClosed: false},
-		{sessionID: "abandoned", wantClosed: true},
+		{sessionID: "abandoned", wantClosed: false},
 	} {
 		var endedAt sql.NullString
 		if err := sqlDB.QueryRow(`SELECT ended_at FROM sessions WHERE session_id = ?`, tc.sessionID).Scan(&endedAt); err != nil {

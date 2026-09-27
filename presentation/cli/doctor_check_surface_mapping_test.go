@@ -13,7 +13,6 @@ var doctorCheckSurfaceMapping = map[string]string{
 	"retry-loops":                   "pillar:command-audit",
 	"sensitive-access-audit":        "pillar:command-audit",
 	"content-event-reliability":     "pillar:session-events",
-	"stale-active-sessions":         "pillar:session-events",
 	"workspace-aliases":             "pillar:session-events",
 	"workspace-observations":        "pillar:session-events",
 	"codex-capture":                 "pillar:session-events",

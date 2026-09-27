@@ -5,7 +5,6 @@ import (
 	"errors"
 	"path/filepath"
 	"reflect"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -361,8 +360,11 @@ func TestSupervisorImportRacesFinalizationWithoutOverwritingOutcome(t *testing.T
 	if err := <-finals; err != nil {
 		t.Fatal(err)
 	}
-	if err := <-imports; err != nil && !errors.Is(err, model.ErrConflictingTerminalState) && !strings.Contains(err.Error(), "SQLITE_BUSY") {
-		t.Fatal(err)
+	if err := <-imports; err != nil && !errors.Is(err, model.ErrConflictingTerminalState) {
+		var coded interface{ Code() int }
+		if !errors.As(err, &coded) || coded.Code()&0xff != 5 {
+			t.Fatal(err)
+		}
 	}
 	stored, err := sessions.FindByID(ctx, s.SessionID())
 	if err != nil {

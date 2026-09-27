@@ -404,7 +404,7 @@ func TestSessionUsecase_Label(t *testing.T) {
 func TestSessionUsecase_Active(t *testing.T) {
 	t.Parallel()
 
-	t.Run("delegates to FindLatest with activeOnly=true", func(t *testing.T) {
+	t.Run("compatibility Active delegates to lifecycle-independent Latest", func(t *testing.T) {
 		t.Parallel()
 
 		event, err := model.NewEvent(
@@ -438,7 +438,7 @@ func TestSessionUsecase_Active(t *testing.T) {
 		if diff := cmp.Diff(1, queryStub.findLatestCalls); diff != "" {
 			t.Fatalf("findLatestCalls mismatch (-want +got):\n%s", diff)
 		}
-		if diff := cmp.Diff(true, queryStub.findLatestActive); diff != "" {
+		if diff := cmp.Diff(false, queryStub.findLatestActive); diff != "" {
 			t.Fatalf("findLatestActive mismatch (-want +got):\n%s", diff)
 		}
 		if diff := cmp.Diff(types.Client("cli"), queryStub.findLatestClient); diff != "" {
@@ -605,7 +605,6 @@ func TestSessionUsecase_List(t *testing.T) {
 				types.Workspace("duck8823/traceary"),
 				mustTime(t),
 				types.None[time.Time](),
-				"active",
 				10,
 				5,
 				[]string{"claude"},
@@ -707,7 +706,6 @@ func TestSessionUsecase_Tree(t *testing.T) {
 				types.Workspace("duck8823/traceary"),
 				mustTime(t),
 				types.None[time.Time](),
-				"active",
 				10,
 				5,
 				[]string{"claude"},
@@ -786,7 +784,6 @@ func TestSessionUsecase_Handoff(t *testing.T) {
 			types.Workspace("duck8823/traceary"),
 			mustTime(t),
 			types.Some(mustTime(t).Add(time.Hour)),
-			"ended",
 			42,
 			30,
 			[]string{"claude", "codex"},
@@ -900,7 +897,6 @@ func TestSessionUsecase_Handoff(t *testing.T) {
 			types.Workspace("duck8823/traceary"),
 			mustTime(t),
 			types.None[time.Time](),
-			"active",
 			0,
 			0,
 			nil,
@@ -926,7 +922,7 @@ func TestSessionUsecase_Lineage(t *testing.T) {
 		t.Parallel()
 
 		want := []apptypes.SessionSummary{
-			apptypes.SessionSummaryOf(types.SessionID("root"), types.Workspace("ws"), mustTime(t), types.None[time.Time](), "active", 1, 0, nil, "", "", types.SessionID("")),
+			apptypes.SessionSummaryOf(types.SessionID("root"), types.Workspace("ws"), mustTime(t), types.None[time.Time](), 1, 0, nil, "", "", types.SessionID("")),
 		}
 		queryStub := &sessionQueryServiceStub{lineageResult: want}
 		sut := usecase.NewSessionUsecase(nil, nil, queryStub, &eventQueryServiceStub{})

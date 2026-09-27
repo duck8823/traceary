@@ -39,7 +39,6 @@ func TestContextUsecase_Handoff(t *testing.T) {
 			domtypes.Workspace("duck8823/traceary"),
 			time.Now().Add(-48*time.Hour),
 			domtypes.None[time.Time](),
-			"stale",
 			1,
 			0,
 			[]string{"codex"},
@@ -93,7 +92,6 @@ func TestContextUsecase_Handoff(t *testing.T) {
 			domtypes.Workspace("duck8823/traceary"),
 			time.Now().Add(-time.Hour),
 			domtypes.None[time.Time](),
-			"active",
 			42,
 			30,
 			[]string{"claude", "codex"},
@@ -219,7 +217,6 @@ func TestContextUsecase_Handoff(t *testing.T) {
 			domtypes.Workspace("duck8823/traceary"),
 			time.Now().Add(-time.Hour),
 			domtypes.None[time.Time](),
-			"active",
 			1,
 			0,
 			[]string{"claude"},
@@ -281,7 +278,6 @@ func TestContextUsecase_Handoff(t *testing.T) {
 			domtypes.Workspace("duck8823/traceary"),
 			time.Now().Add(-time.Hour),
 			domtypes.None[time.Time](),
-			"active",
 			1,
 			0,
 			[]string{"claude"},
@@ -333,7 +329,6 @@ func TestContextUsecase_Handoff(t *testing.T) {
 			domtypes.Workspace("duck8823/traceary"),
 			time.Now().Add(-time.Hour),
 			domtypes.None[time.Time](),
-			"active",
 			1,
 			0,
 			[]string{"claude"},
@@ -386,7 +381,6 @@ func TestContextUsecase_Handoff(t *testing.T) {
 			domtypes.Workspace(""),
 			time.Now(),
 			domtypes.None[time.Time](),
-			"active",
 			0,
 			0,
 			nil,
@@ -420,7 +414,6 @@ func TestContextUsecase_Handoff(t *testing.T) {
 			domtypes.Workspace("duck8823/traceary"),
 			time.Now(),
 			domtypes.None[time.Time](),
-			"active",
 			0,
 			0,
 			nil,
@@ -451,7 +444,6 @@ func TestContextUsecase_Handoff(t *testing.T) {
 			domtypes.Workspace("duck8823/traceary"),
 			time.Now(),
 			domtypes.None[time.Time](),
-			"active",
 			3,
 			1,
 			[]string{"claude"},
@@ -511,7 +503,6 @@ func TestContextUsecase_Handoff(t *testing.T) {
 			domtypes.Workspace("duck8823/traceary"),
 			time.Now().Add(-time.Hour),
 			domtypes.None[time.Time](),
-			"active",
 			1,
 			0,
 			[]string{"claude"},
@@ -555,7 +546,6 @@ func TestContextUsecase_Handoff(t *testing.T) {
 			domtypes.Workspace("duck8823/traceary"),
 			time.Now().Add(-time.Hour),
 			domtypes.None[time.Time](),
-			"active",
 			1,
 			0,
 			[]string{"claude"},
@@ -594,7 +584,6 @@ func TestContextUsecase_Handoff(t *testing.T) {
 			domtypes.Workspace("duck8823/traceary"),
 			time.Now(),
 			domtypes.None[time.Time](),
-			"active",
 			5, 2, nil, "", "", domtypes.SessionID(""),
 		)
 		// ListRecent returns events in descending time order. A
@@ -697,7 +686,6 @@ func TestContextUsecase_Handoff_WorkspaceFallback(t *testing.T) {
 			parentWorkspace,
 			time.Now().Add(-time.Hour),
 			domtypes.None[time.Time](),
-			"active",
 			5,
 			3,
 			[]string{"claude"},
@@ -778,7 +766,6 @@ func TestContextUsecase_Handoff_WorkspaceFallback(t *testing.T) {
 			windowsParentWorkspace,
 			time.Now().Add(-time.Hour),
 			domtypes.None[time.Time](),
-			"active",
 			5,
 			3,
 			[]string{"claude"},
@@ -838,7 +825,6 @@ func TestContextUsecase_Handoff_WorkspaceFallback(t *testing.T) {
 			childWorkspace,
 			time.Now(),
 			domtypes.None[time.Time](),
-			"active",
 			1,
 			0,
 			[]string{"claude"},
@@ -964,8 +950,8 @@ func TestContextHandoffOldUnendedSelection(t *testing.T) {
 	for _, explicit := range []bool{false, true} {
 		t.Run(map[bool]string{false: "implicit", true: "explicit"}[explicit], func(t *testing.T) {
 			now := time.Now()
-			old := apptypes.SessionSummaryOf("old-unended", "workspace", now.Add(-48*time.Hour), domtypes.None[time.Time](), "active", 2, 1, nil, "", "STATUS: ended", "")
-			legacy := apptypes.SessionSummaryOf("legacy-ended", "workspace", now.Add(-72*time.Hour), domtypes.Some(now.Add(-time.Hour)), "ended", 2, 0, nil, "", "legacy summary", "")
+			old := apptypes.SessionSummaryOf("old-unended", "workspace", now.Add(-48*time.Hour), domtypes.None[time.Time](), 2, 1, nil, "", "STATUS: ended", "")
+			legacy := apptypes.SessionSummaryOf("legacy-ended", "workspace", now.Add(-72*time.Hour), domtypes.Some(now.Add(-time.Hour)), 2, 0, nil, "", "legacy summary", "")
 			query := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{old, legacy}}
 			command, err := model.NewEvent("recent-command", domtypes.EventKindCommandExecuted, "cli", "codex", "old-unended", "workspace", "recent command")
 			if err != nil {
@@ -1020,9 +1006,9 @@ func (s *filteredHandoffSessionQuery) ListSummaries(ctx context.Context, limit, 
 func TestContextHandoffExplicitLegacyEndedSelection(t *testing.T) {
 	t.Parallel()
 	now := time.Now()
-	old := apptypes.SessionSummaryOf("old-unended", "workspace", now.Add(-48*time.Hour), domtypes.None[time.Time](), "active", 2, 1, nil, "", "old summary", "")
-	ended := apptypes.SessionSummaryOf("legacy-ended", "workspace", now.Add(-72*time.Hour), domtypes.Some(now.Add(-time.Hour)), "ended", 2, 0, nil, "", "STATUS: ended", "")
-	other := apptypes.SessionSummaryOf("legacy-ended", "other-workspace", now.Add(-24*time.Hour), domtypes.Some(now), "ended", 2, 0, nil, "", "wrong workspace", "")
+	old := apptypes.SessionSummaryOf("old-unended", "workspace", now.Add(-48*time.Hour), domtypes.None[time.Time](), 2, 1, nil, "", "old summary", "")
+	ended := apptypes.SessionSummaryOf("legacy-ended", "workspace", now.Add(-72*time.Hour), domtypes.Some(now.Add(-time.Hour)), 2, 0, nil, "", "STATUS: ended", "")
+	other := apptypes.SessionSummaryOf("legacy-ended", "other-workspace", now.Add(-24*time.Hour), domtypes.Some(now), 2, 0, nil, "", "wrong workspace", "")
 	query := &filteredHandoffSessionQuery{&sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{old, other, ended}}}
 	sut := usecase.NewContextUsecase(query, &eventQueryServiceStub{}, nil)
 	result, err := sut.Handoff(context.Background(), apptypes.NewContextPackCriteriaBuilder().SessionID("legacy-ended").Workspace("workspace").StaleAfter(time.Hour).Build())

@@ -8,6 +8,7 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 ## [Unreleased]
 
 ### Changed
+- **通常 session の log-only grouping (#2401)。** 同一 ID・メタデータの Start は元の開始境界を返し、競合は拒否します。End は個別の明示境界と指定要約の coverage を記録し、終了状態や子孫の cascade を変更しません。manual/context/extract と Active/ActiveOnly 互換検索は記録済み grouping を対象とし、doctor/GC は stale 終了を合成しません。古いローカル終了 marker は capture を抑止しません。native receipt と任意のローカル spool receipt で実際の retry を重複排除し、空の推測 close note を廃止する一方、failure/interrupt は保持します。既存の保存形式・履歴と supervisor 専有の one-shot outcome は維持します。
 - **Log-only context と handoff（#2399）。** handoff と compact-only は古い未終了 session を拒否しなくなり、生成する `STATUS` ヘッダーを削除します。identity 選択、記録済み内容、人間のサマリー、生 context JSON オブジェクトは維持します。
 
 ### Deprecated

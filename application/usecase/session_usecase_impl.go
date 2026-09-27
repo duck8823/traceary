@@ -3,7 +3,6 @@ package usecase
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"strings"
 	"time"
 
@@ -50,14 +49,14 @@ func NewSessionUsecase(
 }
 
 func (u *sessionUsecase) Start(ctx context.Context, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, parentSessionID types.SessionID) (*model.Event, error) {
-	return u.startWithRuntimeMode(ctx, client, agent, sessionID, workspace, parentSessionID, types.RuntimeModeInteractive)
+	return u.startWithRuntimeMode(ctx, client, agent, sessionID, workspace, parentSessionID, types.RuntimeModeInteractive, true)
 }
 
 func (u *sessionUsecase) StartWithRuntimeMode(ctx context.Context, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, parentSessionID types.SessionID, runtimeMode types.RuntimeMode) (*model.Event, error) {
-	return u.startWithRuntimeMode(ctx, client, agent, sessionID, workspace, parentSessionID, runtimeMode)
+	return u.startWithRuntimeMode(ctx, client, agent, sessionID, workspace, parentSessionID, runtimeMode, false)
 }
 
-func (u *sessionUsecase) startWithRuntimeMode(ctx context.Context, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, parentSessionID types.SessionID, runtimeMode types.RuntimeMode) (*model.Event, error) {
+func (u *sessionUsecase) startWithRuntimeMode(ctx context.Context, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, parentSessionID types.SessionID, runtimeMode types.RuntimeMode, ordinaryRegistration bool) (*model.Event, error) {
 	if u.sessionRepo == nil {
 		return nil, xerrors.Errorf("session repository is not configured")
 	}
@@ -66,7 +65,7 @@ func (u *sessionUsecase) startWithRuntimeMode(ctx context.Context, client types.
 		return nil, xerrors.Errorf("failed to start session: %w", err)
 	}
 
-	resolvedSessionID, generated, err := u.resolveSessionStartID(sessionID)
+	resolvedSessionID, _, err := u.resolveSessionStartID(sessionID)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to start session: %w", err)
 	}
@@ -81,16 +80,18 @@ func (u *sessionUsecase) startWithRuntimeMode(ctx context.Context, client types.
 		return nil, xerrors.Errorf("cannot start session %s with itself as parent: %w", resolvedSessionID, model.ErrInvalidSessionState)
 	}
 
-	// When the caller provided an explicit session ID, the session must not
-	// already exist; otherwise the start would silently no-op the session row
-	// while still appending a session_started event.
-	if !generated && !hasStableHookDelivery(ctx) {
-		existing, err := u.sessionRepo.FindByID(ctx, resolvedSessionID)
-		if err != nil {
-			return nil, xerrors.Errorf("failed to check existing session: %w", err)
+	existing, err := u.sessionRepo.FindByID(ctx, resolvedSessionID)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to check session registration: %w", err)
+	}
+	if recorded, ok := existing.Value(); ok {
+		// Public Start registers an ordinary grouping, preserving supported
+		// historical mode metadata rather than managing runtime availability.
+		if ordinaryRegistration && recorded.RuntimeMode() != types.RuntimeModeOneShot {
+			validatedMode = recorded.RuntimeMode()
 		}
-		if _, ok := existing.Value(); ok {
-			return nil, xerrors.Errorf("cannot start session %s: %w", resolvedSessionID, model.ErrInvalidSessionState)
+		if validatedMode == types.RuntimeModeOneShot || recorded.RuntimeMode() == types.RuntimeModeOneShot || recorded.Client() != client || recorded.Agent() != agent || recorded.Workspace() != workspace || recorded.ParentSessionID() != resolvedParentSessionID || recorded.RuntimeMode() != validatedMode {
+			return nil, xerrors.Errorf("session %s registration metadata conflicts with recorded identity: %w", resolvedSessionID, model.ErrInvalidSessionState)
 		}
 	}
 
@@ -269,13 +270,6 @@ func (u *sessionUsecase) StartChild(
 	if !ok {
 		return nil, xerrors.Errorf("parent session not found: %s", parentID)
 	}
-	existingChild, err := u.sessionRepo.FindByID(ctx, resolvedChildID)
-	if err != nil {
-		return nil, xerrors.Errorf("failed to check existing child session: %w", err)
-	}
-	if _, ok := existingChild.Value(); ok && !hasStableHookDelivery(ctx) {
-		return nil, xerrors.Errorf("cannot start child session %s: %w", resolvedChildID, model.ErrInvalidSessionState)
-	}
 
 	spawnOrder, err := u.sessionRepo.NextChildSpawnOrder(ctx, parentID)
 	if err != nil {
@@ -342,98 +336,14 @@ func (u *sessionUsecase) End(ctx context.Context, client types.Client, agent typ
 		return nil, xerrors.Errorf("failed to end session: %w", err)
 	}
 
-	if err := existingSession.End(event.CreatedAt(), ""); err != nil {
-		// A host retry can arrive after the boundary transaction committed but
-		// before hook state or spool cleanup. Let the repository compare stable
-		// delivery evidence: an exact retry short-circuits before updating the
-		// already-ended aggregate, while a different delivery still rolls back
-		// with ErrInvalidSessionState.
-		if !hasStableHookDelivery(ctx) || errors.Is(err, model.ErrSupervisorOwnedSession) {
-			return nil, xerrors.Errorf("failed to end session: %w", err)
-		}
-	}
 	if err := u.sessionRepo.SaveBoundary(ctx, existingSession, event); err != nil {
 		return nil, xerrors.Errorf("failed to save session end: %w", err)
 	}
-	// Best-effort: a parent session ending should not leave its open
-	// descendant sub-sessions dangling with ended_at IS NULL, since
-	// Active() would keep preferring a leaked child for
-	// up to the gc stale window. Hook opportunistic GC and
-	// `doctor --fix` remain the backstop for anything this misses.
-	u.endOpenDescendants(ctx, resolvedSessionID, event.CreatedAt())
 	if err := u.writeEndRefinement(ctx, resolvedSessionID, event.EventID(), summary, "cli:session-end"); err != nil {
 		return nil, err
 	}
 
 	return event, nil
-}
-
-// endOpenDescendants closes still-open sub-sessions transitively parented by
-// sessionID, now that sessionID itself has ended. Failures are logged rather
-// than surfaced: the parent boundary already committed, and hook
-// opportunistic GC / `doctor --fix` close anything left behind.
-func (u *sessionUsecase) endOpenDescendants(ctx context.Context, sessionID types.SessionID, endedAt time.Time) {
-	queue := []types.SessionID{sessionID}
-	visited := map[types.SessionID]struct{}{sessionID: {}}
-	for len(queue) > 0 {
-		current := queue[0]
-		queue = queue[1:]
-
-		childIDs, err := u.sessionRepo.FindOpenChildSessionIDs(ctx, current)
-		if err != nil {
-			slog.WarnContext(ctx, "failed to find open child sessions for parent-ended close", "session_id", current.String(), "error", err)
-			continue
-		}
-		for _, childID := range childIDs {
-			if _, seen := visited[childID]; seen {
-				continue
-			}
-			visited[childID] = struct{}{}
-			if err := u.endChildSessionForParentEnd(ctx, childID, endedAt); err != nil {
-				slog.WarnContext(ctx, "failed to end child session for parent-ended close", "session_id", childID.String(), "error", err)
-				continue
-			}
-			queue = append(queue, childID)
-		}
-	}
-}
-
-func (u *sessionUsecase) endChildSessionForParentEnd(ctx context.Context, childID types.SessionID, endedAt time.Time) error {
-	existing, err := u.sessionRepo.FindByID(ctx, childID)
-	if err != nil {
-		return xerrors.Errorf("failed to find child session: %w", err)
-	}
-	childSession, ok := existing.Value()
-	if !ok {
-		return nil
-	}
-	if childSession.RuntimeMode() == types.RuntimeModeOneShot {
-		return nil
-	}
-	if _, ended := childSession.EndedAt().Value(); ended {
-		return nil
-	}
-
-	event, err := u.buildBoundaryEventAt(
-		ctx,
-		types.EventKindSessionEnded,
-		childSession.Client(),
-		childSession.Agent(),
-		childID,
-		childSession.Workspace(),
-		endedAt,
-		childSessionEndDeliveryFields(childSession.ParentSessionID())...,
-	)
-	if err != nil {
-		return xerrors.Errorf("failed to build child session end event: %w", err)
-	}
-	if err := childSession.End(endedAt, ""); err != nil {
-		return xerrors.Errorf("failed to end child session: %w", err)
-	}
-	if err := u.sessionRepo.SaveBoundary(ctx, childSession, event); err != nil {
-		return xerrors.Errorf("failed to save child session end: %w", err)
-	}
-	return nil
 }
 
 func (u *sessionUsecase) writeEndRefinement(
@@ -518,7 +428,7 @@ func (u *sessionUsecase) List(ctx context.Context, criteria apptypes.SessionList
 		return nil, xerrors.Errorf("offset must be greater than or equal to 0")
 	}
 
-	summaries, err := u.sessionQuery.ListSummaries(ctx, criteria.Limit(), criteria.Offset(), criteria.SessionID(), criteria.Workspace(), criteria.Client(), criteria.Agent(), criteria.Label(), criteria.ActiveOnly(), criteria.From(), criteria.To())
+	summaries, err := u.sessionQuery.ListSummaries(ctx, criteria.Limit(), criteria.Offset(), criteria.SessionID(), criteria.Workspace(), criteria.Client(), criteria.Agent(), criteria.Label(), false, criteria.From(), criteria.To())
 	if err != nil {
 		return nil, xerrors.Errorf("failed to list sessions: %w", err)
 	}
@@ -574,7 +484,7 @@ func (u *sessionUsecase) Lineage(ctx context.Context, sessionID types.SessionID)
 }
 
 func (u *sessionUsecase) Active(ctx context.Context, criteria apptypes.SessionLookupCriteria) (types.Optional[*model.Event], error) {
-	result, err := u.sessionQuery.FindLatest(ctx, criteria.Client(), criteria.Agent(), criteria.Workspace(), true)
+	result, err := u.sessionQuery.FindLatest(ctx, criteria.Client(), criteria.Agent(), criteria.Workspace(), false)
 	if err != nil {
 		return types.None[*model.Event](), xerrors.Errorf("failed to find active session: %w", err)
 	}
@@ -708,14 +618,6 @@ func sessionEndDeliveryFields(summary string) []string {
 	return []string{"session_end", "summary", summary}
 }
 
-func childSessionEndDeliveryFields(parentSessionID types.SessionID) []string {
-	return []string{
-		"child_session_end",
-		"parent_session_id", parentSessionID.String(),
-		"terminal_reason", "parent_ended",
-	}
-}
-
 // inheritAttribution fills empty caller-provided fields from the stored
 // session aggregate. Explicit caller values always win over the stored
 // aggregate.
@@ -750,4 +652,28 @@ func sessionBoundaryBody(eventKind types.EventKind) string {
 	default:
 		return "session boundary"
 	}
+}
+
+// CaptureOneShotStart returns the authoritative acquired boundary for nested
+// host capture without interpreting host attribution as registration metadata.
+func (u *sessionUsecase) CaptureOneShotStart(ctx context.Context, sessionID, parentSessionID types.SessionID) (*model.Event, error) {
+	if u.sessionRepo == nil || u.eventQuery == nil {
+		return nil, xerrors.Errorf("one-shot capture binding lookup is not configured")
+	}
+	stored, err := u.sessionRepo.FindByID(ctx, sessionID)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to inspect one-shot capture binding: %w", err)
+	}
+	session, present := stored.Value()
+	if !present || session.RuntimeMode() != types.RuntimeModeOneShot || session.ParentSessionID() != parentSessionID {
+		return nil, xerrors.Errorf("nested capture does not match an acquired one-shot binding: %w", model.ErrInvalidSessionState)
+	}
+	starts, err := u.eventQuery.ListRecent(ctx, 2, 0, types.EventKindSessionStarted, session.Client(), session.Agent(), sessionID, session.Workspace(), false, time.Time{}, time.Time{}, "")
+	if err != nil {
+		return nil, xerrors.Errorf("failed to retrieve acquired one-shot start: %w", err)
+	}
+	if len(starts) != 1 || starts[0] == nil {
+		return nil, xerrors.Errorf("acquired one-shot start boundary is missing or ambiguous: %w", model.ErrInvalidSessionState)
+	}
+	return starts[0], nil
 }

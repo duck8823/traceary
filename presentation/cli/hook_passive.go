@@ -70,6 +70,7 @@ func (c *RootCLI) runPassiveHookDurably(ctx context.Context, input io.Reader, cl
 }
 
 func (c *RootCLI) runHookPassive(ctx context.Context, input io.Reader, client, action, dbPath string) error {
+	ctx = withHookSpoolReceipt(ctx, input)
 	if action != "interrupt" && action != "stop_failure" && action != "session_end" {
 		return xerrors.Errorf("unsupported passive hook action")
 	}
@@ -87,7 +88,7 @@ func (c *RootCLI) runHookPassive(ctx context.Context, input io.Reader, client, a
 	}
 	ctx = apptypes.WithSourceHook(ctx, action)
 	// Runtime close can recur on the same resumable thread: session_id is not a delivery ID.
-	ctx = apptypes.WithHookDelivery(ctx, apptypes.HookDeliveryInputOf(resolveHookDeliveryNativeID(payload, client, "interrupt"), hookPayloadString(payload, "cwd", "")))
+	ctx = withResolvedHookDelivery(ctx, payload, client)
 	agent, err := resolveHookAgent(client, payload)
 	if err != nil {
 		return err
@@ -104,10 +105,11 @@ func (c *RootCLI) runHookPassive(ctx context.Context, input io.Reader, client, a
 	if err := c.storeManagement.Initialize(ctx); err != nil {
 		return xerrors.Errorf("failed to initialize passive hook store: %w", err)
 	}
-	message := "Host turn interrupted."
+	// Empty inferred close is operational cleanup, not useful content.
 	if action == "session_end" {
-		message = "Host session closed."
+		return nil
 	}
+	message := "Host turn interrupted."
 	if action == "stop_failure" {
 		message = "Host turn failed."
 	}

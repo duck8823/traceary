@@ -6,12 +6,10 @@ import (
 	"io"
 	"log/slog"
 	"strings"
-	"time"
 
 	"golang.org/x/xerrors"
 
 	apptypes "github.com/duck8823/traceary/application/types"
-	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
 
@@ -44,44 +42,33 @@ func (c *RootCLI) resolveManualSessionID(
 	criteria := apptypes.NewSessionLookupCriteriaBuilder().
 		Workspace(types.Workspace(trimmedRepo)).
 		Build()
-	result, err := c.session.Active(ctx, criteria)
+	result, err := c.session.Latest(ctx, criteria)
 	if err != nil {
 		return nil, xerrors.Errorf(
 			"%s: %w",
-			Localize("failed to resolve active session", "active session の解決に失敗しました"),
+			Localize("failed to resolve recorded session", "recorded session の解決に失敗しました"),
 			err,
 		)
 	}
 	if _, ok := result.Value(); !ok {
-		slog.Debug("no active session found for repo, using default", "workspace", trimmedRepo)
+		slog.Debug("no recorded session found for repo, using default", "workspace", trimmedRepo)
 		return &manualSessionResolution{
 			sessionID: defaultSessionIDValue,
 			notice: localizef(
-				"No active session found for %s; using default session ID",
-				"%s に対応する active session が見つからなかったため、既定の session ID を使います",
+				"No recorded session found for %s; using default session ID",
+				"%s に対応する recorded session が見つからなかったため、既定の session ID を使います",
 				trimmedRepo,
 			),
 		}, nil
 	}
 
 	event, _ := result.Value()
-	if isStaleSession(event, defaultActiveSessionStaleAfter) {
-		slog.Debug("active session is stale, using default", "session_id", event.SessionID(), "created_at", event.CreatedAt())
-		return &manualSessionResolution{
-			sessionID: defaultSessionIDValue,
-			notice: localizef(
-				"Active session %s is stale; using default session ID",
-				"active session %s は stale のため、既定の session ID を使います",
-				event.SessionID(),
-			),
-		}, nil
-	}
 
 	return &manualSessionResolution{
 		sessionID: event.SessionID().String(),
 		notice: localizef(
-			"Using active session: %s",
-			"active session を利用します: %s",
+			"Using recorded session: %s",
+			"recorded session を利用します: %s",
 			event.SessionID(),
 		),
 	}, nil
@@ -98,12 +85,4 @@ func writeManualSessionNotice(output io.Writer, notice string) error {
 	}
 
 	return nil
-}
-
-func isStaleSession(event *model.Event, staleAfter time.Duration) bool {
-	if event == nil || staleAfter <= 0 {
-		return false
-	}
-
-	return event.CreatedAt().Before(time.Now().Add(-staleAfter))
 }

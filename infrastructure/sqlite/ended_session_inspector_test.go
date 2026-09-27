@@ -54,6 +54,7 @@ func TestEndedSessionInspector_FindEndedSessionIDs(t *testing.T) {
 		t.Fatalf("SaveBoundary(end) error = %v", err)
 	}
 
+	setLegacySessionEnd(t, dbPath, endedID, endedAt, "done")
 	inspector := infra.NewEndedSessionInspector()
 	got, err := inspector.FindEndedSessionIDs(ctx, dbPath, []types.SessionID{activeID, endedID, "missing-session"})
 	if err != nil {

@@ -2,8 +2,10 @@ package cli_test
 
 import (
 	"bytes"
+	"github.com/duck8823/traceary/domain/types"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/presentation/cli"
@@ -13,21 +15,17 @@ func TestHookSessionStart_AlreadyExistsIsIdempotentForSpoolReplay(t *testing.T) 
 	t.Setenv("TRACEARY_HOOK_STATE_DIR", t.TempDir())
 
 	sessionStub := &sessionUsecaseStub{
-		startErr: model.ErrInvalidSessionState,
+		startEvent: model.EventOf(types.EventID("canonical-start"), types.EventKindSessionStarted, "hook", "codex", "session-already", "/tmp", "session started", time.Now()),
 	}
-	rootCmd := newTestRootCLI(
-		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
-		cli.WithSession(sessionStub),
-	).Command()
+	rootCmd := newTestRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{}), cli.WithSession(sessionStub)).Command()
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(stderr)
 	rootCmd.SetIn(strings.NewReader(`{"session_id":"session-already","cwd":"/tmp","hook_event_name":"SessionStart"}`))
 	rootCmd.SetArgs([]string{"hook", "session", "codex", "start"})
-
 	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("Execute() error = %v\nstderr=%s", err, stderr.String())
+		t.Fatalf("Execute() error = %v stderr=%s", err, stderr.String())
 	}
 	// SessionStart stdout is the wake-injection channel only (#1684); a bare
 	// session id must not appear. With no wake query wired, expect empty.
@@ -43,9 +41,7 @@ func TestHookSubagentStart_AlreadyExistsIsIdempotentForSpoolReplay(t *testing.T)
 	t.Setenv("TRACEARY_HOOK_STATE_DIR", t.TempDir())
 
 	// StartChild reuses startErr on the stub (same as Start).
-	sessionStub := &sessionUsecaseStub{
-		startErr: model.ErrInvalidSessionState,
-	}
+	sessionStub := &sessionUsecaseStub{}
 	rootCmd := newTestRootCLI(
 		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
 		cli.WithSession(sessionStub),
@@ -71,10 +67,7 @@ func TestHookSubagentStop_AlreadyExistsIsIdempotentForSpoolReplay(t *testing.T) 
 
 	// No active subagent state → stop synthesizes StartChild then End.
 	// Both hit ErrInvalidSessionState (already committed before kill).
-	sessionStub := &sessionUsecaseStub{
-		startErr: model.ErrInvalidSessionState,
-		endErr:   model.ErrInvalidSessionState,
-	}
+	sessionStub := &sessionUsecaseStub{}
 	rootCmd := newTestRootCLI(
 		cli.WithStoreManagement(&storeManagementUsecaseStub{}),
 		cli.WithSession(sessionStub),
@@ -115,7 +108,7 @@ func TestHookSessionEndSupervisorOwnershipRefusalDrainsReplay(t *testing.T) {
 			t.Fatalf("end/replay refused to drain: %v", err)
 		}
 	}
-	if len(sessions.endCalls) != 1 {
+	if len(sessions.endCalls) != 2 {
 		t.Fatalf("calls=%d want one refusal then local replay cleanup", len(sessions.endCalls))
 	}
 }

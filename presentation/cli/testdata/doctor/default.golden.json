@@ -95,16 +95,6 @@
       "auto_fix_available": false
     },
     {
-      "name": "stale-active-sessions",
-      "status": "pass",
-      "severity": "PASS",
-      "section": "Database",
-      "message": "no active sessions idle for more than 24h0m0s",
-      "hint": "",
-      "fix_command": "",
-      "auto_fix_available": false
-    },
-    {
       "name": "offline-migrations",
       "status": "pass",
       "severity": "PASS",
@@ -375,16 +365,6 @@
           "auto_fix_available": false
         },
         {
-          "name": "stale-active-sessions",
-          "status": "pass",
-          "severity": "PASS",
-          "section": "Database",
-          "message": "no active sessions idle for more than 24h0m0s",
-          "hint": "",
-          "fix_command": "",
-          "auto_fix_available": false
-        },
-        {
           "name": "offline-migrations",
           "status": "pass",
           "severity": "PASS",
@@ -587,7 +567,7 @@
     }
   ],
   "summary": {
-    "pass": 27,
+    "pass": 26,
     "warn": 1,
     "fail": 0
   },
