@@ -1,234 +1,256 @@
-# ADR: Resumable logical sessions and host-close observations
+# ADR: Session identity without session lifecycle management
 
 [日本語](./2026-09-27-resumable-session-boundaries.ja.md)
 
 - Status: Proposed
 - Date: 2026-09-27
-- Decision owner: Traceary maintainer (human approval required)
-- Reviewers: architecture, lifecycle, hook-delivery, storage/bundle, and independent verifier roles
+- Decision owner: Traceary maintainer (human checkpoint)
+- Reviewers: architecture, context/handoff, hook delivery, execution, storage/bundle, independent verifier roles
 - Related issue: [#2394](https://github.com/duck8823/traceary/issues/2394)
-- Checkpoint: design discussion only; neither runtime implementation nor acceptance is authorized by this ADR.
+- Supersedes: the earlier C/passive-close/runtime-lifecycle proposal in this same design PR, recorded through commit `f502b939`.
+
+The user approved the new direction in conversation: Traceary tracks AI audit logs, events, and refinements; a Session is a grouping identity, not a lifecycle-managed object.
+This record replaces the earlier recommendation rather than extending it with runtime monitoring.
+Detailed implementation and public-contract transitions remain Proposed.
+The human maintainer owns Ready and merge through GitHub UI; no automated transition is authorized.
+This PR changes bilingual design documentation only, uses `Refs #2394`, and leaves the issue open.
 
 ## Requirement summary
 
-A host can stop presenting a conversation without ending the logical work recorded by Traceary.
-The design must distinguish host shutdown from logical termination without weakening terminal-state, ownership, retry, or delegation guarantees.
-The recommendation is option C now: preserve the monotonic logical `Session`, retain passive host-close observations, and report runtime availability as unknown.
-The semantic direction is separate logical conversation and runtime concepts, never reopening a terminal aggregate.
-Option B is a conditional future realization of that separation, not an approved implementation or a prerequisite for eventual human approval of this design.
-C combines the #2393 passive observation baseline with a proposed future read contract; it does not convert every host SessionEnd to passive behavior.
-Existing interactive Claude, Gemini, and Kimi `SessionEnd` mappings invoke aggregate `End` and remain unchanged.
-The identified passive mappings are Codex `SessionEnd`/`Interrupt`, Claude `StopFailure`, and Kimi `Interrupt`; there is no universal passive host-close mapping.
-The distinction applies to identified resumable host-close callbacks; future reclassification needs evidence and review.
-A common monotonic invariant does not imply identical hook mappings.
-No runtime code, schema, historical data, or existing `active` contract changes in this design PR.
-Issue #2394 stays open; a draft design PR uses `Refs #2394`, not a closing reference.
+Append and retrieve relevant recorded work by identity without requiring an active, nonterminal, or recently started Session.
+Remove lifecycle dependence from context/handoff selection and formatting, ordinary host closure, and synthetic stale closure.
+Keep identity, source AI, Workspace, parent delegation lineage, labels, model metadata, recorded events, and refinement coverage.
+Execution success/failure/timeout/signal remains meaningful, but belongs to an invocation outcome, not Session status.
+No reopen, generation, runtime availability, `RuntimeEpisode`, or continuation entity is needed merely to accept resumed logs.
+Physical deletion of legacy columns is not a requirement for achieving these semantics.
 
-## Context and evidence
+Non-goals: runtime monitoring, uptime measurement, retroactive history rewriting, automatic deletion of nonempty logs, production operation, install/login, or release execution in this design task.
 
-The [official Codex hook contract](https://developers.openai.com/codex/hooks), checked on 2026-09-27, describes main-thread `SessionEnd` on normal close, archive/delete of an open conversation, or 30 minutes idle with no connected client; not on subagents.
-Its reason is currently `other`.
-`SessionStart` sources include `startup`, `resume`, `clear`, and `compact`; compaction can continue the same turn.
-These signals do not prove a distinct runtime instance.
-This is documentation evidence, not a live authenticated host test.
+## Current behavior and evidence
 
-Repository evidence at base `a61b0a18b57345f90009ac449a2be3210c8e0910`:
+The current public behavior does include lifecycle-derived statuses; this design changes those dependencies rather than claiming they do not exist.
+At the reviewed repository baseline:
 
-- `domain/model/session_lifecycle.go` preserves the first terminal transition.
-- `application/usecase/session_usecase_impl.go` returns a start Event from `Active` and ends descendants through `End`.
-- `infrastructure/sqlite/sql/find_active_session.sql` includes ended sessions with later events in legacy activity selection.
-- Hook-delivery semantic fingerprints do not establish runtime generation identity.
-- Bundle import rejects `manifest.BundleSchemaVersion` newer than the store before its unknown-table rejection; adding a table is not automatically backward compatible.
+- `handoff.go:126` emits `STATUS`.
+- `context_pack_builder.go:74-75,335-342` applies a stale-start eligibility window.
+- `output.go:127-144` defines the currently unused `sessionSummaryOutput` DTO.
+- Session `Active`/`Latest` return an Event; they are not a context summary consumer contract.
+- Legacy active queries can include `ended_with_late_events`.
+- `update_stale_sessions` has no `runtime_mode` restriction; long-idle one-shot work can be terminalized before finalization.
+- Bundle import rejects a manifest schema version newer than the store and then rejects unknown tables.
 
-The passive adapters addressed by [#2393](https://github.com/duck8823/traceary/issues/2393) pin acquired SID, absolute database route, and raw cwd, not a fully resolved Workspace.
-`TRACEARY_WORKSPACE` and repository detection can still resolve Workspace again during replay.
-Fully immutable Workspace binding is a target and known gap, not an achieved baseline; this scope also does not prove that every legacy routing path is fixed.
+Current interactive Claude, Gemini, and Kimi `SessionEnd` invoke aggregate `End`.
+Current passive mappings include Codex `SessionEnd`/`Interrupt`, Claude `StopFailure`, and Kimi `Interrupt`.
+Interactive logical IDs generally use native `session_id`, except within a one-shot wrapper; repeated starts can succeed idempotently and later same-ID events can attach to terminal records.
+These are distinct current mappings, not a claim that all hosts have identical hook coverage.
+The new proposal removes ordinary tracked-session terminalization instead of protecting a Session terminal invariant.
 
-Interactive hook logical IDs equal native `session_id`, except inside a one-shot wrapper.
-`SessionStart` for an existing ID succeeds idempotently and writes hook state; subsequent same-ID events attach to the already terminal record as late events, not a continuation or reopen.
-C temporarily preserves this behavior: it does not suppress or drop later events, and legacy `active` can include `ended_with_late_events`.
-Passive close notes recorded after end can themselves satisfy that activity query.
-
-The `session_start`/`session_end` delivery fallback uses `session_id`, so repeated starts can collapse into exact retries; start source is not instance identity.
-Passive close receipts without native event IDs are preserved differently: this asymmetry cannot establish runtime order.
-Host redelivery ambiguity is distinct from Traceary local replay after commit-before-spool-clear.
-A future locally assigned receipt ID and acquisition `received_at` can deduplicate local replay without proving a host episode or causal order.
-Current spool `CreatedAt` is not equivalent to persisted event `recorded_at`, and neither establishes runtime duration.
-The existing one-shot wrapper can observe its local process lifetime; that does not prove host-global episode identity.
-
-## Cross-host applicability
-
-The same logical terminal invariant applies to every host; callback completeness and correlation evidence differ.
-Native/runtime ID strings establish correlation only, not authentication or authorization scope.
-
-| Host | Capability boundary under C |
-| --- | --- |
-| Claude | Interactive `SessionEnd` invokes `End`; `StopFailure` is passive; preserve both mappings |
-| Codex | `SessionEnd`/`Interrupt` are passive; documented callbacks do not prove runtime instance/order identity |
-| Gemini | Interactive `SessionEnd` invokes `End`; missing runtime-instance evidence means unknown, not fabricated closure |
-| Grok | Missing or incomplete end evidence means unknown, not fabricated closure |
-| Kimi | Interactive `SessionEnd` invokes `End`; `Interrupt` is passive; do not infer stronger correlation |
-| Muse | Missing or incomplete end evidence means unknown, not fabricated closure |
-| Antigravity | Missing or incomplete end evidence means unknown, not fabricated closure |
-
-This table is a design constraint, not a claim of tested hook coverage across all clients.
+[#2393](https://github.com/duck8823/traceary/issues/2393) pins acquired SID, absolute database route, and raw cwd for its scoped passive paths.
+Fully resolved Workspace is not pinned: `TRACEARY_WORKSPACE` and repository detection can re-resolve during replay.
+That known routing gap is independent of lifecycle removal; neither change proves all legacy routing is fixed.
+Native IDs are correlation data, not authentication or authorization scope.
+Host identity ambiguities require verified namespace/store routing, not invented identities or automatic cross-store merges.
 
 ## Alternatives considered
 
-| Option | Benefit | Cost or invalid assumption | Recommendation |
+| Option | Benefit | Cost | Recommendation |
 | --- | --- | --- | --- |
-| A: clear `endedAt` and reopen a Session | Reuses the existing entity | Violates first-terminal preservation; conflicts with one-shot ownership and retry-ledger expectations; late old End can terminalize a resumed generation | Reject |
-| B: separate `RuntimeEpisode` under a logical Session | Could represent proven host instances without changing logical termination | Requires stable instance/correlation identity, replay identity and causal ordering, concurrent-client rules, schema and bundle design | Conditional future only |
-| C: logical Session plus passive host observations | Preserves existing lifecycle and records only known facts | Cannot provide runtime availability, duration, or episode counts | Recommend now, subject to human approval |
+| Retain lifecycle as authoritative | Minimizes semantic change | Continued stale/terminal read exclusions and host-driven state coupling conflict with log tracking | Reject as target; legacy wire compatibility only |
+| Separate optional runtime episodes | Could describe runtime instances with stronger host evidence | Adds monitoring concepts, identity/order requirements and schema work unrelated to accepting logs | Do not introduce for this requirement |
+| Session as log grouping identity only | Matches append/retrieve/refine purpose; execution outcomes remain separate | Requires caller audit, public-contract migration and execution isolation | Recommend, subject to implementation checkpoint |
 
-Episodes must never be represented as child Sessions.
-A child means delegated work, with recursive terminalization and GC implications; a runtime restart does not establish delegation.
+## Conceptual model
 
-## Conceptual model and invariants
-
-| Concept | State and behavior | Constraint |
+| Concept | State / behavior | Invariant |
 | --- | --- | --- |
-| Logical `Session` | Existing aggregate lifecycle; explicit end remains terminal | First terminal time/reason is preserved; no reopen |
-| `PassiveHostObservation` | Generic passive report with `SessionClose`, `TurnInterrupt`, or `TurnFailure` subtype | All subtypes preserve logical state; only SessionClose contributes to the close summary |
-| `SessionClose` | `source_hook=session_end`; current passive mapping is Codex only | A host-close report, not logical termination or present availability |
-| `TurnInterrupt` | `source_hook=interrupt`; current passive mappings are Codex/Kimi | A turn report, not a session close |
-| `TurnFailure` | `source_hook=stop_failure`; current passive mapping is Claude | A turn report, not a session close |
-| Legacy activity selection | Existing `active`, `ended_with_late_events`, and stale/activity rules | Activity is not aggregate terminal status or runtime availability |
-| Runtime availability | `UNKNOWN` with current evidence | Close receipt does not prove the present host is stopped |
-| Future `RuntimeEpisode` | Optional host instance projection | Requires independently proven correlation and replay/order identity |
-| Future continuation relation | Explicit link between logical work records | Separate approved design; not a child and not an automatic resume binding |
+| Session identity | Groups recorded work and metadata | Appendability/retrievability does not depend on `endedAt`, active/stale status or start age |
+| Event | Recorded audit/content fact with identity and provenance | Preserve useful history, redaction and reliable delivery; do not fabricate current state |
+| Refinement | Summary plus explicit coverage | Coverage remains monotonic; include subsequent uncovered events within budget |
+| Context selection | Explicit identity/selector or latest relevant recorded session | Relevance and explicit filters govern selection, not terminal state |
+| Invocation / ExecutionResult | One-shot process completion with success/failure/timeout/signal and usage | Execution owner owns completion/idempotency; later logs cannot overwrite outcome |
+| Parent lineage | Delegation relationship | Parent completion does not deny child append; lineage is not process cancellation |
+| Legacy lifecycle fields | Historical compatibility data | Initially retained; not authoritative eligibility or execution-result inputs |
 
-The last recorded host-close summary derives only from `kind=note` events with `source_hook=session_end`, within the documented passive host mapping scope (currently Codex).
-`kind=note` plus `source_hook` provides semantic discrimination; do not parse body strings or include Interrupt/StopFailure notes.
-The hook Event client is currently `hook`; do not invent a `Codex` client discriminator.
+An Invocation is a conceptual responsibility, not an approved new table or API schema.
+A compatibility implementation may initially retain existing storage while preserving process outcomes; any additive invocation storage needs a separate approved migration plan.
+An InvocationID must be distinct from SessionID and delivery ID, acquired and fixed before retry; repeated executions in one recorded Session must not conflict.
+Move the old first-terminal invariant from Session to the execution owner where completion is meaningful.
+Do not erase or recompute an execution result when later Session events arrive.
 
-1. Keep three read concepts separate: aggregate logical terminal status, legacy activity query, and runtime availability.
-2. Describe the semantic meaning as the **last recorded host-close observation**; the final CLI/API wording is provisional. Recording time is not occurrence time, causal order, duration, or an episode count.
-3. Without a host event ID, repeated receipt and distinct close occurrences can be indistinguishable. A semantic fingerprint cannot resolve that ambiguity.
-4. Replay order and recorded-at timestamps cannot establish runtime causal order.
-5. Target: bind native identity, fully resolved Workspace/local root, and a fixed database route at acquisition, before spooling. #2393 currently pins SID, absolute database route, and raw cwd only; full Workspace binding remains a gap. Any future episode identity must also be bound before spooling, not rediscovered during replay.
-6. A late old close must not end a newer generation. Without proven generation identity, do not select a guessed current episode.
-7. Preserve explicit end, one-shot completion, descendant terminalization, and existing GC `legacy_unknown` termination. GC can still terminalize a logical root; this limitation is not silently changed. Its SQL is not restricted by `runtime_mode`, so an unprotected long-idle one-shot can be terminalized and conflict with `FinalizeOneShot`. Owner-only completion is the intended boundary, with this known GC exception.
-8. A resume after logical termination cannot reopen that record or automatically bind a new continuation. Archive, delete, and ordinary close share insufficient reasons; restore cannot infer a continuation.
-9. Multiple clients sharing a native thread do not imply one current runtime episode.
+## Responsibilities and consumer-oriented interfaces
 
-## Responsibilities and proposed interfaces
-
-These are semantic contracts, not approved API names or DTO schemas.
-Keep host payloads and SQLite details outside the domain.
-
-| Layer / owner | Responsibility and boundary | Failure / non-owner contract |
+| Owner | Responsibility / consumer boundary | Must not do |
 | --- | --- | --- |
-| Domain | Own logical terminal invariants; define observation meaning; own a future episode invariant only if approved | Never infer lifecycle from host DTOs or storage order |
-| Application write | Accept normalized passive observation with acquired logical identity; coordinate existing event recording without `End` | Missing/ambiguous identity cannot mutate a guessed Session; no automatic continuation |
-| Application read/query | Expose terminal status, legacy activity, and observation summary as distinct read concepts | Runtime availability stays unknown; no silent `active` redefinition |
-| Presentation / host adapter | Parse source/reason and observation subtype; acquire SID, fixed absolute DB route and raw cwd before enqueue; fully resolved Workspace binding remains a target/known gap | Unsupported or incomplete evidence is explicit; never infer host from a nonexistent Event client discriminator |
-| Presentation / CLI | Label recorded observations and unknown availability without an uptime claim | Preserve existing flags/output contracts unless separately approved |
-| Infrastructure | Persist/replay acquired SID/database/raw-cwd context; target fully immutable Workspace binding; implement repositories and optional future projection storage | Do not rebind acquired SID/database; Workspace may currently re-resolve, a known gap; never guess an episode |
+| Domain Session/identity | Identity, source AI, Workspace and delegation metadata | Authorize logging or reading based on lifecycle |
+| Domain execution owner | Completion and immutable invocation outcome | Treat outcome as Session closure or deny later logs |
+| Application event/refinement writes | Append useful records, preserve coverage and delivery idempotency | Reject resumed logs because of historical end/GC markers |
+| Application context query | Return relevant refinement and uncovered events for selection, cutoff and budgets | Route context through `Active`/`Latest` merely to obtain a lifecycle snapshot |
+| Presentation context/handoff | Render selected content and recorded provenance | Add `STATUS`, lifecycle-derived duration or runtime availability; rewrite human summary prose |
+| Presentation host adapter | Individually interpret callbacks; acquire fixed SID/DB routing before enqueue; Workspace pinning remains a target/gap | Infer closure from inactivity or discard logs during cleanup |
+| Application invocation / supervisor | Own process completion, cancellation, usage and wrapper routing | Confuse removal of recursive Session End with removal of subprocess cancellation |
+| Infrastructure | Persist compatible legacy data, implement bounded retrieval and reliable replay | Re-enable read exclusions from old end/import data; silently migrate schema |
 
-Use-case comparison: existing session use cases own aggregate writes (`End`, `FinalizeOneShot`); `Active` is a read returning a start Event, not an aggregate operation.
-Observation capture is a different semantic operation: reusing aggregate termination would introduce recursive side effects into a passive report.
-Reuse event recording where suitable; do not create a generic host lifecycle engine, Strategy hierarchy, or a new use-case class for every hook name.
-Whether an observation needs a separate public method remains a checkpoint decision based on consumers and transaction boundaries.
+Use narrow consumer contracts: append to an acquired identity; select context using identity/relevance, coverage, filters and budgets; finalize an invocation using its outcome.
+Audit callers of existing `Active`/`Latest` Event-returning interfaces before adding or replacing a method.
+Do not introduce a broad lifecycle facade or a generic monitoring framework.
+Remove unused `sessionSummaryOutput` and derived `SessionStatus` propagation only after a caller audit proves the affected paths and any public output compatibility obligations.
+A SessionSummary may still carry content aggregates and coverage; removing an unused DTO does not remove all summary types.
+Public list/status output is not assumed nonexistent; each affected public consumer needs an explicit transition decision.
 
-## Behavioral acceptance specification
+## Context and handoff contract
 
-The following are proposed tests for subsequent approved implementation, not tests executed by this documentation change.
+Explicit identity selection wins over implicit latest selection.
+Implicit selection chooses the latest relevant recorded session in the requested source/workspace scope.
+Preserve existing latest-selection scope, order and tie-breaking wherever independent of lifecycle; remove only active/stale eligibility.
+Any ranking change to prefer meaningful content over registration-only records requires a separate follow-up checkpoint, not a silent change bundled here.
+Use summary coverage and subsequent events with item, token and time budgets.
+A session older than 24 hours remains eligible for explicit lookup; `startedAt` age alone cannot reject it.
+Remove stale-triggered handoff re-query and guidance to close work with `session end`, not only the stale rejection.
+Explicit user date/content filters and an as-of cutoff remain supported: timestamps are recorded data, not lifecycle boundaries.
+Deliberately remove generated `STATUS`, lifecycle-derived duration and running/stopped assertions from handoff/context with versioned release documentation, golden output tests and a JSON/downstream field audit.
+Inventory `--allow-stale` and stale-after consumers; the recommended transition is documented deprecated no-op compatibility flags once lifecycle eligibility is removed, subject to public version policy.
+Do not edit a human-authored summary that happens to contain those words.
+A close note covered by a refinement is not redundantly emitted as an uncovered note; an uncovered historical note remains eligible under the same content budget rules.
 
-| Given / when | Observable result | Level |
+## Host callback and delivery contract
+
+Ordinary tracked-session `SessionEnd` stops terminalizing the Session and its descendants.
+It may still flush usage/transcript records, emit bounded diagnostics, and clean hook state using acquired SID and fixed DB routing.
+Flush and replay must not silently discard logs when hook state is cleaned or a callback arrives late.
+Propose ceasing default inferred host-close content notes for end-only empty payloads: that is noise reduction, not blanket event removal.
+Retain useful Interrupt/StopFailure audit outcomes when needed, with accurate provenance and no labels pretending to describe Session state.
+Retain existing start/end/close events as history; no retroactive purge or body rewrite.
+
+A minimal alternative for operational receipts is existing delivery ledger/spool metadata plus bounded sanitized diagnostics, not a new event framework.
+If a durable local receipt ID or acquisition `received_at` is needed for commit-before-spool-clear deduplication, approve its exact storage separately.
+Host redelivery without an event ID remains distinguishable from neither a new host occurrence nor runtime order by inference alone.
+A local receipt can deduplicate local replay without establishing a host episode.
+Spool `CreatedAt` is not persisted event `recorded_at`; neither proves runtime duration.
+Preserve redaction, acquisition routing, retry reliability and useful failure logs.
+
+| Host | Required individually evidenced contract review |
+| --- | --- |
+| Claude | Replace ordinary interactive SessionEnd terminalization; keep necessary flush/cleanup and useful StopFailure outcomes |
+| Codex | Review removal of default inferred SessionEnd notes; retain useful Interrupt outcomes and flush/cleanup |
+| Gemini | Replace ordinary interactive SessionEnd terminalization; verify start/clear and flush/cleanup independently |
+| Grok | Verify actual supported hooks and acquisition; absence of callback is not a synthetic end |
+| Kimi | Replace ordinary interactive SessionEnd terminalization; retain useful Interrupt outcomes |
+| Muse | Verify actual supported capture/receipts; do not fabricate lifecycle callbacks |
+| Antigravity | Verify actual supported capture/flush/cleanup; do not fabricate lifecycle callbacks |
+
+This table prescribes future contract checks, not certified host coverage or executed live tests.
+
+## One-shot, explicit end, and housekeeping
+
+Preserve one-shot CLI exit code, process cancellation, signals, timeout behavior, usage capture, fixed wrapper SID/DB routing, and active-execution protection.
+Session remains appendable after the process completes.
+Disabling recursive Session End does not cancel the supervisor's responsibility to stop child processes.
+Execution-result isolation must ensure legacy end imports or replay cannot override a new invocation outcome.
+
+Do not silently reinterpret the current public `session end` command.
+Choose the target: `session start` registers identity and a start marker idempotently; `session end` records an explicit end marker only, without terminalization or a retrieval gate.
+Deprecate lifecycle interpretation with versioned release documentation and a bounded compatibility adapter; preserve existing ID output and flags where feasible, validated by contract tests.
+Until the stage is approved, the bridge retains old behavior; no immediate idempotence or compatibility guarantee is made.
+The public-contract migration checkpoint precedes implementation of the new marker semantics.
+The existing End use case also bundles summary/refinement and cascade; its marker-only replacement must preserve supplied summary and coverage semantics while removing terminal side effects.
+During transition, an old end marker may remain recorded in legacy fields/events, but it must not exclude subsequent content or mutate an isolated invocation outcome.
+Exact warning, exit-code, structured-output and marker details must be resolved within that chosen transition.
+
+Disable synthetic stale close: GC must not invent `endedAt` as a housekeeping action.
+Separate opt-in, bounded retention/empty-orphan housekeeping from log identity.
+Protect delegation lineage, refinement references/coverage, pending spool/receipts and active one-shot execution; identify safe orphan criteria and require a bounded dry-run before any deletion proposal.
+Housekeeping eligibility is not determined merely by a non-ended status.
+Never delete nonempty log records merely because they are old or marked ended.
+Any broader retention deletion requires separate explicit authorization/design; it is not part of this proposal.
+
+## Behavioral specification and TDD plan
+
+These are proposed acceptance tests, not tests run by this documentation-only change.
+
+| Scenario | Observable target | Test level |
 | --- | --- | --- |
-| Open logical work, passive Codex close/resume/close/resume on the same native thread | Logical record stays nonterminal; observations do not establish episode count or availability | Hook integration + read |
-| Codex `SessionStart` source `compact` or `clear` | No inferred new runtime instance; no logical reopen | Adapter |
-| Open Codex thread is archived or deleted, then restored | Passive close remains a report; reason `other` cannot distinguish causes; no inferred continuation | Integration |
-| All clients detached and idle; close is delivered later | No claim that recording time equals shutdown time, or that the host remains unavailable | Read |
-| Same event ID is replayed | Existing delivery idempotency prevents duplicate effect within its documented scope; logical state unchanged | Delivery integration |
-| Missing event ID, identical payload arrives twice | Cannot assert one occurrence or two episodes; preserve documented receipt/dedup semantics | Delivery + read |
-| Old close replayed after a newer resume | Fixed old routing retained; no termination or guessed current-episode update | Spool integration |
-| Passive Codex/Kimi Interrupt, then resume | Interrupt is not logical termination or proven runtime boundary | Adapter + domain |
-| Concurrent clients use one native thread | Do not collapse them into a single guessed episode; availability unknown | Concurrency integration |
-| One-shot command nests passive host callbacks and receives close, excluding the known GC exception | Owner completion boundary retained; passive close does not complete it or descendants | Use case |
-| Terminal Session receives same-ID start/resume then an event | Same logical ID and first end preserved; event retained as late event; legacy active remains eligible, not a continuation | Hook + read |
-| A close note is followed by an Interrupt or StopFailure note | Later turn reports cannot replace the last recorded close; use note/source_hook semantics, not body parsing; no running assertion | Query + CLI |
-| Terminal Session receives a passive close note | End unchanged; note retained and can count as a late event in existing activity query | Hook + read |
-| Commit succeeds but spool clear fails, then local replay | Distinguish local duplicate from host redelivery; future receipt identity may dedup replay without episode/order claims | Delivery integration |
-| Terminal parent receives close or resume | First terminal preserved; no reopen, descendant recreation, or automatic continuation | Domain + use case |
-| Explicit end recursively terminalizes descendants | Existing behavior retained; observations cannot undo it | Use case |
-| Unprotected long-idle one-shot encounters GC before finalization | Characterize current GC terminalization/FinalizeOneShot conflict; owner-only completion is intended, not a current GC guarantee | Storage + use case |
-| GC closes stale logical root with `legacy_unknown` | Existing terminal retained even on later resume; expose limitation, not hidden semantics change | Storage integration |
-| Existing bundle exported/imported under C | Schema and logical/event records remain compatible; no fictional episodes | Bundle integration |
-| Future B bundle opened by older importer | Defined version gate/rejection tested before rollout; unknown tables must not be silently lost | Compatibility |
-| Future proven episode identity is missing or conflicts | No projection onto a guessed episode; retain observation and surface uncertainty/error policy | Future B integration |
+| Same native identity resumes after explicit or GC end marker, then appends | Same grouping identity, old markers retained, new event queryable; no reopen/generation needed | Hook + query integration |
+| Duplicate start/end deliveries | No loss of useful logs or duplicate completion; preserve documented receipt scope | Delivery integration |
+| Missing host event ID | Do not invent occurrence/order; preserve local replay reliability and redaction | Spool integration |
+| Idle session started over 24 hours ago selected explicitly | Relevant events/refinement returned without stale-start denial | Context integration |
+| Summary-covered and later uncovered historical close notes | Coverage respected; uncovered notes budgeted normally; no history purge | Context query |
+| Two invocations share one Session and retry independently | Distinct acquired InvocationIDs preserve each outcome without Session/delivery identity collision | Invocation integration |
+| Explicit end supplies summary/refinement | Marker-only target preserves summary and coverage, not recursive terminal side effects | Use case + CLI |
+| One-shot success/failure/timeout/signal, then later Session event | CLI/process outcome preserved, event appended, no completion conflict | Supervisor + use case |
+| Parent execution finishes, child emits later log | Child lineage and content retained; process supervision rules remain independent | Domain + integration |
+| Host end callback has useful usage/transcript data | Data flushed with acquired SID/DB, bounded diagnostics and cleanup; no terminalization or silent drop | Host fixtures |
+| End-only empty callback | No default inferred close content note; operational receipt reliability remains | Host + delivery |
+| Legacy bundle imported with end/runtime fields, no schema change | History preserved; fields do not restore read exclusions or override new execution outcome | Bundle integration |
+| Context exceeds item/token/time budget or as-of cutoff | Deterministic bounded relevant content; no STATUS/availability/duration; explicit filters honored | Query + CLI |
+| Human summary contains status prose | Summary unchanged; only generated lifecycle scaffolding removed | Rendering |
+| GC sees idle nonempty record or active execution | No synthetic close/nonempty purge; execution and references protected | Storage integration |
+| Each of seven host integrations changes contract | Host-specific fixtures prove flush, routing, cleanup, useful failures and receipt behavior | Adapter integration |
 
-## TDD plan
-
-| Step | Red specification | Minimal green | Refactor boundary |
+| TDD step | Red | Minimal green | Refactor boundary |
 | --- | --- | --- | --- |
-| 1 | Identified passive callback changes aggregate/descendant terminal state | Route passive reports without aggregate `End` | Domain invariants versus application capture |
-| 2 | Replay resolves a different session/store | Bind and replay acquired routing context | Presentation acquisition versus infrastructure transport |
-| 3 | Read output implies running/stopped, duration, or episode count | Render separate terminal/activity/recorded-observation concepts and unknown availability | Query DTO versus CLI rendering |
-| 4 | Explicit end, one-shot, GC, or bundle regression | Preserve their existing observable behavior | Avoid lifecycle flags in generic event recording |
-| Future B only | Proven identity/order or format compatibility fails | Add narrowly scoped identity/projection contracts after approval | Episode invariant owner versus persistence |
+| Read dependence first | End/stale-start rejects relevant context or produces STATUS | Identity/relevance/coverage/budget query; remove generated lifecycle rendering | Consumer query versus old Event-returning helpers |
+| Ordinary closure writers | Host callback or GC creates authoritative terminal state | Preserve flush/diagnostics/cleanup without closure; no default empty close note | Host interpretation versus useful event capture |
+| Execution isolation | Session append/import/replay conflicts with one-shot result | Completion belongs to execution owner; preserve process outcome and active protection | Invocation outcome versus Session identity |
+| Compatibility | Old bundle/end marker restores exclusion or loses history | Legacy wire retained and read nonauthoritative; public adapter explicitly tested | Storage compatibility versus product semantics |
 
-Run affected unit, SQLite/spool/bundle integration, host fixture, and CLI contract tests before each implementation commit.
-Fresh CI and independent review remain implementation gates; a passing documentation check is not lifecycle validation.
+Run affected unit, CLI output, context, SQLite, hook/spool and supervisor tests at implementation checkpoints.
+Any schema phase additionally requires migration, index, bundle compatibility and recovery tests.
+Independent review and fresh CI are required before delivery; documentation checks alone do not validate these behaviors.
 
-## Human checkpoint and delivery phases
+## Human checkpoint and proposed delivery phases
 
-The human maintainer must first decide whether C is acceptable, resolve the product questions below, and approve the implementation scope.
-Independent architecture/lifecycle, delivery, and bundle reviewers should check invariants and evidence before that checkpoint.
-This ADR remains Proposed until that explicit decision is recorded.
-This high-risk ADR draft must not be automatically marked Ready or merged; the human maintainer owns those transitions through the GitHub UI.
+The conversation approved the direction, not every public transition or migration detail.
+Before implementation, approve context ranking/output migration, explicit-end deprecation, host contract changes, execution protection and compatibility boundaries.
+Use one ticket, branch and PR per bounded implementation phase after that checkpoint; these are proposals, not authorization to create tickets now.
 
-After approval, create independent tickets and one PR per ticket:
+1. Audit callers, remove context/read lifecycle dependence and unused status DTO propagation, retaining legacy wire/storage.
+2. Remove ordinary closure writers and synthetic GC close; review each host's flush/cleanup, useful outcomes and empty-note policy; design only opt-in safe housekeeping.
+3. Isolate one-shot outcomes behind an execution owner with compatibility storage where possible; additive Invocation storage needs a separate approved schema/bundle plan.
+4. Consider optional physical lifecycle-column removal only in a separate decision; it is not necessary for this feature.
 
-1. Treat completed #2393 passive acquisition/routing as the baseline, not a new implementation ticket. If review finds a remaining routing gap, scope a separate ticket to that proven gap; do not claim a global routing fix.
-2. Add or clarify observation/read contracts and user-facing uncertainty, without redefining existing `active`.
-3. Add regression fixtures and operator documentation for explicit end, resume-after-terminal, GC, and bundles.
-4. Consider B only after a host evidence spike proves stable instance/correlation and replay/order identity, followed by another human-gated design and versioned migration/bundle plan.
+Dogfood before release using isolated DB/store fixtures and sanitized controlled real sessions to exercise resume, flush, refinement, replay and one-shot outcomes.
+Define fixture routing and redaction in advance; do not use existing private logs as test input by default.
+The design task performs no install, login, production operation or release.
 
-These phases are proposals, not preauthorized external issue creation or implementation.
+## Migration and rollback safety
 
-## Consequences, migration, and rollback
+Initially retain `endedAt`, `runtimeMode`, `terminalReason` and their existing bundle wire representations without DROP, backfill or historical mutation.
+Legacy fields may be read for compatibility/history, not as authoritative derived status or execution outcome.
+Preserve existing wire fields and recorded timestamps initially; date diagnostics, explicitly scoped retention inputs and content filters are not blanket-removed with lifecycle-derived context scaffolding.
+Read changes precede removal of ordinary closure writers and GC behavior; execution-result projection follows as an isolated phase.
+Mixed-version imports/replay of old end data must not silently restore exclusion or replace new outcomes in the new implementation.
+Retained legacy boundary events/columns support old bundle representation, but cross-version roundtrip semantics are not universally guaranteed.
+Document intentional new-contract incompatibilities and version gates.
+Old binaries do not implement these semantics; mixed-version operation is not a semantic guarantee.
 
-C keeps the current schema and logical lifecycle unchanged.
-It cannot answer whether a runtime is currently attached or how many times it restarted; observation wording must communicate that cost.
-Existing explicit terminal records and GC results remain terminal, even when that limits later resumability.
+Without a schema migration, reverting the application version is technically possible but restores old semantics; require explicit operational acceptance and preserve recorded data.
+If choosing a feature/config rollback switch, define its affected read/writer scope and compatibility behavior at checkpoint; no such current flag is claimed.
+Future Invocation schema/index changes require versioned migration and bundle gates; older builds reject newer bundle versions.
+No universal downgrade promise is made, even for additive SQL changes.
+Retain a tested export/recovery path and logical records; never rewrite historical markers to simulate a successful rollback.
 
-No historical episode backfill is permitted from close/start timestamps, fingerprints, or archive/restore guesses.
-C read contracts use existing events without migration; if approval identifies any required schema change, apply the same checkpoint and versioned bundle gate as B.
-For future B, use additive storage only after a bundle-format compatibility gate, explicit unknown historical state, and tested upgrade/old-import behavior.
-An additive SQL migration alone does not solve the importer rejection contract.
+Rollback triggers include lost resumed events, broken refinement coverage, changed process outcomes, wrong-store replay, or incompatible public output without migration.
+Monitor bounded sanitized delivery/query failures, not runtime uptime or raw transcripts.
+Workspace replay pinning remains a separately scoped gap throughout.
 
-Rollback C by disabling a newly introduced observation projection or adapter mapping while retaining logical records and recorded facts.
-Rollback future B by disabling its projection, retaining logical records and recoverable episode data, and using the approved bundle recovery/export path.
-Neither rollback may clear `endedAt`, convert episodes into child Sessions, or fabricate continuation links.
-Trigger rollback on wrong-route replay, terminal-state mutation, misleading availability, or bundle data loss; test the rollback path before release.
-Monitor bounded counts of routing failures, replay conflicts, and unknown identities without collecting credentials or raw transcript data.
+## Unresolved implementation decisions and self-review
 
-## Unresolved product decisions
+- Exact latest-relevant ranking, source namespace/collision handling, context output migration and public list/status consumers.
+- Explicit-end deprecation schedule and marker/output compatibility details.
+- Per-host evidence for flush/cleanup and useful Interrupt/StopFailure retention; exact minimal receipt storage if existing ledger is insufficient.
+- Invocation identity/storage, active-execution protection and compatibility adapter limits.
+- Opt-in orphan criteria, reference/lineage/spool protection and any separately authorized retention scope.
+- Whether a rollback switch is needed and its exact scope; versioned recovery if Invocation storage is introduced.
 
-- Is unknown runtime availability acceptable, or must the host expose stronger evidence before this feature ships?
-- Should recorded-close summaries be visible by default, and what stable CLI/API labels and timestamp provenance will they use?
-- Which documented receipt/dedup behavior should users see when host event IDs are absent, and should local receipt identity be added?
-- Should passive observations be excluded from activity? That requires a separate public-contract change, not a hidden C filter.
-- Should GC exclude one-shot work, use dormancy, or use a different reason? These are separate human decisions, not changes authorized here.
-- How should users explicitly proceed after GC or explicit logical termination? A continuation relation requires a separate approved design.
-- If B becomes feasible, is an episode per client or per host-defined runtime instance, and what closes it under concurrent clients?
-- Which host instance, event identity, and ordering contracts are demonstrably stable? Current thread ID and start/end reasons are insufficient.
-- What versioned bundle format and downgrade/recovery policy would make B safe?
-
-## Self-review and validation scope
-
-The recommendation preserves a domain-owned terminal invariant and separates transport reports from aggregate lifecycle.
-Tests specify observable state and output, not private call order.
-Unknown identity/order and legacy GC limitations remain explicit rather than hidden behind a new abstraction.
-This PR changes bilingual design documentation only; documentation pairing and removed-alias checks plus `git diff --check` validate the artifact, not a live host or runtime implementation.
+The model removes Session lifecycle ownership rather than relocating it to runtime episodes.
+It preserves execution responsibility, useful audit facts, identity routing and refinement coverage.
+Behavior tests observe content, outcomes and compatibility, not internal call order.
+No schema changes, source tests or live-host validation are claimed by this documentation PR.
 
 ## References
 
 - [Issue #2394](https://github.com/duck8823/traceary/issues/2394)
-- [Passive acquisition/routing work #2393](https://github.com/duck8823/traceary/issues/2393)
-- [Codex hook contract](https://developers.openai.com/codex/hooks)
+- [Scoped passive acquisition #2393](https://github.com/duck8823/traceary/issues/2393)
 - [Architecture principles](../architecture/README.md)
-- [Event lifecycle](../lifecycle.md)
-- [Storage model](../storage/README.md)
+- [Event lifecycle (current behavior)](../lifecycle.md)
+- [Storage model (current behavior)](../storage/README.md)

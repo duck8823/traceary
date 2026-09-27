@@ -1,240 +1,265 @@
-# ADR: 再開可能な論理セッションとホスト終了の観測
+# ADR: lifecycle 管理を持たない Session identity
 
 [English](./2026-09-27-resumable-session-boundaries.md)
 
 - Status: Proposed
 - Date: 2026-09-27
-- Decision owner: Traceary メンテナー（人間による承認が必要）
-- Reviewers: アーキテクチャ、ライフサイクル、hook 配信、ストレージと bundle、独立検証の担当
+- Decision owner: Traceary メンテナー（人間の checkpoint）
+- Reviewers: architecture、context/handoff、hook 配信、execution、storage/bundle、独立検証の担当
 - Related issue: [#2394](https://github.com/duck8823/traceary/issues/2394)
-- Checkpoint: 設計議論のみ。この ADR は実装も設計の採用も許可しない。
+- Supersedes: 同じ設計 PR の commit `f502b939` までに記録された、C の受動 close/runtime lifecycle 案。
+
+ユーザーは会話で新しい方針を承認した。
+Traceary は AI の audit log、event、refinement を記録し、Session は lifecycle を管理するオブジェクトではなく、記録をまとめる identity とする。
+この文書は以前の推奨を置き換えるものであり、runtime monitoring を追加する案ではない。
+具体的な実装と public contract の移行は Proposed のままとする。
+Ready と merge は人間のメンテナーが GitHub UI で行い、自動遷移は許可しない。
+この PR は対訳の設計文書のみを変更し、`Refs #2394` を使い、issue を open のまま維持する。
 
 ## 要求の要約
 
-ホストが会話を表示しなくなっても、Traceary が記録する論理的な作業は終了したとは限らない。
-論理的な終了とホストの終了を区別し、終端状態、所有権、再試行、委譲の保証を維持する必要がある。
-現在の推奨は C とする。
-単調な論理 `Session` を維持し、ホスト終了を受動的な観測として記録し、ランタイムの利用可能性は不明と表示する。
-設計上は論理会話とランタイムを分離し、終端した集約を再オープンしない。
-B は、この分離を将来実現する条件付きの案であり、実装承認でも、この設計を将来承認するための必須条件でもない。
-C は #2393 の受動観測 baseline と将来の read 契約案を組み合わせるものであり、全ホストの SessionEnd を受動化する案ではない。
-現在の interactive Claude、Gemini、Kimi の `SessionEnd` は集約の `End` を呼び、この mapping は変更しない。
-特定済みの受動 mapping は Codex `SessionEnd`/`Interrupt`、Claude `StopFailure`、Kimi `Interrupt` であり、全ホスト共通の受動 close mapping はない。
-この区別は再開可能な host-close callback として特定した対象に適用し、将来の再分類には根拠とレビューが必要である。
-共通の単調な不変条件は、同一の hook mapping を意味しない。
-この設計 PR は runtime code、schema、履歴データ、既存の `active` 契約を変更しない。
-#2394 は open のまま維持し、draft design PR は closing reference ではなく `Refs #2394` を使う。
+active、非終端、直近に開始した Session を条件にせず、identity に関連する記録を追加して取得する。
+context/handoff の選択と表示、通常の host closure、合成した stale closure から lifecycle 依存を除去する。
+identity、source AI、Workspace、parent の委譲 lineage、label、model metadata、記録 event、refinement coverage は維持する。
+execution の success/failure/timeout/signal は意味を持つが、Session status ではなく invocation outcome に属する。
+再開した log を受けるためだけの reopen、generation、runtime availability、`RuntimeEpisode`、continuation entity は不要である。
+この意味を実現するために legacy column を物理削除する必要はない。
 
-## 背景と根拠
+対象外は runtime monitoring、uptime 計測、過去履歴の書き換え、非空 log の自動削除、本番操作、この設計作業での install/login/release 実行とする。
 
-2026-09-27 に確認した [Codex の公式 hook 契約](https://developers.openai.com/codex/hooks)では、main thread の `SessionEnd` は通常終了、開いている会話の archive/delete、接続クライアントがない状態での 30 分の idle に伴って発生し、subagent には発生しない。
-現在の reason は `other` である。
-`SessionStart` の source には `startup`、`resume`、`clear`、`compact` があり、compaction 後も同じ turn が継続し得る。
-これらは別の runtime instance の存在を証明しない。
-これは文書の根拠であり、認証済みホストの実動作を検証した結果ではない。
+## 現在の振る舞いと根拠
 
-base `a61b0a18b57345f90009ac449a2be3210c8e0910` のリポジトリ上の根拠は次のとおり。
+現在の public behavior には lifecycle 由来の status が存在する。
+この設計は「status は存在しない」と主張するのではなく、その依存を変更する。
+レビューしたリポジトリの baseline は次のとおり。
 
-- `domain/model/session_lifecycle.go` は最初の終端遷移を維持する。
-- `application/usecase/session_usecase_impl.go` の `Active` は start Event を返し、`End` は子孫を終了させる。
-- `infrastructure/sqlite/sql/find_active_session.sql` の従来の activity 選択には、終了後に event がある session も含まれる。
-- hook 配信の semantic fingerprint は runtime generation の識別根拠にはならない。
-- bundle import は store より新しい `manifest.BundleSchemaVersion` を未知 table の検査前に拒否するため、table の追加だけでは後方互換にならない。
+- `handoff.go:126` は `STATUS` を出力する。
+- `context_pack_builder.go:74-75,335-342` は start 時刻の stale window による選択制限を適用する。
+- `output.go:127-144` は現在未使用の `sessionSummaryOutput` DTO を定義する。
+- Session の `Active`/`Latest` は Event を返し、context summary の consumer 契約ではない。
+- legacy active query は `ended_with_late_events` を含み得る。
+- `update_stale_sessions` は `runtime_mode` を制限せず、長期 idle の one-shot が finalization 前に終端し得る。
+- bundle import は store より新しい manifest schema version を拒否し、その後に未知 table を拒否する。
 
-[#2393](https://github.com/duck8823/traceary/issues/2393) の受動 adapter は取得済み SID、絶対 database route、raw cwd を固定するが、解決済み Workspace 全体は固定しない。
-`TRACEARY_WORKSPACE` と repository detection は replay 時に Workspace を再解決し得る。
-完全に不変な Workspace binding は目標であり既知の gap であって、達成済み baseline ではない。
-すべての legacy routing が修正済みとも判断できない。
+現在の interactive Claude、Gemini、Kimi の `SessionEnd` は集約の `End` を呼ぶ。
+現在の受動 mapping には Codex `SessionEnd`/`Interrupt`、Claude `StopFailure`、Kimi `Interrupt` がある。
+interactive の論理 ID は通常 native `session_id` を使うが、one-shot wrapper 内は例外である。
+繰り返し start は冪等に成功し、後の同一 ID event は終端済みレコードに付く場合がある。
+これらは異なる現在の mapping であり、全ホストの hook coverage が同じという主張ではない。
+新しい案は Session の終端不変条件を保護するのではなく、通常の追跡 Session の terminalization を除去する。
 
-interactive hook の論理 ID は native `session_id` と一致するが、one-shot wrapper 内は例外である。
-既存 ID への `SessionStart` は冪等に成功して hook state を書き、後の同一 ID の event は終端済みレコードへの late event として付く。
-新しい continuation や再オープンにはならない。
-C は当面この動作を維持し、後続 event を抑制または破棄せず、従来の `active` は `ended_with_late_events` を含み得る。
-終端後に記録された受動 close note 自体も、この activity query の条件を満たし得る。
-
-`session_start`/`session_end` の配信 fallback は `session_id` を使うため、繰り返し start は同一 retry にまとめられ得る。
-start source は instance identity ではない。
-native event ID のない受動 close receipt は異なる方法で保持され、この非対称性から runtime 順序は分からない。
-host の再配信の曖昧さと、commit 後の spool clear 失敗による Traceary local replay は区別する。
-将来の local receipt ID と取得時の `received_at` は local replay の重複を除去できるが、host episode や因果順序を証明しない。
-現在の spool `CreatedAt` は保存 event の `recorded_at` と同じではなく、どちらも runtime duration を確定しない。
-既存 one-shot wrapper は local process lifetime を観測できるが、host 全体の episode identity は証明しない。
-
-## 各ホストへの適用範囲
-
-論理的な終端の不変条件は全ホストで共通とし、callback の完全性と相関の根拠は個別に扱う。
-native/runtime ID の文字列は相関の識別情報であり、認証や認可の scope ではない。
-
-| Host | C での能力の境界 |
-| --- | --- |
-| Claude | interactive `SessionEnd` は `End` を呼び、`StopFailure` は受動。両方の mapping を維持 |
-| Codex | `SessionEnd`/`Interrupt` は受動。文書化された callback でも instance/order の識別根拠は不十分 |
-| Gemini | interactive `SessionEnd` は `End` を呼ぶ。runtime instance の根拠が欠ける場合は不明とし、終了を捏造しない |
-| Grok | end の根拠が欠ける場合は不明とし、終了を捏造しない |
-| Kimi | interactive `SessionEnd` は `End` を呼び、`Interrupt` は受動。強い相関を推測しない |
-| Muse | end の根拠が欠ける場合は不明とし、終了を捏造しない |
-| Antigravity | end の根拠が欠ける場合は不明とし、終了を捏造しない |
-
-この表は設計上の制約であり、全クライアントの hook coverage を検証したという主張ではない。
+[#2393](https://github.com/duck8823/traceary/issues/2393) は対象の受動経路で取得済み SID、絶対 database route、raw cwd を固定する。
+解決済み Workspace 全体は固定せず、`TRACEARY_WORKSPACE` と repository detection は replay 時に再解決し得る。
+この routing gap は lifecycle 除去とは独立であり、どちらも全 legacy routing の修正を証明しない。
+native ID は相関のデータであって、認証や認可の scope ではない。
+host identity の曖昧さには検証した namespace/store routing を使い、identity の捏造や自動 cross-store merge を行わない。
 
 ## 比較した選択肢
 
-| 案 | 利点 | コストまたは成立しない仮定 | 推奨 |
+| 案 | 利点 | コスト | 推奨 |
 | --- | --- | --- | --- |
-| A: `endedAt` を消して Session を再オープン | 既存 entity を再利用できる | 最初の終端、one-shot 所有権、再試行 ledger と衝突し、古い End の遅延 replay が再開した generation を終端し得る | 不採用 |
-| B: 論理 Session と別の `RuntimeEpisode` | 論理終了を変えず、証明されたホスト instance を表現できる | 安定した instance/correlation、replay ID、因果順序、並行クライアント規則、schema と bundle の設計が必要 | 将来の条件付き案のみ |
-| C: 論理 Session と受動的なホスト観測 | 既存 lifecycle を維持し、既知の事実だけ記録する | runtime の利用可能性、継続時間、episode 数は分からない | 現在の推奨、人間の承認待ち |
+| lifecycle を authoritative に維持 | 意味の変更を抑えられる | stale/terminal による read 除外と host-driven state が log 記録の目的と衝突 | 目標として不採用。legacy wire 互換のためのみ保持 |
+| 別の optional runtime episode | 強い host 根拠があれば instance を表現可能 | log 受け入れと無関係な monitoring、identity/order、schema 作業を増やす | この要求のためには導入しない |
+| Session を log grouping identity のみにする | append/retrieve/refine の目的に合い、execution outcome は別に残る | caller audit、public-contract 移行、execution の分離が必要 | 推奨、実装 checkpoint 待ち |
 
-episode を child Session として表現しない。
-child は委譲作業を意味し、再帰的な終了と GC の対象になるため、runtime 再起動とは意味が異なる。
+## 概念モデル
 
-## 概念モデルと不変条件
-
-| 概念 | 状態と振る舞い | 制約 |
+| 概念 | 状態と振る舞い | 不変条件 |
 | --- | --- | --- |
-| 論理 `Session` | 既存の集約 lifecycle。明示終了は終端 | 最初の終端時刻と理由を維持し、再オープンしない |
-| `PassiveHostObservation` | `SessionClose`、`TurnInterrupt`、`TurnFailure` を subtype とする受動報告 | 全 subtype が論理状態を維持し、close 要約の対象は SessionClose のみ |
-| `SessionClose` | `source_hook=session_end`。現在の受動 mapping は Codex のみ | ホスト終了の報告であり、論理終了や現在の availability ではない |
-| `TurnInterrupt` | `source_hook=interrupt`。現在の受動 mapping は Codex/Kimi | turn の報告であり、session close ではない |
-| `TurnFailure` | `source_hook=stop_failure`。現在の受動 mapping は Claude | turn の報告であり、session close ではない |
-| 従来の activity 選択 | 既存の `active`、`ended_with_late_events`、stale/activity 規則 | activity は集約の終端状態や runtime availability とは別 |
-| runtime availability | 現在の根拠では `UNKNOWN` | close の受信は現在のホスト停止を証明しない |
-| 将来の `RuntimeEpisode` | 条件付きの host instance projection | 独立に証明された相関と replay/order の識別情報が必要 |
-| 将来の continuation 関係 | 論理作業レコード間の明示的な関係 | 別の承認済み設計が必要。child や自動 resume binding ではない |
+| Session identity | 記録と metadata をまとめる | append/retrieve は `endedAt`、active/stale、start age に依存しない |
+| Event | identity と provenance を持つ audit/content の記録 | 有用な履歴、redaction、信頼できる配信を維持し、現在の状態を捏造しない |
+| Refinement | summary と明示的な coverage | coverage は単調。後続の未 coverage event を budget 内で含める |
+| Context selection | 明示 identity/selector または関連する最新の記録 Session | terminal state ではなく relevance と明示 filter で選択 |
+| Invocation / ExecutionResult | success/failure/timeout/signal と usage を持つ one-shot process completion | execution owner が completion/idempotency を所有し、後続 log で outcome を上書きしない |
+| Parent lineage | 委譲関係 | parent の完了で child の append を拒否しない。lineage は process cancellation ではない |
+| Legacy lifecycle field | 履歴互換のデータ | 当初保持するが、authoritative な選択条件や execution-result input にしない |
 
-最後に記録されたホスト終了の要約は、文書化された受動 host mapping の範囲（現在は Codex）で、`kind=note` かつ `source_hook=session_end` の event のみから導出する。
-`kind=note` と `source_hook` で意味を区別し、body 文字列を解析したり Interrupt/StopFailure note を含めたりしない。
-現在の hook Event の client は `hook` であり、架空の `Codex` client discriminator を使わない。
+Invocation は概念上の責務であり、承認済み table や API schema ではない。
+互換実装は当初既存 storage を維持して process outcome を保護できるが、additive invocation storage は別の承認済み migration plan が必要である。
+InvocationID は SessionID と delivery ID と区別し、retry 前に取得して固定する。
+同じ記録 Session 内の複数 execution が衝突しないようにする。
+意味のある completion の最初の終端不変条件は、Session から execution owner に移す。
+後続 Session event で execution result を消したり再計算したりしない。
 
-1. 集約の論理終端状態、従来の activity query、runtime availability の三つを分離する。
-2. close の要約の意味は「最後に記録されたホスト終了の観測」とするが、最終的な CLI/API 文言は暫定である。記録時刻は発生時刻、因果順序、継続時間、episode 数ではない。
-3. host event ID がなければ、再受信と別の close 発生を区別できない場合がある。semantic fingerprint ではこの曖昧さを解消できない。
-4. replay 順序と recorded-at は runtime の因果順序を証明しない。
-5. 目標は取得時に、spool 保存前に native identity、解決済み Workspace/local root、固定 database route を結び付けること。#2393 は SID、絶対 database route、raw cwd のみ固定済みで、Workspace 全体の binding は gap として残る。将来の episode identity も replay 時に再探索せず、spool 前に固定する。
-6. 遅れて届いた古い close は新しい generation を終了させない。generation identity が証明できなければ、現在の episode を推測して選ばない。
-7. 明示終了、one-shot completion、子孫の終了、既存 GC の `legacy_unknown` 終了を維持する。GC は論理 root を終端でき、この制約を暗黙に変更しない。SQL は `runtime_mode` を制限せず、保護されない長期 idle の one-shot を終端して `FinalizeOneShot` と衝突し得る。owner のみの完了は意図する境界であり、GC は既知の例外。
-8. 論理終端後の resume で再オープンや新しい continuation の自動 binding を行わない。archive、delete、通常 close の reason は区別に不十分であり、restore から continuation を推測できない。
-9. 同じ native thread を複数のクライアントが使っても、単一の現在 runtime episode を意味しない。
+## 責務と consumer 向け interface
 
-## 責務と interface 案
-
-以下は意味上の契約であり、承認済み API 名や DTO schema ではない。
-host payload と SQLite の詳細は domain の外に置く。
-
-| Layer / owner | 責務と境界 | 失敗と非責務の契約 |
+| Owner | 責務と consumer 境界 | 行わないこと |
 | --- | --- | --- |
-| Domain | 論理終端の不変条件と観測の意味を所有。episode の不変条件は将来承認された場合のみ | host DTO や保存順序から lifecycle を推測しない |
-| Application write | 取得済みの論理 identity を持つ正規化済み観測を受け、既存 event 記録を `End` なしで調整 | identity が欠落または曖昧なら推測した Session を変更しない。自動 continuation は行わない |
-| Application read/query | 終端、従来の activity、観測の要約を別の read concept として提示 | availability は unknown。`active` を暗黙に再定義しない |
-| Presentation / adapter | source/reason と観測 subtype を解釈し、enqueue 前に SID、固定 absolute DB route、raw cwd を取得。解決済み Workspace 全体の binding は目標であり既知の gap | 不完全な根拠を明示し、存在しない Event client discriminator から host を推測しない |
-| Presentation / CLI | 稼働時間を断定せず、記録された観測と不明な availability を表示 | 別途承認されない限り既存 flag/output 契約を維持 |
-| Infrastructure | 取得済み SID/database/raw-cwd context を保存して replay。完全不変の Workspace binding を目標とし、repository と将来の projection storage を実装 | 取得 SID/database を再 binding しない。Workspace の現在の再解決は既知の gap。episode を推測しない |
+| Domain Session/identity | identity、source AI、Workspace、委譲 metadata | lifecycle で log/read を許可または拒否すること |
+| Domain execution owner | completion と不変の invocation outcome | outcome を Session closure と扱い、後続 log を拒否すること |
+| Application event/refinement write | 有用な記録を追加し、coverage と配信冪等性を維持 | 過去の end/GC marker で再開 log を拒否すること |
+| Application context query | selection、cutoff、budget に応じて関連する refinement と未 coverage event を返す | lifecycle snapshot の取得だけのために `Active`/`Latest` 経由にすること |
+| Presentation context/handoff | 選択した content と記録 provenance を表示 | `STATUS`、lifecycle duration、runtime availability の追加や human summary の書き換え |
+| Presentation host adapter | callback を個別解釈し、enqueue 前に固定 SID/DB を取得。Workspace 固定は目標/gap | inactivity から closure を推測したり cleanup で log を捨てたりすること |
+| Application invocation / supervisor | process completion、cancellation、usage、wrapper routing | 再帰 Session End の除去と subprocess cancellation の除去を混同すること |
+| Infrastructure | 互換 legacy data を保存し、bounded retrieval と replay を実装 | 古い end/import で read 除外を再有効化したり schema を暗黙移行したりすること |
 
-既存の session use case は集約 write（`End`、`FinalizeOneShot`）を所有する。
-`Active` は start Event を返す read であり、集約操作ではない。
-観測の記録は別の意味を持つ操作であり、集約終了を再利用すると受動的な報告に再帰的な副作用が混入する。
-適切な場合は event 記録を再利用し、汎用 host lifecycle engine、Strategy 階層、hook 名ごとの use-case class は作らない。
-観測に別の public method が必要かは、consumer と transaction の境界を根拠に checkpoint で判断する。
+取得済み identity への append、identity/relevance と coverage/filter/budget による context selection、outcome による invocation finalization という小さな consumer 契約を使う。
+method の追加や置換前に、既存の Event を返す `Active`/`Latest` の caller を調べる。
+広い lifecycle facade や汎用 monitoring framework は導入しない。
+未使用 `sessionSummaryOutput` と派生 `SessionStatus` の伝播は、caller audit で影響範囲と public output 互換義務を確認してから削除する。
+SessionSummary は content aggregate と coverage を持ち続けてよく、未使用 DTO の削除は全 summary type の削除ではない。
+public list/status output が存在しないとは仮定せず、影響する各 public consumer の移行を明示的に決定する。
 
-## 振る舞いの受け入れ仕様
+## Context と handoff の契約
 
-以下は承認後の実装に対するテスト案であり、この文書変更で実行したテストではない。
+明示 identity selection は暗黙の最新選択より優先する。
+暗黙選択は指定した source/workspace scope の関連する最新の記録 Session を選ぶ。
+lifecycle に依存しない既存 latest-selection scope、順序、同順位の決め方は維持し、active/stale eligibility のみ除去する。
+登録のみの record より有用 content を優先する ranking 変更は別の follow-up checkpoint とし、この変更に暗黙に含めない。
+summary coverage と後続 event を item、token、time budget で制限する。
+24 時間以上前に開始した Session も明示 lookup の対象であり、`startedAt` の古さだけで拒否しない。
+stale による handoff 再 query と `session end` で閉じる案内も、stale 拒否とともに除去する。
+明示的な user date/content filter と as-of cutoff は維持する。
+時刻は記録データであり lifecycle 境界ではない。
+生成された `STATUS`、lifecycle duration、稼働/停止の断定を、versioned release document、golden output test、JSON/downstream field audit とともに意図的に除去する。
+`--allow-stale` と stale-after consumer を調査し、lifecycle eligibility 除去後は文書化した deprecated no-op compatibility flag にする移行を推奨するが、public version policy に従う。
+その語を含む human-authored summary は編集しない。
+refinement で coverage 済みの close note を未 coverage note として重複出力せず、未 coverage の履歴 note は同じ content budget 規則で選択する。
 
-| 前提と操作 | 観測可能な結果 | Level |
+## Host callback と配信の契約
+
+通常の追跡 Session の `SessionEnd` は本人と子孫を terminalize しなくなる。
+取得した SID と固定 DB routing を使って usage/transcript の flush、限定した diagnostics、hook state cleanup を行うことはできる。
+cleanup や遅延 callback によって flush/replay の log を黙って破棄しない。
+end-only の空 payload に対する推測 host-close content note は既定で書かない案とする。
+これは noise を減らすものであり、event 全体の除去ではない。
+必要な Interrupt/StopFailure の有用な audit outcome は、正しい provenance で残し、Session state を装う label を付けない。
+既存の start/end/close event は履歴として残し、過去の purge や body 書き換えは行わない。
+
+運用 receipt の最小の代替は、既存 delivery ledger/spool metadata と限定した sanitized diagnostics であり、新しい event framework ではない。
+commit-before-spool-clear の dedup に durable local receipt ID や取得時の `received_at` が必要なら、その storage を別途承認する。
+host event ID がない再配信から、別の host occurrence や runtime 順序を推測できない。
+local receipt は local replay を dedup できるが host episode を確定しない。
+spool `CreatedAt` は保存 event の `recorded_at` ではなく、どちらも runtime duration を証明しない。
+redaction、取得時 routing、retry reliability、有用な failure log を維持する。
+
+| Host | 個別の根拠が必要な契約レビュー |
+| --- | --- |
+| Claude | 通常の interactive SessionEnd terminalization を置換し、必要な flush/cleanup と有用な StopFailure outcome を維持 |
+| Codex | 推測 SessionEnd note の既定書き込み除去を確認し、有用な Interrupt outcome と flush/cleanup を維持 |
+| Gemini | 通常の interactive SessionEnd terminalization を置換し、start/clear と flush/cleanup を個別確認 |
+| Grok | 実際に対応する hook と取得を確認し、callback 不在から end を合成しない |
+| Kimi | 通常の interactive SessionEnd terminalization を置換し、有用な Interrupt outcome を維持 |
+| Muse | 実際の capture/receipt を確認し、lifecycle callback を捏造しない |
+| Antigravity | 実際の capture/flush/cleanup を確認し、lifecycle callback を捏造しない |
+
+この表は将来の契約検証を定めるものであり、host coverage の認証や実動作テストの結果ではない。
+
+## One-shot、明示 end、housekeeping
+
+one-shot CLI exit code、process cancellation、signal、timeout、usage capture、固定 wrapper SID/DB routing、active-execution protection を維持する。
+process 完了後も Session は append 可能とする。
+再帰 Session End の無効化で、supervisor が子 process を停止する責務は消えない。
+execution-result 分離は、legacy end import/replay で新しい invocation outcome が上書きされないようにする。
+
+現在の public `session end` command を暗黙に再解釈しない。
+目標は `session start` が identity と start marker を冪等に登録し、`session end` が明示 end marker のみを記録し、terminalization や retrieval gate にしないこととする。
+versioned release document と限定した compatibility adapter で lifecycle 解釈を deprecate し、既存の ID output と flag は可能な範囲で保持して contract test で検証する。
+段階が承認されるまでは bridge は古い振る舞いを維持し、即時の冪等性や互換性は保証しない。
+新しい marker semantics の実装前に public-contract migration checkpoint を置く。
+既存 End use case は summary/refinement と cascade もまとめて処理する。
+marker-only 置換では提供された summary と coverage を維持し、終端の副作用だけを除去する。
+移行中の古い end marker は legacy field/event に残せるが、後続 content を除外せず、分離した invocation outcome を変更しない。
+warning、exit code、structured output、marker の詳細は、この選択した移行内で決定する。
+
+synthetic stale close を無効化し、GC は housekeeping として `endedAt` を捏造しない。
+opt-in の bounded retention/empty-orphan housekeeping は log identity と分離する。
+委譲 lineage、refinement reference/coverage、pending spool/receipt、active one-shot execution を保護し、削除案の前に安全な orphan 条件と bounded dry-run を定める。
+非 ended status であるだけでは housekeeping 対象にしない。
+古い、または ended と記録されたという理由だけで非空 log を削除しない。
+より広い retention 削除は別の明示承認/設計が必要であり、この案には含めない。
+
+## 振る舞い仕様と TDD plan
+
+以下は受け入れテスト案であり、この文書変更で実行したテストではない。
+
+| Scenario | 観測可能な目標 | Test level |
 | --- | --- | --- |
-| 開いた論理作業で同じ Codex thread を受動 close/resume/close/resume | 論理レコードは非終端のまま。episode 数や availability を確定しない | Hook integration + read |
-| Codex の `compact` または `clear` の SessionStart | 新しい instance を推測せず、論理再オープンもしない | Adapter |
-| 開いた Codex thread を archive/delete 後に restore | close は報告のまま。`other` では原因を区別できず、continuation を推測しない | Integration |
-| 全クライアントが離脱して idle、close が後から届く | 記録時刻を停止時刻と扱わず、現在も利用不能とは断定しない | Read |
-| 同じ event ID を replay | 既存の文書化された配信冪等性の範囲で重複効果を防ぎ、論理状態は不変 | Delivery integration |
-| event ID がなく、同じ payload を二度受信 | 一回の発生か二つの episode かを断定せず、既存 receipt/dedup の意味を維持 | Delivery + read |
-| 新しい resume 後に古い close を replay | 固定した古い routing を維持し、終了や現在 episode の推測更新をしない | Spool integration |
-| Codex/Kimi の受動 Interrupt 後に resume | interrupt は論理終了でも証明された runtime 境界でもない | Adapter + domain |
-| 複数クライアントが同じ thread を使う | 単一の episode に推測でまとめず、availability は unknown | Concurrency integration |
-| 既知の GC 例外を除き、one-shot command の入れ子受動 callback が close を受信 | owner completion の境界を維持し、close は本人や子孫を完了させない | Use case |
-| 終端 Session が同一 ID の start/resume 後に event を受信 | 論理 ID と最初の end は不変。event は late event として保持され、従来 active の対象になり得る。continuation ではない | Hook + read |
-| close note の後に Interrupt または StopFailure note を受信 | 後の turn 報告は最後に記録された close を置換しない。note/source_hook の意味を使い body を解析せず、稼働も断定しない | Query + CLI |
-| 終端 Session が受動 close note を受信 | end は不変。note は保持され、既存 activity query の late event に数えられ得る | Hook + read |
-| commit 後に spool clear が失敗して local replay | host 再配信と local 重複を区別。将来の receipt ID は episode/order の断定なしで replay を dedup できる | Delivery integration |
-| 終端した parent が close/resume を受信 | 最初の終端を維持。再オープン、子孫再作成、自動 continuation はしない | Domain + use case |
-| 明示的な end が子孫を再帰終了 | 既存動作を維持し、観測では取り消さない | Use case |
-| 保護されない長期 idle の one-shot が finalization 前に GC 対象になる | 現在の GC 終端と FinalizeOneShot の衝突を明示。owner のみの完了は意図する境界で、現在の GC 保証ではない | Storage + use case |
-| GC が stale root を `legacy_unknown` で終了 | 後の resume でも終端を維持し、この制約を明示する | Storage integration |
-| C で既存 bundle を export/import | schema と論理/event レコードの互換性を維持し、episode を捏造しない | Bundle integration |
-| 将来の B bundle を古い importer が開く | rollout 前に format gate/rejection を検証し、未知 table を黙って失わない | Compatibility |
-| 将来の episode identity が欠落または衝突 | 推測 episode に投影せず、観測を残し、不確実性や error policy を提示 | Future B integration |
+| 同じ native identity が明示/GC end marker 後に再開して append | 同じ grouping identity、古い marker 維持、新 event は query 可能。reopen/generation 不要 | Hook + query integration |
+| start/end を重複配信 | 有用 log を失わず、completion を重複せず、文書化した receipt scope を維持 | Delivery integration |
+| host event ID がない | occurrence/order を捏造せず、local replay reliability と redaction を維持 | Spool integration |
+| 24 時間以上前に開始した idle Session を明示選択 | stale-start 拒否なく関連 event/refinement を返す | Context integration |
+| summary-covered と後の未 coverage close note | coverage を守り、未 coverage note は budget で制限。履歴 purge なし | Context query |
+| 同じ Session の二つの invocation が独立 retry | 固定した別 InvocationID で outcome を保持し、Session/delivery identity と衝突しない | Invocation integration |
+| 明示 end に summary/refinement を提供 | marker-only でも summary と coverage を維持し、再帰終端しない | Use case + CLI |
+| one-shot success/failure/timeout/signal 後に Session event | CLI/process outcome を維持して append し、completion conflict なし | Supervisor + use case |
+| parent execution 完了後に child が log 出力 | child lineage/content を保持し、process supervision は独立 | Domain + integration |
+| host end callback に有用 usage/transcript | 取得 SID/DB で flush、限定 diagnostics と cleanup。terminalization や黙った破棄なし | Host fixtures |
+| end-only の空 callback | 推測 close content note は既定で書かず、operational receipt reliability を維持 | Host + delivery |
+| schema 変更なしで legacy end/runtime field の bundle を import | 履歴保持。read 除外の再有効化や新 execution outcome の上書きなし | Bundle integration |
+| context budget または as-of cutoff | 決定的で限定された関連 content。STATUS/availability/duration なし。明示 filter は維持 | Query + CLI |
+| human summary に status prose | summary は不変で、生成した lifecycle scaffold のみ除去 | Rendering |
+| GC が idle 非空 record/active execution を検出 | synthetic close/非空 purge なし。execution と reference を保護 | Storage integration |
+| 七つの host integration の契約変更 | 個別 fixture が flush、routing、cleanup、有用 failure、receipt を証明 | Adapter integration |
 
-## TDD plan
-
-| Step | Red の仕様 | 最小の Green | Refactor の境界 |
+| TDD step | Red | 最小 Green | Refactor の境界 |
 | --- | --- | --- | --- |
-| 1 | 特定済み受動 callback が集約や子孫の終端状態を変更 | 集約の `End` を呼ばず受動報告を記録 | Domain invariant と application capture |
-| 2 | replay が別 session/store に解決される | 取得時の routing context を固定して replay | Presentation acquisition と infrastructure transport |
-| 3 | output が稼働/停止、duration、episode 数を断定 | 終端、activity、記録観測を分離して unknown を表示 | Query DTO と CLI rendering |
-| 4 | 明示終了、one-shot、GC、bundle が退行 | 既存の観測可能な振る舞いを維持 | 汎用 event 記録に lifecycle flag を追加しない |
-| 将来の B のみ | identity/order または format 互換性が不成立 | 承認後に限定した identity/projection 契約を追加 | Episode invariant owner と persistence |
+| read 依存を先に除去 | end/stale-start が関連 context を拒否、または STATUS を表示 | identity/relevance/coverage/budget query と生成 lifecycle 表示除去 | Consumer query と古い Event helper |
+| 通常 closure writer | host callback/GC が authoritative terminal state を生成 | closure なしで flush/diagnostics/cleanup。空 close note の既定生成なし | Host 解釈と有用 event capture |
+| execution 分離 | Session append/import/replay が one-shot result と衝突 | execution owner に completion を置き、process outcome と active protection を維持 | Invocation outcome と Session identity |
+| 互換性 | 古い bundle/end marker が除外を戻す、または履歴を失う | legacy wire 維持、read は非 authoritative、public adapter を明示テスト | Storage 互換と product semantics |
 
-実装 commit 前に、影響する unit、SQLite/spool/bundle integration、host fixture、CLI contract test を実行する。
-fresh CI と独立レビューは実装の gate であり、文書検証の成功は lifecycle 検証ではない。
+実装 checkpoint で影響する unit、CLI output、context、SQLite、hook/spool、supervisor test を実行する。
+schema の段階では migration、index、bundle 互換、recovery test も必要である。
+delivery 前に独立レビューと fresh CI が必要であり、文書 check のみでこれらの振る舞いを検証したとは扱わない。
 
-## 人間の checkpoint と実装段階
+## 人間の checkpoint と delivery 段階案
 
-最初に人間のメンテナーが C の許容性、以下の product 判断、実装 scope を決定する。
-独立した architecture/lifecycle、delivery、bundle reviewer は、その前に不変条件と根拠を確認する。
-明示的な判断が記録されるまでは Proposed を維持する。
-この high-risk ADR の draft を自動で Ready に変更したり merge したりせず、人間のメンテナーが GitHub UI でその遷移を行う。
+会話は方向性を承認したが、すべての public transition や migration 詳細を承認したわけではない。
+実装前に context ranking/output 移行、explicit-end deprecation、host contract 変更、execution protection、互換境界を承認する。
+checkpoint 後の限定した各実装段階を、一つの ticket/branch/PR に対応させる。
+これは提案であり、今 ticket を作る許可ではない。
 
-承認後、独立した ticket を作り、各 ticket に一つの PR を対応させる。
+1. caller を調べ、context/read lifecycle 依存と未使用 status DTO の伝播を除去し、legacy wire/storage は維持する。
+2. 通常 closure writer と synthetic GC close を除去し、各 host の flush/cleanup、有用 outcome、空 note policy をレビューする。housekeeping は opt-in の安全な範囲のみ設計する。
+3. 可能なら互換 storage のまま execution owner に one-shot outcome を分離する。additive Invocation storage は別の承認済み schema/bundle plan が必要。
+4. lifecycle column の物理削除は別の任意判断とし、この機能の必須条件にしない。
 
-1. 完了した #2393 の受動取得と routing を baseline とし、新しい実装 ticket にしない。レビューで残存 gap が判明した場合だけ、その実証された gap に限定した別 ticket を作り、全 routing 修正とは主張しない。
-2. 既存 `active` を再定義せず、観測/read 契約と利用者向けの不確実性の表示を追加または明確化する。
-3. 明示終了、終端後 resume、GC、bundle の regression fixture と運用文書を追加する。
-4. host evidence spike が安定した instance/correlation と replay/order を証明した場合に限り B を検討し、別の人間承認付き設計と versioned migration/bundle plan を作る。
+release 前に isolated DB/store fixture と sanitized controlled real session で resume、flush、refinement、replay、one-shot outcome を dogfood する。
+fixture routing と redaction を先に定義し、既存 private log を既定の test input にしない。
+この設計作業では install、login、本番操作、release を行わない。
 
-これらは提案であり、外部 issue 作成や実装を事前許可するものではない。
+## 移行と rollback の安全性
 
-## 影響、移行、rollback
+当初は `endedAt`、`runtimeMode`、`terminalReason` と既存 bundle wire 表現を、DROP、backfill、履歴変更なしで維持する。
+legacy field は互換/履歴のために読めるが、authoritative な派生 status や execution outcome にしない。
+既存 wire field と記録時刻は当初維持し、date diagnostics、明示 scope の retention input、content filter は lifecycle 由来の context scaffold とともに一律除去しない。
+read 変更を通常 closure writer/GC 除去より先に行い、execution-result projection は分離した段階で行う。
+新実装は、旧版の end data の import/replay で除外を暗黙に戻したり新 outcome を置換したりしない。
+legacy boundary event/column の保持は古い bundle 表現を支えるが、全 cross-version roundtrip semantics の保証ではない。
+意図的な新契約の非互換と version gate を文書化する。
+旧 binary は新しい semantics を実装せず、mixed-version 動作に同じ意味を保証しない。
 
-C は現在の schema と論理 lifecycle を変更しない。
-runtime が現在接続されているか、何度再起動したかには答えられず、観測の表示はこの制限を伝える必要がある。
-既存の明示終了と GC の結果は、後の再開可能性を制約する場合も終端として維持する。
+schema migration がなければ app version を戻すことは技術的に可能だが、旧 semantics に戻るため明示的な運用判断と記録データの維持を必要とする。
+feature/config rollback switch を選ぶ場合は read/writer の対象範囲と互換動作を checkpoint で定義する。
+現在その flag があるとは主張しない。
+将来の Invocation schema/index 変更は versioned migration と bundle gate が必要で、古い build は新 bundle version を拒否する。
+additive SQL でも普遍的な downgrade は保証しない。
+検証した export/recovery path と論理 record を残し、rollback 成功を装う履歴 marker の書き換えはしない。
 
-close/start 時刻、fingerprint、archive/restore の推測から履歴 episode を backfill しない。
-C の read 契約は既存 event を使い migration を要しない。
-承認時に schema 変更が必要と判明した場合は、B と同じ checkpoint と versioned bundle gate を適用する。
-将来の B は bundle format compatibility gate、明示的な unknown historical state、upgrade/old-import 検証の後にのみ additive storage を使う。
-additive SQL migration だけでは importer の拒否契約を解決できない。
+rollback 条件は再開 event の欠落、refinement coverage の破損、process outcome の変更、wrong-store replay、移行なしの非互換 public output とする。
+runtime uptime や raw transcript ではなく、限定した sanitized delivery/query failure を監視する。
+Workspace replay 固定の gap は全段階を通じて別 scope に残る。
 
-C の rollback は新しい観測 projection または adapter mapping を無効化し、論理レコードと記録済みの事実を残す。
-将来の B は projection を無効化し、論理レコードと回復可能な episode data を残して、承認済みの bundle recovery/export 手順を使う。
-どちらも `endedAt` の消去、child Session への変換、continuation link の捏造は行わない。
-wrong-route replay、終端状態の変更、誤解を招く availability、bundle data loss を rollback の条件とし、release 前に復旧経路をテストする。
-credential や raw transcript は収集せず、routing failure、replay conflict、unknown identity の件数を限定して監視する。
+## 未決定の実装判断とセルフレビュー
 
-## 未決定の product 判断
+- latest-relevant ranking、source namespace/collision、context output 移行、public list/status consumer の詳細。
+- explicit-end deprecation の日程と marker/output 互換の詳細。
+- 各 host の flush/cleanup と有用 Interrupt/StopFailure の保持根拠。既存 ledger が不十分な場合の最小 receipt storage。
+- Invocation identity/storage、active-execution protection、compatibility adapter の限界。
+- opt-in orphan 条件、reference/lineage/spool 保護、別途承認する retention scope。
+- rollback switch の要否と範囲。Invocation storage 導入時の versioned recovery。
 
-- unknown runtime availability を許容するか、host の強い根拠を提供前に要求するか。
-- close の要約を既定で表示するか。安定した CLI/API label と時刻の出所をどう定義するか。
-- host event ID がない場合、どの receipt/dedup 契約を利用者に提示し、local receipt ID を追加するか。
-- 受動観測を activity から除外するか。C の隠れた filter ではなく、別の public-contract change が必要。
-- GC で one-shot を除外するか、dormancy や別の reason を使うか。別の人間判断であり、この ADR は変更を許可しない。
-- GC または明示終了後に利用者がどう明示的に続行するか。continuation 関係は別の承認済み設計が必要。
-- B が実現可能になった場合、episode は client 単位か host-defined runtime instance 単位か。並行 client の何を終了条件にするか。
-- どの host instance、event identity、ordering 契約が安定していると実証できるか。現在の thread ID と start/end reason では不十分。
-- B に必要な versioned bundle format、downgrade/recovery policy は何か。
-
-## セルフレビューと検証範囲
-
-この推奨は domain が所有する終端不変条件を維持し、transport の報告を集約 lifecycle から分離する。
-テスト案は private な呼び出し順ではなく、観測可能な状態と output を守る。
-identity/order の不明点と legacy GC の制約を、新しい抽象化で隠さず明示する。
-この PR は対訳の設計文書だけを変更し、文書 pairing、removed-alias check、`git diff --check` は成果物を検証するものであり、実ホストや runtime 実装の検証ではない。
+モデルは Session lifecycle ownership を runtime episode に移すのではなく除去する。
+execution の責務、有用な audit fact、identity routing、refinement coverage は維持する。
+テスト案は内部の呼び出し順ではなく content、outcome、互換性を観測する。
+この文書 PR は schema 変更、source test、live-host 検証を行ったとは主張しない。
 
 ## 参照
 
 - [Issue #2394](https://github.com/duck8823/traceary/issues/2394)
-- [受動取得と routing の作業 #2393](https://github.com/duck8823/traceary/issues/2393)
-- [Codex hook 契約](https://developers.openai.com/codex/hooks)
+- [限定した受動取得 #2393](https://github.com/duck8823/traceary/issues/2393)
 - [アーキテクチャ原則](../architecture/README.ja.md)
-- [Event lifecycle](../lifecycle.ja.md)
-- [Storage model](../storage/README.ja.md)
+- [Event lifecycle（現在の動作）](../lifecycle.ja.md)
+- [Storage model（現在の動作）](../storage/README.ja.md)
