@@ -55,10 +55,13 @@ Validation scheduling, affected scope, immutable-input parallelism, and evidence
 
 ### Git workflow
 
-- **1 issue = 1 branch = 1 PR (no exceptions)**
+- **1 issue = 1 branch = 1 PR**, except for dependency-update PRs created by Dependabot
   - Create a dedicated branch for each issue before starting implementation
   - A single PR must close exactly one sub-issue
   - Never bundle multiple issues into one branch or PR
+- Dependabot dependency-update PRs do not require a dedicated issue or a `Closes` reference; do not create an issue solely to satisfy the normal issue requirement
+  - Dependabot-generated branch names are allowed
+  - Review, validation, and merge safety requirements still apply
 - Branch naming: `feature/`, `fix/`, `maintenance/` prefixes
 - Commits: conventional-style (`feat:`, `fix:`, `docs:`, `refactor:`, `chore:`)
 - PRs: merge (not squash), draft first
