@@ -15,7 +15,7 @@ import (
 // because `traceary context --handoff` does not expose a `--json` flag and
 // downstream prompt-injection / resume tooling parses the text directly.
 // The fields and ordering ("TRACEARY HANDOFF" header, SESSION_ID,
-// WORKSPACE, LABEL, STATUS, TOTAL_EVENTS, COMMAND_COUNT, AGENTS,
+// WORKSPACE, LABEL, TOTAL_EVENTS, COMMAND_COUNT, AGENTS,
 // WORKING_STATE, RECENT_COMMANDS, MEMORIES) are part of the public
 // contract and must not drift accidentally.
 func TestSessionHandoff_TextGoldens(t *testing.T) {
@@ -71,7 +71,6 @@ func TestSessionHandoff_TextGoldens(t *testing.T) {
 		types.SessionID("session-handoff-golden"),
 		types.Workspace("duck8823/traceary"),
 		"v0.14.0",
-		"active",
 		42,
 		9,
 		[]string{"claude", "codex"},
@@ -101,7 +100,6 @@ func TestSessionHandoff_TextGoldens(t *testing.T) {
 			handoff: types.Some(apptypes.ContextPackOf(
 				types.SessionID("session-handoff-empty"),
 				types.Workspace(""),
-				"",
 				"",
 				0,
 				0,

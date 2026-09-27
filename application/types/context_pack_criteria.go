@@ -54,14 +54,10 @@ func (c ContextPackCriteria) IncludeMemoryCandidates() bool { return c.includeCa
 // default) evaluates validity against the current time.
 func (c ContextPackCriteria) MemoryAsOf() domtypes.Optional[time.Time] { return c.memoryAsOf }
 
-// AllowStale reports whether stale active sessions are eligible for
-// selection. Defaults to false so the handoff does not silently surface
-// an abandoned session as the current working context.
+// AllowStale is a deprecated compatibility option; context selection ignores it.
 func (c ContextPackCriteria) AllowStale() bool { return c.allowStale }
 
-// StaleAfter returns the duration after which an unended session is
-// treated as stale. A zero or negative value disables the stale check
-// (matching the historical behavior of the builder).
+// StaleAfter is a deprecated compatibility option; context selection ignores it.
 func (c ContextPackCriteria) StaleAfter() time.Duration { return c.staleAfter }
 
 // ContextPackCriteriaBuilder builds a ContextPackCriteria value.
@@ -126,17 +122,13 @@ func (b *ContextPackCriteriaBuilder) MemoryAsOf(asOf domtypes.Optional[time.Time
 	return b
 }
 
-// AllowStale opts the caller in to stale active sessions. When false
-// (the default), the builder skips a session whose start is older than
-// StaleAfter so the handoff does not silently surface an abandoned
-// session as the current working context.
+// AllowStale retains a deprecated no-op compatibility option.
 func (b *ContextPackCriteriaBuilder) AllowStale(allow bool) *ContextPackCriteriaBuilder {
 	b.criteria.allowStale = allow
 	return b
 }
 
-// StaleAfter sets the duration after which an unended session is
-// treated as stale. A zero or negative value disables the stale check.
+// StaleAfter retains a deprecated no-op compatibility option.
 func (b *ContextPackCriteriaBuilder) StaleAfter(staleAfter time.Duration) *ContextPackCriteriaBuilder {
 	b.criteria.staleAfter = staleAfter
 	return b

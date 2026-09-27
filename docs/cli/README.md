@@ -931,3 +931,8 @@ Manage operator-reviewed session/workspace aliases used by the current diagnosti
 - environment variables and runtime assumptions: [`../environment/README.md`](../environment/README.md)
 - hooks integration: [`../hooks/README.md`](../hooks/README.md)
 - backup flow: [`../backup/README.md`](../backup/README.md)
+
+### Log-only context compatibility transition
+
+Handoff and compact-only select sessions regardless of age or an end marker. The generated `STATUS` header is removed; human summaries are unchanged. Raw context JSON remains an event list (there is no context-pack JSON output).
+`--allow-stale` and `--stale-after` remain accepted as deprecated no-ops during this transition; their future removal requires a separate approved public-contract change. Explicit use (including `--allow-stale=false` and `--stale-after=0s`) emits one stderr warning per flag; default invocation emits none and stdout remains clean. Boolean and duration parsing still apply, so malformed values fail. Both flags still require `--handoff` or `--compact-only`; those modes remain mutually exclusive.

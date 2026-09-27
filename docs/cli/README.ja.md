@@ -920,3 +920,8 @@ sessions、events、commands、usage は、1つの読み取り専用トランザ
 - 環境変数と runtime 前提: [`../environment/README.ja.md`](../environment/README.ja.md)
 - Hooks ガイド: [`../hooks/README.ja.md`](../hooks/README.ja.md)
 - バックアップガイド: [`../backup/README.ja.md`](../backup/README.ja.md)
+
+### Log-only context の互換移行
+
+handoff と compact-only は経過時間や終了マーカーにかかわらず session を選択します。生成する `STATUS` ヘッダーは削除し、人間が書いたサマリーは変更しません。生 context JSON は引き続き event リストです（context-pack JSON 出力はありません）。
+`--allow-stale` と `--stale-after` は移行期間中、非推奨 no-op として受理します。将来の削除には別の public-contract 変更承認が必要です。明示指定（`--allow-stale=false` と `--stale-after=0s` を含む）では flag ごとに stderr へ 1 回警告し、既定では警告せず stdout を汚しません。boolean と duration の構文解析は維持するため、不正な値は失敗します。両 flag は引き続き `--handoff` または `--compact-only` を必要とし、両モードは同時指定できません。

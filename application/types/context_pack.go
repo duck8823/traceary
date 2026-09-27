@@ -13,7 +13,6 @@ type ContextPack struct {
 	workspace            domtypes.Workspace
 	requestedWorkspace   domtypes.Workspace
 	label                string
-	status               string
 	totalEvents          int
 	commandCount         int
 	agents               []string
@@ -38,7 +37,6 @@ func ContextPackOf(
 	sessionID domtypes.SessionID,
 	workspace domtypes.Workspace,
 	label string,
-	status string,
 	totalEvents int,
 	commandCount int,
 	agents []string,
@@ -51,7 +49,6 @@ func ContextPackOf(
 		sessionID:            sessionID,
 		workspace:            workspace,
 		label:                label,
-		status:               status,
 		totalEvents:          totalEvents,
 		commandCount:         commandCount,
 		agents:               slices.Clone(agents),
@@ -96,9 +93,6 @@ func (c ContextPack) Workspace() domtypes.Workspace { return c.workspace }
 
 // Label returns the session label.
 func (c ContextPack) Label() string { return c.label }
-
-// Status returns the session status.
-func (c ContextPack) Status() string { return c.status }
 
 // TotalEvents returns the total number of events in the session.
 func (c ContextPack) TotalEvents() int { return c.totalEvents }

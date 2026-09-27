@@ -31,7 +31,7 @@ func TestContextUsecase_Handoff(t *testing.T) {
 		}
 	})
 
-	t.Run("skips stale active session unless explicitly allowed", func(t *testing.T) {
+	t.Run("includes old unended session regardless of legacy stale options", func(t *testing.T) {
 		t.Parallel()
 
 		staleSession := apptypes.SessionSummaryOf(
@@ -62,8 +62,8 @@ func TestContextUsecase_Handoff(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Handoff(stale default) error = %v", err)
 		}
-		if _, ok := got.Value(); ok {
-			t.Fatalf("Handoff(stale default) returned a pack, want empty")
+		if _, ok := got.Value(); !ok {
+			t.Fatalf("Handoff(stale default) returned empty, want pack")
 		}
 
 		allowed, err := sut.Handoff(
@@ -958,4 +958,44 @@ func TestContextUsecase_Handoff_WorkspaceFallback(t *testing.T) {
 			t.Errorf("ListSummaries calls = %d, want 1 (no ancestor walk for URL workspace)", got)
 		}
 	})
+}
+
+func TestContextHandoffOldUnendedSelection(t *testing.T) {
+	for _, explicit := range []bool{false, true} {
+		t.Run(map[bool]string{false: "implicit", true: "explicit"}[explicit], func(t *testing.T) {
+			now := time.Now()
+			old := apptypes.SessionSummaryOf("old-unended", "workspace", now.Add(-48*time.Hour), domtypes.None[time.Time](), "active", 2, 1, nil, "", "STATUS: ended", "")
+			legacy := apptypes.SessionSummaryOf("legacy-ended", "workspace", now.Add(-72*time.Hour), domtypes.Some(now.Add(-time.Hour)), "ended", 2, 0, nil, "", "legacy summary", "")
+			query := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{old, legacy}}
+			command, err := model.NewEvent("recent-command", domtypes.EventKindCommandExecuted, "cli", "codex", "old-unended", "workspace", "recent command")
+			if err != nil {
+				t.Fatal(err)
+			}
+			events := &eventQueryServiceStub{listRecentResult: []*model.Event{command}}
+			criteria := apptypes.NewContextPackCriteriaBuilder().Workspace("workspace").RecentCommandsLimit(1).StaleAfter(time.Hour)
+			if explicit {
+				criteria.SessionID("old-unended")
+			}
+			result, err := usecase.NewContextUsecase(query, events, nil).Handoff(context.Background(), criteria.Build())
+			if err != nil {
+				t.Fatal(err)
+			}
+			pack, ok := result.Value()
+			if !ok {
+				t.Fatal("old unended session excluded")
+			}
+			if pack.SessionID() != "old-unended" || pack.WorkingState().SessionSummary() != "STATUS: ended" {
+				t.Fatalf("selected content changed: %v", pack)
+			}
+			if diff := cmp.Diff([]string{"recent command"}, pack.RecentCommands()); diff != "" {
+				t.Fatal(diff)
+			}
+			if query.listActiveOnly {
+				t.Fatal("lifecycle filter enabled")
+			}
+			if explicit && query.listSessionID != "old-unended" {
+				t.Fatal("explicit filter lost")
+			}
+		})
+	}
 }

@@ -11,7 +11,6 @@ type HandoffSummary struct {
 	sessionID      domtypes.SessionID
 	workspace      domtypes.Workspace
 	label          string
-	status         string
 	totalEvents    int
 	commandCount   int
 	agents         []string
@@ -24,7 +23,6 @@ func HandoffSummaryOf(
 	sessionID domtypes.SessionID,
 	workspace domtypes.Workspace,
 	label string,
-	status string,
 	totalEvents int,
 	commandCount int,
 	agents []string,
@@ -35,7 +33,6 @@ func HandoffSummaryOf(
 		sessionID:      sessionID,
 		workspace:      workspace,
 		label:          label,
-		status:         status,
 		totalEvents:    totalEvents,
 		commandCount:   commandCount,
 		agents:         slices.Clone(agents),
@@ -52,9 +49,6 @@ func (h HandoffSummary) Workspace() domtypes.Workspace { return h.workspace }
 
 // Label returns the session label.
 func (h HandoffSummary) Label() string { return h.label }
-
-// Status returns the session status.
-func (h HandoffSummary) Status() string { return h.status }
 
 // TotalEvents returns the total event count.
 func (h HandoffSummary) TotalEvents() int { return h.totalEvents }
@@ -78,7 +72,6 @@ func HandoffSummaryFromContextPack(pack ContextPack) HandoffSummary {
 		pack.SessionID(),
 		pack.Workspace(),
 		pack.Label(),
-		pack.Status(),
 		pack.TotalEvents(),
 		pack.CommandCount(),
 		pack.Agents(),

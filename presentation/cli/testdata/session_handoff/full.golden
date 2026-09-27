@@ -2,7 +2,6 @@ TRACEARY HANDOFF
 SESSION_ID: session-handoff-golden
 WORKSPACE: duck8823/traceary
 LABEL: v0.14.0
-STATUS: active
 TOTAL_EVENTS: 42
 COMMAND_COUNT: 9
 AGENTS: claude, codex
