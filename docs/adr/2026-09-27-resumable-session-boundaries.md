@@ -282,6 +282,8 @@ No schema changes, source tests or live-host validation are claimed by this docu
 
 ## References
 
+- [Implementation plan (proposed packages)](../plans/2026-09-27-log-only-session-migration.md)
+
 - [Issue #2394](https://github.com/duck8823/traceary/issues/2394)
 - [Scoped passive acquisition #2393](https://github.com/duck8823/traceary/issues/2393)
 - [Architecture principles](../architecture/README.md)

@@ -294,6 +294,8 @@ execution の責務、有用な audit fact、identity routing、refinement cover
 
 ## 参照
 
+- [実装計画（作業単位の提案）](../plans/2026-09-27-log-only-session-migration.ja.md)
+
 - [Issue #2394](https://github.com/duck8823/traceary/issues/2394)
 - [限定した受動取得 #2393](https://github.com/duck8823/traceary/issues/2393)
 - [アーキテクチャ原則](../architecture/README.ja.md)
