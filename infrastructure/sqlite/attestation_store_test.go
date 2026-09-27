@@ -340,9 +340,10 @@ func TestCompactKeepsAttestedHookDuplicatePrompts(t *testing.T) {
 
 func TestVerifyAttestationChain_SingleConnectionAfterSave(t *testing.T) {
 	t.Parallel()
+	path, events := newAttestationTestStore(t)
+	// Bound the operations under test, not unrelated fixture initialization.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	path, events := newAttestationTestStore(t)
 	prompt := model.EventOf(
 		types.EventID("prompt-single-conn"), types.EventKindPrompt,
 		types.Client("cli"), types.Agent("codex"),
@@ -364,9 +365,10 @@ func TestVerifyAttestationChain_SingleConnectionAfterSave(t *testing.T) {
 
 func TestVerifyAttestationChain_ConcurrentAppendDoesNotFalseFail(t *testing.T) {
 	t.Parallel()
+	path, events := newAttestationTestStore(t)
+	// Bound concurrent append/verification, not fixture initialization.
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	path, events := newAttestationTestStore(t)
 	seed := model.EventOf(
 		types.EventID("prompt-seed"), types.EventKindPrompt,
 		types.Client("cli"), types.Agent("codex"),

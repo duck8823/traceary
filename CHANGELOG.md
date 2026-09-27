@@ -7,6 +7,9 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ## [Unreleased]
 
+### Fixed
+- **Isolated SQLite test timing (#2395).** The contended hook write timing test runs serially within its package, and attestation verification tests start their caller deadlines after fixture initialization. Timeout values, assertions, and production contention retries are unchanged.
+
 ## [v0.52.0] - 2026-09-10
 
 v0.52.0 makes Codex consolidation requests non-blocking when explicitly enabled, strengthens the hook and pre-commit safety boundaries around that workflow, and reduces the default wake-injection output budget from 8 KiB to 2 KiB.
