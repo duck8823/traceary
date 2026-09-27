@@ -186,8 +186,8 @@ func (c *RootCLI) inspectClaudeHookCancellationDiagnosticsWithLookup(ctx context
 				Name:   checkName,
 				Status: doctorStatusWarn,
 				Hint: Localize(
-					"the referenced sessions have ended, older duplicate markers were kept, or the markers have aged past the 14-day retention window; preview the safe marker cleanup with the fix command",
-					"参照先 session は終了済みか、同一 session の古い duplicate、または 14 日の retention window を超えた marker です。fix command で安全な marker cleanup を preview してください",
+					"older duplicate markers were kept or the markers have aged past the 14-day retention window; preview the safe marker cleanup with the fix command",
+					"同一 session の古い duplicate、または 14 日の retention window を超えた marker です。fix command で安全な marker cleanup を preview してください",
 				),
 				Message: localizef(
 					"found %d Claude SessionEnd hook cancellation diagnostic(s) eligible for cleanup (resolved=%d, duplicate_or_aged=%d, aged_unknown=%d)%s",
@@ -268,9 +268,9 @@ func (c *RootCLI) inspectClaudeHookCancellationDiagnosticsWithLookup(ctx context
 }
 
 func classifyHookCancellationDiagnostics(
-	ctx context.Context,
+	_ context.Context,
 	records []hookCancellationDiagnostic,
-	sessions hookDiagnosticSessionLookup,
+	_ hookDiagnosticSessionLookup,
 	currentDBPath string,
 ) (hookCancellationDiagnosticClassification, error) {
 	classification := hookCancellationDiagnosticClassification{}
@@ -292,31 +292,10 @@ func classifyHookCancellationDiagnostics(
 		return classification, nil
 	}
 
-	if sessions == nil {
-		classification.Actionable = append(classification.Actionable, sameStore...)
-		return classification, nil
-	}
-	ids := make([]types.SessionID, 0, len(sameStore))
-	for _, record := range sameStore {
-		if strings.TrimSpace(record.SessionID) != "" {
-			ids = append(ids, types.SessionID(record.SessionID))
-		}
-	}
-	endedIDs, err := sessions.FindEndedSessionIDs(ctx, ids)
-	if err != nil {
-		return hookCancellationDiagnosticClassification{}, xerrors.Errorf("failed to inspect ended sessions: %w", err)
-	}
-	for _, record := range sameStore {
-		if strings.TrimSpace(record.SessionID) == "" {
-			classification.Actionable = append(classification.Actionable, record)
-			continue
-		}
-		if _, ended := endedIDs[types.SessionID(record.SessionID)]; ended {
-			classification.Resolved = append(classification.Resolved, record)
-			continue
-		}
-		classification.Actionable = append(classification.Actionable, record)
-	}
+	// A historical end marker is not evidence that a callback completed.
+	// Successful callbacks clear their own diagnostic; remaining same-store
+	// records stay actionable regardless of legacy lifecycle fields.
+	classification.Actionable = append(classification.Actionable, sameStore...)
 	return classification, nil
 }
 

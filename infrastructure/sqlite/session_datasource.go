@@ -37,9 +37,6 @@ var selectSessionByIDQuery string
 //go:embed sql/select_session_is_main.sql
 var selectSessionIsMainQuery string
 
-//go:embed sql/find_active_session.sql
-var findActiveSessionQuery string
-
 //go:embed sql/find_latest_session_boundary.sql
 var findLatestSessionBoundaryQuery string
 
@@ -128,8 +125,16 @@ func (d *SessionDatasource) saveBoundary(ctx context.Context, session *model.Ses
 	}()
 
 	return saveGuardedEventTransaction(ctx, db, event, nil, func(ctx context.Context, tx *sql.Tx) error {
+		if !supervised && event.Kind() == types.EventKindSessionStarted {
+			return guardOrdinaryRegistration(ctx, tx, session, event)
+		}
 		return guardSessionBoundaryOwnership(ctx, tx, session, event, supervised)
 	}, func(ctx context.Context, tx *sql.Tx) error {
+		// Ordinary boundaries are facts, not legacy lifecycle writes.
+		if !supervised && session.RuntimeMode() != types.RuntimeModeOneShot {
+			_, err := insertSessionRowIfMissing(ctx, tx, session)
+			return err
+		}
 		if err := saveSessionBoundary(ctx, tx, session, supervised); err != nil {
 			return xerrors.Errorf("failed to save session: %w", err)
 		}
@@ -602,7 +607,7 @@ func latestSessionBoundarySQL(ctx context.Context, db *sql.DB) string {
 func (d *SessionDatasource) FindLatest(
 	ctx context.Context,
 	client types.Client, agent types.Agent, workspace types.Workspace,
-	activeOnly bool,
+	_ bool,
 ) (types.Optional[*model.Event], error) {
 	db, err := d.db.open(ctx)
 	if err != nil {
@@ -614,52 +619,30 @@ func (d *SessionDatasource) FindLatest(
 		}
 	}()
 
-	if !activeOnly {
-		row := db.QueryRowContext(ctx, latestSessionBoundarySQL(ctx, db),
-			types.EventKindSessionStarted.String(),
-			client.String(), client.String(), agent.String(), agent.String(), workspace.String(), workspace.String(),
-			types.EventKindSessionStarted.String(),
-		)
-		event, scanErr := scanEvent(row)
-		if errors.Is(scanErr, sql.ErrNoRows) {
-			return types.None[*model.Event](), nil
-		}
-		if scanErr != nil {
-			return types.None[*model.Event](), xerrors.Errorf("failed to restore latest session event: %w", scanErr)
-		}
-		event, scanErr = hydrateEventPayload(ctx, db, event)
-		if scanErr != nil {
-			return types.None[*model.Event](), scanErr
-		}
-		return types.Some(event), nil
-	}
-
-	row := db.QueryRowContext(ctx, findActiveSessionQuery,
+	row := db.QueryRowContext(ctx, latestSessionBoundarySQL(ctx, db),
 		types.EventKindSessionStarted.String(),
 		client.String(), client.String(), agent.String(), agent.String(), workspace.String(), workspace.String(),
-		types.EventKindSessionStarted.String(), types.EventKindSessionEnded.String(),
+		types.EventKindSessionStarted.String(),
 	)
-
-	event, err := scanEvent(row)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return types.None[*model.Event](), nil
-		}
-		return types.None[*model.Event](), xerrors.Errorf("failed to restore latest session event: %w", err)
+	event, scanErr := scanEvent(row)
+	if errors.Is(scanErr, sql.ErrNoRows) {
+		return types.None[*model.Event](), nil
 	}
-	event, err = hydrateEventPayload(ctx, db, event)
-	if err != nil {
-		return types.None[*model.Event](), err
+	if scanErr != nil {
+		return types.None[*model.Event](), xerrors.Errorf("failed to restore latest session event: %w", scanErr)
 	}
-
+	event, scanErr = hydrateEventPayload(ctx, db, event)
+	if scanErr != nil {
+		return types.None[*model.Event](), scanErr
+	}
 	return types.Some(event), nil
 }
 
-// ListSummaries returns aggregated session information.
+// ListSummaries returns matching recorded groupings with lifecycle-independent eligibility.
 func (d *SessionDatasource) ListSummaries(
 	ctx context.Context,
 	limit, offset int,
-	sessionID types.SessionID, workspace types.Workspace, client types.Client, agent types.Agent, label string, activeOnly bool,
+	sessionID types.SessionID, workspace types.Workspace, client types.Client, agent types.Agent, label string, _ bool,
 	from, to types.Optional[time.Time],
 ) ([]apptypes.SessionSummary, error) {
 	db, err := d.db.open(ctx)
@@ -685,7 +668,6 @@ func (d *SessionDatasource) ListSummaries(
 		client.String(), client.String(),
 		agent.String(), agent.String(), agent.String(), agent.String(),
 		label, label,
-		activeOnly,
 		fromValue, fromValue,
 		toValue, toValue,
 		limit, offset,
@@ -875,24 +857,12 @@ func scanSessionSummary(ctx context.Context, q queryRowContexter, row interface 
 	}
 
 	endedAt := types.None[time.Time]()
-	status := types.SessionStatusActive.String()
 	if endedAtStr.Valid {
 		t, err := time.Parse(time.RFC3339Nano, endedAtStr.String)
 		if err != nil {
 			return apptypes.SessionSummary{}, xerrors.Errorf("failed to parse ended_at: %w", err)
 		}
 		endedAt = types.Some(t)
-		// A session whose latest event arrived after its end marker is reported
-		// as ended_with_late_events so snapshots surface it instead of dropping
-		// it. The end marker can come from a session_ended event or from
-		// stale-session close writing ended_at directly without a matching event.
-		if latestEventAt.After(t) {
-			status = types.SessionStatusEndedWithLateEvents.String()
-		} else {
-			status = types.SessionStatusEnded.String()
-		}
-	} else if time.Since(startedAt) > 24*time.Hour {
-		status = types.SessionStatusStale.String()
 	}
 
 	var agents []string
@@ -905,7 +875,6 @@ func scanSessionSummary(ctx context.Context, q queryRowContexter, row interface 
 		types.Workspace(repo),
 		startedAt,
 		endedAt,
-		status,
 		totalEvents,
 		commandCount,
 		agents,
@@ -973,4 +942,79 @@ func guardSessionBoundaryOwnership(ctx context.Context, tx *sql.Tx, session *mod
 		}
 	}
 	return nil
+}
+
+// guardOrdinaryRegistration validates immutable identity before any receipt
+// short-circuit. Reserving the writer serializes missing-start registrations.
+func guardOrdinaryRegistration(ctx context.Context, tx *sql.Tx, session *model.Session, event *model.Event) error {
+	if _, err := tx.ExecContext(ctx, `UPDATE sessions SET session_id = session_id WHERE session_id = ?`, session.SessionID().String()); err != nil {
+		return xerrors.Errorf("failed to inspect session registration: %w", err)
+	}
+	var client, agent, workspace, parent, mode, spawn, kind string
+	err := tx.QueryRowContext(ctx, `SELECT client, agent, workspace, COALESCE(parent_session_id, ''), runtime_mode, COALESCE(spawn_event_id, ''), subagent_kind FROM sessions WHERE session_id = ?`, session.SessionID().String()).Scan(&client, &agent, &workspace, &parent, &mode, &spawn, &kind)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return xerrors.Errorf("failed to inspect session registration: %w", err)
+	}
+	if session.RuntimeMode() == types.RuntimeModeOneShot || mode == types.RuntimeModeOneShot.String() {
+		return model.ErrInvalidSessionState
+	}
+	if client != session.Client().String() || agent != session.Agent().String() || workspace != session.Workspace().String() || parent != session.ParentSessionID().String() || mode != session.RuntimeMode().String() || spawn != session.SpawnEventID().String() || kind != session.SubagentKind() {
+		return xerrors.Errorf("session %s registration metadata conflicts with recorded identity: %w", session.SessionID(), model.ErrInvalidSessionState)
+	}
+	canonical, err := scanEvent(tx.QueryRowContext(ctx, `SELECT id, kind, client, agent, session_id, workspace, body, source_hook, created_at FROM events WHERE session_id = ? AND kind = 'session_started' AND client = ? AND agent = ? AND workspace = ? ORDER BY ts_norm(created_at), id LIMIT 1`, session.SessionID().String(), client, agent, workspace))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return xerrors.Errorf("failed to inspect session registration: %w", err)
+	}
+	if err := recordRegistrationDelivery(ctx, tx, event, canonical.EventID()); err != nil {
+		return xerrors.Errorf("failed to inspect session registration: %w", err)
+	}
+	// scanEvent restores only persisted event fields; no synchronization or
+	// attestation/capture runtime state is copied. Outcome is set after commit.
+	*event = *canonical
+	return errSessionRegistrationRecorded
+}
+
+func recordRegistrationDelivery(ctx context.Context, tx *sql.Tx, event *model.Event, canonicalID types.EventID) error {
+	evidence, ok := event.DeliveryEvidence().Value()
+	if !ok {
+		return nil
+	}
+	existing, found, err := findHookDeliveryByFingerprint(ctx, tx, event.SessionID(), evidence)
+	if err != nil {
+		return err
+	}
+	if found {
+		if err := insertHookDeliveryAttempt(ctx, tx, event, existing.deliveryRecordID, "exact_redelivery"); err != nil {
+			return err
+		}
+		return insertWorkspaceObservation(ctx, tx, event, canonicalID.String(), existing.deliveryRecordID, "supplemental", "runtime", diagnosticReason(existing.identityStatus), evidence.AttributionFingerprint())
+	}
+	_, accepted, err := findAcceptedHookDelivery(ctx, tx, event.SessionID(), evidence.ReportedID())
+	if err != nil {
+		return err
+	}
+	status := "accepted"
+	if accepted {
+		status = "conflict"
+	}
+	// The ledger binds the actual canonical boundary, while attempts retain
+	// this delivery occurrence's proposed ID and acquisition time.
+	receiptEvent := model.EventOf(canonicalID, event.Kind(), event.Client(), event.Agent(), event.SessionID(), event.Workspace(), event.Body(), event.CreatedAt())
+	receiptEvent.SetSourceHook(event.SourceHook())
+	if err := insertHookDelivery(ctx, tx, receiptEvent, evidence, status); err != nil {
+		if isSQLiteUniqueOrPKConflict(err) {
+			return errHookDeliveryIdentityRace
+		}
+		return err
+	}
+	if err := insertHookDeliveryAttempt(ctx, tx, event, evidence.DeliveryRecordID(), status); err != nil {
+		return err
+	}
+	return insertWorkspaceObservation(ctx, tx, event, canonicalID.String(), evidence.DeliveryRecordID(), "supplemental", "runtime", diagnosticReason(status), evidence.AttributionFingerprint())
 }

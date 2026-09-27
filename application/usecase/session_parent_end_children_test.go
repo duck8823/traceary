@@ -29,12 +29,12 @@ func newParentEndChildrenTestDatabase(t *testing.T) *sqliteinfra.Database {
 	return database
 }
 
-// TestSessionUsecase_End_ClosesOpenChildSessions drives the real
+// TestSessionUsecase_End_DoesNotTerminalizeChildSessions drives the real
 // SessionUsecase.End against a fixture DB (parent + still-open child), and
 // asserts the child no longer leaks as an open session that
 // Active() would keep returning after its parent ended
 // (#2012).
-func TestSessionUsecase_End_ClosesOpenChildSessions(t *testing.T) {
+func TestSessionUsecase_End_DoesNotTerminalizeChildSessions(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
@@ -76,8 +76,8 @@ func TestSessionUsecase_End_ClosesOpenChildSessions(t *testing.T) {
 	if !ok {
 		t.Fatal("FindByID(child) returned no session")
 	}
-	if _, ended := childSession.EndedAt().Value(); !ended {
-		t.Fatal("child session EndedAt() is not set; want the child to be closed when the parent ends")
+	if _, ended := childSession.EndedAt().Value(); ended {
+		t.Fatal("child grouping must not be terminalized by parent boundary")
 	}
 
 	// `find_active_session.sql` ranks active candidates by start time, so a
@@ -96,7 +96,7 @@ func TestSessionUsecase_End_ClosesOpenChildSessions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Active() error = %v", err)
 	}
-	if activeEvent, ok := active.Value(); ok {
-		t.Fatalf("Active() session ID = %q, want no active session (leaked child must not shadow the ended parent)", activeEvent.SessionID())
+	if activeEvent, ok := active.Value(); !ok || activeEvent.SessionID() != "parent-session" {
+		t.Fatal("compatibility Active must return latest recorded parent boundary independently of lifetime")
 	}
 }

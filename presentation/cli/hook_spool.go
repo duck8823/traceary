@@ -137,6 +137,7 @@ type hookSpoolRecord struct {
 	DBPath        string    `json:"db_path,omitempty"`
 	Payload       string    `json:"payload"`
 	CreatedAt     time.Time `json:"created_at"`
+	ReceiptID     string    `json:"receipt_id,omitempty"`
 	// AttemptCount tracks failed replay/requeue attempts. Missing field = 0
 	// (never classified as a failed replay). schema_version stays 1.
 	AttemptCount int `json:"attempt_count,omitempty"`
@@ -177,10 +178,25 @@ func hookSpoolDeadLetterRequeueable(lastError string) bool {
 
 // explicitHookPayloadReader tells readHookPayload that the bytes came from a
 // durable spool wrapper and must take precedence over TRACEARY_HOOK_INPUT.
-type explicitHookPayloadReader struct{ *bytes.Reader }
+type explicitHookPayloadReader struct {
+	*bytes.Reader
+	receiptID string
+}
+type hookSpoolReceiptContextKey struct{}
 
-func newExplicitHookPayloadReader(payload []byte) io.Reader {
-	return &explicitHookPayloadReader{Reader: bytes.NewReader(payload)}
+func withHookSpoolReceipt(ctx context.Context, input io.Reader) context.Context {
+	if reader, ok := input.(*explicitHookPayloadReader); ok && reader.receiptID != "" {
+		return context.WithValue(ctx, hookSpoolReceiptContextKey{}, reader.receiptID)
+	}
+	return ctx
+}
+
+func newExplicitHookPayloadReader(payload []byte, receipt ...string) io.Reader {
+	reader := &explicitHookPayloadReader{Reader: bytes.NewReader(payload)}
+	if len(receipt) > 0 {
+		reader.receiptID = receipt[0]
+	}
+	return reader
 }
 
 func (c *RootCLI) runHookDurably(
@@ -196,6 +212,11 @@ func (c *RootCLI) runHookDurably(
 		if err != nil {
 			return err
 		}
+		// Acquire before any handler side effect; durable replay reuses it.
+		var receipt [16]byte
+		if _, err := rand.Read(receipt[:]); err != nil {
+			return xerrors.Errorf("failed to acquire spool receipt: %w", err)
+		}
 		record := hookSpoolRecord{
 			SchemaVersion: hookSpoolSchemaVersion,
 			Command:       strings.TrimSpace(spec.Command),
@@ -204,6 +225,7 @@ func (c *RootCLI) runHookDurably(
 			DBPath:        strings.TrimSpace(spec.DBPath),
 			Payload:       string(payload),
 			CreatedAt:     time.Now().UTC(),
+			ReceiptID:     "spool:" + hex.EncodeToString(receipt[:]),
 		}
 		path, err := persistCurrentHookSpoolRecord(record)
 		if err != nil {
@@ -211,7 +233,7 @@ func (c *RootCLI) runHookDurably(
 			// unavailable. The operational error remains visible in debug logs;
 			// successful persistence is the timeout-kill guarantee.
 			slog.Debug("hook spool persistence failed", "command", spec.Command, "client", spec.Client, "error", err)
-			return run(newExplicitHookPayloadReader(payload))
+			return run(newExplicitHookPayloadReader(payload, record.ReceiptID))
 		}
 		if err := ctx.Err(); err != nil {
 			if promoteErr := promoteCurrentHookSpoolRecord(path); promoteErr != nil && !os.IsNotExist(promoteErr) {
@@ -219,7 +241,7 @@ func (c *RootCLI) runHookDurably(
 			}
 			return xerrors.Errorf("hook context cancelled after spool persistence: %w", err)
 		}
-		if err := run(newExplicitHookPayloadReader(payload)); err != nil {
+		if err := run(newExplicitHookPayloadReader(payload, record.ReceiptID)); err != nil {
 			if promoteErr := promoteCurrentHookSpoolRecord(path); promoteErr != nil && !os.IsNotExist(promoteErr) {
 				slog.Debug("failed current hook spool promotion failed", "path", path, "error", promoteErr)
 			}
@@ -421,7 +443,7 @@ func (c *RootCLI) drainHookSpoolRecordsDetailed(ctx context.Context, limit int, 
 // consume the marker and silence the live firing. A nil writer makes injection
 // a no-op.
 func (c *RootCLI) replayHookSpoolRecord(ctx context.Context, record hookSpoolRecord) error {
-	input := newExplicitHookPayloadReader([]byte(record.Payload))
+	input := newExplicitHookPayloadReader([]byte(record.Payload), record.ReceiptID)
 	dbPath := record.DBPath
 	client := record.Client
 	action := record.Action

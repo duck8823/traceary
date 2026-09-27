@@ -34,7 +34,7 @@ type StoreManagementUsecase interface {
 	// CollectGarbage removes events older than the given time.
 	CollectGarbage(ctx context.Context, before time.Time, target apptypes.GarbageCollectionTarget, dryRun bool) (apptypes.CollectGarbageResult, error)
 
-	// CloseStaleSessions closes sessions that started before the threshold and
-	// have no activity inside it, excluding the protected active sessions.
+	// CloseStaleSessions is retained as a compatibility no-op. Recorded
+	// grouping inactivity never causes synthetic closure.
 	CloseStaleSessions(ctx context.Context, staleAfter time.Duration, dryRun bool, protectedSessionIDs []types.SessionID) (apptypes.CloseStaleSessionsResult, error)
 }

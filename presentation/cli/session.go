@@ -47,8 +47,8 @@ func (c *RootCLI) newSessionStartCommand() *cobra.Command {
 		Use:   "start",
 		Short: Localize("Record session start", "セッション開始を記録する"),
 		Long: Localize(
-			"Record a session-start boundary.\n\nDefaults:\n- DB path: --db-path -> TRACEARY_DB_PATH -> ~/.config/traceary/traceary.db\n- client / agent / workspace: flag -> TRACEARY_CLIENT / TRACEARY_AGENT / TRACEARY_WORKSPACE -> cli / manual / detected workspace\n- session ID: generate a new ID when --session-id is omitted",
-			"session 開始境界を記録します。\n\n既定値の解決順:\n- DB path: --db-path -> TRACEARY_DB_PATH -> ~/.config/traceary/traceary.db\n- client / agent / workspace: flag -> TRACEARY_CLIENT / TRACEARY_AGENT / TRACEARY_WORKSPACE -> cli / manual / 検出した workspace\n- session ID: --session-id を省略した場合は新しく採番します",
+			"Register a recorded grouping and its first start boundary. Same ID and metadata reuse the original boundary; conflicting metadata is refused.\n\nDefaults:\n- DB path: --db-path -> TRACEARY_DB_PATH -> ~/.config/traceary/traceary.db\n- client / agent / workspace: flag -> TRACEARY_CLIENT / TRACEARY_AGENT / TRACEARY_WORKSPACE -> cli / manual / detected workspace\n- session ID: generate a new ID when --session-id is omitted",
+			"記録済み grouping と最初の開始境界を登録します。同一 ID・メタデータは元の境界を再利用し、競合は拒否します。\n\n既定値の解決順:\n- DB path: --db-path -> TRACEARY_DB_PATH -> ~/.config/traceary/traceary.db\n- client / agent / workspace: flag -> TRACEARY_CLIENT / TRACEARY_AGENT / TRACEARY_WORKSPACE -> cli / manual / 検出した workspace\n- session ID: --session-id を省略した場合は新しく採番します",
 		),
 		Args: noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -94,8 +94,8 @@ func (c *RootCLI) newSessionEndCommand() *cobra.Command {
 		Use:   "end",
 		Short: Localize("Record session end", "セッション終了を記録する"),
 		Long: Localize(
-			"Record a session-end boundary.\n\nDefaults:\n- session ID: --session-id -> TRACEARY_SESSION_ID\n- client / agent / workspace: use explicit flags first, then backfill from the matching session start when possible",
-			"session 終了境界を記録します。\n\n既定値の解決順:\n- session ID: --session-id -> TRACEARY_SESSION_ID\n- client / agent / workspace: 明示 flag を優先し、足りない値は対応する session start から補完します",
+			"Record an explicit end boundary without terminalizing the grouping or descendants. Each invocation records a new event; supplied summary retains event coverage.\n\nDefaults:\n- session ID: --session-id -> TRACEARY_SESSION_ID\n- client / agent / workspace: use explicit flags first, then backfill from the matching session start when possible",
+			"grouping や子孫を終了せず、明示的な終了境界を記録します。個別の実行は個別イベントとなり、指定要約はそのイベントの coverage を保持します。\n\n既定値の解決順:\n- session ID: --session-id -> TRACEARY_SESSION_ID\n- client / agent / workspace: 明示 flag を優先し、足りない値は対応する session start から補完します",
 		),
 		Args: noArgsLocalized(),
 		RunE: func(cmd *cobra.Command, _ []string) error {

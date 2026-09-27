@@ -44,6 +44,8 @@ func saveEventTransaction(
 
 // beforeDelivery runs under the same transaction even for exact redelivery.
 // Ownership guards must not be bypassed by event idempotency.
+var errSessionRegistrationRecorded = errors.New("session registration already recorded")
+
 func saveGuardedEventTransaction(ctx context.Context, db *sql.DB, event *model.Event, audit *model.CommandAudit, beforeDelivery, afterInsert func(context.Context, *sql.Tx) error, storePath string) error {
 	for attempt := 0; attempt < maxDeliveryDecisionAttempts; attempt++ {
 		tx, err := db.BeginTx(ctx, nil)
@@ -58,7 +60,10 @@ func saveGuardedEventTransaction(ctx context.Context, db *sql.DB, event *model.E
 		if beforeDelivery != nil {
 			persistErr = beforeDelivery(ctx, tx)
 		}
-		if persistErr == nil {
+		if errors.Is(persistErr, errSessionRegistrationRecorded) {
+			persistedID = event.EventID().String()
+			persistErr = nil
+		} else if persistErr == nil {
 			inserted, persistedID, published, persistErr = persistEventDelivery(ctx, tx, event, audit)
 		}
 		if persistErr == nil && inserted && afterInsert != nil {

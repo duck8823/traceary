@@ -144,7 +144,6 @@ func TestMemoryUsecase_Extract(t *testing.T) {
 		domtypes.Workspace("github.com/duck8823/traceary"),
 		time.Now().Add(-time.Hour),
 		domtypes.None[time.Time](),
-		"active",
 		12,
 		4,
 		[]string{"claude"},
@@ -264,7 +263,6 @@ func TestMemoryUsecase_Extract_IncludesTranscriptEvents(t *testing.T) {
 		domtypes.Workspace("github.com/duck8823/traceary"),
 		time.Now().Add(-time.Hour),
 		domtypes.None[time.Time](),
-		"active",
 		1,
 		0,
 		[]string{"claude"},
@@ -323,7 +321,6 @@ func TestMemoryUsecase_Extract_ClaudeJapaneseSummarySignals(t *testing.T) {
 		domtypes.Workspace("github.com/duck8823/traceary"),
 		time.Now().Add(-time.Hour),
 		domtypes.None[time.Time](),
-		"ended",
 		3,
 		0,
 		[]string{"claude"},
@@ -400,7 +397,6 @@ func TestMemoryUsecase_Extract_ScoresWeakSignalsAsHidden(t *testing.T) {
 		domtypes.Workspace("github.com/duck8823/traceary"),
 		time.Now().Add(-time.Hour),
 		domtypes.None[time.Time](),
-		"ended",
 		2,
 		0,
 		[]string{"claude"},
@@ -456,7 +452,6 @@ func TestMemoryUsecase_Extract_DeduplicatesByBestSignalScore(t *testing.T) {
 		domtypes.Workspace("github.com/duck8823/traceary"),
 		time.Now().Add(-time.Hour),
 		domtypes.None[time.Time](),
-		"ended",
 		2,
 		0,
 		[]string{"claude"},
@@ -515,7 +510,6 @@ func TestMemoryUsecase_Extract_DeduplicatesExistingAndGracefullyHandlesMissingPr
 		domtypes.Workspace("github.com/duck8823/traceary"),
 		time.Now().Add(-time.Hour),
 		domtypes.None[time.Time](),
-		"ended",
 		4,
 		0,
 		[]string{"codex"},
@@ -577,7 +571,6 @@ func TestMemoryUsecase_Extract_PaginatesExistingMemoryDedupe(t *testing.T) {
 		domtypes.Workspace("github.com/duck8823/traceary"),
 		time.Now().Add(-time.Hour),
 		domtypes.None[time.Time](),
-		"ended",
 		4,
 		0,
 		[]string{"codex"},
@@ -670,7 +663,6 @@ func TestMemoryUsecase_Extract_DeduplicatesSanitizedFacts(t *testing.T) {
 		domtypes.Workspace("github.com/duck8823/traceary"),
 		time.Now().Add(-time.Hour),
 		domtypes.None[time.Time](),
-		"ended",
 		4,
 		0,
 		[]string{"codex"},
@@ -730,7 +722,6 @@ func TestMemoryUsecase_Extract_DeduplicatesExistingFactsAfterSanitization(t *tes
 		domtypes.Workspace("github.com/duck8823/traceary"),
 		time.Now().Add(-time.Hour),
 		domtypes.None[time.Time](),
-		"ended",
 		4,
 		0,
 		[]string{"codex"},
@@ -902,7 +893,6 @@ func TestMemoryUsecase_Extract_ExplicitDurableMemoryIntentFromCompactSummary(t *
 		domtypes.Workspace("github.com/duck8823/traceary"),
 		time.Now().Add(-time.Hour),
 		domtypes.None[time.Time](),
-		"ended",
 		3,
 		0,
 		[]string{"codex"},
@@ -943,7 +933,7 @@ func TestMemoryUsecase_Extract_ExplicitDurableMemoryIntentFromCompactSummary(t *
 func TestMemoryUsecase_Extract_PostCompactSummaryUsesCompactSummarySource(t *testing.T) {
 	t.Parallel()
 
-	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-post-compact-memory"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), "ended", 2, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-post-compact-memory"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), 2, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
 	compactEvent := mustExtractionEvent(t, "event-post-compact-memory", domtypes.EventKindCompactSummary, strings.Join([]string{
 		"Preference: Please respond in Japanese for Traceary planning.",
 		"Constraint: Never merge v0.12.0 PRs before Codex review passes.",
@@ -982,7 +972,7 @@ func TestMemoryUsecase_Extract_PostCompactSummaryUsesCompactSummarySource(t *tes
 func TestMemoryUsecase_Extract_PostCompactSummaryKeepsLowQualityCandidatesHidden(t *testing.T) {
 	t.Parallel()
 
-	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-post-compact-noise"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), "ended", 1, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-post-compact-noise"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), 1, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
 	compactEvent := mustExtractionEvent(t, "event-post-compact-noise", domtypes.EventKindCompactSummary, "Decision: I will read presentation/cli/memory_inbox.go")
 	compactEvent.SetSourceHook("post_compact")
 	details := mustMemoryDetailsFromSummary(t, "memory-post-compact-noise", domtypes.MemoryTypeDecision, "I will read presentation/cli/memory_inbox.go")
@@ -1010,7 +1000,7 @@ func TestMemoryUsecase_Extract_PostCompactSummaryKeepsLowQualityCandidatesHidden
 func TestMemoryUsecase_Extract_SkipsPreCompactMarkerOnlySummary(t *testing.T) {
 	t.Parallel()
 
-	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-pre-compact-marker"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), "ended", 1, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-pre-compact-marker"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), 1, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
 	compactEvent := mustExtractionEvent(t, "event-pre-compact-marker", domtypes.EventKindCompactSummary, "manual")
 	compactEvent.SetSourceHook("pre_compact")
 	memoryUsecase := &memoryExtractionMemoryUsecaseStub{}
@@ -1030,7 +1020,7 @@ func TestMemoryUsecase_Extract_SkipsPreCompactMarkerOnlySummary(t *testing.T) {
 func TestMemoryUsecase_Extract_ClearResetSummaryBodyProducesCandidate(t *testing.T) {
 	t.Parallel()
 
-	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-clear-summary"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), "ended", 1, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-clear-summary"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), 1, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
 	clearEvent := mustExtractionEvent(t, "event-clear-summary", domtypes.EventKindCompactSummary, "Decision: After /clear, use traceary session handoff --compact-only before resuming implementation.")
 	clearEvent.SetSourceHook("clear")
 	details := mustMemoryDetailsFromSummary(t, "memory-clear-summary", domtypes.MemoryTypeDecision, "After /clear, use traceary session handoff --compact-only before resuming implementation.")
@@ -1064,7 +1054,7 @@ func TestMemoryUsecase_Extract_ClearResetSummaryBodyProducesCandidate(t *testing
 func TestMemoryUsecase_Extract_SkipsClearResetMarkerOnlySummary(t *testing.T) {
 	t.Parallel()
 
-	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-clear-marker"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), "ended", 1, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-clear-marker"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), 1, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
 	clearEvent := mustExtractionEvent(t, "event-clear-marker", domtypes.EventKindCompactSummary, "clear")
 	clearEvent.SetSourceHook("clear")
 	memoryUsecase := &memoryExtractionMemoryUsecaseStub{}
@@ -1084,7 +1074,7 @@ func TestMemoryUsecase_Extract_SkipsClearResetMarkerOnlySummary(t *testing.T) {
 func TestMemoryUsecase_ExplainExtraction_ReportsClearResetMarkerSkipReason(t *testing.T) {
 	t.Parallel()
 
-	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-debug-clear-marker"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), "ended", 1, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-debug-clear-marker"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), 1, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
 	clearEvent := mustExtractionEvent(t, "event-debug-clear-marker", domtypes.EventKindCompactSummary, "reset")
 	clearEvent.SetSourceHook("reset")
 	memoryUsecase := &memoryExtractionMemoryUsecaseStub{}
@@ -1111,7 +1101,7 @@ func TestMemoryUsecase_ExplainExtraction_ReportsClearResetMarkerSkipReason(t *te
 func TestMemoryUsecase_ExplainExtraction_ShowsPostCompactSummaryDecision(t *testing.T) {
 	t.Parallel()
 
-	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-debug-post-compact"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), "ended", 1, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-debug-post-compact"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), 1, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
 	compactEvent := mustExtractionEvent(t, "event-debug-post-compact", domtypes.EventKindCompactSummary, "Constraint: Never merge v0.12.0 PRs before Codex review passes.")
 	compactEvent.SetSourceHook("post_compact")
 	memoryUsecase := &memoryExtractionMemoryUsecaseStub{}
@@ -1138,7 +1128,7 @@ func TestMemoryUsecase_ExplainExtraction_ShowsPostCompactSummaryDecision(t *test
 func TestMemoryUsecase_Extract_JapaneseExplicitMemoryIntent(t *testing.T) {
 	t.Parallel()
 
-	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-ja-intent"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), "ended", 2, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-ja-intent"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), 2, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
 	promptEvent := mustExtractionEvent(t, "event-ja-intent", domtypes.EventKindPrompt, "覚えておいて: Codex review は数分かかることがあるので、PR review/check 状態をポーリングして待つ。")
 	details := mustMemoryDetailsFromSummary(t, "memory-ja-intent", domtypes.MemoryTypeLesson, "Codex review は数分かかることがあるので、PR review/check 状態をポーリングして待つ。")
 	memoryUsecase := &memoryExtractionMemoryUsecaseStub{proposeResult: []apptypes.MemoryDetails{details}}
@@ -1207,7 +1197,7 @@ func TestMemoryUsecase_Extract_RememberIntentInlineFactsUseRememberSource(t *tes
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			session := apptypes.SessionSummaryOf(domtypes.SessionID("session-remember-inline"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), "ended", 1, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
+			session := apptypes.SessionSummaryOf(domtypes.SessionID("session-remember-inline"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), 1, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
 			promptEvent := mustExtractionEvent(t, "event-remember-inline", domtypes.EventKindPrompt, tc.body)
 			details := mustMemoryDetailsFromSummary(t, "memory-remember-inline", domtypes.MemoryTypeLesson, tc.wantFact)
 			memoryUsecase := &memoryExtractionMemoryUsecaseStub{proposeResult: []apptypes.MemoryDetails{details}}
@@ -1237,7 +1227,7 @@ func TestMemoryUsecase_Extract_ShortRememberIntentUsesAdjacentContextEvidence(t 
 	t.Parallel()
 
 	now := time.Now()
-	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-remember-context"), domtypes.Workspace("github.com/duck8823/traceary"), now.Add(-time.Hour), domtypes.None[time.Time](), "ended", 2, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-remember-context"), domtypes.Workspace("github.com/duck8823/traceary"), now.Add(-time.Hour), domtypes.None[time.Time](), 2, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
 	contextEvent := mustExtractionEventAt(t, "event-context", domtypes.EventKindPrompt, "Please answer in Japanese for this repository.", now)
 	rememberEvent := mustExtractionEventAt(t, "event-remember-short", domtypes.EventKindPrompt, "覚えておいてね", now.Add(time.Second))
 	details := mustMemoryDetailsFromSummary(t, "memory-remember-context", domtypes.MemoryTypePreference, "Please answer in Japanese for this repository.")
@@ -1281,7 +1271,7 @@ func TestMemoryUsecase_Extract_ShortRememberIntentSkipsNonFactualAdjacentAck(t *
 	t.Parallel()
 
 	now := time.Now()
-	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-remember-skip-ack"), domtypes.Workspace("github.com/duck8823/traceary"), now.Add(-time.Hour), domtypes.None[time.Time](), "ended", 3, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-remember-skip-ack"), domtypes.Workspace("github.com/duck8823/traceary"), now.Add(-time.Hour), domtypes.None[time.Time](), 3, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
 	contextEvent := mustExtractionEventAt(t, "event-factual-context", domtypes.EventKindPrompt, "Always run go test before merging.", now)
 	ackEvent := mustExtractionEventAt(t, "event-ack-context", domtypes.EventKindTranscript, "Sure, got it.", now.Add(time.Second))
 	rememberEvent := mustExtractionEventAt(t, "event-remember-after-ack", domtypes.EventKindPrompt, "覚えておいてね", now.Add(2*time.Second))
@@ -1356,7 +1346,7 @@ func TestMemoryUsecase_Extract_DeclarativeRememberPhrasesAreNotRememberIntent(t 
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			session := apptypes.SessionSummaryOf(domtypes.SessionID("session-decl-remember"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), "ended", 1, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
+			session := apptypes.SessionSummaryOf(domtypes.SessionID("session-decl-remember"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), 1, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
 			promptEvent := mustExtractionEvent(t, "event-decl-remember", domtypes.EventKindPrompt, tc.body)
 			memoryUsecase := &memoryExtractionMemoryUsecaseStub{}
 			sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
@@ -1401,7 +1391,7 @@ func TestMemoryUsecase_Extract_JapaneseDeclarativeRememberPhrasesAreNotRememberI
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			session := apptypes.SessionSummaryOf(domtypes.SessionID("session-ja-decl-remember"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), "ended", 1, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
+			session := apptypes.SessionSummaryOf(domtypes.SessionID("session-ja-decl-remember"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), 1, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
 			promptEvent := mustExtractionEvent(t, "event-ja-decl-remember", domtypes.EventKindPrompt, tc.body)
 			memoryUsecase := &memoryExtractionMemoryUsecaseStub{}
 			sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
@@ -1424,7 +1414,7 @@ func TestMemoryUsecase_Extract_JapaneseDeclarativeRememberPhrasesAreNotRememberI
 func TestMemoryUsecase_Extract_DeclarativeRememberStillUsesHeuristics(t *testing.T) {
 	t.Parallel()
 
-	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-decl-remember-heuristic"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), "ended", 1, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-decl-remember-heuristic"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), 1, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
 	promptEvent := mustExtractionEvent(t, "event-decl-remember-heuristic", domtypes.EventKindPrompt, "I remember that we should always run go test before merging.")
 	memoryUsecase := &memoryExtractionMemoryUsecaseStub{}
 	sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
@@ -1450,7 +1440,7 @@ func TestMemoryUsecase_Extract_DeclarativeRememberStillUsesHeuristics(t *testing
 func TestMemoryUsecase_Extract_InlineRememberContinuesAfterDeclarativeMatch(t *testing.T) {
 	t.Parallel()
 
-	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-decl-then-imperative"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), "ended", 1, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-decl-then-imperative"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), 1, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
 	promptEvent := mustExtractionEvent(t, "event-decl-then-imperative", domtypes.EventKindPrompt, "I remember that this was flaky, remember this: run tests first")
 	details := mustMemoryDetailsFromSummary(t, "memory-decl-then-imperative", domtypes.MemoryTypeLesson, "run tests first")
 	memoryUsecase := &memoryExtractionMemoryUsecaseStub{proposeResult: []apptypes.MemoryDetails{details}}
@@ -1477,7 +1467,7 @@ func TestMemoryUsecase_Extract_InlineRememberContinuesAfterDeclarativeMatch(t *t
 func TestMemoryUsecase_Extract_JapaneseInlineRememberContinuesAfterDeclarativeMatch(t *testing.T) {
 	t.Parallel()
 
-	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-ja-decl-then-imperative"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), "ended", 1, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-ja-decl-then-imperative"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), 1, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
 	promptEvent := mustExtractionEvent(t, "event-ja-decl-then-imperative", domtypes.EventKindPrompt, "覚えておいてくれてありがとう。覚えておいて: go test before merge")
 	details := mustMemoryDetailsFromSummary(t, "memory-ja-decl-then-imperative", domtypes.MemoryTypeLesson, "go test before merge")
 	memoryUsecase := &memoryExtractionMemoryUsecaseStub{proposeResult: []apptypes.MemoryDetails{details}}
@@ -1534,7 +1524,7 @@ func TestMemoryUsecase_Extract_TriggerOnlyNegationsRejected(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			session := apptypes.SessionSummaryOf(domtypes.SessionID("session-neg-remember"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), "ended", 1, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
+			session := apptypes.SessionSummaryOf(domtypes.SessionID("session-neg-remember"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), 1, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
 			promptEvent := mustExtractionEvent(t, "event-neg-remember", domtypes.EventKindPrompt, tc.body)
 			memoryUsecase := &memoryExtractionMemoryUsecaseStub{}
 			sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
@@ -1579,7 +1569,7 @@ func TestMemoryUsecase_Extract_SoftenerOnlyRememberTriggersAreContextOnly(t *tes
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			session := apptypes.SessionSummaryOf(domtypes.SessionID("session-softener-remember"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), "ended", 1, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
+			session := apptypes.SessionSummaryOf(domtypes.SessionID("session-softener-remember"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), 1, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
 			promptEvent := mustExtractionEvent(t, "event-softener-remember", domtypes.EventKindPrompt, tc.body)
 			memoryUsecase := &memoryExtractionMemoryUsecaseStub{}
 			sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
@@ -1607,7 +1597,7 @@ func TestMemoryUsecase_Extract_ShortRememberIntentDoesNotBindStaleContext(t *tes
 	t.Parallel()
 
 	now := time.Now()
-	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-remember-stale"), domtypes.Workspace("github.com/duck8823/traceary"), now.Add(-time.Hour), domtypes.None[time.Time](), "ended", 6, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-remember-stale"), domtypes.Workspace("github.com/duck8823/traceary"), now.Add(-time.Hour), domtypes.None[time.Time](), 6, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
 	staleFactualEvent := mustExtractionEventAt(t, "event-stale-context", domtypes.EventKindPrompt, "Always run go test before merging.", now)
 	noisePrompts := []*model.Event{
 		mustExtractionEventAt(t, "event-noise-prompt-1", domtypes.EventKindPrompt, "Hmm.", now.Add(time.Second)),
@@ -1641,7 +1631,7 @@ func TestMemoryUsecase_Extract_ShortRememberIntentUsesUnifiedChronology(t *testi
 	t.Parallel()
 
 	now := time.Now()
-	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-remember-unified-timeline"), domtypes.Workspace("github.com/duck8823/traceary"), now.Add(-time.Hour), domtypes.None[time.Time](), "ended", 5, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-remember-unified-timeline"), domtypes.Workspace("github.com/duck8823/traceary"), now.Add(-time.Hour), domtypes.None[time.Time](), 5, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
 	olderTranscript := mustExtractionEventAt(t, "event-old-transcript-context", domtypes.EventKindTranscript, "Always run go test before merging.", now)
 	noisePrompts := []*model.Event{
 		mustExtractionEventAt(t, "event-unified-noise-prompt-1", domtypes.EventKindPrompt, "Hmm.", now.Add(time.Second)),
@@ -1688,7 +1678,7 @@ func TestMemoryUsecase_Extract_ShortRememberIntentIgnoresNonPromptGlobalNoise(t 
 	t.Parallel()
 
 	now := time.Now()
-	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-remember-global-noise"), domtypes.Workspace("github.com/duck8823/traceary"), now.Add(-time.Hour), domtypes.None[time.Time](), "ended", 4, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-remember-global-noise"), domtypes.Workspace("github.com/duck8823/traceary"), now.Add(-time.Hour), domtypes.None[time.Time](), 4, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
 	contextEvent := mustExtractionEventAt(t, "event-remember-context", domtypes.EventKindPrompt, "Always run go test before merging.", now)
 	reviewNoise := mustExtractionEventAt(t, "event-remember-review-noise", domtypes.EventKindReviewed, "Reviewed the diff.", now.Add(time.Second))
 	noteNoise := mustExtractionEventAt(t, "event-remember-note-noise", domtypes.EventKindNote, "Working note.", now.Add(2*time.Second))
@@ -1734,7 +1724,7 @@ func TestMemoryUsecase_Extract_RememberIntentContextSpecsPreserveRecency(t *test
 	t.Parallel()
 
 	now := time.Now()
-	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-remember-recency"), domtypes.Workspace("github.com/duck8823/traceary"), now.Add(-time.Hour), domtypes.None[time.Time](), "ended", 4, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-remember-recency"), domtypes.Workspace("github.com/duck8823/traceary"), now.Add(-time.Hour), domtypes.None[time.Time](), 4, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
 	olderContext := mustExtractionEventAt(t, "event-older-context", domtypes.EventKindPrompt, "Always run go test before merging.", now)
 	olderRemember := mustExtractionEventAt(t, "event-older-remember", domtypes.EventKindPrompt, "覚えておいてね", now.Add(time.Second))
 	newerContext := mustExtractionEventAt(t, "event-newer-context", domtypes.EventKindPrompt, "Prefer Japanese answers in this repository.", now.Add(2*time.Second))
@@ -1765,7 +1755,7 @@ func TestMemoryUsecase_ExplainExtraction_ReportsShortRememberIntentContextCandid
 	t.Parallel()
 
 	now := time.Now()
-	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-debug-remember-context"), domtypes.Workspace("github.com/duck8823/traceary"), now.Add(-time.Hour), domtypes.None[time.Time](), "ended", 2, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-debug-remember-context"), domtypes.Workspace("github.com/duck8823/traceary"), now.Add(-time.Hour), domtypes.None[time.Time](), 2, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
 	contextEvent := mustExtractionEventAt(t, "event-debug-context", domtypes.EventKindPrompt, "Please answer in Japanese for this repository.", now)
 	rememberEvent := mustExtractionEventAt(t, "event-debug-remember-short", domtypes.EventKindPrompt, "覚えておいてね", now.Add(time.Second))
 	memoryUsecase := &memoryExtractionMemoryUsecaseStub{}
@@ -1822,7 +1812,7 @@ func TestMemoryUsecase_ExplainExtraction_UsesUnifiedRememberIntentChronology(t *
 	t.Parallel()
 
 	now := time.Now()
-	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-debug-remember-unified-timeline"), domtypes.Workspace("github.com/duck8823/traceary"), now.Add(-time.Hour), domtypes.None[time.Time](), "ended", 5, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-debug-remember-unified-timeline"), domtypes.Workspace("github.com/duck8823/traceary"), now.Add(-time.Hour), domtypes.None[time.Time](), 5, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
 	olderTranscript := mustExtractionEventAt(t, "event-debug-old-transcript-context", domtypes.EventKindTranscript, "Always run go test before merging.", now)
 	noisePrompts := []*model.Event{
 		mustExtractionEventAt(t, "event-debug-unified-noise-prompt-1", domtypes.EventKindPrompt, "Hmm.", now.Add(time.Second)),
@@ -1873,7 +1863,7 @@ func TestMemoryUsecase_ExplainExtraction_UsesUnifiedRememberIntentChronology(t *
 func TestMemoryUsecase_ExplainExtraction_DeclarativeRememberPhrasingNotPromoted(t *testing.T) {
 	t.Parallel()
 
-	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-debug-decl-remember"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), "ended", 1, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-debug-decl-remember"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), 1, 0, []string{"claude"}, "", "", domtypes.SessionID(""))
 	promptEvent := mustExtractionEvent(t, "event-debug-decl-remember", domtypes.EventKindPrompt, "I remember that we already fixed this")
 	memoryUsecase := &memoryExtractionMemoryUsecaseStub{}
 	sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
@@ -1894,7 +1884,7 @@ func TestMemoryUsecase_ExplainExtraction_DeclarativeRememberPhrasingNotPromoted(
 func TestMemoryUsecase_ExplainExtraction_ReportsIgnoredAndProposedSegments(t *testing.T) {
 	t.Parallel()
 
-	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-debug"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), "ended", 2, 0, []string{"codex"}, "", "", domtypes.SessionID(""))
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-debug"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), 2, 0, []string{"codex"}, "", "", domtypes.SessionID(""))
 	promptEvent := mustExtractionEvent(t, "event-debug", domtypes.EventKindPrompt, strings.Join([]string{
 		"I ran the command and checked the output.",
 		"Remember: Poll Codex review status before assuming it timed out.",
@@ -1932,7 +1922,7 @@ func TestMemoryUsecase_ExplainExtraction_ReportsIgnoredAndProposedSegments(t *te
 func TestMemoryUsecase_Extract_DoesNotTreatMetricMemoryLabelAsDurableIntent(t *testing.T) {
 	t.Parallel()
 
-	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-memory-metric"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), "ended", 1, 0, []string{"codex"}, "", "", domtypes.SessionID(""))
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-memory-metric"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), 1, 0, []string{"codex"}, "", "", domtypes.SessionID(""))
 	promptEvent := mustExtractionEvent(t, "event-memory-metric", domtypes.EventKindPrompt, "Memory: 2 GB")
 	memoryUsecase := &memoryExtractionMemoryUsecaseStub{}
 	sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
@@ -1951,7 +1941,7 @@ func TestMemoryUsecase_Extract_DoesNotTreatMetricMemoryLabelAsDurableIntent(t *t
 func TestMemoryUsecase_ExplainExtraction_MarksDuplicateInRun(t *testing.T) {
 	t.Parallel()
 
-	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-debug-duplicates"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), "ended", 1, 0, []string{"codex"}, "", "", domtypes.SessionID(""))
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-debug-duplicates"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), 1, 0, []string{"codex"}, "", "", domtypes.SessionID(""))
 	promptEvent := mustExtractionEvent(t, "event-debug-duplicates", domtypes.EventKindPrompt, strings.Join([]string{
 		"must fix",
 		"Constraint: must fix",
@@ -1979,7 +1969,7 @@ func TestMemoryUsecase_ExplainExtraction_MarksDuplicateInRun(t *testing.T) {
 func TestMemoryUsecase_Extract_DoesNotTreatJapaneseMemoryMetricAsDurableIntent(t *testing.T) {
 	t.Parallel()
 
-	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-ja-memory-metric"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), "ended", 1, 0, []string{"codex"}, "", "", domtypes.SessionID(""))
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-ja-memory-metric"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), 1, 0, []string{"codex"}, "", "", domtypes.SessionID(""))
 	promptEvent := mustExtractionEvent(t, "event-ja-memory-metric", domtypes.EventKindPrompt, "メモリ: 2 GB")
 	memoryUsecase := &memoryExtractionMemoryUsecaseStub{}
 	sessionQuery := &sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{session}}
@@ -1998,7 +1988,7 @@ func TestMemoryUsecase_Extract_DoesNotTreatJapaneseMemoryMetricAsDurableIntent(t
 func TestMemoryUsecase_ExplainExtraction_RespectsCandidateLimit(t *testing.T) {
 	t.Parallel()
 
-	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-debug-limit"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), "ended", 1, 0, []string{"codex"}, "", "", domtypes.SessionID(""))
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-debug-limit"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), 1, 0, []string{"codex"}, "", "", domtypes.SessionID(""))
 	promptEvent := mustExtractionEvent(t, "event-debug-limit", domtypes.EventKindPrompt, strings.Join([]string{
 		"Remember: Poll Codex review status before assuming it timed out.",
 		"Remember: Check release workflow before announcing completion.",
@@ -2026,7 +2016,7 @@ func TestMemoryUsecase_ExplainExtraction_RespectsCandidateLimit(t *testing.T) {
 func TestMemoryUsecase_ExplainExtraction_AppliesCandidateLimitInExtractionKeyOrder(t *testing.T) {
 	t.Parallel()
 
-	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-debug-limit-key-order"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), "ended", 1, 0, []string{"codex"}, "", "", domtypes.SessionID(""))
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-debug-limit-key-order"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), 1, 0, []string{"codex"}, "", "", domtypes.SessionID(""))
 	promptEvent := mustExtractionEvent(t, "event-debug-limit-key-order", domtypes.EventKindPrompt, strings.Join([]string{
 		"must fix",
 		"Remember: Check release workflow before announcing completion.",
@@ -2065,7 +2055,7 @@ func TestMemoryUsecase_ExplainExtraction_AppliesCandidateLimitInExtractionKeyOrd
 func TestMemoryUsecase_ExplainExtraction_DroppedFragmentDoesNotConsumeCandidateLimit(t *testing.T) {
 	t.Parallel()
 
-	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-drop-limit"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), "ended", 1, 0, []string{"codex"}, "", "", domtypes.SessionID(""))
+	session := apptypes.SessionSummaryOf(domtypes.SessionID("session-drop-limit"), domtypes.Workspace("github.com/duck8823/traceary"), time.Now().Add(-time.Hour), domtypes.None[time.Time](), 1, 0, []string{"codex"}, "", "", domtypes.SessionID(""))
 	body := strings.Join([]string{
 		"Decision: diff --git a/foo.go b/foo.go",
 		"Remember: Check release workflow before announcing completion.",
@@ -2215,7 +2205,6 @@ func TestMemoryUsecase_Extract_HidesNoisyCandidates(t *testing.T) {
 				domtypes.Workspace("github.com/duck8823/traceary"),
 				time.Now().Add(-time.Hour),
 				domtypes.None[time.Time](),
-				"ended",
 				1,
 				0,
 				[]string{"codex"},
@@ -2272,7 +2261,6 @@ func TestMemoryUsecase_Extract_KeepsExplicitRememberVisibleEvenWhenNoisy(t *test
 		domtypes.Workspace("github.com/duck8823/traceary"),
 		time.Now().Add(-time.Hour),
 		domtypes.None[time.Time](),
-		"ended",
 		1,
 		0,
 		[]string{"codex"},
@@ -2323,7 +2311,6 @@ func TestMemoryUsecase_Extract_HidesRememberIntentJSONPayloadEcho(t *testing.T) 
 		domtypes.Workspace("github.com/duck8823/traceary"),
 		time.Now().Add(-time.Hour),
 		domtypes.None[time.Time](),
-		"ended",
 		1,
 		0,
 		[]string{"codex"},
@@ -2371,7 +2358,6 @@ func TestMemoryUsecase_Extract_DropsRememberIntentCodeFragments(t *testing.T) {
 		domtypes.Workspace("github.com/duck8823/traceary"),
 		time.Now().Add(-time.Hour),
 		domtypes.None[time.Time](),
-		"ended",
 		1,
 		0,
 		[]string{"codex"},
@@ -2417,7 +2403,6 @@ func TestMemoryUsecase_ExplainExtraction_ReportsLowQualityReasons(t *testing.T) 
 		domtypes.Workspace("github.com/duck8823/traceary"),
 		time.Now().Add(-time.Hour),
 		domtypes.None[time.Time](),
-		"ended",
 		1,
 		0,
 		[]string{"codex"},

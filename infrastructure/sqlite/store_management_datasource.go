@@ -62,12 +62,6 @@ var clearStaleExtractedCandidateSupersedesRefsQuery string
 // Tracked under #1368 / v0.11.0 sub-issue #832.
 const staleExtractedCandidateRetention = 14 * 24 * time.Hour
 
-//go:embed sql/count_stale_sessions.sql
-var countStaleSessionsQuery string
-
-//go:embed sql/update_stale_sessions.sql
-var updateStaleSessionsQuery string
-
 // StoreManagementDatasource provides store lifecycle and maintenance
 // operations backed by SQLite.
 type StoreManagementDatasource struct {
@@ -525,81 +519,10 @@ func execRowsAffected(
 	return int(rowsAffected), nil
 }
 
-// CloseStaleSessions closes active sessions that have no recent events.
-func (d *StoreManagementDatasource) CloseStaleSessions(
-	ctx context.Context,
-	staleAfter time.Duration,
-	dryRun bool,
-	protectedSessionIDs []types.SessionID,
-) (int, error) {
-	db, err := d.db.open(ctx)
-	if err != nil {
-		return 0, xerrors.Errorf("failed to open DB: %w", err)
-	}
-	defer func() {
-		if err := db.Close(); err != nil {
-			slog.Debug("failed to close resource", "error", err)
-		}
-	}()
-
-	cutoff := formatTimestamp(time.Now().Add(-staleAfter))
-	countQuery, protectedArgs := staleSessionsQueryWithProtection(countStaleSessionsQuery, "s.session_id", protectedSessionIDs)
-	updateQuery, _ := staleSessionsQueryWithProtection(updateStaleSessionsQuery, "session_id", protectedSessionIDs)
-
-	if dryRun {
-		args := append(protectedArgs, cutoff, cutoff)
-		var count int
-		if err := db.QueryRowContext(
-			ctx,
-			countQuery,
-			args...,
-		).Scan(&count); err != nil {
-			return 0, xerrors.Errorf("failed to count stale sessions: %w", err)
-		}
-		return count, nil
-	}
-
-	now := formatTimestamp(time.Now())
-	args := append([]any{now}, protectedArgs...)
-	args = append(args, cutoff, cutoff)
-	result, err := db.ExecContext(
-		ctx,
-		updateQuery,
-		args...,
-	)
-	if err != nil {
-		return 0, xerrors.Errorf("failed to close stale sessions: %w", err)
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return 0, xerrors.Errorf("failed to check rows affected: %w", err)
-	}
-
-	return int(rowsAffected), nil
-}
-
-func staleSessionsQueryWithProtection(query string, sessionIDColumn string, protectedSessionIDs []types.SessionID) (string, []any) {
-	const marker = "/* protected sessions */"
-	seen := make(map[types.SessionID]struct{}, len(protectedSessionIDs))
-	args := make([]any, 0, len(protectedSessionIDs))
-	placeholders := make([]string, 0, len(protectedSessionIDs))
-	for _, sessionID := range protectedSessionIDs {
-		if sessionID == "" {
-			continue
-		}
-		if _, ok := seen[sessionID]; ok {
-			continue
-		}
-		seen[sessionID] = struct{}{}
-		placeholders = append(placeholders, "?")
-		args = append(args, sessionID.String())
-	}
-	predicate := ""
-	if len(placeholders) > 0 {
-		predicate = "AND " + sessionIDColumn + " NOT IN (" + strings.Join(placeholders, ", ") + ")"
-	}
-	return strings.Replace(query, marker, predicate, 1), args
+// CloseStaleSessions is a compatibility no-op: inactivity is not closure.
+// Legacy lifecycle fields and existing retention eligibility are unchanged.
+func (d *StoreManagementDatasource) CloseStaleSessions(_ context.Context, _ time.Duration, _ bool, _ []types.SessionID) (int, error) {
+	return 0, nil
 }
 
 func validateDistinctDBPaths(firstPath string, secondPath string) (string, string, error) {

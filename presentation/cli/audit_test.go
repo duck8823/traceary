@@ -151,7 +151,7 @@ func TestRootCLI_AuditCommand_FallsBackFromStaleActiveSession(t *testing.T) {
 		t.Fatalf("Execute() error = %v", err)
 	}
 	want := "" +
-		"Active session session-stale is stale; using default session ID\n" +
+		"Using recorded session: session-stale\n" +
 		"Recorded: event-stale-audit\n"
 	if diff := cmp.Diff(want, stdout.String()); diff != "" {
 		t.Fatalf("stdout mismatch (-want +got):\n%s", diff)

@@ -60,6 +60,7 @@ func (c *RootCLI) newHookMuseEventCommand(
 }
 
 func (c *RootCLI) runHookMuseSessionStart(ctx context.Context, output io.Writer, input io.Reader, dbPath string) error {
+	ctx = withHookSpoolReceipt(ctx, input)
 	normalized, err := normalizeMuseHookPayload(input)
 	if err != nil {
 		return err
@@ -71,6 +72,7 @@ func (c *RootCLI) runHookMuseSessionStart(ctx context.Context, output io.Writer,
 }
 
 func (c *RootCLI) runHookMuseUserPromptSubmit(ctx context.Context, _ io.Writer, input io.Reader, dbPath string) error {
+	ctx = withHookSpoolReceipt(ctx, input)
 	normalized, err := normalizeMuseHookPayload(input)
 	if err != nil {
 		return err
@@ -84,6 +86,7 @@ func (c *RootCLI) runHookMusePreToolUse(_ context.Context, _ io.Writer, input io
 }
 
 func (c *RootCLI) runHookMusePostToolUse(ctx context.Context, _ io.Writer, input io.Reader, dbPath string) error {
+	ctx = withHookSpoolReceipt(ctx, input)
 	normalized, err := normalizeMuseHookPayload(input)
 	if err != nil {
 		return err
@@ -92,6 +95,7 @@ func (c *RootCLI) runHookMusePostToolUse(ctx context.Context, _ io.Writer, input
 }
 
 func (c *RootCLI) runHookMusePostToolUseFailure(ctx context.Context, _ io.Writer, input io.Reader, dbPath string) error {
+	ctx = withHookSpoolReceipt(ctx, input)
 	normalized, err := normalizeMuseHookPayload(input)
 	if err != nil {
 		return err
@@ -100,6 +104,7 @@ func (c *RootCLI) runHookMusePostToolUseFailure(ctx context.Context, _ io.Writer
 }
 
 func (c *RootCLI) runHookMuseStop(ctx context.Context, _ io.Writer, input io.Reader, dbPath string) error {
+	ctx = withHookSpoolReceipt(ctx, input)
 	normalized, err := normalizeMuseHookPayload(input)
 	if err != nil {
 		return err
@@ -108,14 +113,17 @@ func (c *RootCLI) runHookMuseStop(ctx context.Context, _ io.Writer, input io.Rea
 }
 
 func (c *RootCLI) runHookMusePreCompact(ctx context.Context, _ io.Writer, input io.Reader, dbPath string) error {
+	ctx = withHookSpoolReceipt(ctx, input)
 	return c.runHookMuseCompact(ctx, input, "pre-compact", dbPath)
 }
 
 func (c *RootCLI) runHookMusePostCompact(ctx context.Context, _ io.Writer, input io.Reader, dbPath string) error {
+	ctx = withHookSpoolReceipt(ctx, input)
 	return c.runHookMuseCompact(ctx, input, "post-compact", dbPath)
 }
 
 func (c *RootCLI) runHookMuseCompact(ctx context.Context, input io.Reader, action string, dbPath string) error {
+	ctx = withHookSpoolReceipt(ctx, input)
 	normalized, err := normalizeMuseHookPayload(input)
 	if err != nil {
 		return err

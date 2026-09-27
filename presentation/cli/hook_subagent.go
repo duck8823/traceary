@@ -22,6 +22,7 @@ func (c *RootCLI) runHookSubagentStart(
 	client string,
 	dbPath string,
 ) error {
+	ctx = withHookSpoolReceipt(ctx, input)
 	if c.storeManagement == nil {
 		return xerrors.Errorf("initialize store usecase is not configured")
 	}
@@ -80,11 +81,7 @@ func (c *RootCLI) runHookSubagentStart(
 
 	childSessionID := synthesizeHookChildSessionID(parentSessionID, toolUseID)
 	if _, err := c.session.StartChild(ctx, parentSessionID, childSessionID, agent, workspace, types.EventID(toolUseID), "task", time.Now()); err != nil {
-		if !errors.Is(err, model.ErrInvalidSessionState) {
-			return xerrors.Errorf("failed to record subagent start: %w", err)
-		}
-		// Child row already committed (timeout-killed start or re-fire).
-		slog.Debug("hook subagent start already recorded; treating as success", "client", client, "child_session_id", childSessionID)
+		return xerrors.Errorf("failed to record subagent start: %w", err)
 	}
 	if err := writeHookActiveSubagentState(client, parentSessionID, toolUseID, childSessionID); err != nil {
 		return err
@@ -98,6 +95,7 @@ func (c *RootCLI) runHookSubagentStop(
 	client string,
 	dbPath string,
 ) error {
+	ctx = withHookSpoolReceipt(ctx, input)
 	if c.storeManagement == nil {
 		return xerrors.Errorf("initialize store usecase is not configured")
 	}
@@ -176,17 +174,24 @@ func (c *RootCLI) runHookSubagentStop(
 	if childSessionID != "" {
 		if !childWasActive {
 			childAgent := resolveHookSubagentAgentOrDefault(client, payload, agent)
-			if _, startErr := c.session.StartChild(ctx, parentSessionID, childSessionID, childAgent, workspace, types.EventID(toolUseID), "task", time.Now()); startErr != nil {
-				if !errors.Is(startErr, model.ErrInvalidSessionState) {
+			// Late stop can follow cleared routing state. An existing recorded
+			// child does not need registration with guessed default metadata.
+			groups, lookupErr := c.session.List(ctx, apptypes.NewSessionListCriteriaBuilder(1).SessionID(childSessionID).Build())
+			if lookupErr != nil {
+				return xerrors.Errorf("failed to find recorded child grouping: %w", lookupErr)
+			}
+			if len(groups) == 0 {
+				if _, startErr := c.session.StartChild(ctx, parentSessionID, childSessionID, childAgent, workspace, types.EventID(toolUseID), "task", time.Now()); startErr != nil {
 					return xerrors.Errorf("failed to synthesize missing subagent start: %w", startErr)
 				}
-				// Child already exists — continue to End for stop boundary.
-				slog.Debug("hook subagent synthesize start already recorded; treating as success", "client", client, "child_session_id", childSessionID)
+			} else if groups[0].ParentSessionID() != parentSessionID {
+				return xerrors.Errorf("recorded child lineage conflicts with stop routing: %w", model.ErrInvalidSessionState)
 			}
+
 			lazySynthesizedChild = true
 		}
 		if _, err := c.session.End(ctx, types.Client("hook"), types.Agent(""), childSessionID, workspace, ""); err != nil {
-			if !errors.Is(err, model.ErrInvalidSessionState) && !errors.Is(err, model.ErrSupervisorOwnedSession) {
+			if !errors.Is(err, model.ErrSupervisorOwnedSession) {
 				return xerrors.Errorf("failed to end subagent session: %w", err)
 			}
 			if errors.Is(err, model.ErrSupervisorOwnedSession) {

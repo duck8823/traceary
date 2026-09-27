@@ -135,7 +135,7 @@ func TestDatasource_FindLatest(t *testing.T) {
 			t.Fatalf("FindLatest() returned empty, want present")
 		}
 		event, _ := result.Value()
-		if diff := cmp.Diff("event-6", event.EventID().String()); diff != "" {
+		if diff := cmp.Diff("event-7", event.EventID().String()); diff != "" {
 			t.Fatalf("EventID() mismatch (-want +got):\n%s", diff)
 		}
 	})
@@ -275,8 +275,8 @@ func TestDatasource_FindLatest(t *testing.T) {
 		if err != nil {
 			t.Fatalf("FindLatest() error = %v, want nil", err)
 		}
-		if _, ok := result.Value(); ok {
-			t.Fatalf("FindLatest() returned present, want empty")
+		if _, ok := result.Value(); !ok {
+			t.Fatalf("FindLatest() returned empty, want recorded grouping")
 		}
 	})
 
@@ -505,7 +505,7 @@ func TestDatasource_FindLatest_activeOnlyHonorsSessionsRowEndedAt(t *testing.T) 
 	if !ok {
 		t.Fatalf("FindLatest(activeOnly) returned empty, want the GC-closed-with-late-events session")
 	}
-	if diff := cmp.Diff("gc-late-start", event.EventID().String()); diff != "" {
+	if diff := cmp.Diff("gc-closed-start", event.EventID().String()); diff != "" {
 		t.Fatalf("EventID() mismatch (-want +got):\n%s\n(a GC-closed session with no later events must be excluded)", diff)
 	}
 }

@@ -21,7 +21,6 @@ import (
 
 	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/application/usecase"
-	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 )
 
@@ -69,6 +68,7 @@ func (c *RootCLI) runHookAntigravityStatusline(
 	input io.Reader,
 	dbPath string,
 ) error {
+	ctx = withHookSpoolReceipt(ctx, input)
 	if c.storeManagement == nil || c.antigravityUsage == nil {
 		return xerrors.Errorf("Antigravity usage capture dependencies are not configured")
 	}
@@ -118,6 +118,7 @@ const antigravityHookClient = "antigravity"
 // summaries are returned as a transient system message at most once per
 // conversation.
 func (c *RootCLI) runHookAntigravityPreInvocation(ctx context.Context, output io.Writer, input io.Reader, dbPath string) error {
+	ctx = withHookSpoolReceipt(ctx, input)
 	response := map[string]any{}
 	defer func() { _ = writeAntigravityJSON(output, response) }()
 
@@ -180,17 +181,15 @@ func (c *RootCLI) runHookAntigravityPreInvocation(ctx context.Context, output io
 		// A pre-v0.30 session has no delivery ledger row. Keep the historical
 		// invalid-state compatibility path so upgrading cannot break its next
 		// PreInvocation.
-		if !errors.Is(err, model.ErrInvalidSessionState) {
-			return xerrors.Errorf("failed to record antigravity session start: %w", err)
-		}
+		return xerrors.Errorf("failed to register Antigravity grouping: %w", err)
 	}
 	if existingState != sessionID {
 		if err := writeHookSessionState(antigravityHookClient, sessionID); err != nil {
 			return err
 		}
-		if err := clearHookSessionEndMarker(antigravityHookClient, sessionID); err != nil {
-			return err
-		}
+	}
+	if err := clearHookSessionEndMarker(antigravityHookClient, sessionID); err != nil {
+		return err
 	}
 
 	canonicalWorkspace, err := c.canonicalHookSessionWorkspace(ctx, sessionID, workspace)
@@ -202,7 +201,7 @@ func (c *RootCLI) runHookAntigravityPreInvocation(ctx context.Context, output io
 			return err
 		}
 	}
-	c.runOpportunisticSessionGC(ctx, resolvedDBPath, sessionID)
+	c.maintainHookActivityLeases(sessionID)
 	if output == nil {
 		return nil
 	}
@@ -247,6 +246,7 @@ func (c *RootCLI) runHookAntigravityPreToolUse(_ context.Context, output io.Writ
 // {} when no pending command is available (e.g. a non-run_command tool, or a
 // PostToolUse without a matching PreToolUse).
 func (c *RootCLI) runHookAntigravityPostToolUse(ctx context.Context, output io.Writer, input io.Reader, dbPath string) error {
+	ctx = withHookSpoolReceipt(ctx, input)
 	defer func() { _ = writeAntigravityJSON(output, map[string]any{}) }()
 
 	payload, err := readHookPayload(input)
@@ -287,6 +287,7 @@ func (c *RootCLI) runHookAntigravityPostToolUse(ctx context.Context, output io.W
 // kept open (memory auto-extract still fires). Output keeps the agent stopped
 // with {"decision":""}.
 func (c *RootCLI) runHookAntigravityStop(ctx context.Context, output io.Writer, input io.Reader, dbPath string) error {
+	ctx = withHookSpoolReceipt(ctx, input)
 	envelope := map[string]any{"decision": ""}
 	defer func() { _ = writeAntigravityJSON(output, envelope) }()
 

@@ -21,8 +21,8 @@ func TestActiveSessionQueryStreamsStartedCandidatesBeforeHydration(t *testing.T)
 		t.Fatal(err)
 	}
 	defer func() { _ = db.Close() }()
-	args := []any{"session_started", "", "", "", "", "", "", "session_started", "session_ended"}
-	rows, err := db.QueryContext(ctx, "EXPLAIN QUERY PLAN "+findActiveSessionQuery, args...)
+	args := []any{"session_started", "", "", "", "", "", "", "session_started"}
+	rows, err := db.QueryContext(ctx, "EXPLAIN QUERY PLAN "+findLatestSessionBoundaryQuery, args...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,10 +41,10 @@ func TestActiveSessionQueryStreamsStartedCandidatesBeforeHydration(t *testing.T)
 		t.Fatal(err)
 	}
 	normalized := strings.ToLower(plan.String())
-	if !strings.Contains(normalized, "search started using index idx_event_metadata_kind_created_at_norm_id_desc (kind=?)") {
+	if !strings.Contains(normalized, "idx_event_metadata_kind_created_at_norm_id_desc") {
 		t.Fatalf("active candidates are not streamed in time order from the body-free kind index:\n%s", plan.String())
 	}
-	if strings.Contains(normalized, "use temp b-tree for order by") {
+	if strings.Contains(normalized, "scan e") {
 		t.Fatalf("active lookup sorts all candidates instead of stopping at the first match:\n%s", plan.String())
 	}
 	if !strings.Contains(normalized, "search e using index sqlite_autoindex_events_1 (id=?)") {

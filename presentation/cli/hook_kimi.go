@@ -115,6 +115,7 @@ func (c *RootCLI) newHookKimiEventCommand(
 }
 
 func (c *RootCLI) runHookKimiSessionStart(ctx context.Context, _ io.Writer, input io.Reader, dbPath string) error {
+	ctx = withHookSpoolReceipt(ctx, input)
 	normalized, err := normalizeKimiHookPayload(input)
 	if err != nil {
 		return err
@@ -128,6 +129,7 @@ func (c *RootCLI) runHookKimiSessionStart(ctx context.Context, _ io.Writer, inpu
 }
 
 func (c *RootCLI) runHookKimiSessionEnd(ctx context.Context, _ io.Writer, input io.Reader, dbPath string) error {
+	ctx = withHookSpoolReceipt(ctx, input)
 	normalized, err := normalizeKimiHookPayload(input)
 	if err != nil {
 		return err
@@ -141,6 +143,7 @@ func (c *RootCLI) runHookKimiSessionEnd(ctx context.Context, _ io.Writer, input 
 }
 
 func (c *RootCLI) runHookKimiUserPromptSubmit(ctx context.Context, output io.Writer, input io.Reader, dbPath string) error {
+	ctx = withHookSpoolReceipt(ctx, input)
 	normalized, err := normalizeKimiHookPayload(input)
 	if err != nil {
 		return err
@@ -173,6 +176,7 @@ func (c *RootCLI) runHookKimiUserPromptSubmit(ctx context.Context, output io.Wri
 // correlating tool_call_id + tool_input.subagent_type the subagent
 // parent/child attribution needs.
 func (c *RootCLI) runHookKimiPreToolUse(ctx context.Context, _ io.Writer, input io.Reader, dbPath string) error {
+	ctx = withHookSpoolReceipt(ctx, input)
 	normalized, err := normalizeKimiHookPayload(input)
 	if err != nil {
 		return err
@@ -187,6 +191,7 @@ func (c *RootCLI) runHookKimiPreToolUse(ctx context.Context, _ io.Writer, input 
 // tool_use_id, so the shared subagent-stop path falls back to the latest
 // active child of the parent session (same semantics as Claude).
 func (c *RootCLI) runHookKimiSubagentStop(ctx context.Context, _ io.Writer, input io.Reader, dbPath string) error {
+	ctx = withHookSpoolReceipt(ctx, input)
 	normalized, err := normalizeKimiHookPayload(input)
 	if err != nil {
 		return err
@@ -197,6 +202,7 @@ func (c *RootCLI) runHookKimiSubagentStop(ctx context.Context, _ io.Writer, inpu
 // Kimi's compact hooks expose trigger and token counts but no summary body,
 // so the shared compact path records markers only (mirroring Grok).
 func (c *RootCLI) runHookKimiPreCompact(ctx context.Context, _ io.Writer, input io.Reader, dbPath string) error {
+	ctx = withHookSpoolReceipt(ctx, input)
 	normalized, err := normalizeKimiHookPayload(input)
 	if err != nil {
 		return err
@@ -205,6 +211,7 @@ func (c *RootCLI) runHookKimiPreCompact(ctx context.Context, _ io.Writer, input 
 }
 
 func (c *RootCLI) runHookKimiPostCompact(ctx context.Context, _ io.Writer, input io.Reader, dbPath string) error {
+	ctx = withHookSpoolReceipt(ctx, input)
 	normalized, err := normalizeKimiHookPayload(input)
 	if err != nil {
 		return err
@@ -213,6 +220,7 @@ func (c *RootCLI) runHookKimiPostCompact(ctx context.Context, _ io.Writer, input
 }
 
 func (c *RootCLI) runHookKimiPostToolUse(ctx context.Context, _ io.Writer, input io.Reader, dbPath string) error {
+	ctx = withHookSpoolReceipt(ctx, input)
 	normalized, err := normalizeKimiHookPayload(input)
 	if err != nil {
 		return err
@@ -221,6 +229,7 @@ func (c *RootCLI) runHookKimiPostToolUse(ctx context.Context, _ io.Writer, input
 }
 
 func (c *RootCLI) runHookKimiPostToolUseFailure(ctx context.Context, _ io.Writer, input io.Reader, dbPath string) error {
+	ctx = withHookSpoolReceipt(ctx, input)
 	normalized, err := normalizeKimiHookPayload(input)
 	if err != nil {
 		return err
@@ -238,6 +247,7 @@ func (c *RootCLI) runHookKimiPostToolUseFailure(ctx context.Context, _ io.Writer
 // fail-soft skips return recorded=false so pressure is not re-checked for a
 // turn that did not land again. normalized is the payload the recording used.
 func (c *RootCLI) runHookKimiStop(ctx context.Context, input io.Reader, dbPath string) (recorded bool, normalized []byte, err error) {
+	ctx = withHookSpoolReceipt(ctx, input)
 	normalized, err = normalizeKimiHookPayload(input)
 	if err != nil {
 		return false, nil, err

@@ -227,7 +227,7 @@ func (c *RootCLI) resolveContextSessionID(
 		Agent(types.Agent(strings.TrimSpace(input.agent))).
 		Workspace(types.Workspace(strings.TrimSpace(input.repo))).
 		Build()
-	result, err := c.session.Active(ctx, lookupCriteria)
+	result, err := c.session.Latest(ctx, lookupCriteria)
 	if err != nil {
 		return "", xerrors.Errorf("%s: %w", Localize("failed to resolve latest session for context", "文脈用の直近 session 解決に失敗しました"), err)
 	}

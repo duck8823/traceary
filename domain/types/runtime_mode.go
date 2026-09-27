@@ -7,19 +7,19 @@ import (
 	"golang.org/x/xerrors"
 )
 
-// RuntimeMode identifies the lifecycle contract under which a session runs.
+// RuntimeMode preserves recorded runtime metadata and supervisor ownership.
 // Its zero value is invalid so interactive and one-shot sessions can never be
 // confused by an omitted field.
 type RuntimeMode string
 
 const (
-	// RuntimeModeInteractive is a foreground session with an explicit host lifecycle.
+	// RuntimeModeInteractive is ordinary foreground capture metadata.
 	RuntimeModeInteractive RuntimeMode = "interactive"
 	// RuntimeModeOneShot is a bounded invocation expected to finalize once.
 	RuntimeModeOneShot RuntimeMode = "one_shot"
-	// RuntimeModeResumed continues a previously established session lifecycle.
+	// RuntimeModeResumed retains resumed capture metadata.
 	RuntimeModeResumed RuntimeMode = "resumed"
-	// RuntimeModeBackground runs independently from a foreground interactive lifecycle.
+	// RuntimeModeBackground retains background capture metadata.
 	RuntimeModeBackground RuntimeMode = "background"
 )
 

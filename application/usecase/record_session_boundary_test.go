@@ -453,7 +453,7 @@ func TestSessionUsecase_End(t *testing.T) {
 		}
 	})
 
-	t.Run("returns ErrInvalidSessionState when session is already ended", func(t *testing.T) {
+	t.Run("appends boundary to historically ended grouping", func(t *testing.T) {
 		t.Parallel()
 
 		sessionID, err := types.SessionIDFrom("session-already-ended")
@@ -482,15 +482,16 @@ func TestSessionUsecase_End(t *testing.T) {
 			types.Workspace("duck8823/traceary"),
 			"second end attempt",
 		)
-		if err == nil {
-			t.Fatalf("End() error = nil, want ErrInvalidSessionState")
+		if err != nil {
+			t.Fatalf("End() error = %v", err)
 		}
-		if !errors.Is(err, model.ErrInvalidSessionState) {
-			t.Fatalf("End() error = %v, want ErrInvalidSessionState", err)
+		if !sessionStub.saveBoundaryCalled {
+			t.Fatal("boundary was not saved")
 		}
-		if sessionStub.saveBoundaryCalled {
-			t.Fatalf("SessionRepository.SaveBoundary() should not be called when session is already ended")
+		if got, ok := alreadyEnded.EndedAt().Value(); !ok || !got.Equal(endedAt) {
+			t.Fatal("legacy end was rewritten")
 		}
+
 	})
 }
 
@@ -660,8 +661,8 @@ func TestSessionUsecase_SessionSaver(t *testing.T) {
 		if !sessionStub.saveBoundaryCalled {
 			t.Fatalf("SessionRepository.SaveBoundary() was not called")
 		}
-		if _, ok := sessionStub.savedBoundary.EndedAt().Value(); !ok {
-			t.Fatalf("session.EndedAt() should be present for end")
+		if _, ok := sessionStub.savedBoundary.EndedAt().Value(); ok {
+			t.Fatalf("ordinary boundary must not set EndedAt")
 		}
 		if diff := cmp.Diff("", sessionStub.savedBoundary.Summary()); diff != "" {
 			t.Fatalf("sessions.summary must stay empty; --summary writes a refinement (-want +got):\n%s", diff)
@@ -696,7 +697,7 @@ func TestSessionUsecase_SessionSaver(t *testing.T) {
 		}
 	})
 
-	t.Run("session start returns ErrInvalidSessionState when explicit session ID already exists", func(t *testing.T) {
+	t.Run("session start allows existing same-metadata imported grouping", func(t *testing.T) {
 		t.Parallel()
 
 		existingID, _ := types.SessionIDFrom("existing-session")
@@ -717,15 +718,13 @@ func TestSessionUsecase_SessionSaver(t *testing.T) {
 			types.Workspace("duck8823/traceary"),
 			types.SessionID(""),
 		)
-		if err == nil {
-			t.Fatalf("Start() error = nil, want ErrInvalidSessionState")
+		if err != nil {
+			t.Fatalf("Start() error = %v", err)
 		}
-		if !errors.Is(err, model.ErrInvalidSessionState) {
-			t.Fatalf("Start() error = %v, want ErrInvalidSessionState", err)
+		if !sessionStub.saveBoundaryCalled {
+			t.Fatal("first truthful boundary must be saved")
 		}
-		if sessionStub.saveBoundaryCalled {
-			t.Fatalf("SessionRepository.SaveBoundary() should not be called when session already exists")
-		}
+
 	})
 
 	t.Run("returns error when SaveBoundary fails", func(t *testing.T) {

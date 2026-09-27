@@ -307,9 +307,6 @@ func TestDatasource_ListSummaries(t *testing.T) {
 		if diff := cmp.Diff(1, latest.CommandCount()); diff != "" {
 			t.Fatalf("s2 command_count mismatch (-want +got):\n%s", diff)
 		}
-		if diff := cmp.Diff("active", latest.Status()); diff != "" {
-			t.Fatalf("s2 status mismatch (-want +got):\n%s", diff)
-		}
 
 		older := summaries[1]
 		if diff := cmp.Diff("s1", older.SessionID().String()); diff != "" {
@@ -320,9 +317,6 @@ func TestDatasource_ListSummaries(t *testing.T) {
 		}
 		if diff := cmp.Diff(2, older.CommandCount()); diff != "" {
 			t.Fatalf("s1 command_count mismatch (-want +got):\n%s", diff)
-		}
-		if diff := cmp.Diff("ended", older.Status()); diff != "" {
-			t.Fatalf("s1 status mismatch (-want +got):\n%s", diff)
 		}
 		if _, ok := older.EndedAt().Value(); !ok {
 			t.Fatalf("s1 ended_at should not be empty")
@@ -943,14 +937,11 @@ func TestDatasource_ListSummariesEndedWithLateEvents(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ListSummaries() error = %v", err)
 		}
-		if len(summaries) != 1 {
-			t.Fatalf("got %d summaries, want 1 (only the late-events session)", len(summaries))
+		if len(summaries) != 2 {
+			t.Fatalf("got %d summaries, want 2 (lifecycle independent)", len(summaries))
 		}
 		if diff := cmp.Diff("late", summaries[0].SessionID().String()); diff != "" {
 			t.Fatalf("session id mismatch (-want +got):\n%s", diff)
-		}
-		if diff := cmp.Diff(types.SessionStatusEndedWithLateEvents.String(), summaries[0].Status()); diff != "" {
-			t.Fatalf("status mismatch (-want +got):\n%s", diff)
 		}
 		if endedAt, ok := summaries[0].EndedAt().Value(); !ok || !endedAt.Equal(endMarker) {
 			t.Fatalf("EndedAt() = %v (ok=%v), want %v so the late events stay explainable", endedAt, ok, endMarker)
@@ -969,8 +960,8 @@ func TestDatasource_ListSummariesEndedWithLateEvents(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ListSummaries() error = %v", err)
 		}
-		if len(summaries) != 0 {
-			t.Fatalf("got %d summaries, want 0 (cleanly ended sessions stay excluded)", len(summaries))
+		if len(summaries) != 1 {
+			t.Fatalf("got %d summaries, want 1 (recorded grouping retained)", len(summaries))
 		}
 	})
 
@@ -985,11 +976,11 @@ func TestDatasource_ListSummariesEndedWithLateEvents(t *testing.T) {
 		}
 		statuses := map[string]string{}
 		for _, summary := range summaries {
-			statuses[summary.SessionID().String()] = summary.Status()
+			statuses[summary.SessionID().String()] = summary.SessionID().String()
 		}
 		want := map[string]string{
-			"late":  types.SessionStatusEndedWithLateEvents.String(),
-			"clean": types.SessionStatusEnded.String(),
+			"late":  "late",
+			"clean": "clean",
 		}
 		if diff := cmp.Diff(want, statuses); diff != "" {
 			t.Fatalf("status map mismatch (-want +got):\n%s", diff)

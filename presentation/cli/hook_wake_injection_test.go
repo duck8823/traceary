@@ -601,6 +601,11 @@ func (fx *wakeInjectionFixture) seedSummary(
 ) {
 	t.Helper()
 	ws := types.Workspace(workspace)
+	client := types.Client("cli")
+	if sessionID == "sess-waking" {
+		client = "hook"
+	}
+
 	var session *model.Session
 	if parentSessionID != "" {
 		parent, err := fx.sessions.FindByID(ctx, types.SessionID(parentSessionID))
@@ -622,12 +627,12 @@ func (fx *wakeInjectionFixture) seedSummary(
 			1,
 		)
 	} else {
-		session = model.NewSession(types.SessionID(sessionID), startedAt, "cli", "codex", ws)
+		session = model.NewSession(types.SessionID(sessionID), startedAt, client, "codex", ws)
 	}
 	boundary, err := model.NewEventWithClock(
 		types.EventID(sessionID+"-start"),
 		types.EventKindSessionStarted,
-		"cli",
+		client,
 		"codex",
 		types.SessionID(sessionID),
 		ws,
@@ -643,7 +648,7 @@ func (fx *wakeInjectionFixture) seedSummary(
 	note, err := model.NewEventWithClock(
 		types.EventID(sessionID+"-note"),
 		types.EventKindNote,
-		"cli",
+		client,
 		"codex",
 		types.SessionID(sessionID),
 		ws,

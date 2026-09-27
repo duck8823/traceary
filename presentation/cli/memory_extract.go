@@ -104,14 +104,6 @@ func (c *RootCLI) resolveMemoryExtractTargetSession(ctx context.Context, session
 	lookupCriteria := apptypes.NewSessionLookupCriteriaBuilder().
 		Workspace(types.Workspace(strings.TrimSpace(workspace))).
 		Build()
-	active, err := c.session.Active(ctx, lookupCriteria)
-	if err != nil {
-		return "", workspace, xerrors.Errorf("%s: %w", Localize("failed to resolve active session for memory extraction", "memory extraction 用の active session 解決に失敗しました"), err)
-	}
-	if event, ok := active.Value(); ok && event != nil {
-		return event.SessionID().String(), workspace, nil
-	}
-
 	latest, err := c.session.Latest(ctx, lookupCriteria)
 	if err != nil {
 		return "", workspace, xerrors.Errorf("%s: %w", Localize("failed to resolve latest session for memory extraction", "memory extraction 用の latest session 解決に失敗しました"), err)

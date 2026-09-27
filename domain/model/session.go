@@ -49,8 +49,7 @@ func NewSession(
 	}
 }
 
-// NewSessionWithRuntimeMode creates an active session under an explicit
-// lifecycle contract. The zero value is rejected so omission can never turn a
+// NewSessionWithRuntimeMode creates a grouping with explicit retained runtime metadata. The zero value is rejected so omission can never turn a
 // one-shot runtime into an interactive runtime, or vice versa.
 func NewSessionWithRuntimeMode(
 	sessionID types.SessionID,
@@ -63,8 +62,7 @@ func NewSessionWithRuntimeMode(
 	return NewSessionWithRuntimeModeAndParent(sessionID, startedAt, client, agent, workspace, runtimeMode, "")
 }
 
-// NewSessionWithRuntimeModeAndParent creates an active session under an
-// explicit lifecycle contract and optional parent. Parent identity is part of
+// NewSessionWithRuntimeModeAndParent creates a grouping with retained runtime metadata and optional parent. Parent identity is part of
 // construction because it is immutable after the session starts.
 func NewSessionWithRuntimeModeAndParent(
 	sessionID types.SessionID,
@@ -211,8 +209,9 @@ func (s *Session) Workspace() types.Workspace { return s.workspace }
 // Label returns the user-assigned label.
 func (s *Session) Label() string { return s.label }
 
-// End marks the session as ended. Returns ErrInvalidSessionState when the
-// session is already ended.
+// End constructs legacy terminal metadata for compatibility fixtures.
+// Ordinary capture uses boundary events and never invokes this transition.
+// Supervisor completion exclusively uses FinalizeOneShot.
 func (s *Session) End(endedAt time.Time, summary string) error {
 	transition, err := s.Terminate(endedAt, types.TerminalReasonSuccess, summary)
 	if err != nil {

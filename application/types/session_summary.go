@@ -18,7 +18,6 @@ type SessionSummary struct {
 	client             domtypes.Client
 	startedAt          time.Time
 	endedAt            domtypes.Optional[time.Time]
-	status             string
 	totalEvents        int
 	commandCount       int
 	agents             []string
@@ -53,7 +52,6 @@ func SessionSummaryOf(
 	workspace domtypes.Workspace,
 	startedAt time.Time,
 	endedAt domtypes.Optional[time.Time],
-	status string,
 	totalEvents int,
 	commandCount int,
 	agents []string,
@@ -99,7 +97,6 @@ func SessionSummaryOf(
 		client:             client,
 		startedAt:          startedAt,
 		endedAt:            endedAt,
-		status:             status,
 		totalEvents:        totalEvents,
 		commandCount:       commandCount,
 		agents:             slices.Clone(agents),
@@ -131,9 +128,6 @@ func (s SessionSummary) StartedAt() time.Time { return s.startedAt }
 
 // EndedAt returns when the session ended.
 func (s SessionSummary) EndedAt() domtypes.Optional[time.Time] { return s.endedAt }
-
-// Status returns the session status (active, stale, ended, ended_with_late_events).
-func (s SessionSummary) Status() string { return s.status }
 
 // TotalEvents returns the total number of events in the session.
 func (s SessionSummary) TotalEvents() int { return s.totalEvents }

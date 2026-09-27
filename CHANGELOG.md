@@ -8,6 +8,7 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 ## [Unreleased]
 
 ### Changed
+- **Log-only ordinary grouping (#2401).** Start reuses the original boundary for matching identity metadata; conflicts fail closed. End records a distinct explicit boundary and supplied covered refinement, without terminalization or descendant cascade. Manual/context/extraction lookup and Active/ActiveOnly compatibility select recorded groups independently of lifecycle; doctor/GC no longer synthesize stale closure. Host-local end markers cannot suppress capture. Existing native receipts and new optional local spool receipts preserve real retry dedup; empty inferred close notes are removed, useful failure/interrupt records remain. Legacy storage/history and supervisor-only one-shot outcomes remain unchanged.
 - **Log-only context and handoff (#2399).** Handoff and compact-only no longer reject old unended sessions; the generated `STATUS` header is removed. Identity selection, recorded content, human summaries, and the raw context JSON object remain unchanged.
 
 ### Deprecated

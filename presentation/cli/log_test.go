@@ -257,7 +257,7 @@ func TestRootCLI_LogCommand(t *testing.T) {
 			t.Fatalf("Execute() error = %v", err)
 		}
 		want := "" +
-			"Using active session: session-active\n" +
+			"Using recorded session: session-active\n" +
 			"Recorded: event-1\n"
 		if stdout.String() != want {
 			t.Fatalf("stdout = %q, want %q", stdout.String(), want)

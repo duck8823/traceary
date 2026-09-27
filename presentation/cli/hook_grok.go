@@ -42,14 +42,17 @@ func (c *RootCLI) newHookGrokCommand() *cobra.Command {
 }
 
 func (c *RootCLI) runHookGrokPreCompact(ctx context.Context, _ io.Writer, input io.Reader, dbPath string) error {
+	ctx = withHookSpoolReceipt(ctx, input)
 	return c.runHookGrokCompact(ctx, input, "pre-compact", dbPath)
 }
 
 func (c *RootCLI) runHookGrokPostCompact(ctx context.Context, _ io.Writer, input io.Reader, dbPath string) error {
+	ctx = withHookSpoolReceipt(ctx, input)
 	return c.runHookGrokCompact(ctx, input, "post-compact", dbPath)
 }
 
 func (c *RootCLI) runHookGrokCompact(ctx context.Context, input io.Reader, action string, dbPath string) error {
+	ctx = withHookSpoolReceipt(ctx, input)
 	normalized, err := normalizeGrokHookPayload(input)
 	if err != nil {
 		return err
@@ -103,6 +106,7 @@ func (c *RootCLI) newHookGrokEventCommand(
 }
 
 func (c *RootCLI) runHookGrokSessionStart(ctx context.Context, output io.Writer, input io.Reader, dbPath string) error {
+	ctx = withHookSpoolReceipt(ctx, input)
 	normalized, err := normalizeGrokHookPayload(input)
 	if err != nil {
 		return err
@@ -115,6 +119,7 @@ func (c *RootCLI) runHookGrokSessionStart(ctx context.Context, output io.Writer,
 }
 
 func (c *RootCLI) runHookGrokUserPromptSubmit(ctx context.Context, _ io.Writer, input io.Reader, dbPath string) error {
+	ctx = withHookSpoolReceipt(ctx, input)
 	normalized, err := normalizeGrokHookPayload(input)
 	if err != nil {
 		return err
@@ -131,6 +136,7 @@ func (c *RootCLI) runHookGrokPreToolUse(_ context.Context, _ io.Writer, input io
 }
 
 func (c *RootCLI) runHookGrokPostToolUse(ctx context.Context, _ io.Writer, input io.Reader, dbPath string) error {
+	ctx = withHookSpoolReceipt(ctx, input)
 	normalized, err := normalizeGrokHookPayload(input)
 	if err != nil {
 		return err
@@ -139,6 +145,7 @@ func (c *RootCLI) runHookGrokPostToolUse(ctx context.Context, _ io.Writer, input
 }
 
 func (c *RootCLI) runHookGrokStop(ctx context.Context, output io.Writer, input io.Reader, dbPath string) error {
+	ctx = withHookSpoolReceipt(ctx, input)
 	normalized, err := normalizeGrokHookPayload(input)
 	if err != nil {
 		return err

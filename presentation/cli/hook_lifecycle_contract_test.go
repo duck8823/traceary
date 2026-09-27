@@ -37,7 +37,7 @@ func TestHookPassiveLifecycleContract(t *testing.T) {
 			if len(sessions.endCalls) != 0 {
 				t.Fatal("passive signal ended session")
 			}
-			if events.logCall.kind != types.EventKindNote || events.logCall.sourceHook != tc.action {
+			if tc.action != "session_end" && (events.logCall.kind != types.EventKindNote || events.logCall.sourceHook != tc.action) {
 				t.Fatalf("note = %+v", events.logCall)
 			}
 			if strings.Contains(events.logCall.message, "RAW_PRIVATE_ERROR") {
@@ -105,10 +105,7 @@ func TestCodexRuntimeCloseNotesKeepResumableSessionOpen(t *testing.T) {
 			if err := db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM events WHERE kind='note'`).Scan(&count); err != nil {
 				t.Fatal(err)
 			}
-			want := 3
-			if native {
-				want = 2
-			}
+			want := 0
 			if count != want {
 				t.Fatalf("close notes=%d want=%d", count, want)
 			}
@@ -193,7 +190,7 @@ func TestPassiveHookUsesExplicitOneShotSessionOnlyWithNativeIdentity(t *testing.
 			root.SetIn(strings.NewReader(payload))
 			root.SetOut(&bytes.Buffer{})
 			root.SetErr(&bytes.Buffer{})
-			root.SetArgs([]string{"hook", "passive", "codex", "session_end"})
+			root.SetArgs([]string{"hook", "passive", "codex", "interrupt"})
 			if err := root.Execute(); err != nil {
 				t.Fatal(err)
 			}

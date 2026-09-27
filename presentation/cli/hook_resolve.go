@@ -48,22 +48,20 @@ func resolveHookSubagentAgentOrDefault(client string, payload []byte, defaultAge
 	return agent
 }
 
-func (c *RootCLI) inferHookParentSessionID(ctx context.Context, payload []byte, client string, agent types.Agent, workspace types.Workspace) (types.SessionID, error) {
+func (c *RootCLI) inferHookParentSessionID(_ context.Context, payload []byte, client string, agent types.Agent, _ types.Workspace) (types.SessionID, error) {
 	if !hookParentSessionInferenceEnabled() || !isPlausibleSubagentStart(payload, agent) {
 		return "", nil
 	}
-	active, err := c.session.Active(ctx, apptypes.NewSessionLookupCriteriaBuilder().
-		Client(types.Client("hook")).
-		Workspace(workspace).
-		Build())
-	if err != nil {
-		return "", xerrors.Errorf("failed to infer parent session: %w", err)
+	// A plausible subagent type is not parent evidence. Restrict spawn
+	// lookup to a root explicitly carried by this callback/routing state.
+	rootID := types.SessionID(strings.TrimSpace(hookPayloadString(payload, "parent_session_id", "")))
+	if rootID == "" {
+		rootID = types.SessionID(strings.TrimSpace(hookPayloadString(payload, "session_id", "")))
 	}
-	activeEvent, ok := active.Value()
-	if !ok || activeEvent.SessionID() == "" {
+	if rootID == "" {
 		return "", nil
 	}
-	searchStartSessionID := hookParentInferenceSearchStartSessionID(activeEvent.SessionID())
+	searchStartSessionID := hookParentInferenceSearchStartSessionID(rootID)
 	activeSubagent, err := findHookDeepestLatestActiveSubagentState(client, searchStartSessionID)
 	if err != nil {
 		return "", err
@@ -174,20 +172,17 @@ func resolveHookToolUseID(payload []byte) string {
 func withResolvedHookDelivery(ctx context.Context, payload []byte, client string) context.Context {
 	sourceHook := apptypes.SourceHookFromContext(ctx)
 	nativeID := resolveHookDeliveryNativeID(payload, client, sourceHook)
+	if nativeID == "" {
+		nativeID, _ = ctx.Value(hookSpoolReceiptContextKey{}).(string)
+	}
 	rawWorkspace := hookPayloadString(payload, "cwd", "")
 	return apptypes.WithHookDelivery(ctx, apptypes.HookDeliveryInputOf(nativeID, rawWorkspace))
 }
 
-func resolveHookDeliveryNativeID(payload []byte, client, sourceHook string) string {
+func resolveHookDeliveryNativeID(payload []byte, client, _ string) string {
 	for _, path := range provenHookDeliveryIDFields(strings.ToLower(strings.TrimSpace(client))) {
 		if value := strings.TrimSpace(hookPayloadString(payload, path, "")); value != "" {
 			return path + ":" + value
-		}
-	}
-	switch strings.TrimSpace(sourceHook) {
-	case "session_start", "session_end":
-		if sessionID := strings.TrimSpace(hookPayloadString(payload, "session_id", "")); sessionID != "" {
-			return "session_id:" + sessionID
 		}
 	}
 	return ""

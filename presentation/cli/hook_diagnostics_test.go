@@ -47,16 +47,16 @@ func TestClassifyHookCancellationDiagnostics(t *testing.T) {
 	if err != nil {
 		t.Fatalf("classifyHookCancellationDiagnostics() error = %v", err)
 	}
-	if diff := cmp.Diff([]string{"active.json", "missing.json"}, diagnosticPaths(got.Actionable)); diff != "" {
+	if diff := cmp.Diff([]string{"ended.json", "active.json", "missing.json"}, diagnosticPaths(got.Actionable)); diff != "" {
 		t.Fatalf("actionable paths mismatch (-want +got):\n%s", diff)
 	}
-	if diff := cmp.Diff([]string{"ended.json"}, diagnosticPaths(got.Resolved)); diff != "" {
+	if diff := cmp.Diff([]string{}, diagnosticPaths(got.Resolved)); diff != "" {
 		t.Fatalf("resolved paths mismatch (-want +got):\n%s", diff)
 	}
 	if len(got.Unknown) != 0 {
 		t.Fatalf("unknown paths = %v, want none", diagnosticPaths(got.Unknown))
 	}
-	if lookup.calls != 1 {
+	if lookup.calls != 0 {
 		t.Fatalf("FindEndedSessionIDs() calls = %d, want 1", lookup.calls)
 	}
 }
@@ -225,7 +225,7 @@ func TestInspectClaudeHookCancellationDiagnostics_FixEndedDuplicatesAndAncient(t
 	if !strings.Contains(check.Hint, "doctor --fix") {
 		t.Fatalf("hint %q, want doctor --fix automatic path", check.Hint)
 	}
-	if !strings.Contains(check.Message, "found 1 unresolved") {
+	if !strings.Contains(check.Message, "found 2 unresolved") {
 		t.Fatalf("message %q, want 1 unresolved remaining", check.Message)
 	}
 	if !check.AutoFixAvailable || check.FixFunc == nil {
@@ -236,7 +236,7 @@ func TestInspectClaudeHookCancellationDiagnostics_FixEndedDuplicatesAndAncient(t
 	if err != nil {
 		t.Fatalf("dry-run: %v", err)
 	}
-	if !strings.Contains(action, "would remove 3") {
+	if !strings.Contains(action, "would remove 2") {
 		t.Fatalf("dry-run action=%q, want 3 removals", action)
 	}
 	for _, path := range []string{endedPath, olderOpen, ancientPath, genuinePath} {
@@ -248,10 +248,13 @@ func TestInspectClaudeHookCancellationDiagnostics_FixEndedDuplicatesAndAncient(t
 	if _, err := check.FixFunc(context.Background(), false); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
+	if _, err := os.Stat(endedPath); err != nil {
+		t.Fatal("legacy end must not prove callback completion")
+	}
 	if _, err := os.Stat(genuinePath); err != nil {
 		t.Fatalf("genuine un-ended newest marker must remain: %v", err)
 	}
-	for _, path := range []string{endedPath, olderOpen, ancientPath} {
+	for _, path := range []string{olderOpen, ancientPath} {
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
 			t.Fatalf("%s survived --fix: err=%v", path, err)
 		}
@@ -526,18 +529,16 @@ func TestInspectClaudeHookCancellationDiagnosticsFilesystem_ResolvesEndedSession
 	if check.Status != doctorStatusWarn {
 		t.Fatalf("status=%q message=%q", check.Status, check.Message)
 	}
-	if strings.Contains(check.Message, "unresolved") {
-		t.Fatalf("ended session marker must not stay unresolved: %q", check.Message)
+	if !strings.Contains(check.Message, "found 1 unresolved") {
+		t.Fatalf("historical end incorrectly resolved callback: %q", check.Message)
 	}
-	if !strings.Contains(check.Message, "resolved=1") {
-		t.Fatalf("message %q, want resolved=1 cleanup path", check.Message)
+	if check.AutoFixAvailable || check.FixFunc != nil {
+		t.Fatal("historical end enabled callback cleanup")
 	}
-	if !check.AutoFixAvailable || check.FixFunc == nil {
-		t.Fatalf("resolved marker must stay auto-fixable: %+v", check)
+	if len(inspector.dbPaths) != 0 {
+		t.Fatal("diagnostic classification consulted lifecycle")
 	}
-	if len(inspector.dbPaths) != 1 || inspector.dbPaths[0] != dbPath {
-		t.Fatalf("inspector dbPaths = %v, want [%s]", inspector.dbPaths, dbPath)
-	}
+
 }
 
 // A marker without an ended (or any) session row stays actionable; only the
@@ -614,32 +615,16 @@ func TestInspectClaudeHookCancellationDiagnosticsFilesystem_EndToEndStore(t *tes
 	if check.Status != doctorStatusWarn {
 		t.Fatalf("status=%q message=%q", check.Status, check.Message)
 	}
-	if !strings.Contains(check.Message, "found 2 unresolved") {
-		t.Fatalf("message %q, want open and ghost sessions still unresolved", check.Message)
+	if !strings.Contains(check.Message, "found 3 unresolved") {
+		t.Fatalf("all remaining callbacks must stay unresolved: %q", check.Message)
 	}
-	if !strings.Contains(check.Message, "1 resolved") {
-		t.Fatalf("message %q, want 1 resolved", check.Message)
+	if check.AutoFixAvailable || check.FixFunc != nil {
+		t.Fatal("historical end enabled synthetic completion cleanup")
 	}
-	if !check.AutoFixAvailable || check.FixFunc == nil {
-		t.Fatalf("resolved marker must be auto-fixable: %+v", check)
-	}
-
-	action, err := check.FixFunc(ctx, true)
-	if err != nil {
-		t.Fatalf("dry-run: %v", err)
-	}
-	if !strings.Contains(action, "would remove 1") {
-		t.Fatalf("dry-run action=%q, want 1 removal", action)
-	}
-	if _, err := check.FixFunc(ctx, false); err != nil {
-		t.Fatalf("apply: %v", err)
-	}
-	if _, err := os.Stat(endedPath); !os.IsNotExist(err) {
-		t.Fatalf("ended marker survived --fix: err=%v", err)
-	}
-	for _, path := range []string{openPath, ghostPath} {
+	for _, path := range []string{endedPath, openPath, ghostPath} {
 		if _, err := os.Stat(path); err != nil {
-			t.Fatalf("unresolved marker %s must remain: %v", path, err)
+			t.Fatalf("unresolved marker must remain: %v", err)
 		}
 	}
+
 }

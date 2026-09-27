@@ -421,6 +421,9 @@ func (s *sessionUsecaseStub) Active(_ context.Context, criteria apptypes.Session
 func (s *sessionUsecaseStub) Latest(_ context.Context, criteria apptypes.SessionLookupCriteria) (types.Optional[*model.Event], error) {
 	s.latestCriteria = criteria
 	if s.latestEvent == nil && s.latestErr == nil {
+		if s.activeEvent != nil {
+			return types.Some(s.activeEvent), nil
+		}
 		return types.None[*model.Event](), nil
 	}
 	if s.latestErr != nil {
@@ -860,4 +863,10 @@ func (s *storeManagementUsecaseStub) CloseStaleSessions(_ context.Context, stale
 		time.Sleep(s.staleDelay)
 	}
 	return s.staleResult, s.staleErr
+}
+
+func (s *sessionUsecaseStub) CaptureOneShotStart(_ context.Context, sessionID, parent types.SessionID) (*model.Event, error) {
+	s.startCall.sessionID = sessionID
+	s.startCall.parentSessionID = parent
+	return s.startEvent, s.startErr
 }

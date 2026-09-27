@@ -45,8 +45,8 @@ func TestDoctorInspectCallsAfterLargeStoreReturnAreMapped(t *testing.T) {
 			}
 		}
 	}
-	if len(live) != 22 {
-		t.Fatalf("doctorInspectCallCheckNames covers %d check names, want 22", len(live))
+	if len(live) != 21 {
+		t.Fatalf("doctorInspectCallCheckNames covers %d check names, want 21", len(live))
 	}
 }
 

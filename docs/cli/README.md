@@ -22,7 +22,7 @@ Append a note event.
 Defaults:
 
 - `--client` / `--agent` / `--workspace`: flag → `TRACEARY_CLIENT` / `TRACEARY_AGENT` / `TRACEARY_WORKSPACE` → `cli` / `manual` / detected workspace
-- `--session-id`: flag → `TRACEARY_SESSION_ID` → latest non-stale active session for the resolved workspace → `default`
+- `--session-id`: flag → `TRACEARY_SESSION_ID` → latest matching recorded session for the resolved workspace → `default`
 
 Useful flags:
 
@@ -38,9 +38,9 @@ Useful flags:
 Session resolution rules:
 
 - explicit `--session-id` or `TRACEARY_SESSION_ID` wins
-- otherwise Traceary reuses the latest non-stale active session for the resolved workspace
+- otherwise Traceary reuses the latest matching recorded session for the resolved workspace
 - when `remote.origin.url` is unavailable but the current directory is still inside a git worktree, Traceary falls back to the worktree root path as the work-context key
-- if no workspace could be resolved or no matching active session is found, Traceary falls back to the historical `default` session ID
+- if no workspace could be resolved or no matching recorded session is found, Traceary falls back to the historical `default` session ID
 
 > **Note:** `log` and `audit` accept any `--session-id` value without validating whether the session actually exists. This is by design — hooks record events at high frequency and the extra DB lookup per write would add unacceptable overhead. If you pass a nonexistent session ID, the event is still recorded; it will simply not appear in session-scoped queries.
 
@@ -643,7 +643,7 @@ Useful flags:
 
 ### `traceary session end`
 
-Record a session end boundary and print the resulting event ID.
+Record an explicit end boundary and print its event ID. This does not terminalize the grouping or descendants; later logging remains available. Separate invocations produce separate events. A supplied summary retains refinement coverage bound to that persisted event.
 
 Defaults:
 
@@ -710,8 +710,7 @@ The terminal-reason taxonomy above is distinct from the command-audit
 `--failure-reason` enum.
 
 The former [`session repair-one-shot`](../operations/one-shot-repair.md) leaf
-was retired in v0.43.0 (#2122). Ordinary idle sessions are closed by hook opportunistic
-GC and `traceary doctor --fix`; one-shot sessions are excluded.
+was retired in v0.43.0 (#2122). Idle grouping identities remain available; hook GC and `traceary doctor --fix` never synthesize session closure.
 
 ### `traceary session refine <session-id>`
 
