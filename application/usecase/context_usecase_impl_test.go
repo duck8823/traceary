@@ -999,3 +999,44 @@ func TestContextHandoffOldUnendedSelection(t *testing.T) {
 		})
 	}
 }
+
+// filteredHandoffSessionQuery is scoped to the legacy-ended lookup fixture;
+// unrelated tests keep their existing query stubs and selection behavior.
+type filteredHandoffSessionQuery struct{ *sessionQueryServiceStub }
+
+func (s *filteredHandoffSessionQuery) ListSummaries(ctx context.Context, limit, offset int, sid domtypes.SessionID, workspace domtypes.Workspace, client domtypes.Client, agent domtypes.Agent, label string, activeOnly bool, from, to domtypes.Optional[time.Time]) ([]apptypes.SessionSummary, error) {
+	rows, err := s.sessionQueryServiceStub.ListSummaries(ctx, limit, offset, sid, workspace, client, agent, label, activeOnly, from, to)
+	if err != nil {
+		return nil, err
+	}
+	var matched []apptypes.SessionSummary
+	for _, row := range rows {
+		if (sid == "" || row.SessionID() == sid) && (workspace == "" || row.Workspace() == workspace) {
+			matched = append(matched, row)
+		}
+	}
+	return matched, nil
+}
+func TestContextHandoffExplicitLegacyEndedSelection(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	old := apptypes.SessionSummaryOf("old-unended", "workspace", now.Add(-48*time.Hour), domtypes.None[time.Time](), "active", 2, 1, nil, "", "old summary", "")
+	ended := apptypes.SessionSummaryOf("legacy-ended", "workspace", now.Add(-72*time.Hour), domtypes.Some(now.Add(-time.Hour)), "ended", 2, 0, nil, "", "STATUS: ended", "")
+	other := apptypes.SessionSummaryOf("legacy-ended", "other-workspace", now.Add(-24*time.Hour), domtypes.Some(now), "ended", 2, 0, nil, "", "wrong workspace", "")
+	query := &filteredHandoffSessionQuery{&sessionQueryServiceStub{listSummariesResult: []apptypes.SessionSummary{old, other, ended}}}
+	sut := usecase.NewContextUsecase(query, &eventQueryServiceStub{}, nil)
+	result, err := sut.Handoff(context.Background(), apptypes.NewContextPackCriteriaBuilder().SessionID("legacy-ended").Workspace("workspace").StaleAfter(time.Hour).Build())
+	if err != nil {
+		t.Fatal(err)
+	}
+	pack, ok := result.Value()
+	if !ok {
+		t.Fatal("legacy-ended session excluded")
+	}
+	if pack.SessionID() != "legacy-ended" || pack.Workspace() != "workspace" || pack.WorkingState().SessionSummary() != "STATUS: ended" {
+		t.Fatalf("selected content changed: %v", pack)
+	}
+	if query.listActiveOnly || query.listSessionID != "legacy-ended" || query.listWorkspace != "workspace" {
+		t.Fatal("selection filters changed")
+	}
+}

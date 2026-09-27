@@ -7,6 +7,12 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ## [Unreleased]
 
+### Changed
+- **Log-only context and handoff (#2399).** Handoff and compact-only no longer reject old unended sessions; the generated `STATUS` header is removed. Identity selection, recorded content, human summaries, and the raw context JSON object remain unchanged.
+
+### Deprecated
+- **Context stale compatibility flags (#2399).** `--allow-stale` and `--stale-after` are accepted no-ops with no replacement through v0.53, with removal target v0.54. Explicit use emits one aggregate `DEPRECATED:` stderr notice per invocation. No functionality is lost because content selection no longer depends on lifecycle eligibility. Actual flag removal requires a separate approved PR/checkpoint.
+
 ### Fixed
 - **Isolated SQLite test timing (#2395).** The contended hook write timing test runs serially within its package, and attestation verification tests start their caller deadlines after fixture initialization. Timeout values, assertions, and production contention retries are unchanged.
 

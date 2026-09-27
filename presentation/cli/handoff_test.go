@@ -161,7 +161,7 @@ func TestRootCLI_HandoffCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("default propagates the 24h stale threshold to the criteria", func(t *testing.T) {
+	t.Run("default retains ignored legacy stale criteria", func(t *testing.T) {
 		t.Parallel()
 
 		ctxStub := &contextUsecaseStub{
@@ -257,7 +257,7 @@ func TestRootCLI_HandoffCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("--allow-stale opts in and surfaces the stale session directly", func(t *testing.T) {
+	t.Run("legacy stale flags are no-op compatibility options", func(t *testing.T) {
 		t.Parallel()
 
 		stalePack := apptypes.ContextPackOf(
@@ -442,40 +442,66 @@ func TestRootCLI_HandoffCommand(t *testing.T) {
 }
 
 func TestContextDeprecatedStaleFlags(t *testing.T) {
-	for _, mode := range []string{"--handoff", "--compact-only"} {
-		for _, flags := range [][]string{nil, {"--allow-stale=false"}, {"--stale-after", "0s"}, {"--allow-stale", "--stale-after", "1h"}} {
-			t.Run(mode+strings.Join(flags, "_"), func(t *testing.T) {
-				pack := apptypes.ContextPackOf("session-old", "workspace", "", 2, 1, nil, apptypes.WorkingStateOf("STATUS: ended", "preserved compact"), []string{"recent command"}, nil)
-				ctxStub := &contextUsecaseStub{handoff: types.Some(pack)}
-				stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
-				cmd := cli.NewRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{}), cli.WithContext(ctxStub)).Command()
-				cmd.SetOut(stdout)
-				cmd.SetErr(stderr)
-				args := []string{"context", mode, "--db-path", filepath.Join(t.TempDir(), "traceary.db")}
-				cmd.SetArgs(append(args, flags...))
-				if err := cmd.Execute(); err != nil {
-					t.Fatal(err)
+	for _, lang := range []string{"en", "ja"} {
+		t.Run(lang, func(t *testing.T) {
+			t.Setenv("TRACEARY_LANG", lang)
+			for _, mode := range []string{"--handoff", "--compact-only"} {
+				var baselineStdout string
+				for _, flags := range [][]string{nil, {"--allow-stale=false"}, {"--stale-after", "0s"}, {"--allow-stale", "--stale-after", "1h"}} {
+					t.Run(mode+strings.Join(flags, "_"), func(t *testing.T) {
+						pack := apptypes.ContextPackOf("session-old", "workspace", "", 2, 1, nil, apptypes.WorkingStateOf("STATUS: ended", "preserved compact"), []string{"recent command"}, nil)
+						ctxStub := &contextUsecaseStub{handoff: types.Some(pack)}
+						stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+						cmd := cli.NewRootCLI(cli.WithStoreManagement(&storeManagementUsecaseStub{}), cli.WithContext(ctxStub)).Command()
+						cmd.SetOut(stdout)
+						cmd.SetErr(stderr)
+						cmd.SetArgs(append([]string{"context", mode, "--db-path", filepath.Join(t.TempDir(), "traceary.db")}, flags...))
+						if err := cmd.Execute(); err != nil {
+							t.Fatal(err)
+						}
+						var names []string
+						for _, flag := range flags {
+							if strings.HasPrefix(flag, "--") {
+								name, _, _ := strings.Cut(flag, "=")
+								names = append(names, name)
+							}
+						}
+						want := ""
+						if len(names) > 0 {
+							subject := strings.Join(names, " / ")
+							want = "DEPRECATED: " + subject + " is deprecated with no replacement. Removal target: v0.54.\n"
+							if lang == "ja" {
+								want = "DEPRECATED: " + subject + "は非推奨です。置き換え先はありません。削除予定: v0.54。\n"
+							}
+						}
+						if stderr.String() != want {
+							t.Fatalf("stderr=%q want %q", stderr.String(), want)
+						}
+						expectedCount := 0
+						if len(names) > 0 {
+							expectedCount = 1
+						}
+						if strings.Count(stderr.String(), "DEPRECATED:") != expectedCount {
+							t.Fatal("notice count changed")
+						}
+						if len(flags) == 0 {
+							baselineStdout = stdout.String()
+						} else if stdout.String() != baselineStdout {
+							t.Fatalf("stdout changed: %q want %q", stdout.String(), baselineStdout)
+						}
+						if strings.Contains(stdout.String(), "DEPRECATED:") || strings.Contains(stdout.String(), "\nSTATUS:") {
+							t.Fatal(stdout.String())
+						}
+						if !strings.Contains(stdout.String(), "STATUS: ended") {
+							t.Fatal("human summary lost")
+						}
+						if len(ctxStub.handoffCalls) != 1 {
+							t.Fatalf("calls=%d", len(ctxStub.handoffCalls))
+						}
+					})
 				}
-				count := 0
-				for _, flag := range flags {
-					if strings.HasPrefix(flag, "--") {
-						count++
-					}
-				}
-				if got := strings.Count(stderr.String(), "deprecated"); got != count {
-					t.Fatalf("warnings=%d want %d: %q", got, count, stderr.String())
-				}
-				if strings.Contains(stdout.String(), "deprecated") || strings.Contains(stdout.String(), "\nSTATUS:") {
-					t.Fatal(stdout.String())
-				}
-				if !strings.Contains(stdout.String(), "STATUS: ended") {
-					t.Fatalf("human summary lost: %q", stdout.String())
-				}
-				if len(ctxStub.handoffCalls) != 1 {
-					t.Fatalf("calls=%d", len(ctxStub.handoffCalls))
-				}
-			})
-		}
+			}
+		})
 	}
 }
 
@@ -494,8 +520,45 @@ func TestContextDeprecatedStaleFlagValidation(t *testing.T) {
 			if len(ctxStub.handoffCalls) != 0 {
 				t.Fatal("invalid flags reached handoff")
 			}
-			if strings.Contains(errs.String(), "deprecated") {
+			if strings.Contains(errs.String(), "DEPRECATED:") {
 				t.Fatalf("unexpected compatibility warning: %s", errs.String())
+			}
+		})
+	}
+}
+
+func TestContextDeprecatedStaleFlagHelp(t *testing.T) {
+	for _, lang := range []string{"en", "ja"} {
+		t.Run(lang, func(t *testing.T) {
+			t.Setenv("TRACEARY_LANG", lang)
+			cmd := cli.NewRootCLI().Command()
+			out, errs := &bytes.Buffer{}, &bytes.Buffer{}
+			cmd.SetOut(out)
+			cmd.SetErr(errs)
+			cmd.SetArgs([]string{"context", "--help"})
+			if err := cmd.Execute(); err != nil {
+				t.Fatal(err)
+			}
+			for _, flag := range []string{"--allow-stale", "--stale-after"} {
+				var line string
+				for _, candidate := range strings.Split(out.String(), "\n") {
+					if strings.Contains(candidate, flag) {
+						line = candidate
+						break
+					}
+				}
+				expected := []string{"deprecated no-op", "no replacement", "removal target v0.54"}
+				if lang == "ja" {
+					expected = []string{"非推奨 no-op", "置き換え先なし", "削除予定 v0.54"}
+				}
+				for _, text := range expected {
+					if !strings.Contains(line, text) {
+						t.Fatalf("help %q lacks %q", line, text)
+					}
+				}
+			}
+			if errs.Len() != 0 {
+				t.Fatalf("help emitted notice: %q", errs.String())
 			}
 		})
 	}

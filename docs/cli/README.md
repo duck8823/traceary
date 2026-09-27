@@ -178,9 +178,15 @@ Useful flags:
 - `--preset` (optional, with `--handoff` / `--compact-only`): apply a built-in retrieval preset (`resume` / `review` / `incident`) to durable memory filters
 - `--as-of` (optional, with `--handoff` / `--compact-only`): evaluate durable memory validity at the given timestamp (YYYY-MM-DD or RFC3339); defaults to "now"
 - `--compact-only` (optional): emit the short prompt-injection summary form; implicitly sets `--recent=3` unless `--recent` is given explicitly
-- `--include-candidates` / `--allow-stale` / `--stale-after` (with `--handoff` / `--compact-only`)
+- `--include-candidates` (with `--handoff` / `--compact-only`)
+- `--allow-stale` / `--stale-after` (deprecated no-ops; no replacement; removal target v0.54; require `--handoff` / `--compact-only`)
 
 > **v0.14 / v0.42 migration**: The former top-level `traceary handoff` and `traceary compact-summary` aliases were removed in v0.14.0. `traceary session handoff` was removed in v0.42.0 (#2073). Running the retired names now falls back to Cobra's generic unknown-command output. Use `traceary context --handoff` (plus `--compact-only` for the compact form). See [CLI stability and deprecation policy](../cli-stability.md) for the full removal list.
+
+### Log-only context compatibility transition
+
+Handoff and compact-only select sessions regardless of age or an end marker. The generated `STATUS` header is removed; human summaries are unchanged. Raw context JSON remains the object envelope with `resolved_session_id`, `resolved_workspace`, and `events` (there is no context-pack JSON output).
+`--allow-stale` and `--stale-after` remain accepted as deprecated no-ops with no replacement through the v0.53 transition, with removal target v0.54. No functionality is lost: identity selection and recorded content are preserved without lifecycle eligibility. The target does not authorize removal; a separate approved public-contract PR/checkpoint is required. Explicit use (including `--allow-stale=false` and `--stale-after=0s`) emits one aggregate `DEPRECATED:` stderr notice per invocation naming the supplied flags, no replacement, and v0.54; default invocation emits none and stdout remains clean. Boolean and duration parsing still apply, so malformed values fail. Both flags still require `--handoff` or `--compact-only`; those modes remain mutually exclusive.
 
 ## Durable memory commands
 
@@ -719,7 +725,7 @@ Useful flags:
 
 ### Session status values
 
-Internal session rows (hooks, handoff, context) still use these status values:
+Legacy internal queries, diagnostics, hooks, and manual active-session selection may still derive these status values. Handoff and context-pack consumers do not consume status or reject sessions by it:
 
 | Status | Meaning |
 |--------|---------|
@@ -728,7 +734,7 @@ Internal session rows (hooks, handoff, context) still use these status values:
 | `ended` | Has an end marker and no events after it. |
 | `ended_with_late_events` | Has an end marker but later events arrived under the same session. The end marker can come from a `session_ended` event or from stale-session close writing `ended_at` directly. |
 
-The former public `sessions --snapshot` view of these values was removed in v0.42.0 (#2061). `ended_with_late_events` still lets hook / handoff resolution keep a closed host session when later workspace events exist — for example when a host such as Codex closed the session early but the conversation kept going.
+The former public `sessions --snapshot` view of these values was removed in v0.42.0 (#2061). Handoff selection already uses latest-session resolution without an active-only filter; `ended_with_late_events` is not an eligibility rule for handoff.
 
 ## Hooks and diagnostics
 
@@ -931,8 +937,3 @@ Manage operator-reviewed session/workspace aliases used by the current diagnosti
 - environment variables and runtime assumptions: [`../environment/README.md`](../environment/README.md)
 - hooks integration: [`../hooks/README.md`](../hooks/README.md)
 - backup flow: [`../backup/README.md`](../backup/README.md)
-
-### Log-only context compatibility transition
-
-Handoff and compact-only select sessions regardless of age or an end marker. The generated `STATUS` header is removed; human summaries are unchanged. Raw context JSON remains an event list (there is no context-pack JSON output).
-`--allow-stale` and `--stale-after` remain accepted as deprecated no-ops during this transition; their future removal requires a separate approved public-contract change. Explicit use (including `--allow-stale=false` and `--stale-after=0s`) emits one stderr warning per flag; default invocation emits none and stdout remains clean. Boolean and duration parsing still apply, so malformed values fail. Both flags still require `--handoff` or `--compact-only`; those modes remain mutually exclusive.

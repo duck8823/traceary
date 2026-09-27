@@ -48,12 +48,15 @@ func (c *RootCLI) newContextCommand() *cobra.Command {
 			if err := validateContextModeFlags(cmd, handoff, compactOnly); err != nil {
 				return err
 			}
+			var deprecatedFlags []string
 			for _, name := range []string{"allow-stale", "stale-after"} {
 				if cmd.Flags().Changed(name) {
-					if _, err := fmt.Fprintf(cmd.ErrOrStderr(), Localize("Warning: --%s is deprecated and has no effect; session age does not restrict context selection.\n", "警告: --%s は非推奨で効果はありません。session の経過時間で context 選択を制限しません。\n"), name); err != nil {
-						return xerrors.Errorf("failed to print deprecated flag warning: %w", err)
-					}
+					deprecatedFlags = append(deprecatedFlags, "--"+name)
 				}
+			}
+			if len(deprecatedFlags) > 0 {
+				subject := strings.Join(deprecatedFlags, " / ")
+				writeDeprecationNotice(cmd, subject, subject, noReplacement, "v0.54")
 			}
 			if compactOnly {
 				return c.runCompactSummaryCommand(cmd.Context(), cmd.OutOrStdout(), compactSummaryCommandInput{
@@ -114,9 +117,9 @@ func (c *RootCLI) newContextCommand() *cobra.Command {
 		&staleAfter,
 		"stale-after",
 		defaultActiveSessionStaleAfter,
-		Localize("deprecated no-op with --handoff/--compact-only; duration syntax is still validated", "--handoff/--compact-only 時の非推奨 no-op。duration 構文は引き続き検証する"),
+		Localize("deprecated no-op with --handoff/--compact-only; no replacement; removal target v0.54; duration syntax is still validated", "--handoff/--compact-only 時の非推奨 no-op。置き換え先なし。削除予定 v0.54。duration 構文は引き続き検証する"),
 	)
-	contextCmd.Flags().BoolVar(&allowStale, "allow-stale", false, Localize("deprecated no-op with --handoff/--compact-only; explicit use warns on stderr", "--handoff/--compact-only 時の非推奨 no-op。明示指定時は stderr に警告する"))
+	contextCmd.Flags().BoolVar(&allowStale, "allow-stale", false, Localize("deprecated no-op with --handoff/--compact-only; no replacement; removal target v0.54; explicit use warns on stderr", "--handoff/--compact-only 時の非推奨 no-op。置き換え先なし。削除予定 v0.54。明示指定時は stderr に警告する"))
 	contextCmd.MarkFlagsMutuallyExclusive("handoff", "compact-only")
 	contextCmd.MarkFlagsMutuallyExclusive("json", "handoff")
 	contextCmd.MarkFlagsMutuallyExclusive("json", "compact-only")
