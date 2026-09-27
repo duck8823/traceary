@@ -319,11 +319,26 @@ func (c *RootCLI) runHookAntigravityStop(ctx context.Context, output io.Writer, 
 	if transcriptErr != nil {
 		slog.Debug("antigravity stop transcript failed", "session_id", sessionID, "error", transcriptErr)
 	}
-	if output != nil && recorded {
+	fullyIdle := true
+	var idlePayload map[string]json.RawMessage
+	if json.Unmarshal(payload, &idlePayload) == nil {
+		if raw, exists := idlePayload["fullyIdle"]; exists {
+			var idle *bool
+			if err := json.Unmarshal(raw, &idle); err != nil || idle == nil {
+				fullyIdle = false
+			} else {
+				fullyIdle = *idle
+			}
+		}
+	}
+	if fullyIdle && output != nil && recorded {
 		req, ok := c.consolidationRequestIfDue(ctx, antigravityHookClient, normalized, dbPath)
 		if ok && c.recordConsolidationRequest(ctx, req, types.ConsolidationDeliveryAdditionalContext) {
 			envelope = antigravityStopEnvelope(req, true)
 		}
+	}
+	if !fullyIdle {
+		return errors.Join(promptErr, transcriptErr)
 	}
 	if err := c.runHookSession(ctx, nil, bytes.NewReader(normalized), antigravityHookClient, "stop", dbPath); err != nil {
 		return err

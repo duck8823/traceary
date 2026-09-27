@@ -50,6 +50,11 @@
       "timeout": 10
     },
     {
+      "event": "Interrupt",
+      "command": "traceary hook kimi interrupt",
+      "timeout": 10
+    },
+    {
       "event": "Stop",
       "command": "traceary hook kimi stop",
       "timeout": 10

@@ -19,7 +19,7 @@ var (
 	}
 )
 
-// kimiExpectedHooks mirrors the verified hook plan (10 rules) the packaged
+// kimiExpectedHooks mirrors the verified hook plan (11 rules) the packaged
 // plugin and the TOML print path declare. The doctor check validates the
 // installed managed copy against it, order-independently.
 var kimiExpectedHooks = []struct {
@@ -33,6 +33,7 @@ var kimiExpectedHooks = []struct {
 	{"PreToolUse", "Agent", "pre-tool-use"},
 	{"PostToolUse", "", "post-tool-use"},
 	{"PostToolUseFailure", "", "post-tool-use-failure"},
+	{"Interrupt", "", "interrupt"},
 	{"Stop", "", "stop"},
 	{"SubagentStop", "", "subagent-stop"},
 	{"PreCompact", "", "pre-compact"},

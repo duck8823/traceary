@@ -2,6 +2,8 @@
 
 [English](./README.md)
 
+> 2026-09-27 の採否と最新 host 仕様は [ライフサイクル監査](lifecycle-audit.ja.md) を参照してください。過去の live evidence は更新した runtime subscription の実機検証を意味しません。
+
 Traceary は、Claude Code / Codex CLI / Gemini CLI から送られる hook イベントを、隠しサブコマンド `traceary hook ...` で受け取って session 境界、command audit、compact summary、prompt を記録します。
 
 生成される hook 設定と配布済みの host package は、この Go runtime entrypoint を直接呼ぶ前提です。`scripts/hooks/` 配下の shell script は、配布物や既存環境との互換性を保つための薄いラッパーとして残していますが、主 runtime 実装ではありません。
@@ -289,3 +291,5 @@ Traceary CLI が失敗したときの stderr は plain `Error: ...` です。wra
 - Claude Code hooks reference: https://code.claude.com/docs/en/hooks
 - Claude Code hooks guide: https://code.claude.com/docs/en/hooks-guide
 - Gemini CLI hooks reference used during local validation: `/opt/homebrew/Cellar/gemini-cli/0.36.0/libexec/lib/node_modules/@google/gemini-cli/bundle/docs/hooks/reference.md`
+
+> 新購読には現公式 contract 対応 host が必要です。hook refresh 前に対応確認・必要な host 更新を行ってください。過去 fixture は導入最低バージョンや実機対応の保証ではありません。新 passive command は現 HEAD / 次 release の機能で、installed Traceary 0.52.0 や host settings を本変更で更新しません。

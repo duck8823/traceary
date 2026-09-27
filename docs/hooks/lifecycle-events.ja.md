@@ -2,6 +2,8 @@
 
 [English](./lifecycle-events.md)
 
+> 2026-09-27 の採否と最新 host 仕様は [ライフサイクル監査](lifecycle-audit.ja.md) を参照してください。過去の live evidence は更新した runtime subscription の実機検証を意味しません。
+
 このページでは Traceary の **canonical lifecycle event kind**（ふだん hook によって発行され、セッションの監査タイムライン (L1) を形成する 6 種類の `EventKind`）をまとめる。
 
 完全な enum は [`domain/types/event_kind.go`](../../domain/types/event_kind.go) を参照。lifecycle 以外の 2 種類（`note`、`reviewed`）は operator 主導で発行されるためここでは扱わない。各クライアントの hook → event 対応は [イベントライフサイクル](../lifecycle.ja.md)、capability tier は [Hook Contract](./contract.ja.md) を参照。

@@ -80,6 +80,7 @@ var kimiHookPlan = []kimiHookRule{
 	{event: "PreToolUse", matcher: "Agent", action: "pre-tool-use", comment: "subagent start (Agent tool correlation)"},
 	{event: "PostToolUse", action: "post-tool-use", comment: "tool audit"},
 	{event: "PostToolUseFailure", action: "post-tool-use-failure", comment: "tool audit (failure)"},
+	{event: "Interrupt", action: "interrupt", comment: "passive interrupted turn"},
 	{event: "Stop", action: "stop", comment: "assistant transcript (best-effort wire log side channel)"},
 	{event: "SubagentStop", action: "subagent-stop", comment: "subagent boundary (end)"},
 	{event: "PreCompact", action: "pre-compact", comment: "compact marker (trigger only, no summary body)"},

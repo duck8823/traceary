@@ -159,6 +159,18 @@
           }
         ]
       }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "name": "traceary-stop_failure",
+            "type": "command",
+            "command": "'traceary' 'hook' 'passive' 'claude' 'stop_failure'",
+            "timeout": 3
+          }
+        ]
+      }
     ]
   }
 }

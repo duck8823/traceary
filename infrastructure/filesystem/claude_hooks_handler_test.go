@@ -20,6 +20,7 @@ func TestClaudeHooksHandler_Build(t *testing.T) {
 	wantEventOrder := []string{
 		"SessionStart",
 		"SessionEnd",
+		"StopFailure",
 		"Stop",
 		"SubagentStop",
 		"PreToolUse",

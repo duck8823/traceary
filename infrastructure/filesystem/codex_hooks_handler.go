@@ -42,8 +42,10 @@ func (h *CodexHooksHandler) Build(tracearyBin string) model.Hooks {
 	subagentStartCommand := newHookRuntimeCommand(tracearyBin, "hook", "subagent-start", "codex")
 	subagentStopCommand := newHookRuntimeCommand(tracearyBin, "hook", "subagent-stop", "codex")
 
-	eventOrder := []string{"SessionStart", "SubagentStart", "SubagentStop", "PreCompact", "PostCompact", "UserPromptSubmit", "Stop", "PostToolUse"}
+	eventOrder := []string{"SessionStart", "SessionEnd", "Interrupt", "SubagentStart", "SubagentStop", "PreCompact", "PostCompact", "UserPromptSubmit", "Stop", "PostToolUse"}
 	events := map[string][]model.HookEntry{
+		"SessionEnd": {model.HookEntryOf(types.None[string](), []model.HookCommand{model.HookCommandOf("traceary-session-end", "command", newHookRuntimeCommand(tracearyBin, "hook", "passive", "codex", "session_end"), types.Some(3), "", managedKeyOf("traceary-passive.sh", "codex", "session_end"))})},
+		"Interrupt":  {model.HookEntryOf(types.None[string](), []model.HookCommand{model.HookCommandOf("traceary-interrupt", "command", newHookRuntimeCommand(tracearyBin, "hook", "passive", "codex", "interrupt"), types.Some(3), "", managedKeyOf("traceary-passive.sh", "codex", "interrupt"))})},
 		"SessionStart": {
 			model.HookEntryOf(types.None[string](), []model.HookCommand{
 				model.HookCommandOf("traceary-session-start", "command", sessionStartCommand, types.None[int](), "", managedKeyOf("traceary-session.sh", "codex", "start")),
