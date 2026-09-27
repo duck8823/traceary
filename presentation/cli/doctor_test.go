@@ -523,7 +523,20 @@ enabled = true
 	})
 }
 
+func isolateLargeStoreDoctorEnvironment(t *testing.T) string {
+	t.Helper()
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	t.Setenv("TRACEARY_HOOK_STATE_DIR", t.TempDir())
+	// Config inspection uses os.UserHomeDir directly; hook inspection uses the
+	// injected resolver. Both must observe this test's home, not ambient files.
+	cli.SetUserHomeDirFunc(func() (string, error) { return homeDir, nil })
+	t.Cleanup(cli.ResetUserHomeDirFunc)
+	return t.TempDir()
+}
+
 func TestRootCLI_DoctorLargeStoreReturnsBoundedMetadataOnlyReport(t *testing.T) {
+	projectDir := isolateLargeStoreDoctorEnvironment(t)
 	t.Setenv("TRACEARY_LANG", "en")
 	// The bounded large-store result intentionally still includes the normal
 	// environment checks. Give the PATH check its healthy fixture so
@@ -563,7 +576,7 @@ func TestRootCLI_DoctorLargeStoreReturnsBoundedMetadataOnlyReport(t *testing.T) 
 	rootCmd.SetErr(&bytes.Buffer{})
 	// --fix may unlink compact rollback siblings (filesystem only) but must
 	// still not open SQLite or run InitializeAuthorized.
-	rootCmd.SetArgs([]string{"doctor", "--db-path", largeStore, "--json", "--warnings-ok", "--fix"})
+	rootCmd.SetArgs([]string{"doctor", "--db-path", largeStore, "--project-dir", projectDir, "--json", "--warnings-ok", "--fix"})
 
 	started := time.Now()
 	if err := rootCmd.Execute(); err != nil {
@@ -628,6 +641,7 @@ func TestRootCLI_DoctorLargeStoreReturnsBoundedMetadataOnlyReport(t *testing.T) 
 }
 
 func TestRootCLI_DoctorLargeStoreReportsO1PageSignals(t *testing.T) {
+	projectDir := isolateLargeStoreDoctorEnvironment(t)
 	t.Setenv("TRACEARY_LANG", "en")
 	setTracearyPathToCurrentExecutable(t)
 	largeStore := writeValidSparseLargeStore(t)
@@ -643,7 +657,7 @@ func TestRootCLI_DoctorLargeStoreReportsO1PageSignals(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(&bytes.Buffer{})
-	rootCmd.SetArgs([]string{"doctor", "--db-path", largeStore, "--json", "--warnings-ok"})
+	rootCmd.SetArgs([]string{"doctor", "--db-path", largeStore, "--project-dir", projectDir, "--json", "--warnings-ok"})
 
 	started := time.Now()
 	if err := rootCmd.Execute(); err != nil {
