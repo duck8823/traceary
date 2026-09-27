@@ -18,7 +18,8 @@
 設計上は論理会話とランタイムを分離し、終端した集約を再オープンしない。
 B は、この分離を将来実現する条件付きの案であり、実装承認でも、この設計を将来承認するための必須条件でもない。
 C は #2393 の受動観測 baseline と将来の read 契約案を組み合わせるものであり、全ホストの SessionEnd を受動化する案ではない。
-現在の Gemini SessionEnd が End を呼び得る経路を含め、既存の host-specific start/end mapping は変更しない。
+現在の interactive Claude、Gemini、Kimi の `SessionEnd` は集約の `End` を呼び、この mapping は変更しない。
+特定済みの受動 mapping は Codex `SessionEnd`/`Interrupt`、Claude `StopFailure`、Kimi `Interrupt` であり、全ホスト共通の受動 close mapping はない。
 この区別は再開可能な host-close callback として特定した対象に適用し、将来の再分類には根拠とレビューが必要である。
 共通の単調な不変条件は、同一の hook mapping を意味しない。
 この設計 PR は runtime code、schema、履歴データ、既存の `active` 契約を変更しない。
@@ -38,10 +39,26 @@ base `a61b0a18b57345f90009ac449a2be3210c8e0910` のリポジトリ上の根拠�
 - `application/usecase/session_usecase_impl.go` の `Active` は start Event を返し、`End` は子孫を終了させる。
 - `infrastructure/sqlite/sql/find_active_session.sql` の従来の activity 選択には、終了後に event がある session も含まれる。
 - hook 配信の semantic fingerprint は runtime generation の識別根拠にはならない。
-- bundle import は未知の table を拒否するため、table の追加だけでは後方互換にならない。
+- bundle import は store より新しい `manifest.BundleSchemaVersion` を未知 table の検査前に拒否するため、table の追加だけでは後方互換にならない。
 
-[#2393](https://github.com/duck8823/traceary/issues/2393) の受動 adapter は session/store の取得結果を固定する。
-その範囲から、すべての legacy routing が修正済みとは判断できない。
+[#2393](https://github.com/duck8823/traceary/issues/2393) の受動 adapter は取得済み SID、絶対 database route、raw cwd を固定するが、解決済み Workspace 全体は固定しない。
+`TRACEARY_WORKSPACE` と repository detection は replay 時に Workspace を再解決し得る。
+完全に不変な Workspace binding は目標であり既知の gap であって、達成済み baseline ではない。
+すべての legacy routing が修正済みとも判断できない。
+
+interactive hook の論理 ID は native `session_id` と一致するが、one-shot wrapper 内は例外である。
+既存 ID への `SessionStart` は冪等に成功して hook state を書き、後の同一 ID の event は終端済みレコードへの late event として付く。
+新しい continuation や再オープンにはならない。
+C は当面この動作を維持し、後続 event を抑制または破棄せず、従来の `active` は `ended_with_late_events` を含み得る。
+終端後に記録された受動 close note 自体も、この activity query の条件を満たし得る。
+
+`session_start`/`session_end` の配信 fallback は `session_id` を使うため、繰り返し start は同一 retry にまとめられ得る。
+start source は instance identity ではない。
+native event ID のない受動 close receipt は異なる方法で保持され、この非対称性から runtime 順序は分からない。
+host の再配信の曖昧さと、commit 後の spool clear 失敗による Traceary local replay は区別する。
+将来の local receipt ID と取得時の `received_at` は local replay の重複を除去できるが、host episode や因果順序を証明しない。
+現在の spool `CreatedAt` は保存 event の `recorded_at` と同じではなく、どちらも runtime duration を確定しない。
+既存 one-shot wrapper は local process lifetime を観測できるが、host 全体の episode identity は証明しない。
 
 ## 各ホストへの適用範囲
 
@@ -50,11 +67,11 @@ native/runtime ID の文字列は相関の識別情報であり、認証や認�
 
 | Host | C での能力の境界 |
 | --- | --- |
-| Claude | 対応する受動観測を維持するが、ホスト終了を論理終了と同一視しない |
-| Codex | 文書化された start/end callback でも instance/order の識別根拠は不十分 |
-| Gemini | end の根拠が欠ける場合は不明とし、終了を捏造しない |
+| Claude | interactive `SessionEnd` は `End` を呼び、`StopFailure` は受動。両方の mapping を維持 |
+| Codex | `SessionEnd`/`Interrupt` は受動。文書化された callback でも instance/order の識別根拠は不十分 |
+| Gemini | interactive `SessionEnd` は `End` を呼ぶ。runtime instance の根拠が欠ける場合は不明とし、終了を捏造しない |
 | Grok | end の根拠が欠ける場合は不明とし、終了を捏造しない |
-| Kimi | 対応する受動観測を維持し、検証済みの範囲を超える相関を推測しない |
+| Kimi | interactive `SessionEnd` は `End` を呼び、`Interrupt` は受動。強い相関を推測しない |
 | Muse | end の根拠が欠ける場合は不明とし、終了を捏造しない |
 | Antigravity | end の根拠が欠ける場合は不明とし、終了を捏造しない |
 
@@ -83,12 +100,12 @@ child は委譲作業を意味し、再帰的な終了と GC の対象になる�
 | 将来の continuation 関係 | 論理作業レコード間の明示的な関係 | 別の承認済み設計が必要。child や自動 resume binding ではない |
 
 1. 集約の論理終端状態、従来の activity query、runtime availability の三つを分離する。
-2. close の要約は「最後に記録されたホスト終了の観測」と表示する。記録時刻は発生時刻、因果順序、継続時間、episode 数ではない。
+2. close の要約の意味は「最後に記録されたホスト終了の観測」とするが、最終的な CLI/API 文言は暫定である。記録時刻は発生時刻、因果順序、継続時間、episode 数ではない。
 3. host event ID がなければ、再受信と別の close 発生を区別できない場合がある。semantic fingerprint ではこの曖昧さを解消できない。
 4. replay 順序と recorded-at は runtime の因果順序を証明しない。
-5. 取得時に、spool 保存前に native identity/local root と固定 database route を結び付ける。将来の episode identity も replay 時に再探索せず、spool 前に固定する。
+5. 目標は取得時に、spool 保存前に native identity、解決済み Workspace/local root、固定 database route を結び付けること。#2393 は SID、絶対 database route、raw cwd のみ固定済みで、Workspace 全体の binding は gap として残る。将来の episode identity も replay 時に再探索せず、spool 前に固定する。
 6. 遅れて届いた古い close は新しい generation を終了させない。generation identity が証明できなければ、現在の episode を推測して選ばない。
-7. 明示終了、one-shot completion、子孫の終了、既存 GC の `legacy_unknown` 終了を維持する。GC は論理 root を終端でき、この制約を暗黙に変更しない。
+7. 明示終了、one-shot completion、子孫の終了、既存 GC の `legacy_unknown` 終了を維持する。GC は論理 root を終端でき、この制約を暗黙に変更しない。SQL は `runtime_mode` を制限せず、保護されない長期 idle の one-shot を終端して `FinalizeOneShot` と衝突し得る。owner のみの完了は意図する境界であり、GC は既知の例外。
 8. 論理終端後の resume で再オープンや新しい continuation の自動 binding を行わない。archive、delete、通常 close の reason は区別に不十分であり、restore から continuation を推測できない。
 9. 同じ native thread を複数のクライアントが使っても、単一の現在 runtime episode を意味しない。
 
@@ -104,9 +121,10 @@ host payload と SQLite の詳細は domain の外に置く。
 | Application read/query | 終端、従来の activity、観測の要約を別の read concept として提示 | availability は unknown。`active` を暗黙に再定義しない |
 | Presentation / adapter | source/reason を解釈し、enqueue 前に native ID と local root を論理 identity に結び付ける | 不完全な根拠を明示し、推測で補わない |
 | Presentation / CLI | 稼働時間を断定せず、記録された観測と不明な availability を表示 | 別途承認されない限り既存 flag/output 契約を維持 |
-| Infrastructure | 不変の routing context を保存して replay。repository と将来の projection storage を実装 | 可変の current cwd/store/episode に replay を再解決しない |
+| Infrastructure | 取得済み SID/database/raw-cwd context を保存して replay。完全不変の Workspace binding を目標とし、repository と将来の projection storage を実装 | 取得 SID/database を再 binding しない。Workspace の現在の再解決は既知の gap。episode を推測しない |
 
-既存の session use case は集約操作（`Active` と `End`）を所有する。
+既存の session use case は集約 write（`End`、`FinalizeOneShot`）を所有する。
+`Active` は start Event を返す read であり、集約操作ではない。
 観測の記録は別の意味を持つ操作であり、集約終了を再利用すると受動的な報告に再帰的な副作用が混入する。
 適切な場合は event 記録を再利用し、汎用 host lifecycle engine、Strategy 階層、hook 名ごとの use-case class は作らない。
 観測に別の public method が必要かは、consumer と transaction の境界を根拠に checkpoint で判断する。
@@ -117,18 +135,22 @@ host payload と SQLite の詳細は domain の外に置く。
 
 | 前提と操作 | 観測可能な結果 | Level |
 | --- | --- | --- |
-| 開いた論理作業で同じ thread を close/resume/close/resume | 論理レコードは非終端のまま。episode 数や availability を確定しない | Hook integration + read |
+| 開いた論理作業で同じ Codex thread を受動 close/resume/close/resume | 論理レコードは非終端のまま。episode 数や availability を確定しない | Hook integration + read |
 | Codex の `compact` または `clear` の SessionStart | 新しい instance を推測せず、論理再オープンもしない | Adapter |
-| 開いた thread を archive/delete 後に restore | close は報告のまま。`other` では原因を区別できず、continuation を推測しない | Integration |
+| 開いた Codex thread を archive/delete 後に restore | close は報告のまま。`other` では原因を区別できず、continuation を推測しない | Integration |
 | 全クライアントが離脱して idle、close が後から届く | 記録時刻を停止時刻と扱わず、現在も利用不能とは断定しない | Read |
 | 同じ event ID を replay | 既存の文書化された配信冪等性の範囲で重複効果を防ぎ、論理状態は不変 | Delivery integration |
 | event ID がなく、同じ payload を二度受信 | 一回の発生か二つの episode かを断定せず、既存 receipt/dedup の意味を維持 | Delivery + read |
 | 新しい resume 後に古い close を replay | 固定した古い routing を維持し、終了や現在 episode の推測更新をしない | Spool integration |
-| turn の interrupt 後に resume | interrupt は論理終了でも証明された runtime 境界でもない | Adapter + domain |
+| Codex/Kimi の受動 Interrupt 後に resume | interrupt は論理終了でも証明された runtime 境界でもない | Adapter + domain |
 | 複数クライアントが同じ thread を使う | 単一の episode に推測でまとめず、availability は unknown | Concurrency integration |
-| one-shot command の入れ子 host callback が close を受信 | owner だけが論理 Session を完了し、close は本人や子孫を完了させない | Use case |
+| 既知の GC 例外を除き、one-shot command の入れ子受動 callback が close を受信 | owner completion の境界を維持し、close は本人や子孫を完了させない | Use case |
+| 終端 Session が同一 ID の start/resume 後に event を受信 | 論理 ID と最初の end は不変。event は late event として保持され、従来 active の対象になり得る。continuation ではない | Hook + read |
+| 終端 Session が受動 close note を受信 | end は不変。note は保持され、既存 activity query の late event に数えられ得る | Hook + read |
+| commit 後に spool clear が失敗して local replay | host 再配信と local 重複を区別。将来の receipt ID は episode/order の断定なしで replay を dedup できる | Delivery integration |
 | 終端した parent が close/resume を受信 | 最初の終端を維持。再オープン、子孫再作成、自動 continuation はしない | Domain + use case |
 | 明示的な end が子孫を再帰終了 | 既存動作を維持し、観測では取り消さない | Use case |
+| 保護されない長期 idle の one-shot が finalization 前に GC 対象になる | 現在の GC 終端と FinalizeOneShot の衝突を明示。owner のみの完了は意図する境界で、現在の GC 保証ではない | Storage + use case |
 | GC が stale root を `legacy_unknown` で終了 | 後の resume でも終端を維持し、この制約を明示する | Storage integration |
 | C で既存 bundle を export/import | schema と論理/event レコードの互換性を維持し、episode を捏造しない | Bundle integration |
 | 将来の B bundle を古い importer が開く | rollout 前に format gate/rejection を検証し、未知 table を黙って失わない | Compatibility |
@@ -138,7 +160,7 @@ host payload と SQLite の詳細は domain の外に置く。
 
 | Step | Red の仕様 | 最小の Green | Refactor の境界 |
 | --- | --- | --- | --- |
-| 1 | close callback が集約や子孫の終端状態を変更 | 集約の `End` を呼ばず受動報告を記録 | Domain invariant と application capture |
+| 1 | 特定済み受動 callback が集約や子孫の終端状態を変更 | 集約の `End` を呼ばず受動報告を記録 | Domain invariant と application capture |
 | 2 | replay が別 session/store に解決される | 取得時の routing context を固定して replay | Presentation acquisition と infrastructure transport |
 | 3 | output が稼働/停止、duration、episode 数を断定 | 終端、activity、記録観測を分離して unknown を表示 | Query DTO と CLI rendering |
 | 4 | 明示終了、one-shot、GC、bundle が退行 | 既存の観測可能な振る舞いを維持 | 汎用 event 記録に lifecycle flag を追加しない |
@@ -170,6 +192,8 @@ runtime が現在接続されているか、何度再起動したかには答え
 既存の明示終了と GC の結果は、後の再開可能性を制約する場合も終端として維持する。
 
 close/start 時刻、fingerprint、archive/restore の推測から履歴 episode を backfill しない。
+C の read 契約は既存 event を使い migration を要しない。
+承認時に schema 変更が必要と判明した場合は、B と同じ checkpoint と versioned bundle gate を適用する。
 将来の B は bundle format compatibility gate、明示的な unknown historical state、upgrade/old-import 検証の後にのみ additive storage を使う。
 additive SQL migration だけでは importer の拒否契約を解決できない。
 
@@ -183,7 +207,9 @@ credential や raw transcript は収集せず、routing failure、replay conflic
 
 - unknown runtime availability を許容するか、host の強い根拠を提供前に要求するか。
 - close の要約を既定で表示するか。安定した CLI/API label と時刻の出所をどう定義するか。
-- host event ID がない場合、どの receipt/dedup 契約を利用者に提示するか。
+- host event ID がない場合、どの receipt/dedup 契約を利用者に提示し、local receipt ID を追加するか。
+- 受動観測を activity から除外するか。C の隠れた filter ではなく、別の public-contract change が必要。
+- GC で one-shot を除外するか、dormancy や別の reason を使うか。別の人間判断であり、この ADR は変更を許可しない。
 - GC または明示終了後に利用者がどう明示的に続行するか。continuation 関係は別の承認済み設計が必要。
 - B が実現可能になった場合、episode は client 単位か host-defined runtime instance 単位か。並行 client の何を終了条件にするか。
 - どの host instance、event identity、ordering 契約が安定していると実証できるか。現在の thread ID と start/end reason では不十分。

@@ -17,7 +17,8 @@ The recommendation is option C now: preserve the monotonic logical `Session`, re
 The semantic direction is separate logical conversation and runtime concepts, never reopening a terminal aggregate.
 Option B is a conditional future realization of that separation, not an approved implementation or a prerequisite for eventual human approval of this design.
 C combines the #2393 passive observation baseline with a proposed future read contract; it does not convert every host SessionEnd to passive behavior.
-Existing host-specific start/end mappings remain unchanged (including the current Gemini SessionEnd path that can invoke End).
+Existing interactive Claude, Gemini, and Kimi `SessionEnd` mappings invoke aggregate `End` and remain unchanged.
+The identified passive mappings are Codex `SessionEnd`/`Interrupt`, Claude `StopFailure`, and Kimi `Interrupt`; there is no universal passive host-close mapping.
 The distinction applies to identified resumable host-close callbacks; future reclassification needs evidence and review.
 A common monotonic invariant does not imply identical hook mappings.
 No runtime code, schema, historical data, or existing `active` contract changes in this design PR.
@@ -37,10 +38,23 @@ Repository evidence at base `a61b0a18b57345f90009ac449a2be3210c8e0910`:
 - `application/usecase/session_usecase_impl.go` returns a start Event from `Active` and ends descendants through `End`.
 - `infrastructure/sqlite/sql/find_active_session.sql` includes ended sessions with later events in legacy activity selection.
 - Hook-delivery semantic fingerprints do not establish runtime generation identity.
-- Bundle import rejects unknown tables; adding a table is not automatically backward compatible.
+- Bundle import rejects `manifest.BundleSchemaVersion` newer than the store before its unknown-table rejection; adding a table is not automatically backward compatible.
 
-The passive adapters addressed by [#2393](https://github.com/duck8823/traceary/issues/2393) pin session/store acquisition.
-That scope does not prove that every legacy routing path is fixed.
+The passive adapters addressed by [#2393](https://github.com/duck8823/traceary/issues/2393) pin acquired SID, absolute database route, and raw cwd, not a fully resolved Workspace.
+`TRACEARY_WORKSPACE` and repository detection can still resolve Workspace again during replay.
+Fully immutable Workspace binding is a target and known gap, not an achieved baseline; this scope also does not prove that every legacy routing path is fixed.
+
+Interactive hook logical IDs equal native `session_id`, except inside a one-shot wrapper.
+`SessionStart` for an existing ID succeeds idempotently and writes hook state; subsequent same-ID events attach to the already terminal record as late events, not a continuation or reopen.
+C temporarily preserves this behavior: it does not suppress or drop later events, and legacy `active` can include `ended_with_late_events`.
+Passive close notes recorded after end can themselves satisfy that activity query.
+
+The `session_start`/`session_end` delivery fallback uses `session_id`, so repeated starts can collapse into exact retries; start source is not instance identity.
+Passive close receipts without native event IDs are preserved differently: this asymmetry cannot establish runtime order.
+Host redelivery ambiguity is distinct from Traceary local replay after commit-before-spool-clear.
+A future locally assigned receipt ID and acquisition `received_at` can deduplicate local replay without proving a host episode or causal order.
+Current spool `CreatedAt` is not equivalent to persisted event `recorded_at`, and neither establishes runtime duration.
+The existing one-shot wrapper can observe its local process lifetime; that does not prove host-global episode identity.
 
 ## Cross-host applicability
 
@@ -49,11 +63,11 @@ Native/runtime ID strings establish correlation only, not authentication or auth
 
 | Host | Capability boundary under C |
 | --- | --- |
-| Claude | Preserve its supported passive observations; never equate host close with logical end |
-| Codex | Documented start/end callbacks still do not prove runtime instance/order identity |
-| Gemini | Missing or incomplete end evidence means unknown, not fabricated closure |
+| Claude | Interactive `SessionEnd` invokes `End`; `StopFailure` is passive; preserve both mappings |
+| Codex | `SessionEnd`/`Interrupt` are passive; documented callbacks do not prove runtime instance/order identity |
+| Gemini | Interactive `SessionEnd` invokes `End`; missing runtime-instance evidence means unknown, not fabricated closure |
 | Grok | Missing or incomplete end evidence means unknown, not fabricated closure |
-| Kimi | Preserve supported passive observations; do not infer stronger correlation than verified |
+| Kimi | Interactive `SessionEnd` invokes `End`; `Interrupt` is passive; do not infer stronger correlation |
 | Muse | Missing or incomplete end evidence means unknown, not fabricated closure |
 | Antigravity | Missing or incomplete end evidence means unknown, not fabricated closure |
 
@@ -82,12 +96,12 @@ A child means delegated work, with recursive terminalization and GC implications
 | Future continuation relation | Explicit link between logical work records | Separate approved design; not a child and not an automatic resume binding |
 
 1. Keep three read concepts separate: aggregate logical terminal status, legacy activity query, and runtime availability.
-2. Label a close summary as the **last recorded host-close observation**. Recording time is not occurrence time, causal order, duration, or an episode count.
+2. Describe the semantic meaning as the **last recorded host-close observation**; the final CLI/API wording is provisional. Recording time is not occurrence time, causal order, duration, or an episode count.
 3. Without a host event ID, repeated receipt and distinct close occurrences can be indistinguishable. A semantic fingerprint cannot resolve that ambiguity.
 4. Replay order and recorded-at timestamps cannot establish runtime causal order.
-5. Bind native identity/local root and a fixed database route at acquisition, before spooling. Any future episode identity must also be bound before spooling, not rediscovered during replay.
+5. Target: bind native identity, fully resolved Workspace/local root, and a fixed database route at acquisition, before spooling. #2393 currently pins SID, absolute database route, and raw cwd only; full Workspace binding remains a gap. Any future episode identity must also be bound before spooling, not rediscovered during replay.
 6. A late old close must not end a newer generation. Without proven generation identity, do not select a guessed current episode.
-7. Preserve explicit end, one-shot completion, descendant terminalization, and existing GC `legacy_unknown` termination. GC can still terminalize a logical root; this limitation is not silently changed.
+7. Preserve explicit end, one-shot completion, descendant terminalization, and existing GC `legacy_unknown` termination. GC can still terminalize a logical root; this limitation is not silently changed. Its SQL is not restricted by `runtime_mode`, so an unprotected long-idle one-shot can be terminalized and conflict with `FinalizeOneShot`. Owner-only completion is the intended boundary, with this known GC exception.
 8. A resume after logical termination cannot reopen that record or automatically bind a new continuation. Archive, delete, and ordinary close share insufficient reasons; restore cannot infer a continuation.
 9. Multiple clients sharing a native thread do not imply one current runtime episode.
 
@@ -103,9 +117,9 @@ Keep host payloads and SQLite details outside the domain.
 | Application read/query | Expose terminal status, legacy activity, and observation summary as distinct read concepts | Runtime availability stays unknown; no silent `active` redefinition |
 | Presentation / host adapter | Parse host source/reason; bind native ID and local root to logical identity before enqueue | Unsupported or incomplete host evidence is explicit, not guessed |
 | Presentation / CLI | Label recorded observations and unknown availability without an uptime claim | Preserve existing flags/output contracts unless separately approved |
-| Infrastructure | Persist/replay immutable routing context; implement repositories and optional future projection storage | Replay never resolves against a mutable current cwd/store/episode |
+| Infrastructure | Persist/replay acquired SID/database/raw-cwd context; target fully immutable Workspace binding; implement repositories and optional future projection storage | Do not rebind acquired SID/database; Workspace may currently re-resolve, a known gap; never guess an episode |
 
-Use-case comparison: existing session use cases already own aggregate operations (`Active` and `End`).
+Use-case comparison: existing session use cases own aggregate writes (`End`, `FinalizeOneShot`); `Active` is a read returning a start Event, not an aggregate operation.
 Observation capture is a different semantic operation: reusing aggregate termination would introduce recursive side effects into a passive report.
 Reuse event recording where suitable; do not create a generic host lifecycle engine, Strategy hierarchy, or a new use-case class for every hook name.
 Whether an observation needs a separate public method remains a checkpoint decision based on consumers and transaction boundaries.
@@ -116,18 +130,22 @@ The following are proposed tests for subsequent approved implementation, not tes
 
 | Given / when | Observable result | Level |
 | --- | --- | --- |
-| Open logical work, close/resume/close/resume on the same native thread | Logical record stays nonterminal; observations do not establish episode count or availability | Hook integration + read |
+| Open logical work, passive Codex close/resume/close/resume on the same native thread | Logical record stays nonterminal; observations do not establish episode count or availability | Hook integration + read |
 | Codex `SessionStart` source `compact` or `clear` | No inferred new runtime instance; no logical reopen | Adapter |
-| Open thread is archived or deleted, then restored | Passive close remains a report; reason `other` cannot distinguish causes; no inferred continuation | Integration |
+| Open Codex thread is archived or deleted, then restored | Passive close remains a report; reason `other` cannot distinguish causes; no inferred continuation | Integration |
 | All clients detached and idle; close is delivered later | No claim that recording time equals shutdown time, or that the host remains unavailable | Read |
 | Same event ID is replayed | Existing delivery idempotency prevents duplicate effect within its documented scope; logical state unchanged | Delivery integration |
 | Missing event ID, identical payload arrives twice | Cannot assert one occurrence or two episodes; preserve documented receipt/dedup semantics | Delivery + read |
 | Old close replayed after a newer resume | Fixed old routing retained; no termination or guessed current-episode update | Spool integration |
-| Interrupted turn, then resume | Interrupt is not logical termination or proven runtime boundary | Adapter + domain |
+| Passive Codex/Kimi Interrupt, then resume | Interrupt is not logical termination or proven runtime boundary | Adapter + domain |
 | Concurrent clients use one native thread | Do not collapse them into a single guessed episode; availability unknown | Concurrency integration |
-| One-shot command nests host callbacks and receives close | Owner alone completes its logical Session; passive close does not complete it or descendants | Use case |
+| One-shot command nests passive host callbacks and receives close, excluding the known GC exception | Owner completion boundary retained; passive close does not complete it or descendants | Use case |
+| Terminal Session receives same-ID start/resume then an event | Same logical ID and first end preserved; event retained as late event; legacy active remains eligible, not a continuation | Hook + read |
+| Terminal Session receives a passive close note | End unchanged; note retained and can count as a late event in existing activity query | Hook + read |
+| Commit succeeds but spool clear fails, then local replay | Distinguish local duplicate from host redelivery; future receipt identity may dedup replay without episode/order claims | Delivery integration |
 | Terminal parent receives close or resume | First terminal preserved; no reopen, descendant recreation, or automatic continuation | Domain + use case |
 | Explicit end recursively terminalizes descendants | Existing behavior retained; observations cannot undo it | Use case |
+| Unprotected long-idle one-shot encounters GC before finalization | Characterize current GC terminalization/FinalizeOneShot conflict; owner-only completion is intended, not a current GC guarantee | Storage + use case |
 | GC closes stale logical root with `legacy_unknown` | Existing terminal retained even on later resume; expose limitation, not hidden semantics change | Storage integration |
 | Existing bundle exported/imported under C | Schema and logical/event records remain compatible; no fictional episodes | Bundle integration |
 | Future B bundle opened by older importer | Defined version gate/rejection tested before rollout; unknown tables must not be silently lost | Compatibility |
@@ -137,7 +155,7 @@ The following are proposed tests for subsequent approved implementation, not tes
 
 | Step | Red specification | Minimal green | Refactor boundary |
 | --- | --- | --- | --- |
-| 1 | Close callback changes aggregate/descendant terminal state | Route passive reports without aggregate `End` | Domain invariants versus application capture |
+| 1 | Identified passive callback changes aggregate/descendant terminal state | Route passive reports without aggregate `End` | Domain invariants versus application capture |
 | 2 | Replay resolves a different session/store | Bind and replay acquired routing context | Presentation acquisition versus infrastructure transport |
 | 3 | Read output implies running/stopped, duration, or episode count | Render separate terminal/activity/recorded-observation concepts and unknown availability | Query DTO versus CLI rendering |
 | 4 | Explicit end, one-shot, GC, or bundle regression | Preserve their existing observable behavior | Avoid lifecycle flags in generic event recording |
@@ -169,6 +187,7 @@ It cannot answer whether a runtime is currently attached or how many times it re
 Existing explicit terminal records and GC results remain terminal, even when that limits later resumability.
 
 No historical episode backfill is permitted from close/start timestamps, fingerprints, or archive/restore guesses.
+C read contracts use existing events without migration; if approval identifies any required schema change, apply the same checkpoint and versioned bundle gate as B.
 For future B, use additive storage only after a bundle-format compatibility gate, explicit unknown historical state, and tested upgrade/old-import behavior.
 An additive SQL migration alone does not solve the importer rejection contract.
 
@@ -182,7 +201,9 @@ Monitor bounded counts of routing failures, replay conflicts, and unknown identi
 
 - Is unknown runtime availability acceptable, or must the host expose stronger evidence before this feature ships?
 - Should recorded-close summaries be visible by default, and what stable CLI/API labels and timestamp provenance will they use?
-- Which documented receipt/dedup behavior should users see when host event IDs are absent?
+- Which documented receipt/dedup behavior should users see when host event IDs are absent, and should local receipt identity be added?
+- Should passive observations be excluded from activity? That requires a separate public-contract change, not a hidden C filter.
+- Should GC exclude one-shot work, use dormancy, or use a different reason? These are separate human decisions, not changes authorized here.
 - How should users explicitly proceed after GC or explicit logical termination? A continuation relation requires a separate approved design.
 - If B becomes feasible, is an episode per client or per host-defined runtime instance, and what closes it under concurrent clients?
 - Which host instance, event identity, and ordering contracts are demonstrably stable? Current thread ID and start/end reasons are insufficient.
