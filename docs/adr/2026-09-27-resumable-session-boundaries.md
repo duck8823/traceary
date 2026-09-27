@@ -89,11 +89,18 @@ A child means delegated work, with recursive terminalization and GC implications
 | Concept | State and behavior | Constraint |
 | --- | --- | --- |
 | Logical `Session` | Existing aggregate lifecycle; explicit end remains terminal | First terminal time/reason is preserved; no reopen |
-| Host-close observation | A recorded host report, associated with an acquired logical identity | Does not end the aggregate, descendants, or a one-shot owner |
+| `PassiveHostObservation` | Generic passive report with `SessionClose`, `TurnInterrupt`, or `TurnFailure` subtype | All subtypes preserve logical state; only SessionClose contributes to the close summary |
+| `SessionClose` | `source_hook=session_end`; current passive mapping is Codex only | A host-close report, not logical termination or present availability |
+| `TurnInterrupt` | `source_hook=interrupt`; current passive mappings are Codex/Kimi | A turn report, not a session close |
+| `TurnFailure` | `source_hook=stop_failure`; current passive mapping is Claude | A turn report, not a session close |
 | Legacy activity selection | Existing `active`, `ended_with_late_events`, and stale/activity rules | Activity is not aggregate terminal status or runtime availability |
 | Runtime availability | `UNKNOWN` with current evidence | Close receipt does not prove the present host is stopped |
 | Future `RuntimeEpisode` | Optional host instance projection | Requires independently proven correlation and replay/order identity |
 | Future continuation relation | Explicit link between logical work records | Separate approved design; not a child and not an automatic resume binding |
+
+The last recorded host-close summary derives only from `kind=note` events with `source_hook=session_end`, within the documented passive host mapping scope (currently Codex).
+`kind=note` plus `source_hook` provides semantic discrimination; do not parse body strings or include Interrupt/StopFailure notes.
+The hook Event client is currently `hook`; do not invent a `Codex` client discriminator.
 
 1. Keep three read concepts separate: aggregate logical terminal status, legacy activity query, and runtime availability.
 2. Describe the semantic meaning as the **last recorded host-close observation**; the final CLI/API wording is provisional. Recording time is not occurrence time, causal order, duration, or an episode count.
@@ -115,7 +122,7 @@ Keep host payloads and SQLite details outside the domain.
 | Domain | Own logical terminal invariants; define observation meaning; own a future episode invariant only if approved | Never infer lifecycle from host DTOs or storage order |
 | Application write | Accept normalized passive observation with acquired logical identity; coordinate existing event recording without `End` | Missing/ambiguous identity cannot mutate a guessed Session; no automatic continuation |
 | Application read/query | Expose terminal status, legacy activity, and observation summary as distinct read concepts | Runtime availability stays unknown; no silent `active` redefinition |
-| Presentation / host adapter | Parse host source/reason; bind native ID and local root to logical identity before enqueue | Unsupported or incomplete host evidence is explicit, not guessed |
+| Presentation / host adapter | Parse source/reason and observation subtype; acquire SID, fixed absolute DB route and raw cwd before enqueue; fully resolved Workspace binding remains a target/known gap | Unsupported or incomplete evidence is explicit; never infer host from a nonexistent Event client discriminator |
 | Presentation / CLI | Label recorded observations and unknown availability without an uptime claim | Preserve existing flags/output contracts unless separately approved |
 | Infrastructure | Persist/replay acquired SID/database/raw-cwd context; target fully immutable Workspace binding; implement repositories and optional future projection storage | Do not rebind acquired SID/database; Workspace may currently re-resolve, a known gap; never guess an episode |
 
@@ -141,6 +148,7 @@ The following are proposed tests for subsequent approved implementation, not tes
 | Concurrent clients use one native thread | Do not collapse them into a single guessed episode; availability unknown | Concurrency integration |
 | One-shot command nests passive host callbacks and receives close, excluding the known GC exception | Owner completion boundary retained; passive close does not complete it or descendants | Use case |
 | Terminal Session receives same-ID start/resume then an event | Same logical ID and first end preserved; event retained as late event; legacy active remains eligible, not a continuation | Hook + read |
+| A close note is followed by an Interrupt or StopFailure note | Later turn reports cannot replace the last recorded close; use note/source_hook semantics, not body parsing; no running assertion | Query + CLI |
 | Terminal Session receives a passive close note | End unchanged; note retained and can count as a late event in existing activity query | Hook + read |
 | Commit succeeds but spool clear fails, then local replay | Distinguish local duplicate from host redelivery; future receipt identity may dedup replay without episode/order claims | Delivery integration |
 | Terminal parent receives close or resume | First terminal preserved; no reopen, descendant recreation, or automatic continuation | Domain + use case |

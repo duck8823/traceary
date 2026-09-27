@@ -93,11 +93,18 @@ child は委譲作業を意味し、再帰的な終了と GC の対象になる�
 | 概念 | 状態と振る舞い | 制約 |
 | --- | --- | --- |
 | 論理 `Session` | 既存の集約 lifecycle。明示終了は終端 | 最初の終端時刻と理由を維持し、再オープンしない |
-| ホスト終了の観測 | 取得済みの論理 identity に関連付けたホストの報告 | 集約、子孫、one-shot owner を終了させない |
+| `PassiveHostObservation` | `SessionClose`、`TurnInterrupt`、`TurnFailure` を subtype とする受動報告 | 全 subtype が論理状態を維持し、close 要約の対象は SessionClose のみ |
+| `SessionClose` | `source_hook=session_end`。現在の受動 mapping は Codex のみ | ホスト終了の報告であり、論理終了や現在の availability ではない |
+| `TurnInterrupt` | `source_hook=interrupt`。現在の受動 mapping は Codex/Kimi | turn の報告であり、session close ではない |
+| `TurnFailure` | `source_hook=stop_failure`。現在の受動 mapping は Claude | turn の報告であり、session close ではない |
 | 従来の activity 選択 | 既存の `active`、`ended_with_late_events`、stale/activity 規則 | activity は集約の終端状態や runtime availability とは別 |
 | runtime availability | 現在の根拠では `UNKNOWN` | close の受信は現在のホスト停止を証明しない |
 | 将来の `RuntimeEpisode` | 条件付きの host instance projection | 独立に証明された相関と replay/order の識別情報が必要 |
 | 将来の continuation 関係 | 論理作業レコード間の明示的な関係 | 別の承認済み設計が必要。child や自動 resume binding ではない |
+
+最後に記録されたホスト終了の要約は、文書化された受動 host mapping の範囲（現在は Codex）で、`kind=note` かつ `source_hook=session_end` の event のみから導出する。
+`kind=note` と `source_hook` で意味を区別し、body 文字列を解析したり Interrupt/StopFailure note を含めたりしない。
+現在の hook Event の client は `hook` であり、架空の `Codex` client discriminator を使わない。
 
 1. 集約の論理終端状態、従来の activity query、runtime availability の三つを分離する。
 2. close の要約の意味は「最後に記録されたホスト終了の観測」とするが、最終的な CLI/API 文言は暫定である。記録時刻は発生時刻、因果順序、継続時間、episode 数ではない。
@@ -119,7 +126,7 @@ host payload と SQLite の詳細は domain の外に置く。
 | Domain | 論理終端の不変条件と観測の意味を所有。episode の不変条件は将来承認された場合のみ | host DTO や保存順序から lifecycle を推測しない |
 | Application write | 取得済みの論理 identity を持つ正規化済み観測を受け、既存 event 記録を `End` なしで調整 | identity が欠落または曖昧なら推測した Session を変更しない。自動 continuation は行わない |
 | Application read/query | 終端、従来の activity、観測の要約を別の read concept として提示 | availability は unknown。`active` を暗黙に再定義しない |
-| Presentation / adapter | source/reason を解釈し、enqueue 前に native ID と local root を論理 identity に結び付ける | 不完全な根拠を明示し、推測で補わない |
+| Presentation / adapter | source/reason と観測 subtype を解釈し、enqueue 前に SID、固定 absolute DB route、raw cwd を取得。解決済み Workspace 全体の binding は目標であり既知の gap | 不完全な根拠を明示し、存在しない Event client discriminator から host を推測しない |
 | Presentation / CLI | 稼働時間を断定せず、記録された観測と不明な availability を表示 | 別途承認されない限り既存 flag/output 契約を維持 |
 | Infrastructure | 取得済み SID/database/raw-cwd context を保存して replay。完全不変の Workspace binding を目標とし、repository と将来の projection storage を実装 | 取得 SID/database を再 binding しない。Workspace の現在の再解決は既知の gap。episode を推測しない |
 
@@ -146,6 +153,7 @@ host payload と SQLite の詳細は domain の外に置く。
 | 複数クライアントが同じ thread を使う | 単一の episode に推測でまとめず、availability は unknown | Concurrency integration |
 | 既知の GC 例外を除き、one-shot command の入れ子受動 callback が close を受信 | owner completion の境界を維持し、close は本人や子孫を完了させない | Use case |
 | 終端 Session が同一 ID の start/resume 後に event を受信 | 論理 ID と最初の end は不変。event は late event として保持され、従来 active の対象になり得る。continuation ではない | Hook + read |
+| close note の後に Interrupt または StopFailure note を受信 | 後の turn 報告は最後に記録された close を置換しない。note/source_hook の意味を使い body を解析せず、稼働も断定しない | Query + CLI |
 | 終端 Session が受動 close note を受信 | end は不変。note は保持され、既存 activity query の late event に数えられ得る | Hook + read |
 | commit 後に spool clear が失敗して local replay | host 再配信と local 重複を区別。将来の receipt ID は episode/order の断定なしで replay を dedup できる | Delivery integration |
 | 終端した parent が close/resume を受信 | 最初の終端を維持。再オープン、子孫再作成、自動 continuation はしない | Domain + use case |
