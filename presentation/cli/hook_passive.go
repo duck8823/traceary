@@ -42,6 +42,16 @@ func (c *RootCLI) runPassiveHookDurably(ctx context.Context, input io.Reader, cl
 				clean[key] = value
 			}
 		}
+		// Freeze attribution before persistence; replay must not consult a different wrapper environment.
+		nativeSessionID := strings.TrimSpace(hookPayloadString(payload, "session_id", ""))
+		if nativeSessionID == "" {
+			delete(clean, "session_id")
+		} else {
+			clean["session_id"] = nativeSessionID
+			if wrapperSessionID := explicitOneShotRuntimeSessionID(); wrapperSessionID != "" {
+				clean["session_id"] = wrapperSessionID.String()
+			}
+		}
 		payload, err = json.Marshal(clean)
 		if err != nil {
 			return xerrors.Errorf("failed to normalize passive hook: %w", err)
@@ -69,9 +79,6 @@ func (c *RootCLI) runHookPassive(ctx context.Context, input io.Reader, client, a
 	// Never attach an identity-free failure to a different active session.
 	if sessionID == "" {
 		return nil
-	}
-	if wrapperSessionID := explicitOneShotRuntimeSessionID(); wrapperSessionID != "" {
-		sessionID = wrapperSessionID
 	}
 	ctx = apptypes.WithSourceHook(ctx, action)
 	// Runtime close can recur on the same resumable thread: session_id is not a delivery ID.

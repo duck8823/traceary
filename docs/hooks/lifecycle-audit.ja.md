@@ -16,7 +16,7 @@
 
 ## 再配送、cleanup、rollback
 
-Codex SessionEnd は物理 runtime の閉鎖観測であり、再開可能な論理 thread の不可逆な終了境界ではありません。session aggregate と global fallback state は変更しません。native payload identity を優先し、Interrupt は active child ではなく main session に帰属します。文書化済みの native delivery ID がある場合は保持しますが、body hash の identity は作りません。論理 session の閉鎖・再開は別 design checkpoint の [follow-up #2394](https://github.com/duck8823/traceary/issues/2394) で扱います。既存の明示 terminal cleanup / maintenance は変更せず、atomic cleanup の保証を追加しません。native session ID が存在する場合のみ明示 one-shot wrapper identity を note 帰属に使用し、native identity 欠落は無処理のままとします。
+Codex SessionEnd は物理 runtime の閉鎖観測であり、再開可能な論理 thread の不可逆な終了境界ではありません。session aggregate と global fallback state は変更しません。native payload identity を優先し、Interrupt は active child ではなく main session に帰属します。文書化済みの native delivery ID がある場合は保持しますが、body hash の identity は作りません。論理 session の閉鎖・再開は別 design checkpoint の [follow-up #2394](https://github.com/duck8823/traceary/issues/2394) で扱います。既存の明示 terminal cleanup / maintenance は変更せず、atomic cleanup の保証を追加しません。新 passive adapter は spool 永続化前の入力取得時に note 帰属を確定します。native session ID が存在する場合のみ明示 one-shot wrapper identity を使用し、replay 時の wrapper 環境に関係なく取得時の identity を保持します。native identity 欠落・空白は無処理です。この保証は新 passive adapter のみで、既存の全 spool command に適用される保証ではありません。
 
 前提修正: [#2395](https://github.com/duck8823/traceary/issues/2395) は [PR #2396](https://github.com/duck8823/traceary/pull/2396) で統合済みです。wall-clock budget 計測を parallel test load から分離し、attestation deadline を fixture 構築後に開始します。production retry 動作と時間閾値は変更していません。別 Issue / PR のため本変更には同梱せず、実時間の安全性は fresh CI で引き続き検証します。
 
