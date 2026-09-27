@@ -80,7 +80,7 @@ Stability and deprecation expectations for these runtime entrypoints:
 
 Currently deprecated:
 
-- none.
+- `traceary context --allow-stale` / `--stale-after` (#2399): deprecated no-ops with no replacement during v0.53; removal target v0.54. One aggregate `DEPRECATED:` stderr notice names explicitly supplied flags (default and invalid modes emit none). Nothing is lost: identity selection and recorded content remain available without age/end eligibility. Actual flag removal requires a separate approved PR/checkpoint.
 
 ### Pillar inventory (v0.35)
 

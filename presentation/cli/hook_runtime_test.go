@@ -2282,7 +2282,6 @@ func TestRootCLI_HookCompactCommand_SupportsPostCompactAndResume(t *testing.T) {
 			types.SessionID("compact-session"),
 			types.Workspace("github.com/duck8823/traceary"),
 			"",
-			"active",
 			4,
 			1,
 			[]string{"claude"},

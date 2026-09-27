@@ -68,27 +68,6 @@ func (c *RootCLI) runHandoff(ctx context.Context, output io.Writer, input handof
 		return xerrors.Errorf("%s: %w", Localize("failed to build handoff summary", "handoff サマリーの構築に失敗しました"), err)
 	}
 
-	if _, ok := result.Value(); !ok && !input.allowStale && input.staleAfter > 0 {
-		// The builder may have skipped a stale active session. Re-query
-		// with allowStale=true so we can surface a specific hint instead
-		// of the generic "no matching session" message — this is only a
-		// best-effort lookup; an error here falls through to the empty
-		// output below so the user still sees a reasonable response.
-		recheck, recheckErr := c.context.Handoff(ctx, baseBuilder.AllowStale(true).Build())
-		if recheckErr == nil {
-			if pack, ok := recheck.Value(); ok {
-				return xerrors.Errorf(
-					Localize(
-						"active session %s is older than %s and considered stale; pass --allow-stale or close it with session end",
-						"active session %s は %s を超えており stale です。--allow-stale を指定するか session end で閉じてください",
-					),
-					pack.SessionID(),
-					input.staleAfter,
-				)
-			}
-		}
-	}
-
 	return writeHandoffText(output, result)
 }
 
@@ -122,9 +101,6 @@ func writeHandoffText(output io.Writer, result types.Optional[apptypes.ContextPa
 	}
 	if _, err := fmt.Fprintf(output, "LABEL: %s\n", formatOptionalColumn(pack.Label())); err != nil {
 		return xerrors.Errorf("failed to print handoff label: %w", err)
-	}
-	if _, err := fmt.Fprintf(output, "STATUS: %s\n", formatOptionalColumn(pack.Status())); err != nil {
-		return xerrors.Errorf("failed to print handoff status: %w", err)
 	}
 	if _, err := fmt.Fprintf(output, "TOTAL_EVENTS: %d\n", pack.TotalEvents()); err != nil {
 		return xerrors.Errorf("failed to print handoff total events: %w", err)

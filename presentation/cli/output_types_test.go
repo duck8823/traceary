@@ -19,50 +19,6 @@ func TestFormatJSONTime_UsesUTCAndRFC3339Nano(t *testing.T) {
 	}
 }
 
-func TestNamedJSONRootShapes(t *testing.T) {
-	t.Parallel()
-
-	endedAt := "2026-04-25T03:35:56.123456789Z"
-	duration := 60.5
-	payload := []sessionSummaryOutput{{
-		SessionID:       "session-1",
-		Workspace:       "workspace-1",
-		StartedAt:       "2026-04-25T03:34:55.623456789Z",
-		EndedAt:         &endedAt,
-		Status:          "ended",
-		DurationSec:     &duration,
-		TotalEvents:     2,
-		CommandCount:    1,
-		Agents:          []string{"codex"},
-		ParentSessionID: "parent-1",
-	}}
-
-	var out bytes.Buffer
-	if err := writeJSON(&out, payload); err != nil {
-		t.Fatalf("writeJSON: %v", err)
-	}
-	want := `[
-  {
-    "session_id": "session-1",
-    "workspace": "workspace-1",
-    "parent_session_id": "parent-1",
-    "started_at": "2026-04-25T03:34:55.623456789Z",
-    "ended_at": "2026-04-25T03:35:56.123456789Z",
-    "status": "ended",
-    "duration_sec": 60.5,
-    "total_events": 2,
-    "command_count": 1,
-    "agents": [
-      "codex"
-    ]
-  }
-]
-`
-	if diff := cmp.Diff(want, out.String()); diff != "" {
-		t.Fatalf("session summary JSON shape mismatch (-want +got):\n%s", diff)
-	}
-}
-
 func TestTimelineBlockOutputShape(t *testing.T) {
 	t.Parallel()
 

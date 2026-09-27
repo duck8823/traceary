@@ -123,25 +123,6 @@ type memoryDistillOutput struct {
 	Sources   []memorySummaryOutput `json:"sources"`
 }
 
-// sessionSummaryOutput is the JSON shape of a session summary in list output.
-type sessionSummaryOutput struct {
-	SessionID       string   `json:"session_id"`
-	Workspace       string   `json:"workspace,omitempty"`
-	Summary         string   `json:"summary,omitempty"`
-	Model           string   `json:"model,omitempty"`
-	ParentSessionID string   `json:"parent_session_id,omitempty"`
-	SpawnEventID    string   `json:"spawn_event_id,omitempty"`
-	SubagentKind    string   `json:"subagent_kind,omitempty"`
-	SpawnOrder      *int     `json:"spawn_order,omitempty"`
-	StartedAt       string   `json:"started_at"`
-	EndedAt         *string  `json:"ended_at,omitempty"`
-	Status          string   `json:"status"`
-	DurationSec     *float64 `json:"duration_sec,omitempty"`
-	TotalEvents     int      `json:"total_events"`
-	CommandCount    int      `json:"command_count"`
-	Agents          []string `json:"agents"`
-}
-
 // timelineWorkspaceBreakdownOutput is the JSON shape of a workspace within a timeline block.
 type timelineWorkspaceBreakdownOutput struct {
 	Workspace     string         `json:"workspace"`

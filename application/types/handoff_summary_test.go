@@ -19,7 +19,6 @@ func TestHandoffSummaryOf_Getters(t *testing.T) {
 		domtypes.SessionID("session-1"),
 		domtypes.Workspace("github.com/org/repo"),
 		"feature/foo",
-		"active",
 		10,
 		3,
 		agents,
@@ -35,9 +34,6 @@ func TestHandoffSummaryOf_Getters(t *testing.T) {
 	}
 	if diff := cmp.Diff("feature/foo", handoff.Label()); diff != "" {
 		t.Errorf("Label() mismatch (-want +got):\n%s", diff)
-	}
-	if diff := cmp.Diff("active", handoff.Status()); diff != "" {
-		t.Errorf("Status() mismatch (-want +got):\n%s", diff)
 	}
 	if diff := cmp.Diff(10, handoff.TotalEvents()); diff != "" {
 		t.Errorf("TotalEvents() mismatch (-want +got):\n%s", diff)
@@ -66,7 +62,6 @@ func TestHandoffSummary_DefensiveCopy(t *testing.T) {
 		domtypes.SessionID("session-1"),
 		domtypes.Workspace("ws"),
 		"label",
-		"active",
 		0,
 		0,
 		agents,

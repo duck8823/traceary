@@ -48,6 +48,16 @@ func (c *RootCLI) newContextCommand() *cobra.Command {
 			if err := validateContextModeFlags(cmd, handoff, compactOnly); err != nil {
 				return err
 			}
+			var deprecatedFlags []string
+			for _, name := range []string{"allow-stale", "stale-after"} {
+				if cmd.Flags().Changed(name) {
+					deprecatedFlags = append(deprecatedFlags, "--"+name)
+				}
+			}
+			if len(deprecatedFlags) > 0 {
+				subject := strings.Join(deprecatedFlags, " / ")
+				writeDeprecationNotice(cmd, subject, subject, noReplacement, "v0.54")
+			}
 			if compactOnly {
 				return c.runCompactSummaryCommand(cmd.Context(), cmd.OutOrStdout(), compactSummaryCommandInput{
 					dbPath:            dbPath,
@@ -107,9 +117,9 @@ func (c *RootCLI) newContextCommand() *cobra.Command {
 		&staleAfter,
 		"stale-after",
 		defaultActiveSessionStaleAfter,
-		Localize("with --handoff/--compact-only, treat unended sessions older than this duration as stale", "--handoff/--compact-only 時、この duration を超える未終了 session は stale とみなす"),
+		Localize("deprecated no-op with --handoff/--compact-only; no replacement; removal target v0.54; duration syntax is still validated", "--handoff/--compact-only 時の非推奨 no-op。置き換え先なし。削除予定 v0.54。duration 構文は引き続き検証する"),
 	)
-	contextCmd.Flags().BoolVar(&allowStale, "allow-stale", false, Localize("with --handoff/--compact-only, allow stale active sessions to be selected", "--handoff/--compact-only 時、stale な active session の選択を許可する"))
+	contextCmd.Flags().BoolVar(&allowStale, "allow-stale", false, Localize("deprecated no-op with --handoff/--compact-only; no replacement; removal target v0.54; explicit use warns on stderr", "--handoff/--compact-only 時の非推奨 no-op。置き換え先なし。削除予定 v0.54。明示指定時は stderr に警告する"))
 	contextCmd.MarkFlagsMutuallyExclusive("handoff", "compact-only")
 	contextCmd.MarkFlagsMutuallyExclusive("json", "handoff")
 	contextCmd.MarkFlagsMutuallyExclusive("json", "compact-only")

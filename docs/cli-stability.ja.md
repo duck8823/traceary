@@ -80,7 +80,7 @@ v0.35 時点の admin コマンド：
 
 現在非推奨：
 
-- なし。
+- `traceary context --allow-stale` / `--stale-after`（#2399）：v0.53 の移行期間は置き換え先のない非推奨 no-op、削除予定 v0.54。明示指定した flag 名を集約した `DEPRECATED:` stderr notice を 1 回出します（既定・不正モードでは出しません）。経過時間・終了状態の適格性を使わず identity 選択と記録済み内容を保持するため、機能は失われません。実際の削除には別 PR/checkpoint の承認が必要です。
 
 ### 柱ごとの棚卸し（v0.35）
 

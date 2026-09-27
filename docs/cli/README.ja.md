@@ -178,9 +178,15 @@ subcommand なしの `traceary` は TTY / 非 TTY とも常に help を表示し
 - `--preset`（任意、`--handoff` / `--compact-only` 時）: durable memory に built-in preset (`resume` / `review` / `incident`) を適用
 - `--as-of`（任意、`--handoff` / `--compact-only` 時）: durable memory の validity を指定時刻 (YYYY-MM-DD または RFC3339) で評価する。既定は「現在」
 - `--compact-only`（任意）: prompt injection 向けの短い summary を出力。`--recent` 未指定時は 3 に自動設定
-- `--include-candidates` / `--allow-stale` / `--stale-after`（`--handoff` / `--compact-only` 時）
+- `--include-candidates`（`--handoff` / `--compact-only` 時）
+- `--allow-stale` / `--stale-after`（非推奨 no-op、置き換え先なし、削除予定 v0.54。`--handoff` / `--compact-only` が必要）
 
 > **v0.14 / v0.42 移行**: 旧 top-level の `traceary handoff` / `traceary compact-summary` alias は v0.14.0 で削除されました。`traceary session handoff` は v0.42.0（#2073）で削除されました。実行すると Cobra の generic unknown-command で終了します。`traceary context --handoff`（必要に応じて `--compact-only`）を使ってください。削除された alias 一覧は [CLI 安定性と非推奨ポリシー](../cli-stability.ja.md) を参照してください。
+
+### Log-only context の互換移行
+
+handoff と compact-only は経過時間や終了マーカーにかかわらず session を選択します。生成する `STATUS` ヘッダーは削除し、人間が書いたサマリーは変更しません。生 context JSON は `resolved_session_id`、`resolved_workspace`、`events` を含む既存のオブジェクト envelope のままです（context-pack JSON 出力はありません）。
+`--allow-stale` と `--stale-after` は v0.53 の移行期間中、置き換え先のない非推奨 no-op として受理し、削除予定は v0.54 です。lifecycle eligibility を使わずに identity 選択と記録済み内容を保持するため、機能は失われません。この予定は削除の許可ではなく、別の public-contract PR/checkpoint 承認を必要とします。明示指定（`--allow-stale=false` と `--stale-after=0s` を含む）では、指定した flag 名、置き換え先がないこと、v0.54 を示す集約 `DEPRECATED:` notice を invocation ごとに stderr へ 1 回出します。既定では notice を出さず stdout を汚しません。boolean と duration の構文解析は維持するため、不正な値は失敗します。両 flag は引き続き `--handoff` または `--compact-only` を必要とし、両モードは同時指定できません。
 
 ## Durable memory コマンド
 
@@ -711,7 +717,7 @@ Traceary は要約テキストを合成しません。渡された内容を保�
 
 ### Session status の値
 
-内部 session 行（hooks、handoff、context）は次の status 値を使います。
+legacy の内部 query、診断、hook、手動の active-session 選択は引き続き次の status 値を導出する場合があります。handoff と context-pack consumer は status を使用せず、status によって session を拒否しません。
 
 | Status | 意味 |
 |--------|------|
@@ -720,7 +726,7 @@ Traceary は要約テキストを合成しません。渡された内容を保�
 | `ended` | end marker があり、その後にイベントがない。 |
 | `ended_with_late_events` | end marker があるが、同じ session で後続イベントが到着した。end marker は `session_ended` イベント由来、または stale-session close が `ended_at` を直接書き込んだものの場合がある。 |
 
-これらの値を出していた公開 `sessions --snapshot` は v0.42.0 で削除されました（#2061）。`ended_with_late_events` は、host が session を早期に close したあとでも後続 workspace イベントがあるとき、hook / handoff 解決が session を見失わないための値です（例: Codex）。
+これらの値を出していた公開 `sessions --snapshot` は v0.42.0 で削除されました（#2061）。handoff は既存の latest-session 解決を active-only filter なしで使用します。`ended_with_late_events` は handoff の適格性規則ではありません。
 
 ## Hooks と診断
 

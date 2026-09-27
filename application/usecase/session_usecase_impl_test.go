@@ -850,9 +850,6 @@ func TestSessionUsecase_Handoff(t *testing.T) {
 		if diff := cmp.Diff("docs", result.Label()); diff != "" {
 			t.Fatalf("Label() mismatch (-want +got):\n%s", diff)
 		}
-		if diff := cmp.Diff("ended", result.Status()); diff != "" {
-			t.Fatalf("Status() mismatch (-want +got):\n%s", diff)
-		}
 		if diff := cmp.Diff(42, result.TotalEvents()); diff != "" {
 			t.Fatalf("TotalEvents() mismatch (-want +got):\n%s", diff)
 		}
