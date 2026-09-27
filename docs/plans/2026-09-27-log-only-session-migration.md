@@ -1,5 +1,7 @@
 # Log-only Session migration implementation plan
 
+> Execution update: design #2398 accepted; P1–P3 merged (#2404/#2406/#2407). P4 actual CLI/recovery and five native hosts validated; Gemini/Kimi native completion unavailable, explicitly accepted by the maintainer as fixture-only degraded coverage. Historical planning checkpoint below is retained for audit. See [validation and recovery](../operations/log-only-migration.md).
+
 [日本語](./2026-09-27-log-only-session-migration.ja.md)
 
 - Status: Proposed work packages; scheduling/acceptance-ready, not implementation-ready.

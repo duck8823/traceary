@@ -1,5 +1,7 @@
 # Log-only Session 移行の実装計画
 
+> 実行状況: 設計 #2398 は承認済み、P1–P3 は #2404/#2406/#2407 でマージ済みです。P4 の実 CLI・復旧・5 native host は検証済みです。Gemini/Kimi の実応答完了は利用不可で、fixture のみでの縮退受入をユーザーが明示承認しました。以下の計画時点の checkpoint は監査用に保持します。[検証と復旧](../operations/log-only-migration.ja.md)を参照してください。
+
 [English](./2026-09-27-log-only-session-migration.md)
 
 - Status: Proposed work packages。日程化と受け入れ条件の準備済みであり、実装開始可能ではない。
