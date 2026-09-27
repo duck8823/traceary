@@ -452,3 +452,153 @@ func TestSupervisorImportCannotPromoteExistingOrdinarySID(t *testing.T) {
 		})
 	}
 }
+
+func TestSupervisorBackfilledParentCannotBePromotedByLaterImport(t *testing.T) {
+	db, sessions, events := supervisorFixture(t)
+	ctx := context.Background()
+	at := time.Now().Add(-time.Hour)
+	child, err := model.NewSessionWithRuntimeModeAndParent("child", at.Add(time.Minute), "cli", "codex", "workspace", types.RuntimeModeInteractive, "parent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundles := sqlite.NewBundleDatasource(db, events)
+	first, err := bundles.BeginBundleImport(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = first.Rollback(ctx) }()
+	if _, err := first.ImportSession(ctx, child, usecase.BundleConflictReplace, usecase.BundleMissingParentBackfill); err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	before, err := sessions.FindByID(ctx, "parent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	placeholder, ok := before.Value()
+	if !ok || placeholder.RuntimeMode() != types.RuntimeModeInteractive || placeholder.Label() != "traceary:bundle-backfilled-parent" {
+		t.Fatal("expected ordinary backfill placeholder")
+	}
+	realParent := supervisorSession(t, "parent", at)
+	later, err := bundles.BeginBundleImport(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = later.Rollback(ctx) }()
+	if _, err := later.ImportSession(ctx, supervisorSession(t, "rollback-only", at), usecase.BundleConflictReplace, usecase.BundleMissingParentReject); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := later.ImportSession(ctx, realParent, usecase.BundleConflictReplace, usecase.BundleMissingParentReject); !errors.Is(err, model.ErrConflictingTerminalState) {
+		t.Fatalf("backfilled parent promotion = %v", err)
+	}
+	if err := later.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	after, err := sessions.FindByID(ctx, "parent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	preserved, _ := after.Value()
+	if !reflect.DeepEqual(placeholder, preserved) {
+		t.Fatal("placeholder label bypassed stored mode ownership")
+	}
+	restoredChild, err := sessions.FindByID(ctx, "child")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := restoredChild.Value(); !ok {
+		t.Fatal("prior child import changed")
+	}
+	rejected, err := sessions.FindByID(ctx, "rollback-only")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := rejected.Value(); ok {
+		t.Fatal("later failed import partially committed")
+	}
+}
+
+func TestSupervisorSameBundleChildBeforeOneShotAncestorFailsAtomically(t *testing.T) {
+	source, sourceSessions, sourceEvents := supervisorFixture(t)
+	ctx := context.Background()
+	at := time.Now().Add(-time.Hour)
+	root := model.NewSession("z-root", at, "cli", "codex", "workspace")
+	if err := sourceSessions.SaveBoundary(ctx, root, ownershipBoundary(root, "root-start", types.EventKindSessionStarted, at)); err != nil {
+		t.Fatal(err)
+	}
+	parent, err := model.NewSessionWithRuntimeModeAndParent("a-parent", at.Add(time.Minute), "cli", "codex", "workspace", types.RuntimeModeOneShot, root.SessionID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sourceSessions.SaveBoundary(ctx, parent, ownershipBoundary(parent, "parent-start", types.EventKindSessionStarted, parent.StartedAt())); err != nil {
+		t.Fatal(err)
+	}
+	child, err := model.NewSessionWithRuntimeModeAndParent("child", at.Add(2*time.Minute), "cli", "codex", "workspace", types.RuntimeModeInteractive, parent.SessionID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sourceSessions.SaveBoundary(ctx, child, ownershipBoundary(child, "child-start", types.EventKindSessionStarted, child.StartedAt())); err != nil {
+		t.Fatal(err)
+	}
+	// Root is first, but lexical parent IDs put child's a-parent reference
+	// before the real a-parent row's z-root reference. This is intentionally
+	// a regression for the current sort, not a topological sorting redesign.
+	bundlePath := filepath.Join(t.TempDir(), "same-bundle.tbun")
+	exporter := usecase.NewBundleUsecase(sourceEvents, sqlite.NewBundleDatasource(source, sourceEvents), nil)
+	if err := exporter.Export(ctx, usecase.BundleExportOptions{OutPath: bundlePath, Passphrase: []byte("synthetic-test-passphrase")}); err != nil {
+		t.Fatal(err)
+	}
+	target, targetSessions, targetEvents := supervisorFixture(t)
+	importer := usecase.NewBundleUsecase(targetEvents, sqlite.NewBundleDatasource(target, targetEvents), nil)
+	_, err = importer.Import(ctx, usecase.BundleImportOptions{InPath: bundlePath, Passphrase: []byte("synthetic-test-passphrase"), OnConflict: usecase.BundleConflictReplace, MissingParent: usecase.BundleMissingParentBackfill})
+	if !errors.Is(err, model.ErrConflictingTerminalState) {
+		t.Fatalf("same-bundle promotion = %v", err)
+	}
+	for _, id := range []types.SessionID{"z-root", "a-parent", "child"} {
+		row, err := targetSessions.FindByID(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := row.Value(); ok {
+			t.Fatalf("failed bundle left session %s committed", id)
+		}
+	}
+	rows, err := targetEvents.ListRecent(ctx, 10, 0, "", "", "", "", "", false, time.Time{}, time.Time{}, "")
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("failed bundle left events committed: %d/%v", len(rows), err)
+	}
+	// The documented recovery sequence works without deleting or relabeling
+	// any row: restore the actual ancestors in this isolated target first.
+	ancestors, err := sqlite.NewBundleDatasource(target, targetEvents).BeginBundleImport(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ancestors.Rollback(ctx) }()
+	for _, session := range []*model.Session{root, parent} {
+		if _, err := ancestors.ImportSession(ctx, session, usecase.BundleConflictReplace, usecase.BundleMissingParentReject); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := ancestors.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := importer.Import(ctx, usecase.BundleImportOptions{InPath: bundlePath, Passphrase: []byte("synthetic-test-passphrase"), OnConflict: usecase.BundleConflictReplace, MissingParent: usecase.BundleMissingParentBackfill}); err != nil {
+		t.Fatalf("ancestor-first recovery = %v", err)
+	}
+	for _, id := range []types.SessionID{"z-root", "a-parent", "child"} {
+		row, err := targetSessions.FindByID(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		restored, ok := row.Value()
+		if !ok {
+			t.Fatalf("recovery missing %s", id)
+		}
+		if id == "a-parent" && restored.RuntimeMode() != types.RuntimeModeOneShot {
+			t.Fatal("recovery lost one-shot parent binding")
+		}
+	}
+
+}
