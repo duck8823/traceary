@@ -1,6 +1,7 @@
 SELECT COUNT(*)
 FROM sessions AS s
 WHERE s.ended_at IS NULL
+  AND s.runtime_mode <> 'one_shot'
   /* protected sessions */
   AND ts_norm(s.started_at) < ts_norm(?)
   AND NOT EXISTS (

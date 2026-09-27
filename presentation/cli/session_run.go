@@ -131,7 +131,6 @@ func (c *RootCLI) runSessionOneShot(ctx context.Context, stdin io.Reader, stdout
 			codexUsageMode, claudeUsageMode, geminiUsageMode, grokUsageMode,
 		),
 	)
-	summary := "one-shot process finished: " + reason.String()
 	finalizeCtx, cancelFinalize := context.WithTimeout(context.WithoutCancel(ctx), oneShotFinalizeTimeout)
 	defer cancelFinalize()
 	var usageErr error
@@ -209,7 +208,7 @@ func (c *RootCLI) runSessionOneShot(ctx context.Context, stdin io.Reader, stdout
 			_, _ = fmt.Fprintf(stderr, "traceary: failed to record Grok headless usage: %v\n", captureErr)
 		}
 	}
-	if _, _, finalizeErr := c.session.FinalizeOneShot(finalizeCtx, client, agent, startEvent.SessionID(), workspace, reason, summary); finalizeErr != nil {
+	if _, _, finalizeErr := c.session.FinalizeOneShot(finalizeCtx, client, agent, startEvent.SessionID(), workspace, reason, ""); finalizeErr != nil {
 		if exitCode == 0 {
 			exitCode = 1
 		}

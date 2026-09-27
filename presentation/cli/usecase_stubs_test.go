@@ -298,6 +298,7 @@ type sessionUsecaseStub struct {
 		parentSessionID types.SessionID
 		runtimeMode     types.RuntimeMode
 	}
+	finalizeSummary    string
 	finalizeReason     types.TerminalReason
 	finalizeSessionID  types.SessionID
 	finalizeContextErr error
@@ -355,8 +356,9 @@ func (s *sessionUsecaseStub) StartWithRuntimeMode(_ context.Context, client type
 	s.startCall.runtimeMode = runtimeMode
 	return s.startEvent, s.startErr
 }
-func (s *sessionUsecaseStub) FinalizeOneShot(ctx context.Context, _ types.Client, _ types.Agent, sessionID types.SessionID, _ types.Workspace, reason types.TerminalReason, _ string) (model.SessionTerminalTransition, *model.Event, error) {
+func (s *sessionUsecaseStub) FinalizeOneShot(ctx context.Context, _ types.Client, _ types.Agent, sessionID types.SessionID, _ types.Workspace, reason types.TerminalReason, summary string) (model.SessionTerminalTransition, *model.Event, error) {
 	s.finalizeSessionID = sessionID
+	s.finalizeSummary = summary
 	s.finalizeReason = reason
 	s.finalizeContextErr = ctx.Err()
 	return s.finalizeTransition, s.finalizeEvent, s.finalizeErr

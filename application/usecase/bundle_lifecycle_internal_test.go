@@ -34,7 +34,7 @@ func TestBundleSessionRowRoundTripsLifecycleState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSessionWithRuntimeMode() error = %v", err)
 	}
-	if _, err := session.Terminate(startedAt.Add(time.Minute), types.TerminalReasonAbortedStream, "aborted"); err != nil {
+	if _, err := session.FinalizeOneShot(startedAt.Add(time.Minute), types.TerminalReasonAbortedStream, "aborted"); err != nil {
 		t.Fatalf("Terminate() error = %v", err)
 	}
 

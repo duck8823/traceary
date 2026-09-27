@@ -2,6 +2,7 @@ UPDATE sessions
 SET ended_at = ?,
     terminal_reason = 'legacy_unknown'
 WHERE ended_at IS NULL
+  AND runtime_mode <> 'one_shot'
   /* protected sessions */
   AND ts_norm(started_at) < ts_norm(?)
   AND NOT EXISTS (

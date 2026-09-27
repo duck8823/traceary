@@ -163,6 +163,11 @@ func (u *sessionUsecase) FinalizeOneShot(
 		return transition, nil, nil
 	}
 
+	finalizer, ok := u.sessionRepo.(model.OneShotSessionRepository)
+	if !ok {
+		return "", nil, xerrors.Errorf("one-shot supervisor repository is not configured")
+	}
+
 	event, err := u.buildBoundaryEvent(
 		ctx,
 		types.EventKindSessionEnded,
@@ -179,7 +184,7 @@ func (u *sessionUsecase) FinalizeOneShot(
 	if err != nil {
 		return "", nil, xerrors.Errorf("failed to finalize one-shot session: %w", err)
 	}
-	if err := u.sessionRepo.SaveBoundary(ctx, session, event); err != nil {
+	if err := finalizer.SaveOneShotBoundary(ctx, session, event); err != nil {
 		if errors.Is(err, model.ErrInvalidSessionState) {
 			transition, reconcileErr := u.reconcileOneShotTerminalState(ctx, resolvedSessionID, validatedReason)
 			if reconcileErr == nil {
@@ -188,9 +193,6 @@ func (u *sessionUsecase) FinalizeOneShot(
 			return "", nil, reconcileErr
 		}
 		return "", nil, xerrors.Errorf("failed to save one-shot finalization: %w", err)
-	}
-	if err := u.writeEndRefinement(ctx, resolvedSessionID, event.EventID(), summary, "cli:session-finalize"); err != nil {
-		return "", nil, err
 	}
 	return transition, event, nil
 }
@@ -203,6 +205,9 @@ func (u *sessionUsecase) reconcileOneShotTerminalState(ctx context.Context, sess
 	session, ok := latest.Value()
 	if !ok {
 		return "", xerrors.Errorf("one-shot session disappeared during finalization: %w", model.ErrInvalidSessionState)
+	}
+	if session.RuntimeMode() != types.RuntimeModeOneShot {
+		return "", model.ErrInvalidSessionState
 	}
 	current, terminal := session.TerminalReason().Value()
 	if !terminal {
@@ -316,6 +321,9 @@ func (u *sessionUsecase) End(ctx context.Context, client types.Client, agent typ
 		return nil, xerrors.Errorf("cannot end session %s: %w", resolvedSessionID, model.ErrInvalidSessionState)
 	}
 
+	if existingSession.RuntimeMode() == types.RuntimeModeOneShot {
+		return nil, model.ErrSupervisorOwnedSession
+	}
 	resolvedClient, resolvedAgent, resolvedWorkspace := inheritAttribution(client, agent, workspace, existingSession)
 	if _, err := types.AgentFrom(resolvedAgent.String()); err != nil {
 		return nil, xerrors.Errorf("failed to end session: %w", err)
@@ -340,7 +348,7 @@ func (u *sessionUsecase) End(ctx context.Context, client types.Client, agent typ
 		// delivery evidence: an exact retry short-circuits before updating the
 		// already-ended aggregate, while a different delivery still rolls back
 		// with ErrInvalidSessionState.
-		if !hasStableHookDelivery(ctx) {
+		if !hasStableHookDelivery(ctx) || errors.Is(err, model.ErrSupervisorOwnedSession) {
 			return nil, xerrors.Errorf("failed to end session: %w", err)
 		}
 	}
@@ -397,6 +405,9 @@ func (u *sessionUsecase) endChildSessionForParentEnd(ctx context.Context, childI
 	}
 	childSession, ok := existing.Value()
 	if !ok {
+		return nil
+	}
+	if childSession.RuntimeMode() == types.RuntimeModeOneShot {
 		return nil
 	}
 	if _, ended := childSession.EndedAt().Value(); ended {

@@ -14,6 +14,7 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 - **Context stale compatibility flags (#2399).** `--allow-stale` and `--stale-after` are accepted no-ops with no replacement through v0.53, with removal target v0.54. Explicit use emits one aggregate `DEPRECATED:` stderr notice per invocation. No functionality is lost because content selection no longer depends on lifecycle eligibility. Actual flag removal requires a separate approved PR/checkpoint.
 
 ### Fixed
+- **Supervisor-only one-shot outcomes (#2400).** Ordinary end, stale GC/doctor, parent cascade, and conflicting bundle imports cannot change stored one-shot results or wrapper bindings. Host end/replay drains ownership refusal without inventing outcomes. Process exit/usage behavior and historical raw metadata remain unchanged; automatic completion refinements are no longer generated.
 - **Isolated SQLite test timing (#2395).** The contended hook write timing test runs serially within its package, and attestation verification tests start their caller deadlines after fixture initialization. Timeout values, assertions, and production contention retries are unchanged.
 
 ## [v0.52.0] - 2026-09-10

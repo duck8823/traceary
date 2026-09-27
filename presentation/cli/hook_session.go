@@ -228,7 +228,7 @@ func (c *RootCLI) runHookSession(
 				slog.Debug("hook session-end cancellation diagnostic phase update failed", "client", client, "session_id", sessionID, "path", hookCancellationDiagnosticPath, "error", err)
 			}
 		}
-		if _, err := c.session.End(ctx, types.Client("hook"), agent, sessionID, workspace, ""); err != nil {
+		if _, err := c.session.End(ctx, types.Client("hook"), agent, sessionID, workspace, ""); err != nil && !errors.Is(err, model.ErrSupervisorOwnedSession) {
 			return xerrors.Errorf("failed to record hook session end: %w", err)
 		}
 		if shouldTrackClaudeCancellation {
