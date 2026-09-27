@@ -15,4 +15,4 @@ var ErrConflictingTerminalState = xerrors.Errorf("%w: conflicting terminal state
 // ErrSupervisorOwnedSession refuses ordinary writes to a one-shot outcome.
 // It deliberately does not wrap ErrInvalidSessionState: delivery retries must
 // not mistake ownership refusal for an already-applied ordinary boundary.
-var ErrSupervisorOwnedSession = xerrors.New("one-shot outcome is owned by the session run supervisor; wait for its finalization instead of ending the session")
+var ErrSupervisorOwnedSession = xerrors.New("one-shot outcome is managed by the session run supervisor; session end cannot change it")

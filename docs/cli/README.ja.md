@@ -661,9 +661,11 @@ transition を所有するのは wrapper だけであり、型付きの terminal
 何も行わないため、wrapper より先にセッションを確定したり、wrapper の reason を
 置き換えたりすることはできません。
 
+SIGKILL や電源断で supervisor が finalization を記録できなかった場合、raw outcome は unknown のままです。open 行はプロセスがまだ動いている証拠ではありません。通常 end、GC、doctor は one-shot 結果を推測・合成しません。この変更は monitoring や repair 機能を追加しません。
+
 通常の `session end` は、結果記録後も含めて、保存済み `one_shot` session を supervisor 所有として拒否し、対処を示すエラーを返します。host end/replay は wrapper の環境変数がなくてもこの拒否を無害に処理します。cleanup は結果を生成・確認しません。stale GC/doctor と親 session の cascade は one-shot outcome を除外します。後続 event の記録は引き続き可能です。
 
-bundle import は存在しない legacy SID を raw field のまま復元できますが、既存 one-shot session を終了・再束縛・再開したり、記録済み結果を書き換えたりできません。完全に互換な復元と label は許可します。guard は永続化と原子的に適用しますが、過去の writer を認証しません。保存された reason/mode、`cli` attribution、空の source、delivery fingerprint は、過去の session を誰が終了したかの証明ではありません。曖昧な実際の outcome は unknown のままです。同じ reason の retry reconciliation は最初の記録時刻と reason を保持しますが、actor 検証ではありません。新しい confirmed-outcome projection は公開しません。
+bundle import は存在しない legacy SID を raw field のまま復元できますが、既存の通常 SID を one-shot 所有へ変更したり、既存 one-shot session を終了・再束縛・再開したり、記録済み結果を書き換えたりできません。完全に互換な復元と label は許可します。guard は永続化と原子的に適用しますが、過去の writer を認証しません。保存された reason/mode、`cli` attribution、空の source、delivery fingerprint は、過去の session を誰が終了したかの証明ではありません。曖昧な実際の outcome は unknown のままです。同じ reason の retry reconciliation は最初の記録時刻と reason を保持しますが、actor 検証ではありません。新しい confirmed-outcome projection は公開しません。
 
 finalization は `one-shot process finished: ...` / `cli:session-finalize` refinement を生成しなくなります。人間が渡す `session end --summary`、既存 refinement、記録済み coverage は変更しません。
 

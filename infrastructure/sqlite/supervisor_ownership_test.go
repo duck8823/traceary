@@ -71,6 +71,14 @@ func TestSupervisorStoredModeGuardAndLaterLogs(t *testing.T) {
 		t.Fatal(err)
 	}
 	final := ownershipBoundary(s, "final", types.EventKindSessionEnded, at.Add(2*time.Minute))
+	final.SetSourceHook("session_end")
+	final.SetRawWorkspace("workspace")
+	evidence, err := model.NewHookDeliveryEvidence(final, "native-final-delivery", "workspace")
+	if err != nil {
+		t.Fatal(err)
+	}
+	final.SetDeliveryEvidence(evidence)
+
 	if err := sessions.SaveOneShotBoundary(ctx, s, final); err != nil {
 		t.Fatal(err)
 	}
@@ -81,11 +89,27 @@ func TestSupervisorStoredModeGuardAndLaterLogs(t *testing.T) {
 	if err := sessions.SaveOneShotBoundary(ctx, contradictory, ownershipBoundary(contradictory, "final", types.EventKindSessionEnded, at.Add(4*time.Minute))); !errors.Is(err, model.ErrConflictingTerminalState) {
 		t.Fatalf("duplicate event disguised contradictory result: %v", err)
 	}
-	// Even exact redelivery must pass the stored ownership guard before the
-	// delivery decision can short-circuit its boundary callback.
-	if err := sessions.SaveBoundary(ctx, s, final); !errors.Is(err, model.ErrSupervisorOwnedSession) {
-		t.Fatalf("ordinary redelivery = %v", err)
+	// A new physical event ID with the same native delivery/fingerprints
+	// exercises receipt idempotency, not merely an event-ID collision.
+	replay := model.EventOfWithSourceHook("final-replay", final.Kind(), final.Client(), final.Agent(), final.SessionID(), final.Workspace(), final.Body(), final.CreatedAt(), final.SourceHook())
+	replay.SetRawWorkspace("workspace")
+	replayEvidence, err := model.NewHookDeliveryEvidence(replay, "native-final-delivery", "workspace")
+	if err != nil {
+		t.Fatal(err)
 	}
+	replay.SetDeliveryEvidence(replayEvidence)
+	if err := sessions.SaveBoundary(ctx, s, replay); !errors.Is(err, model.ErrSupervisorOwnedSession) {
+		t.Fatalf("ordinary stable redelivery = %v", err)
+	}
+	// The same receipt actually short-circuits on the authorized port, proving
+	// ownership validation, rather than missing dedup evidence, refused End.
+	if err := sessions.SaveOneShotBoundary(ctx, s, replay); err != nil {
+		t.Fatal(err)
+	}
+	if replay.PersistInserted() || replay.EventID() != final.EventID() {
+		t.Fatal("stable receipt did not preserve the original boundary")
+	}
+
 	later := ownershipBoundary(s, "later-log", types.EventKindCommandExecuted, at.Add(3*time.Minute))
 	if err := events.Save(ctx, later); err != nil {
 		t.Fatalf("later log refused: %v", err)
@@ -371,5 +395,60 @@ func TestSupervisorFinalizationDoesNotCreateRefinement(t *testing.T) {
 	}
 	if _, ok := row.Value(); ok {
 		t.Fatal("automatic completion refinement created")
+	}
+}
+
+func TestSupervisorImportCannotPromoteExistingOrdinarySID(t *testing.T) {
+	for _, terminal := range []bool{false, true} {
+		t.Run(map[bool]string{false: "open", true: "terminal"}[terminal], func(t *testing.T) {
+			db, sessions, events := supervisorFixture(t)
+			ctx := context.Background()
+			at := time.Now().Add(-time.Hour)
+			ordinary := model.NewSession("ordinary", at, "cli", "codex", "workspace")
+			if err := sessions.SaveBoundary(ctx, ordinary, ownershipBoundary(ordinary, "ordinary-start", types.EventKindSessionStarted, at)); err != nil {
+				t.Fatal(err)
+			}
+			before, err := sessions.FindByID(ctx, ordinary.SessionID())
+			if err != nil {
+				t.Fatal(err)
+			}
+			proposed := supervisorSession(t, ordinary.SessionID(), at)
+			if terminal {
+				if _, err := proposed.FinalizeOneShot(at.Add(time.Minute), types.TerminalReasonSuccess, ""); err != nil {
+					t.Fatal(err)
+				}
+			}
+			tx, err := sqlite.NewBundleDatasource(db, events).BeginBundleImport(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = tx.Rollback(ctx) }()
+			unrelated := supervisorSession(t, "rolled-back-legacy", at)
+			if _, err := tx.ImportSession(ctx, unrelated, usecase.BundleConflictReplace, usecase.BundleMissingParentReject); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := tx.ImportSession(ctx, proposed, usecase.BundleConflictReplace, usecase.BundleMissingParentReject); !errors.Is(err, model.ErrConflictingTerminalState) {
+				t.Fatalf("ordinary SID promotion = %v", err)
+			}
+			if err := tx.Rollback(ctx); err != nil {
+				t.Fatal(err)
+			}
+			after, err := sessions.FindByID(ctx, ordinary.SessionID())
+			if err != nil {
+				t.Fatal(err)
+			}
+			a, _ := before.Value()
+			b, _ := after.Value()
+			if !reflect.DeepEqual(a, b) {
+				t.Fatal("import reassigned ordinary binding")
+			}
+			rolledBack, err := sessions.FindByID(ctx, "rolled-back-legacy")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, ok := rolledBack.Value(); ok {
+				t.Fatal("failed import left preceding rows committed")
+			}
+		})
 	}
 }

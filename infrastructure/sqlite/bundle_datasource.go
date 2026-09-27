@@ -671,6 +671,7 @@ WHERE (sessions.ended_at IS NULL
    OR (excluded.ended_at IS NOT NULL
 	   AND sessions.runtime_mode = excluded.runtime_mode
        AND COALESCE(NULLIF(sessions.terminal_reason, ''), 'legacy_unknown') = excluded.terminal_reason))
+  AND (excluded.runtime_mode <> 'one_shot' OR sessions.runtime_mode = 'one_shot')
   AND (sessions.runtime_mode <> 'one_shot' OR (
     sessions.runtime_mode = excluded.runtime_mode
     AND sessions.started_at = excluded.started_at
