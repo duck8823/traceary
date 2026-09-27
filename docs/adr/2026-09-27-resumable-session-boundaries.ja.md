@@ -77,9 +77,15 @@ host identity の曖昧さには検証した namespace/store routing を使い�
 Invocation は概念上の責務であり、承認済み table や API schema ではない。
 互換実装は現在の one-shot mode/end/reason storage と専用 wrapper SID の binding を維持する。
 任意の additive invocation storage は別の承認済み migration plan が必要である。
-過去の `runtime_mode=one_shot` で `legacy_unknown` 以外の typed reason を持つ row は、backfill せず、分離した read-time compatibility adapter を通じて authoritative な過去 execution outcome として扱う。
+過去の `runtime_mode=one_shot` は run row を示すが、terminal reason を書いた actor は示さない。
+正確な保存済み typed reason を、backfill や書き換えなしで、分離した read-time compatibility adapter を通じた記録上の過去 result/legacy metadata として保持する。
+確認済み supervisor outcome として投影するのは、信頼できる supervisor-finalization/provenance の根拠がある場合のみとする。
+古い host/直接 end/parent cascade が finalization より先に close した可能性があれば、実際の outcome は unknown とし、記録 reason と provenance の限界を併記する。
+reason だけから実際の success を断定しない。
+古い first-reason reconciliation は最初の reason を保持して矛盾を拒否するが、writer を証明しない。
+根拠を認識する厳密な契約は実装 checkpoint で定め、新 table や一律の heuristic はここで追加しない。
 interactive End も success を書くため、one-shot provenance のない success reason は execution outcome ではなく、unknown は unknown のままとする。
-後続 log で過去 outcome を消したり上書きしたりしない。
+後続 log で記録上の過去 result や確認済み outcome を消したり上書きしたりしない。
 現在の `session run` が invocation ごとに新しい専用 SID を作る動作を維持する。
 取得した wrapper SID は明示的で不変の 1:1 compatibility binding により execution を識別し、delivery receipt は execution identity と区別する。
 現在は新 Invocation ID/table を必要としない。
@@ -166,7 +172,8 @@ one-shot CLI exit code、process cancellation、signal、timeout、usage capture
 process 完了後も Session は append 可能とする。
 再帰 Session End の無効化で、supervisor が子 process を停止する責務は消えない。
 execution-result 分離は、legacy end import/replay で execution outcome が上書きされないようにする。
-phase 2 の前または同時に、GC、parent cascade（現在の `FindOpenChildSessionIDs` は mode filter を持たない）、host end、直接の `session end` から one-shot row を atomic に保護する。
+phase 2 の前または同時に、GC/doctor fix、parent cascade（現在の `FindOpenChildSessionIDs` は mode filter を持たない）、host end、直接の `session end`、outcome を変える import/replay から one-shot row を atomic に保護する。
+scope を限定した compatibility import は古い記録 result を復元できるが、現在 result を上書きしたり、曖昧な provenance を確認済みに昇格したりしない。
 execution result を書けるのは supervisor の `FinalizeOneShot` のみとし、実証された atomic replacement までは現在の finalization と first-result reconciliation を維持する。
 one-shot に対する明示 `session end` は log/outcome を変えず、対処方法のある拒否を返し、成功を装わない。
 現在の `cli:session-finalize` による “one-shot process finished: reason” を content refinement に自動で上書きすることを止め、outcome は execution record/projection に属させる。
@@ -201,9 +208,11 @@ opt-in の bounded retention/empty-orphan housekeeping は log identity と分�
 | 24 時間以上前に開始した idle Session を明示選択 | stale-start 拒否なく関連 event/refinement を返す | Context integration |
 | 過去 refinement coverage と close note | 既存 coverage/content の振る舞いを維持し、purge や新 event stream を要求しない | Context query |
 | 現在の別 run が専用 SID を作り独立 retry | 不変 wrapper binding と run ごとの first result/reconciliation を維持し、後の同一 SID log は query 可能 | Invocation integration |
-| 過去 one-shot typed outcome と interactive success/legacy_unknown | 根拠のある one-shot typed outcome のみ投影し、unknown は不明。backfill や後続 log の上書きなし | Compatibility query |
-| host/直接 end、GC、parent cascade が one-shot row に到達 | atomic guard で outcome 保護。直接 end は対処方法のある拒否。supervisor finalization 維持 | Use case + SQLite |
+| 過去 one-shot typed outcome と interactive success/legacy_unknown | 記録 typed reason は保持し、確認済み outcome には supervisor 根拠が必要。unknown は不明。backfill や後続 log の上書きなし | Compatibility query |
+| 過去 one-shot が host/cascade で早期 success を記録し、finalization が failure を試行 | raw 保存 success は export 可能。矛盾から確認済み success とはせず、根拠がなければ actual outcome は unknown | Compatibility + finalization |
+| host/直接 end、GC/doctor、parent cascade、import/replay が one-shot row に到達 | atomic guard で outcome 保護。直接 end は対処方法のある拒否。supervisor finalization 維持 | Use case + SQLite |
 | local end marker 後の resume と end/Stop | flush/extract、固定 routing、cleanup が欠落なく動き、receipt dedup も維持 | Hook fixtures |
+| host-closed sibling と新しい無関係 Session がある時の parent inference | 根拠のある spawn/lineage のみ受理。不十分なら unknown とし、近い active/unended Session を選ばない | Hook parent fixture |
 | 古い unended のみ、または古い unended/新しい ended 混在で暗黙 latest | 全対象が選択可能で、既存の決定的順序と根拠のある parent inference を維持 | Query integration |
 | 明示 end に summary/refinement を提供 | marker-only でも summary と coverage を維持し、再帰終端しない | Use case + CLI |
 | one-shot success/failure/timeout/signal 後に Session event | CLI/process outcome を維持して append し、completion conflict なし | Supervisor + use case |
@@ -221,7 +230,7 @@ opt-in の bounded retention/empty-orphan housekeeping は log identity と分�
 | read 依存を先に除去 | end/stale-start が関連 context を拒否、または STATUS を表示 | 既存 scope/order query の lifecycle gate と生成 lifecycle 表示除去 | Consumer query と古い Event helper |
 | 通常 closure writer | host callback/GC が authoritative terminal state を生成 | closure なしで flush/diagnostics/cleanup。空 close note の既定生成なし | Host 解釈と有用 event capture |
 | execution 分離 | Session append/import/replay が one-shot result と衝突 | execution owner に completion を置き、process outcome と active protection を維持 | Invocation outcome と Session identity |
-| 互換性 | 古い bundle/end marker が除外を戻す、または履歴を失う | legacy wire 維持、read は非 authoritative、public adapter を明示テスト | Storage 互換と product semantics |
+| 互換性 | 古い bundle/end marker が除外を戻す、または履歴を失う | legacy wire 維持。Session eligibility read は非 authoritative、記録 result は保持し、確認済み outcome の provenance を明示。public adapter をテスト | Storage 互換と product semantics |
 
 実装 checkpoint で影響する unit、CLI output、context、SQLite、hook/spool、supervisor test を実行する。
 schema の段階では migration、index、bundle 互換、recovery test も必要である。
@@ -235,19 +244,19 @@ checkpoint 後の限定した各実装段階を、一つの ticket/branch/PR に
 これは提案であり、今 ticket を作る許可ではない。
 
 1. caller を調べ、context/read lifecycle 依存と未使用 status DTO の伝播を除去し、legacy wire/storage は維持する。
-2. 最初に GC、parent cascade、host/直接 end からの atomic one-shot guard を設け、FinalizeOneShot reconciliation を維持する。その後で通常 closure writer と synthetic GC close を除去し、各 host の flush/cleanup、有用 outcome、空 note policy をレビューする。housekeeping は opt-in の安全な範囲のみ設計する。
+2. closure writer 停止前または同時に caller audit を完了し、parent inference、Active/List ActiveOnly/FindEndedSessionIDs、doctor stale diagnostic/fix、hook-local end gate を移行する。parent 推定は根拠のある spawn/lineage のみとし、不十分なら unknown として近い active/unended candidate を選ばない。doctor --fix を synthetic closure writer として残さない。GC/doctor、parent cascade、host/直接 end、import/replay の atomic one-shot guard を設け、FinalizeOneShot reconciliation を維持する。その後で通常 closure writer と synthetic GC close を除去し、各 host の flush/cleanup、有用 outcome、空 note policy をレビューする。housekeeping は opt-in の安全な範囲のみ設計する。
 3. 現在の専用 wrapper SID と typed compatibility storage で one-shot outcome を分離し、outcome refinement の自動生成を止める。shared-session invocation や新 identity/table は不要であり、任意の additive storage は別の承認済み設計が必要。
 4. lifecycle column の物理削除は別の任意判断とし、この機能の必須条件にしない。
 
 release 前に isolated DB/store fixture と sanitized controlled real session で resume、flush、refinement、replay、one-shot outcome を dogfood する。
-DB/store、`HOOK_STATE_DIR`、spool/queue root、receipt、GC marker、lease、diagnostic、usage offset を該当する範囲で隔離し、dogfood 前に override が実際に有効なことを確認する。
+DB/store、`TRACEARY_HOOK_STATE_DIR`、spool/queue root、receipt、GC marker、lease、diagnostic、usage offset を該当する範囲で隔離し、dogfood 前に override が実際に有効なことを確認する。
 fixture routing と redaction を先に定義し、認証は触らず、private log を既定の test input にせず、本番 host config を変更しない。
 この設計作業では install、login、本番操作、release を行わない。
 
 ## 移行と rollback の安全性
 
 当初は `endedAt`、`runtimeMode`、`terminalReason` と既存 bundle wire 表現を、DROP、backfill、履歴変更なしで維持する。
-legacy field は通常 Session status の authority にしないが、根拠のある過去 one-shot typed outcome は分離した execution compatibility adapter を通じて authoritative に扱う。
+legacy field は通常 Session status の authority にしないが、過去 typed reason は記録 metadata として保持し、確認済み supervisor outcome は分離 execution compatibility adapter を通じた信頼できる provenance を必要とする。
 既存 wire field と記録時刻は当初維持し、date diagnostics、明示 scope の retention input、content filter は lifecycle 由来の context scaffold とともに一律除去しない。
 read 変更を通常 closure writer/GC 除去より先に行い、execution-result projection は分離した段階で行う。
 新実装は、旧版の end data の import/replay で除外を暗黙に戻したり新 outcome を置換したりしない。
