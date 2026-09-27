@@ -82,8 +82,9 @@ func TestDatabase_ConcurrentWritersAndReaders_NoSQLITE_BUSY(t *testing.T) {
 	}
 }
 
+// Run serially to exclude package-level parallel test load from the wall-clock
+// measurement of driver/repository contention against the host budget.
 func TestDatabase_ContendedHookWriteFailsBeforeHostBudget(t *testing.T) {
-	t.Parallel()
 
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
 	eventDS, _, storeManager := newFullDatasources(t, dbPath, listSessionsTestMigrations())

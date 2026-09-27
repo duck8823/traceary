@@ -7,6 +7,9 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 
 ## [Unreleased]
 
+### Fixed
+- **SQLite テストの時間計測を分離（#2395）。** ロック競合時の hook 書き込み時間テストを package 内で直列実行し、attestation 検証テストは fixture 初期化後に呼び出し元の期限を開始します。timeout 値、検証条件、本番の競合 retry は変更しません。
+
 ## [v0.52.0] - 2026-09-10
 
 v0.52.0 は、明示的に有効化した Codex consolidation request を非ブロッキング化し、この workflow を支える hook と pre-commit の安全境界を強化します。あわせて、起床注入の既定出力予算を 8 KiB から 2 KiB に縮小します。
