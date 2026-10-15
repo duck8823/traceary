@@ -13,6 +13,8 @@ import (
 type EventMetadataUsecase interface {
 	ListTimestampKinds(ctx context.Context, criteria apptypes.EventListCriteria) ([]apptypes.EventTimestampKind, error)
 	List(ctx context.Context, criteria apptypes.EventListCriteria) ([]apptypes.EventMetadata, error)
+	// ListWindow returns every matching body-free event under one stable read snapshot.
+	ListWindow(ctx context.Context, criteria apptypes.EventListCriteria) ([]apptypes.EventMetadata, error)
 	Search(ctx context.Context, criteria apptypes.EventSearchCriteria) ([]apptypes.EventMetadata, error)
 	Context(ctx context.Context, criteria apptypes.EventContextCriteria) ([]apptypes.EventMetadata, error)
 }
@@ -60,6 +62,26 @@ func (u *eventMetadataUsecase) List(ctx context.Context, criteria apptypes.Event
 	metadata, err := u.query.ListRecentMetadata(ctx, criteria)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to list event metadata: %w", err)
+	}
+	return metadata, nil
+}
+
+func (u *eventMetadataUsecase) ListWindow(ctx context.Context, criteria apptypes.EventListCriteria) ([]apptypes.EventMetadata, error) {
+	if u.query == nil {
+		return nil, xerrors.Errorf("event metadata query service is not configured")
+	}
+	if criteria.Limit() <= 0 {
+		return nil, xerrors.Errorf("limit must be greater than or equal to 1")
+	}
+	if criteria.Offset() != 0 {
+		return nil, xerrors.Errorf("offset must be zero for ListWindow (paging is handled internally)")
+	}
+	if !criteria.From().IsZero() && !criteria.To().IsZero() && criteria.From().After(criteria.To()) {
+		return nil, xerrors.Errorf("from must be earlier than to")
+	}
+	metadata, err := u.query.ListWindowMetadata(ctx, criteria)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to list event metadata window: %w", err)
 	}
 	return metadata, nil
 }

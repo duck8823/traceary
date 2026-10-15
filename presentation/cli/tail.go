@@ -70,39 +70,34 @@ func newTailCursor(start time.Time) tailCursor {
 }
 
 func (c *tailCursor) isNew(event *model.Event) bool {
-	if event == nil {
-		return false
-	}
-	if event.CreatedAt().After(c.timestamp) {
+	return event != nil && c.isNewAt(event.EventID(), event.CreatedAt())
+}
+
+func (c *tailCursor) isNewAt(id types.EventID, createdAt time.Time) bool {
+	if createdAt.After(c.timestamp) {
 		return true
 	}
-	if !event.CreatedAt().Equal(c.timestamp) {
+	if !createdAt.Equal(c.timestamp) {
 		return false
 	}
-	_, seen := c.seenIDs[event.EventID().String()]
+	_, seen := c.seenIDs[id.String()]
 	return !seen
 }
 
-func (c *tailCursor) Advance(events []*model.Event) {
-	if len(events) == 0 {
-		return
-	}
-
-	maxTimestamp := c.timestamp
-	for _, event := range events {
-		if event != nil && event.CreatedAt().After(maxTimestamp) {
-			maxTimestamp = event.CreatedAt()
-		}
-	}
-
-	if maxTimestamp.After(c.timestamp) {
-		c.timestamp = maxTimestamp
+func (c *tailCursor) advanceAt(id types.EventID, createdAt time.Time) {
+	if createdAt.After(c.timestamp) {
+		c.timestamp = createdAt
 		c.seenIDs = make(map[string]struct{})
 	}
+	if createdAt.Equal(c.timestamp) {
+		c.seenIDs[id.String()] = struct{}{}
+	}
+}
 
+func (c *tailCursor) Advance(events []*model.Event) {
 	for _, event := range events {
-		if event != nil && event.CreatedAt().Equal(c.timestamp) {
-			c.seenIDs[event.EventID().String()] = struct{}{}
+		if event != nil {
+			c.advanceAt(event.EventID(), event.CreatedAt())
 		}
 	}
 }
@@ -180,6 +175,10 @@ func writeEventNDJSON(output io.Writer, event *model.Event, fields []readFieldID
 		}
 		value = newEventFieldsOutput(event, fields, extras)
 	}
+	return writeTailJSONValue(output, value)
+}
+
+func writeTailJSONValue(output io.Writer, value any) error {
 	encoded, err := json.Marshal(value)
 	if err != nil {
 		return xerrors.Errorf("%s: %w", Localize("failed to encode JSON", "JSON 変換に失敗しました"), err)
@@ -254,18 +253,18 @@ func (c *RootCLI) runTail(ctx context.Context, warnWriter io.Writer, output io.W
 		colorEnabled: colorEnabled,
 		targetWidth:  terminalWidthOf(output),
 	}
+	if input.asJSON && input.fieldsSet && !readFieldsContain(resolvedFields, readFieldMessage) {
+		if c.eventMetadata == nil {
+			return xerrors.New(Localize("event metadata usecase is not configured", "イベントメタデータユースケースが設定されていません"))
+		}
+		return c.runMetadataTail(ctx, output, input, baseCriteria.Build(), resolvedFields, followSessionPrefix)
+	}
+
 	extrasFor := c.makeCompactExtrasResolver(ctx, resolvedFields, colorEnabled)
 	writer := newTailEventWriter(output, input.asJSON, input.fieldsSet, textOpts, extrasFor)
 	cursor := newTailCursor(input.resolvedNowFunc()().UTC())
 	if input.limit > 0 {
-		initialCriteria := apptypes.NewEventListCriteriaBuilder(input.limit).
-			Kind(baseCriteria.Build().Kind()).
-			Client(baseCriteria.Build().Client()).
-			Agent(baseCriteria.Build().Agent()).
-			SessionID(baseCriteria.Build().SessionID()).
-			Workspace(baseCriteria.Build().Workspace()).
-			FailuresOnly(baseCriteria.Build().FailuresOnly()).
-			Build()
+		initialCriteria := newTailCriteriaBuilder(baseCriteria.Build(), input.limit).Build()
 		initialEvents, err := c.event.List(ctx, initialCriteria)
 		if err != nil {
 			return xerrors.Errorf("%s: %w", Localize("failed to list initial tail events", "tail 初期イベントの取得に失敗しました"), err)
@@ -302,8 +301,8 @@ func (c *RootCLI) runTail(ctx context.Context, warnWriter io.Writer, output io.W
 			if err != nil {
 				return xerrors.Errorf("%s: %w", Localize("failed to poll tail events", "tail イベントのポーリングに失敗しました"), err)
 			}
-			// Hydrate after pollTailEvents (not inside it): other callers may
-			// reuse the metadata-only poll path and must not pay for payloads.
+			// Only the payload-bearing route hydrates command lines. Metadata
+			// follow uses runMetadataTail and never enters this path.
 			if err := c.hydrateCommandLinesForDisplay(ctx, newEvents); err != nil {
 				return err
 			}
@@ -381,13 +380,7 @@ func (c *RootCLI) pollTailEvents(
 		snapshotTo = time.Now().UTC()
 	}
 
-	criteria := apptypes.NewEventListCriteriaBuilder(defaultTailBatchSize).
-		Kind(base.Kind()).
-		Client(base.Client()).
-		Agent(base.Agent()).
-		SessionID(base.SessionID()).
-		Workspace(base.Workspace()).
-		FailuresOnly(base.FailuresOnly()).
+	criteria := newTailCriteriaBuilder(base, defaultTailBatchSize).
 		From(cursor.timestamp).
 		To(snapshotTo).
 		Build()
@@ -405,4 +398,16 @@ func (c *RootCLI) pollTailEvents(
 	}
 	slices.Reverse(filtered)
 	return filtered, nil
+}
+
+// newTailCriteriaBuilder preserves the same scope for initial and poll reads in
+// both projections; only the limit and time window differ.
+func newTailCriteriaBuilder(base apptypes.EventListCriteria, limit int) *apptypes.EventListCriteriaBuilder {
+	return apptypes.NewEventListCriteriaBuilder(limit).
+		Kind(base.Kind()).
+		Client(base.Client()).
+		Agent(base.Agent()).
+		SessionID(base.SessionID()).
+		Workspace(base.Workspace()).
+		FailuresOnly(base.FailuresOnly())
 }

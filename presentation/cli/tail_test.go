@@ -14,6 +14,10 @@ import (
 )
 
 type tailEventUsecaseStub struct {
+	showCalls           int
+	showErr             error
+	hydrateCalls        int
+	hydrateErr          error
 	listResponses       [][]*model.Event
 	listErrs            []error
 	listCalls           []apptypes.EventListCriteria
@@ -71,7 +75,8 @@ func (s *tailEventUsecaseStub) ListWindow(_ context.Context, criteria apptypes.E
 }
 
 func (s *tailEventUsecaseStub) Show(context.Context, types.EventID) (apptypes.EventDetails, error) {
-	return apptypes.EventDetails{}, nil
+	s.showCalls++
+	return apptypes.EventDetails{}, s.showErr
 }
 
 func (s *tailEventUsecaseStub) Context(context.Context, apptypes.EventContextCriteria) ([]*model.Event, error) {
@@ -79,7 +84,8 @@ func (s *tailEventUsecaseStub) Context(context.Context, apptypes.EventContextCri
 }
 
 func (s *tailEventUsecaseStub) HydrateCommandAudits(context.Context, []*model.Event, queryservice.CommandAuditPayloadFields) error {
-	return nil
+	s.hydrateCalls++
+	return s.hydrateErr
 }
 
 func (s *tailEventUsecaseStub) Timeline(context.Context, apptypes.TimelineCriteria) ([]apptypes.TimelineBlock, error) {
