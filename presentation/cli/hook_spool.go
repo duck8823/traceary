@@ -138,6 +138,9 @@ type hookSpoolRecord struct {
 	Payload       string    `json:"payload"`
 	CreatedAt     time.Time `json:"created_at"`
 	ReceiptID     string    `json:"receipt_id,omitempty"`
+	// Private acquisition metadata: absent is legacy, empty is pinned unknown.
+	ResolvedWorkspace      *string `json:"resolved_workspace,omitempty"`
+	WorkspaceCaptureFailed bool    `json:"workspace_capture_failed,omitempty"`
 	// AttemptCount tracks failed replay/requeue attempts. Missing field = 0
 	// (never classified as a failed replay). schema_version stays 1.
 	AttemptCount int `json:"attempt_count,omitempty"`
@@ -181,12 +184,20 @@ func hookSpoolDeadLetterRequeueable(lastError string) bool {
 type explicitHookPayloadReader struct {
 	*bytes.Reader
 	receiptID string
+	workspace hookWorkspaceCapture
 }
 type hookSpoolReceiptContextKey struct{}
 
+// withHookSpoolReceipt also carries the trusted workspace acquisition across
+// native normalization and reader re-wrapping. Plain readers preserve context.
 func withHookSpoolReceipt(ctx context.Context, input io.Reader) context.Context {
-	if reader, ok := input.(*explicitHookPayloadReader); ok && reader.receiptID != "" {
-		return context.WithValue(ctx, hookSpoolReceiptContextKey{}, reader.receiptID)
+	if reader, ok := input.(*explicitHookPayloadReader); ok {
+		if reader.receiptID != "" {
+			ctx = context.WithValue(ctx, hookSpoolReceiptContextKey{}, reader.receiptID)
+		}
+		if reader.workspace.value != nil || reader.workspace.failed {
+			ctx = context.WithValue(ctx, hookWorkspaceCaptureContextKey{}, reader.workspace)
+		}
 	}
 	return ctx
 }
@@ -227,13 +238,16 @@ func (c *RootCLI) runHookDurably(
 			CreatedAt:     time.Now().UTC(),
 			ReceiptID:     "spool:" + hex.EncodeToString(receipt[:]),
 		}
+		capture := captureHookWorkspace(ctx, spec, payload)
+		record.ResolvedWorkspace = capture.value
+		record.WorkspaceCaptureFailed = capture.failed
 		path, err := persistCurrentHookSpoolRecord(record)
 		if err != nil {
 			// Preserve existing fail-soft behavior when the state directory is
 			// unavailable. The operational error remains visible in debug logs;
 			// successful persistence is the timeout-kill guarantee.
 			slog.Debug("hook spool persistence failed", "command", spec.Command, "client", spec.Client, "error", err)
-			return run(newExplicitHookPayloadReader(payload, record.ReceiptID))
+			return run(record.payloadReader())
 		}
 		if err := ctx.Err(); err != nil {
 			if promoteErr := promoteCurrentHookSpoolRecord(path); promoteErr != nil && !os.IsNotExist(promoteErr) {
@@ -241,7 +255,7 @@ func (c *RootCLI) runHookDurably(
 			}
 			return xerrors.Errorf("hook context cancelled after spool persistence: %w", err)
 		}
-		if err := run(newExplicitHookPayloadReader(payload, record.ReceiptID)); err != nil {
+		if err := run(record.payloadReader()); err != nil {
 			if promoteErr := promoteCurrentHookSpoolRecord(path); promoteErr != nil && !os.IsNotExist(promoteErr) {
 				slog.Debug("failed current hook spool promotion failed", "path", path, "error", promoteErr)
 			}
@@ -443,7 +457,10 @@ func (c *RootCLI) drainHookSpoolRecordsDetailed(ctx context.Context, limit int, 
 // consume the marker and silence the live firing. A nil writer makes injection
 // a no-op.
 func (c *RootCLI) replayHookSpoolRecord(ctx context.Context, record hookSpoolRecord) error {
-	input := newExplicitHookPayloadReader([]byte(record.Payload), record.ReceiptID)
+	// A backlog record must not inherit another delivery's acquisition context.
+	ctx = context.WithValue(ctx, hookWorkspaceCaptureContextKey{}, hookWorkspaceCapture{value: record.ResolvedWorkspace, failed: record.WorkspaceCaptureFailed})
+	ctx = context.WithValue(ctx, hookSpoolReceiptContextKey{}, record.ReceiptID)
+	input := record.payloadReader()
 	dbPath := record.DBPath
 	client := record.Client
 	action := record.Action

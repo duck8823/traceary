@@ -35,11 +35,12 @@ func (c *RootCLI) runHookPromptWithConsolidation(
 		Client:  client,
 		DBPath:  dbPath,
 	}, input, func(input io.Reader) error {
+		capturedContext := withHookSpoolReceipt(ctx, input)
 		payload, err := readHookPayload(input)
 		if err != nil {
 			return err
 		}
-		if err := c.runHookPrompt(ctx, newExplicitHookPayloadReader(payload), client, dbPath); err != nil {
+		if err := c.runHookPrompt(capturedContext, newExplicitHookPayloadReader(payload), client, dbPath); err != nil {
 			return err
 		}
 		captured = payload
