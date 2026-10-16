@@ -200,10 +200,14 @@ func TestDoctorLargeStore_HostPackageIdentitySurvivesEarlyReturn(t *testing.T) {
 
 // TestDoctorLargeStore_FixStaysNonDestructive asserts that --fix against a
 // large store applies only guided remediation to the plugin-version checks;
-// it must never write a host file (#1970).
+// it must never write a host package file (#1970). Ordinary hook-config
+// upgrades still target the project directory, which defaults to the working
+// directory, so the test isolates it from the repository checkout (#2419).
 func TestDoctorLargeStore_FixStaysNonDestructive(t *testing.T) {
 	t.Setenv("TRACEARY_LANG", "en")
 	setLargeStoreDoctorPath(t)
+	projectDir := t.TempDir()
+	t.Chdir(projectDir)
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	SetUserHomeDirFunc(func() (string, error) { return home, nil })
@@ -245,6 +249,14 @@ func TestDoctorLargeStore_FixStaysNonDestructive(t *testing.T) {
 	}
 	if info, err := os.Stat(manifestPath); err != nil || info.Size() == 0 {
 		t.Fatalf("manifest at %s changed or vanished after --fix", manifestPath)
+	}
+	for _, fix := range report.Fixes {
+		if !strings.HasSuffix(fix.Name, "-config") || strings.HasPrefix(fix.Action, "skip:") {
+			continue
+		}
+		if !strings.Contains(fix.Action, projectDir) && !strings.Contains(fix.Action, home) {
+			t.Fatalf("fix %s action = %q, want a write confined to the isolated project or home directory", fix.Name, fix.Action)
+		}
 	}
 }
 

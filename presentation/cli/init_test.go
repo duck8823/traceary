@@ -14,6 +14,9 @@ import (
 )
 
 func TestRootCLI_DoctorFixAppliesAuthorizedOfflineMigrations(t *testing.T) {
+	// doctor --fix may upgrade project hook config in the working directory;
+	// keep it out of the repository checkout (#2419).
+	t.Chdir(t.TempDir())
 	t.Setenv("TRACEARY_LANG", "en")
 	setTracearyPathToCurrentExecutable(t)
 	dbPath := filepath.Join(t.TempDir(), "traceary.db")
