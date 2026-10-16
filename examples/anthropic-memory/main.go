@@ -12,7 +12,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
@@ -63,14 +62,13 @@ func run(ctx context.Context) error {
 		return nil
 	}
 
-	assistantContent, toolResults, err := runMemoryToolUses(ctx, handler, first.Content)
+	toolResults, err := runMemoryToolUses(ctx, handler, first.Content)
 	if err != nil {
 		return err
 	}
-	messages = append(messages, anthropic.BetaMessageParam{
-		Role:    anthropic.BetaMessageParamRoleAssistant,
-		Content: assistantContent,
-	})
+	// ToParam passes every assistant block back unchanged, including thinking
+	// blocks, which must not be rebuilt or dropped between turns.
+	messages = append(messages, first.ToParam())
 	messages = append(messages, anthropic.NewBetaUserMessage(toolResults...))
 
 	second, err := client.Beta.Messages.New(ctx, messageParams(messages))
@@ -84,9 +82,9 @@ func run(ctx context.Context) error {
 func messageParams(messages []anthropic.BetaMessageParam) anthropic.BetaMessageNewParams {
 	return anthropic.BetaMessageNewParams{
 		Betas:     []anthropic.AnthropicBeta{contextManagementBeta},
-		MaxTokens: 1024,
+		MaxTokens: 16000,
 		Messages:  messages,
-		Model:     anthropic.ModelClaudeSonnet4_5,
+		Model:     anthropic.ModelClaudeSonnet5_5,
 		Tools:     []anthropic.BetaToolUnionParam{anthropicmemory.Tool()},
 	}
 }
@@ -108,45 +106,23 @@ func runMemoryToolUses(
 	ctx context.Context,
 	handler *anthropicmemory.Handler,
 	blocks []anthropic.BetaContentBlockUnion,
-) ([]anthropic.BetaContentBlockParamUnion, []anthropic.BetaContentBlockParamUnion, error) {
-	assistantContent := make([]anthropic.BetaContentBlockParamUnion, 0, len(blocks))
+) ([]anthropic.BetaContentBlockParamUnion, error) {
 	toolResults := make([]anthropic.BetaContentBlockParamUnion, 0)
 	for _, block := range blocks {
-		converted, err := contentBlockParam(block)
-		if err != nil {
-			return nil, nil, err
-		}
-		assistantContent = append(assistantContent, converted)
-
 		if block.Type != "tool_use" || block.Name != anthropicmemory.ToolName {
 			continue
 		}
 		input, err := anthropicmemory.DecodeInput(block.Input)
 		if err != nil {
-			return nil, nil, xerrors.Errorf("failed to decode memory tool input: %w", err)
+			return nil, xerrors.Errorf("failed to decode memory tool input: %w", err)
 		}
 		result, err := handler.HandleToolUse(ctx, block.ID, input)
 		if err != nil {
-			return nil, nil, xerrors.Errorf("failed to handle memory tool use: %w", err)
+			return nil, xerrors.Errorf("failed to handle memory tool use: %w", err)
 		}
 		toolResults = append(toolResults, anthropic.BetaContentBlockParamUnion{OfToolResult: &result})
 	}
-	return assistantContent, toolResults, nil
-}
-
-func contentBlockParam(block anthropic.BetaContentBlockUnion) (anthropic.BetaContentBlockParamUnion, error) {
-	switch block.Type {
-	case "text":
-		return anthropic.NewBetaTextBlock(block.Text), nil
-	case "tool_use":
-		var input map[string]any
-		if err := json.Unmarshal(block.Input, &input); err != nil {
-			return anthropic.BetaContentBlockParamUnion{}, xerrors.Errorf("failed to decode assistant tool_use input: %w", err)
-		}
-		return anthropic.NewBetaToolUseBlock(block.ID, input, block.Name), nil
-	default:
-		return anthropic.BetaContentBlockParamUnion{}, xerrors.Errorf("example does not support assistant content block type %q", block.Type)
-	}
+	return toolResults, nil
 }
 
 func printText(message *anthropic.BetaMessage) {
