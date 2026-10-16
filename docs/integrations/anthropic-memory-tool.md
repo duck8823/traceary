@@ -65,8 +65,8 @@ func call(ctx context.Context, handler *anthropicmemory.Handler) error {
 
     msg, err := client.Beta.Messages.New(ctx, anthropic.BetaMessageNewParams{
         Betas:     []anthropic.AnthropicBeta{"context-management-2025-06-27"},
-        MaxTokens: 1024,
-        Model:     anthropic.ModelClaudeSonnet4_5,
+        MaxTokens: 16000,
+        Model:     anthropic.ModelClaudeSonnet5_5,
         Messages: []anthropic.BetaMessageParam{
             anthropic.NewBetaUserMessage(anthropic.NewBetaTextBlock("Remember this project preference.")),
         },
