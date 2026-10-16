@@ -200,6 +200,10 @@ func (s *eventMetadataUsecaseStub) List(_ context.Context, criteria apptypes.Eve
 	return s.listMetadata, s.listErr
 }
 
+func (s *eventMetadataUsecaseStub) ListWindow(_ context.Context, _ apptypes.EventListCriteria) ([]apptypes.EventMetadata, error) {
+	return s.listMetadata, s.listErr
+}
+
 func (s *eventMetadataUsecaseStub) Search(_ context.Context, _ apptypes.EventSearchCriteria) ([]apptypes.EventMetadata, error) {
 	s.searchCalls++
 	return s.searchMetadata, s.searchErr

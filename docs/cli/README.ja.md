@@ -115,6 +115,7 @@ subcommand なしの `traceary` は TTY / 非 TTY とも常に help を表示し
 - `--timezone`
 - `--failures` — この 記録 フィルタは残す。`command_audits.failed = 1` または取得済みの非ゼロ `exit_code` に一致する。現行の書き込みは構造化された host のツール失敗を `unknown` ではなく `host_error` として保存する。分類器以前の `unknown`+`failed=1` はフラグ側で一致する。意味は [failed-flag の意味](../research/failed-flag-meaning.ja.md) を見てください。
 - `--follow` — 新しい一致イベントを追跡表示する（旧 `traceary tail`）。`--limit 0` は新規のみ。`--json` はスナップショット配列ではなく NDJSON。`--offset`、`--from`/`--since`/`--to`/`--until`、`--sensitive`、`--source-hook` とは同時に使えない。
+  `--follow --json --fields id,ts,kind,session,ws,exit_code` のように `message` を含めないフィールドを明示した場合は、初回取得とすべてのポーリングで本文を取得しない metadata query を使います。command / input / output のペイロードも復元せず、`exit_code` は既存の command metadata から出力します。`message` を含めた場合と `--fields` を省略した場合は、従来のペイロード取得経路のままです。
 - `--follow-session <prefix>` — `--follow` 時に 1 つの session へ先頭一致（最低 8 文字）。
 - `--blocks` — ギャップ検出した作業ブロックを表示する（旧 `traceary timeline`）。`--limit` はブロック数上限。`--json` は `workspace_breakdown` 付きブロック配列で、スナップショットの event 配列ではない。`--follow`、`--offset`、イベントフィルタ（`--kind` / `--client` / `--agent` / `--session-id` / `--failures` / `--sensitive` / `--source-hook`）、`--wide` / `--fields` / `--preset` / `--color`、`--timezone` とは同時に使えない。
 - `--gap` — `--blocks` 時のアイドル判定閾値（分、既定 15）。
