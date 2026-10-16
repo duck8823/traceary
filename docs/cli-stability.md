@@ -40,7 +40,7 @@ Current public commands, including compatibility aliases introduced after v0.15,
 - **Durable memory inbox** — `traceary memory inbox list`, `traceary memory inbox show`, `traceary memory inbox accept`, `traceary memory inbox reject`, `traceary memory inbox attach`, `traceary memory inbox cleanup`, `traceary memory inbox restore`, `traceary memory inbox review` (TTY-only)
 - **Durable memory store** — `traceary memory store propose`, `traceary memory store distill`
 - **Hooks** — `traceary hooks install` (including `--dry-run`), `traceary completion` (`bash` / `zsh` / `fish` / `powershell`)
-- **Diagnostics** — `traceary doctor` (alias `traceary status`, including the additive `store-capacity` check and `--json` `workspace_identity` block), `traceary report`
+- **Diagnostics** — `traceary doctor` (alias `traceary status`, including the additive `store-capacity` check and `--json` `workspace_identity` block, plus optional per-check `details` objects), `traceary report`
 - **Bundle import / export** — `traceary bundle export`, `traceary bundle import`
 
 The `traceary doctor` JSON envelope (`sections` / `summary` / `exit_code` / per-check fields), `traceary list --blocks --json` (`workspace_breakdown`; formerly `traceary timeline --json`), and the structured-text `traceary context --handoff` field labels (formerly `traceary session handoff`) are all part of the public contract. They are golden-tested under `presentation/cli/testdata/` — see [JSON and snapshot contract tests](./operations/json-contract-tests.md) for the contract test workflow.

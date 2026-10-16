@@ -168,6 +168,42 @@ local path alias で session / event が見つからない場合は、
 `list`、usage aggregate、この diagnostic は同じ
 canonical workspace identity を使います。
 
+### 構造化診断 (`details.codex_capture`)
+
+`doctor --json` は `codex-capture` check に任意の `details.codex_capture`
+オブジェクトも付与します。desktop client などの tool が localized な
+`message` を解析せずに済むようにするためです。機械フィールドは英語・日本語で
+同一で、既存の `name` / `status` / `severity` / `message` / `hint` と exit code
+は変わりません。`details` が無い場合は「利用不可」を意味するので、`status`
+に fallback してください。
+
+| Field | 値 |
+|---|---|
+| `inspection` | `complete`、`partial` (spool projection が上限を超過。pending 系 counts は下限値)、`read_failed`、`dependencies_unavailable`、`not_inspected` (bounded large-store doctor) |
+| `reason` | 上の reason 表の値、または `diagnostic_read_failed` / `diagnostic_dependencies_unavailable` / `large_store_bounded` |
+| `surface` / `hook_trust` | `plugin_managed_hooks` または `manual_hooks`、および hook trust の状態 |
+| `window_seconds` | commit 済み event 集計の look-back window (`604800`、doctor 実行時点まで) |
+| `boundaries` | `session_start`、`prompt`、`tool`、`compact`、`stop`、`usage` の順の `[{name, state}]` |
+| `usage_state` | `known`、`unavailable_recorded`、`mixed_known_and_unavailable`、`delivery_pending`、`not_observed` |
+| `counts` | `stored_events`、`prompt_turns`、`uncovered_final_turns`、`usage_observations`、`headless_usage_observations`、`stop_sessions`、`stop_sessions_with_usage`、`pending_deliveries`、`unscoped_pending_deliveries` |
+
+`window_seconds`、`boundaries`、`usage_state`、`counts` は `inspection` が
+`complete` または `partial` のときだけ出力します。それ以外の状態ではゼロで
+埋めずに省略するため、失敗・skip した診断が「capture 無し」と読まれることは
+ありません。2 GiB 以上の store では既定 doctor が `codex-capture` を
+`inspection: not_inspected` の明示的な `skip` として出力します。このオブジェクト
+は workspace path、session ID、prompt/transcript 本文、tool の入出力を含みません。
+
+これらのフィールドは、この workspace の window で native Codex hook が
+**記録された**証拠です。process が生きていることの signal ではなく、Codex が
+作業中・入力待ち・承認待ちであることも意味しません。
+
+doctor を heartbeat として poll しないでください。1 回の実行で store の
+初期化、migration の適用、host 設定や install 済み package の probe が起こり
+得ます。desktop client は、ユーザーの明示操作時、起動時、hook の install/update
+後に `--client codex --project-dir <workspace> --json --warnings-ok` で、同時に
+1 回だけ実行し、compact や migration 中の store に対しては実行しないでください。
+
 ## 検証済み usage の取得
 
 trust 済みの対話型 Codex `Stop` ごとに、Traceary は `CODEX_HOME/sessions`（未指定時は `~/.codex/sessions`）配下の対応するローカル rollout JSONL を読みます。turn は `turn_context` で始まり、対応する `task_complete` または `turn_aborted` で終わります。turn 直前の最後の累積 `token_count.info.total_token_usage` を、終端境界時点の最後の累積 snapshot から差し引きます。途中 snapshot と compaction snapshot は以前の snapshot を置き換えるだけで、合算しません。token の各 dimension は独立して扱います。非負で報告された dimension（0 を含む）は既知のまま保存し、省略された dimension は unavailable のままにします。両方の snapshot で既知の dimension が減少した場合、または負の値がある場合は負の差分を作らず、turn 全体を集計対象外の `unavailable` observation として記録します。baseline や終端 snapshot の欠落、境界の曖昧さも同様です。snapshot のない終端があると直後の turn も利用量を帰属できないため `unavailable` になります。その直後の終端 snapshot は、さらに後続する turn の新しい baseline としてだけ使います。
