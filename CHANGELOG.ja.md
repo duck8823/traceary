@@ -7,6 +7,14 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 
 ## [Unreleased]
 
+## [v0.53.0] - 2026-10-16
+
+v0.53.0 は session を実行中・終了済みを管理する対象ではなく、ログをまとめる識別子として扱います。記録、再開、遅れて届くログ、handoff は session の終了や経過時間に依存しなくなり、supervisor が所有する one-shot 結果は保護されたままです。あわせて、hook の workspace を capture 時点で固定し、metadata-only の `list --follow` を本文なしに保ち、`doctor --json` に host capability と Codex capture の機械可読な詳細を追加します。
+
+### Added
+- **doctor の構造化診断（#2415）。** `doctor --json` は `<client>-host-capabilities`（matrix の `wired` / `available` / `unsupported`、出典、検証日）と `codex-capture`（検査状態、reason、各境界の状態、usage の状態、観測期間、集計値）に、言語に依存しない任意の `details` オブジェクトを追加します。検査していない状態ではゼロで埋めずに集計値を省略し、bounded large-store 経路では `codex-capture` を明示的な `not_inspected` の skip として出力します。既存の check フィールドと exit code は変わりません。これらは hook が記録された証拠であり、プロセスの生存確認ではありません。
+- **受け身の lifecycle note（#2393）。** Codex の SessionEnd/Interrupt、Claude の StopFailure、Kimi の Interrupt を、制御出力なしの最小化された固定 note として記録します。Antigravity の完了処理は `fullyIdle` が false または不正な場合に保護します。
+
 ### Changed
 - **通常 session の log-only grouping (#2401)。** 同一 ID・メタデータの Start は元の開始境界を返し、競合は拒否します。End は個別の明示境界と指定要約の coverage を記録し、終了状態や子孫の cascade を変更しません。manual/context/extract と Active/ActiveOnly 互換検索は記録済み grouping を対象とし、doctor/GC は stale 終了を合成しません。古いローカル終了 marker は capture を抑止しません。native receipt と任意のローカル spool receipt で実際の retry を重複排除し、空の推測 close note を廃止する一方、failure/interrupt は保持します。既存の保存形式・履歴と supervisor 専有の one-shot outcome は維持します。
 - **Log-only context と handoff（#2399）。** handoff と compact-only は古い未終了 session を拒否しなくなり、生成する `STATUS` ヘッダーを削除します。identity 選択、記録済み内容、人間のサマリー、生 context JSON オブジェクトは維持します。
@@ -16,7 +24,14 @@ release note と同じ粒度で、版ごとの要点だけをまとめていま�
 
 ### Fixed
 - **one-shot outcome の supervisor 専有（#2400）。** 通常 end、stale GC/doctor、親 cascade、競合 bundle import は保存済み one-shot 結果や wrapper binding を変更できません。host end/replay は結果を捏造せず ownership 拒否を無害に処理します。プロセスの exit/usage と過去の raw metadata は維持し、自動 completion refinement は生成しなくなります。
+- **hook の workspace を capture 時点で固定（#2410）。** spool された hook delivery は capture 時に解決した workspace を保持するため、後の replay で別の workspace に記録されることはありません。
+- **metadata-only follow の本文なし化（#2416）。** metadata-only モードの `list --follow` は初回読み取りと各 poll で本文を読みません。NDJSON の形、filter、cursor の意味は変わりません。
+- **テストの分離（#2403、#2419）。** bounded large-store doctor の fixture と `doctor --fix` のテストは、repository の checkout に host 設定を書き込まなくなります。
 - **SQLite テストの時間計測を分離（#2395）。** ロック競合時の hook 書き込み時間テストを package 内で直列実行し、attestation 検証テストは fixture 初期化後に呼び出し元の期限を開始します。timeout 値、検証条件、本番の競合 retry は変更しません。
+
+### Docs
+- **ログをまとめる識別子としての session（#2394）。** 英日の ADR に log-only の方針を記録します。Traceary はログ、event、refinement を記録し、session はそれらをまとめる単位であって、実行中・終了済みを管理する対象ではありません。
+- **log-only 移行の検証と復旧（#2402）。** 運用文書に、隔離環境での CLI・native host・復旧の検証結果、Gemini/Kimi の fixture のみ・Muse の echo のみという制約、store 全体の backup からの復旧手順を記録します。
 
 ## [v0.52.0] - 2026-09-10
 
