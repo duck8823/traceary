@@ -242,7 +242,54 @@
       "message": "surface=manual_hooks client=codex traceary_version=- plugin=- hook_trust=absent workspace=/tmp/traceary-json-golden-project reason=capture_observed boundaries=session_start:stored,prompt:stored,tool:not_observed,compact:not_observed,stop:stored,usage:stored usage=unavailable_recorded stored_events=3 prompt_turns=1 uncovered_final_turns=0 usage_observations=1 headless_usage_observations=0 pending_deliveries=0 unscoped_pending=0",
       "hint": "",
       "fix_command": "",
-      "auto_fix_available": false
+      "auto_fix_available": false,
+      "details": {
+        "codex_capture": {
+          "inspection": "complete",
+          "reason": "capture_observed",
+          "surface": "manual_hooks",
+          "hook_trust": "absent",
+          "window_seconds": 604800,
+          "boundaries": [
+            {
+              "name": "session_start",
+              "state": "stored"
+            },
+            {
+              "name": "prompt",
+              "state": "stored"
+            },
+            {
+              "name": "tool",
+              "state": "not_observed"
+            },
+            {
+              "name": "compact",
+              "state": "not_observed"
+            },
+            {
+              "name": "stop",
+              "state": "stored"
+            },
+            {
+              "name": "usage",
+              "state": "stored"
+            }
+          ],
+          "usage_state": "unavailable_recorded",
+          "counts": {
+            "stored_events": 3,
+            "prompt_turns": 1,
+            "uncovered_final_turns": 0,
+            "usage_observations": 1,
+            "headless_usage_observations": 0,
+            "stop_sessions": 1,
+            "stop_sessions_with_usage": 1,
+            "pending_deliveries": 0,
+            "unscoped_pending_deliveries": 0
+          }
+        }
+      }
     },
     {
       "name": "codex-config",
@@ -262,7 +309,46 @@
       "message": "codex host: matrix-wired lifecycle coverage is command_executed, compact_summary, consolidation_request, prompt, session_started, transcript. Compact and subagent hooks are part of the managed set; memory features still depend on the per-install feature flag in /tmp/traceary-json-golden-home/.codex/config.toml (Traceary's `memory import codex` works regardless). hooks config context: /tmp/traceary-json-golden-home/.codex/hooks.json",
       "hint": "",
       "fix_command": "",
-      "auto_fix_available": false
+      "auto_fix_available": false,
+      "details": {
+        "host_capabilities": {
+          "schema_version": 1,
+          "source": "application/hostcoverage",
+          "last_verified": "2026-09-06",
+          "host": "codex",
+          "package": "plugins/traceary",
+          "events": [
+            {
+              "id": "session_started",
+              "status": "wired"
+            },
+            {
+              "id": "prompt",
+              "status": "wired"
+            },
+            {
+              "id": "command_executed",
+              "status": "wired"
+            },
+            {
+              "id": "transcript",
+              "status": "wired"
+            },
+            {
+              "id": "compact_summary",
+              "status": "wired"
+            },
+            {
+              "id": "session_ended",
+              "status": "unsupported"
+            },
+            {
+              "id": "consolidation_request",
+              "status": "wired"
+            }
+          ]
+        }
+      }
     },
     {
       "name": "version",
@@ -541,7 +627,54 @@
           "message": "surface=manual_hooks client=codex traceary_version=- plugin=- hook_trust=absent workspace=/tmp/traceary-json-golden-project reason=capture_observed boundaries=session_start:stored,prompt:stored,tool:not_observed,compact:not_observed,stop:stored,usage:stored usage=unavailable_recorded stored_events=3 prompt_turns=1 uncovered_final_turns=0 usage_observations=1 headless_usage_observations=0 pending_deliveries=0 unscoped_pending=0",
           "hint": "",
           "fix_command": "",
-          "auto_fix_available": false
+          "auto_fix_available": false,
+          "details": {
+            "codex_capture": {
+              "inspection": "complete",
+              "reason": "capture_observed",
+              "surface": "manual_hooks",
+              "hook_trust": "absent",
+              "window_seconds": 604800,
+              "boundaries": [
+                {
+                  "name": "session_start",
+                  "state": "stored"
+                },
+                {
+                  "name": "prompt",
+                  "state": "stored"
+                },
+                {
+                  "name": "tool",
+                  "state": "not_observed"
+                },
+                {
+                  "name": "compact",
+                  "state": "not_observed"
+                },
+                {
+                  "name": "stop",
+                  "state": "stored"
+                },
+                {
+                  "name": "usage",
+                  "state": "stored"
+                }
+              ],
+              "usage_state": "unavailable_recorded",
+              "counts": {
+                "stored_events": 3,
+                "prompt_turns": 1,
+                "uncovered_final_turns": 0,
+                "usage_observations": 1,
+                "headless_usage_observations": 0,
+                "stop_sessions": 1,
+                "stop_sessions_with_usage": 1,
+                "pending_deliveries": 0,
+                "unscoped_pending_deliveries": 0
+              }
+            }
+          }
         },
         {
           "name": "codex-config",
@@ -561,7 +694,46 @@
           "message": "codex host: matrix-wired lifecycle coverage is command_executed, compact_summary, consolidation_request, prompt, session_started, transcript. Compact and subagent hooks are part of the managed set; memory features still depend on the per-install feature flag in /tmp/traceary-json-golden-home/.codex/config.toml (Traceary's `memory import codex` works regardless). hooks config context: /tmp/traceary-json-golden-home/.codex/hooks.json",
           "hint": "",
           "fix_command": "",
-          "auto_fix_available": false
+          "auto_fix_available": false,
+          "details": {
+            "host_capabilities": {
+              "schema_version": 1,
+              "source": "application/hostcoverage",
+              "last_verified": "2026-09-06",
+              "host": "codex",
+              "package": "plugins/traceary",
+              "events": [
+                {
+                  "id": "session_started",
+                  "status": "wired"
+                },
+                {
+                  "id": "prompt",
+                  "status": "wired"
+                },
+                {
+                  "id": "command_executed",
+                  "status": "wired"
+                },
+                {
+                  "id": "transcript",
+                  "status": "wired"
+                },
+                {
+                  "id": "compact_summary",
+                  "status": "wired"
+                },
+                {
+                  "id": "session_ended",
+                  "status": "unsupported"
+                },
+                {
+                  "id": "consolidation_request",
+                  "status": "wired"
+                }
+              ]
+            }
+          }
         }
       ]
     }

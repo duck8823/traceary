@@ -38,6 +38,7 @@ type doctorCheck struct {
 	Hint              string                  `json:"hint"`
 	FixCommand        string                  `json:"fix_command"`
 	AutoFixAvailable  bool                    `json:"auto_fix_available"`
+	Details           *doctorCheckDetails     `json:"details,omitempty"`
 	FixFunc           doctorFixFunc           `json:"-"`
 	StructuredFixFunc doctorStructuredFixFunc `json:"-"`
 }

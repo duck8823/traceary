@@ -54,6 +54,7 @@ func (c *RootCLI) appendFilesystemHostDoctorChecks(
 			} else {
 				check = c.inspectClaudeOrConfigFile(ctx, targetClient, outputPath, projectDir)
 			}
+			report.Checks = append(report.Checks, skippedLargeStoreCodexCaptureCheck(pluginState, trust))
 		} else {
 			check = c.inspectClaudeOrConfigFile(ctx, targetClient, outputPath, projectDir)
 		}

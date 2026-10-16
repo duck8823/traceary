@@ -237,6 +237,7 @@ func inspectHostCapabilityGaps(client, configPath string) []doctorCheck {
 			wiredList,
 			configPath,
 		),
+		Details: newDoctorHostCapabilitiesDetails(matrix, host),
 	}}
 
 	// Keep the codex memory-flag and gemini compact-boundary footnotes that are
