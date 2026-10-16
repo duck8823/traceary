@@ -229,7 +229,7 @@ func (c *RootCLI) newHookTranscriptCommand() *cobra.Command {
 					if err != nil {
 						return nil, err
 					}
-					recorded, err := c.runHookTranscript(cmd.Context(), newExplicitHookPayloadReader(captured), args[0], dbPath)
+					recorded, err := c.runHookTranscript(withHookSpoolReceipt(cmd.Context(), input), newExplicitHookPayloadReader(captured), args[0], dbPath)
 					if err != nil {
 						return nil, err
 					}
@@ -487,6 +487,7 @@ func (c *RootCLI) runHookAudit(
 	client string,
 	dbPath string,
 ) error {
+	ctx = withHookSpoolReceipt(ctx, input)
 	if c.storeManagement == nil {
 		return xerrors.Errorf("initialize store usecase is not configured")
 	}
@@ -622,6 +623,7 @@ func (c *RootCLI) runHookCompact(
 	action string,
 	dbPath string,
 ) error {
+	ctx = withHookSpoolReceipt(ctx, input)
 	if c.storeManagement == nil {
 		return xerrors.Errorf("initialize store usecase is not configured")
 	}
@@ -785,6 +787,7 @@ func (c *RootCLI) runHookPrompt(
 	client string,
 	dbPath string,
 ) error {
+	ctx = withHookSpoolReceipt(ctx, input)
 	if c.storeManagement == nil {
 		return xerrors.Errorf("initialize store usecase is not configured")
 	}
@@ -885,6 +888,7 @@ func (c *RootCLI) runHookTranscript(
 	client string,
 	dbPath string,
 ) (bool, error) {
+	ctx = withHookSpoolReceipt(ctx, input)
 	if recorder, ok := transcriptTurnRecorderFor(client); ok {
 		payload, err := readHookPayload(input)
 		if err != nil {
@@ -932,6 +936,7 @@ func (c *RootCLI) runHookTranscriptWithBlocks(
 	dbPath string,
 	blocks []apptypes.EventBodyBlock,
 ) (bool, string, error) {
+	ctx = withHookSpoolReceipt(ctx, input)
 	if c.storeManagement == nil {
 		return false, "", xerrors.Errorf("initialize store usecase is not configured")
 	}

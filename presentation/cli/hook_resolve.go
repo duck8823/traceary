@@ -213,6 +213,9 @@ func provenHookDeliveryIDFields(client string) []string {
 }
 
 func resolveHookWorkspace(ctx context.Context, payload []byte, client string, preferState bool) (types.Workspace, error) {
+	if workspace, captured, err := capturedHookWorkspace(ctx); captured {
+		return workspace, err
+	}
 	if explicit := strings.TrimSpace(os.Getenv("TRACEARY_WORKSPACE")); explicit != "" {
 		return types.Workspace(explicit), nil
 	}
@@ -228,6 +231,9 @@ func resolveHookWorkspace(ctx context.Context, payload []byte, client string, pr
 }
 
 func resolveHookWorkspaceForAudit(ctx context.Context, payload []byte, client string) (types.Workspace, error) {
+	if workspace, captured, err := capturedHookWorkspace(ctx); captured {
+		return workspace, err
+	}
 	if explicit := strings.TrimSpace(os.Getenv("TRACEARY_WORKSPACE")); explicit != "" {
 		return types.Workspace(explicit), nil
 	}
