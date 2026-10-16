@@ -7,6 +7,14 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ## [Unreleased]
 
+## [v0.53.0] - 2026-10-16
+
+v0.53.0 treats sessions as log grouping identities instead of managed running/ended objects: recording, resume, late logs, and handoff no longer depend on session end or age, and supervisor-owned one-shot results stay protected. It also pins the hook workspace at capture time, keeps metadata-only `list --follow` body-free, and adds machine-readable `doctor --json` details for host capabilities and Codex capture.
+
+### Added
+- **Structured doctor diagnostics (#2415).** `doctor --json` adds an optional, language-independent `details` object to `<client>-host-capabilities` (matrix `wired` / `available` / `unsupported`, source, verified date) and `codex-capture` (inspection state, reason, boundary states, usage state, window, counts). Uninspected states omit counts instead of zero-filling, and the bounded large-store path reports `codex-capture` as an explicit `not_inspected` skip. Existing check fields and exit codes are unchanged. These fields are recorded-hook evidence, not process liveness.
+- **Passive lifecycle notes (#2393).** Codex SessionEnd/Interrupt, Claude StopFailure, and Kimi Interrupt are captured as minimized passive fixed notes without control output; Antigravity completion handling is guarded when `fullyIdle` is false or invalid.
+
 ### Changed
 - **Log-only ordinary grouping (#2401).** Start reuses the original boundary for matching identity metadata; conflicts fail closed. End records a distinct explicit boundary and supplied covered refinement, without terminalization or descendant cascade. Manual/context/extraction lookup and Active/ActiveOnly compatibility select recorded groups independently of lifecycle; doctor/GC no longer synthesize stale closure. Host-local end markers cannot suppress capture. Existing native receipts and new optional local spool receipts preserve real retry dedup; empty inferred close notes are removed, useful failure/interrupt records remain. Legacy storage/history and supervisor-only one-shot outcomes remain unchanged.
 - **Log-only context and handoff (#2399).** Handoff and compact-only no longer reject old unended sessions; the generated `STATUS` header is removed. Identity selection, recorded content, human summaries, and the raw context JSON object remain unchanged.
@@ -16,7 +24,14 @@ It mirrors the same level of detail as the GitHub release notes, but keeps the h
 
 ### Fixed
 - **Supervisor-only one-shot outcomes (#2400).** Ordinary end, stale GC/doctor, parent cascade, and conflicting bundle imports cannot change stored one-shot results or wrapper bindings. Host end/replay drains ownership refusal without inventing outcomes. Process exit/usage behavior and historical raw metadata remain unchanged; automatic completion refinements are no longer generated.
+- **Hook workspace pinned at capture (#2410).** A spooled hook delivery keeps the workspace resolved when it was captured, so a later replay cannot record it under a different workspace.
+- **Body-free metadata-only follow (#2416).** `list --follow` in metadata-only mode stays body-free on the initial read and every poll; NDJSON shape, filters, and cursor semantics are unchanged.
+- **Test isolation (#2403, #2419).** Bounded large-store doctor fixtures and `doctor --fix` tests no longer write host config into the repository checkout.
 - **Isolated SQLite test timing (#2395).** The contended hook write timing test runs serially within its package, and attestation verification tests start their caller deadlines after fixture initialization. Timeout values, assertions, and production contention retries are unchanged.
+
+### Docs
+- **Sessions as log grouping identities (#2394).** A bilingual ADR records the log-only direction: Traceary records logs, events, and refinements; a session groups them and is not a running/ended managed object.
+- **Log-only migration validation and recovery (#2402).** Operations docs record the isolated CLI/native-host/recovery validation, the Gemini/Kimi fixture-only and Muse echo-only limits, and full-store backup recovery guidance.
 
 ## [v0.52.0] - 2026-09-10
 
