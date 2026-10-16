@@ -179,13 +179,13 @@ fall back to `status`.
 
 | Field | Values |
 |---|---|
-| `inspection` | `complete`, `partial` (spool projection exceeded its bound; pending counts are a lower bound), `read_failed`, `dependencies_unavailable`, `not_inspected` (bounded large-store doctor) |
+| `inspection` | `complete`, `partial` (spool projection exceeded its bound, or undecodable spool files exist; pending counts are a lower bound), `read_failed`, `dependencies_unavailable`, `not_inspected` (bounded large-store doctor) |
 | `reason` | the reason table above, or `diagnostic_read_failed` / `diagnostic_dependencies_unavailable` / `large_store_bounded` |
 | `surface` / `hook_trust` | `plugin_managed_hooks` or `manual_hooks`; the hook-trust status |
 | `window_seconds` | look-back window of the committed-event aggregates (`604800`, ending at doctor run time) |
 | `boundaries` | `[{name, state}]` in the order `session_start`, `prompt`, `tool`, `compact`, `stop`, `usage` |
 | `usage_state` | `known`, `unavailable_recorded`, `mixed_known_and_unavailable`, `delivery_pending`, `not_observed` |
-| `counts` | `stored_events`, `prompt_turns`, `uncovered_final_turns`, `usage_observations`, `headless_usage_observations`, `stop_sessions`, `stop_sessions_with_usage`, `pending_deliveries`, `unscoped_pending_deliveries` |
+| `counts` | `stored_events`, `prompt_turns`, `uncovered_final_turns`, `usage_observations`, `headless_usage_observations`, `stop_sessions`, `stop_sessions_with_usage`, `pending_deliveries`, `unscoped_pending_deliveries`, `unreadable_spool_records` |
 
 `window_seconds`, `boundaries`, `usage_state`, and `counts` appear only when
 `inspection` is `complete` or `partial`. Other states omit them rather than

@@ -94,6 +94,7 @@ type doctorCodexCaptureCounts struct {
 	StopSessionsWithUsage     int `json:"stop_sessions_with_usage"`
 	PendingDeliveries         int `json:"pending_deliveries"`
 	UnscopedPendingDeliveries int `json:"unscoped_pending_deliveries"`
+	UnreadableSpoolRecords    int `json:"unreadable_spool_records"`
 }
 
 func newCodexCaptureInspectedDetails(
@@ -103,7 +104,7 @@ func newCodexCaptureInspectedDetails(
 	promptTurns int,
 ) *doctorCheckDetails {
 	inspection := codexCaptureInspectionComplete
-	if evidence.SpoolPartial {
+	if evidence.SpoolPartial || evidence.UnreadableSpoolRecords > 0 {
 		inspection = codexCaptureInspectionPartial
 	}
 	boundaries := make([]doctorCodexCaptureBoundary, 0, len(codexCaptureBoundaryOrder))
@@ -128,6 +129,7 @@ func newCodexCaptureInspectedDetails(
 			StopSessionsWithUsage:     evidence.StopsWithUsage,
 			PendingDeliveries:         evidence.PendingDeliveries,
 			UnscopedPendingDeliveries: evidence.UnscopedDeliveries,
+			UnreadableSpoolRecords:    evidence.UnreadableSpoolRecords,
 		},
 	}}
 }

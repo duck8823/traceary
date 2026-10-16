@@ -57,6 +57,7 @@ type codexCaptureEvidence struct {
 	PendingDeliveries         int
 	UnscopedDeliveries        int
 	SpoolPartial              bool
+	UnreadableSpoolRecords    int
 	StoredBoundaries          map[string]bool
 	PendingBoundaries         map[string]bool
 }
@@ -83,6 +84,7 @@ func (c *RootCLI) inspectCodexCapture(
 	pluginState codexPluginHookFallbackState,
 	trust codexPluginHookTrustResult,
 	spoolRecords []hookSpoolRecord,
+	spoolUnreadable []string,
 	spoolErr error,
 ) doctorCheck {
 	workspace := resolveDoctorEventCoverageWorkspace(ctx, projectDir)
@@ -144,6 +146,9 @@ func (c *RootCLI) inspectCodexCapture(
 	projected, unscoped, projectionPartial := projectCodexSpoolMetadata(ctx, spoolRecords, workspace)
 	evidence.UnscopedDeliveries = unscoped
 	evidence.SpoolPartial = projectionPartial
+	// Unreadable spool files cannot be attributed to a client, so pending
+	// counts are a lower bound; details report the inspection as partial.
+	evidence.UnreadableSpoolRecords = len(spoolUnreadable)
 	for _, pending := range projected {
 		evidence.PendingDeliveries++
 		for _, boundary := range codexSpoolBoundaries(pending.Command, pending.Action) {

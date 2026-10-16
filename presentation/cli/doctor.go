@@ -559,6 +559,7 @@ func (c *RootCLI) buildDoctorReport(ctx context.Context, input doctorCommandInpu
 					pluginState,
 					trust,
 					spoolRecords,
+					spoolUnreadable,
 					spoolErr,
 				),
 			)

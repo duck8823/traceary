@@ -26,7 +26,7 @@ func TestDoctorCheckDetails_SchemaSnapshot(t *testing.T) {
 	plugin := codexPluginHookFallbackState{PluginEnabled: true, PluginKey: "traceary@traceary-marketplace"}
 	trusted := codexPluginHookTrustResult{PluginKey: plugin.PluginKey, Status: codexPluginHookTrustTrusted}
 	inspect := func(root *RootCLI, state codexPluginHookFallbackState, trust codexPluginHookTrustResult, spoolErr error) doctorCheck {
-		return root.inspectCodexCapture(context.Background(), projectDir, "0.0.0-test", state, trust, nil, spoolErr)
+		return root.inspectCodexCapture(context.Background(), projectDir, "0.0.0-test", state, trust, nil, nil, spoolErr)
 	}
 
 	partial := classifyCodexCapture(codexCaptureEvidence{SpoolPartial: true, StoredEvents: 2})
@@ -90,7 +90,7 @@ func TestDoctorCheckDetails_UninspectedStatesCarryNoEvidence(t *testing.T) {
 		wantStatus     string
 	}{
 		{"read failure", codexCaptureFailure(identity, "boom"), codexCaptureInspectionReadFailed, doctorStatusFail},
-		{"dependencies unavailable", (&RootCLI{}).inspectCodexCapture(context.Background(), t.TempDir(), "", codexPluginHookFallbackState{}, trust, nil, nil), codexCaptureInspectionDependencies, doctorStatusWarn},
+		{"dependencies unavailable", (&RootCLI{}).inspectCodexCapture(context.Background(), t.TempDir(), "", codexPluginHookFallbackState{}, trust, nil, nil, nil), codexCaptureInspectionDependencies, doctorStatusWarn},
 		{"large store", skippedLargeStoreCodexCaptureCheck(codexPluginHookFallbackState{}, trust), codexCaptureInspectionNotInspected, doctorStatusSkip},
 	}
 	for _, tt := range tests {
@@ -127,7 +127,7 @@ func TestDoctorCheckDetails_ScopeMinimal(t *testing.T) {
 		Command: "hook-session-start", Client: "codex",
 		Payload: `{"session_id":"session-secret-id","cwd":"` + projectDir + `","prompt":"private prompt body"}`,
 	}}
-	check := root.inspectCodexCapture(context.Background(), projectDir, "0.0.0-test", codexPluginHookFallbackState{}, codexPluginHookTrustResult{Status: codexPluginHookTrustAbsent}, spool, nil)
+	check := root.inspectCodexCapture(context.Background(), projectDir, "0.0.0-test", codexPluginHookFallbackState{}, codexPluginHookTrustResult{Status: codexPluginHookTrustAbsent}, spool, nil, nil)
 	raw, err := json.Marshal(check.Details)
 	if err != nil {
 		t.Fatal(err)
@@ -200,5 +200,33 @@ func TestDoctorLargeStore_CodexCaptureIsExplicitlyNotInspected(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("codex-capture check missing on large-store path")
+	}
+}
+
+// TestDoctorCheckDetails_UnreadableSpoolIsPartial guards against reporting a
+// complete inspection with zero pending deliveries while spool files that
+// could not be decoded (and so cannot be attributed to Codex) remain.
+func TestDoctorCheckDetails_UnreadableSpoolIsPartial(t *testing.T) {
+	t.Parallel()
+	root := &RootCLI{codexCaptureDiagnostic: &codexCaptureDiagnosticStub{evidence: apptypes.CodexCaptureDiagnosticEvidence{
+		StoredEvents: 1, StopSessions: 1, StopSessionsWithUsage: 1, UsageObservations: 1, UsageKnown: 1,
+	}}}
+	trust := codexPluginHookTrustResult{Status: codexPluginHookTrustAbsent}
+	clean := root.inspectCodexCapture(context.Background(), t.TempDir(), "", codexPluginHookFallbackState{}, trust, nil, nil, nil)
+	unreadable := root.inspectCodexCapture(context.Background(), t.TempDir(), "", codexPluginHookFallbackState{}, trust, nil, []string{"/spool/corrupt.json"}, nil)
+
+	if got := clean.Details.CodexCapture.Inspection; got != codexCaptureInspectionComplete {
+		t.Fatalf("clean inspection = %q, want complete", got)
+	}
+	got := unreadable.Details.CodexCapture
+	if got.Inspection != codexCaptureInspectionPartial || got.Counts.UnreadableSpoolRecords != 1 {
+		t.Fatalf("unreadable details = %+v counts=%+v, want partial with unreadable_spool_records=1", got, got.Counts)
+	}
+	if unreadable.Status != clean.Status || got.Reason != clean.Details.CodexCapture.Reason {
+		t.Fatalf("classifier changed: status %q/%q reason %q/%q", unreadable.Status, clean.Status, got.Reason, clean.Details.CodexCapture.Reason)
+	}
+	raw, _ := json.Marshal(got)
+	if strings.Contains(string(raw), "corrupt.json") {
+		t.Fatalf("details leaked spool path: %s", raw)
 	}
 }

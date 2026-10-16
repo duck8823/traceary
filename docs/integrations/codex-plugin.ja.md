@@ -179,13 +179,13 @@ canonical workspace identity を使います。
 
 | Field | 値 |
 |---|---|
-| `inspection` | `complete`、`partial` (spool projection が上限を超過。pending 系 counts は下限値)、`read_failed`、`dependencies_unavailable`、`not_inspected` (bounded large-store doctor) |
+| `inspection` | `complete`、`partial` (spool projection が上限を超過、または decode できない spool file が存在。pending 系 counts は下限値)、`read_failed`、`dependencies_unavailable`、`not_inspected` (bounded large-store doctor) |
 | `reason` | 上の reason 表の値、または `diagnostic_read_failed` / `diagnostic_dependencies_unavailable` / `large_store_bounded` |
 | `surface` / `hook_trust` | `plugin_managed_hooks` または `manual_hooks`、および hook trust の状態 |
 | `window_seconds` | commit 済み event 集計の look-back window (`604800`、doctor 実行時点まで) |
 | `boundaries` | `session_start`、`prompt`、`tool`、`compact`、`stop`、`usage` の順の `[{name, state}]` |
 | `usage_state` | `known`、`unavailable_recorded`、`mixed_known_and_unavailable`、`delivery_pending`、`not_observed` |
-| `counts` | `stored_events`、`prompt_turns`、`uncovered_final_turns`、`usage_observations`、`headless_usage_observations`、`stop_sessions`、`stop_sessions_with_usage`、`pending_deliveries`、`unscoped_pending_deliveries` |
+| `counts` | `stored_events`、`prompt_turns`、`uncovered_final_turns`、`usage_observations`、`headless_usage_observations`、`stop_sessions`、`stop_sessions_with_usage`、`pending_deliveries`、`unscoped_pending_deliveries`、`unreadable_spool_records` |
 
 `window_seconds`、`boundaries`、`usage_state`、`counts` は `inspection` が
 `complete` または `partial` のときだけ出力します。それ以外の状態ではゼロで
