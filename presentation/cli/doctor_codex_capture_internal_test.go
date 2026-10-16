@@ -301,6 +301,7 @@ func TestRootCLI_InspectCodexCapture_ReportsSurfaceAndCanonicalEvidence(t *testi
 		},
 		nil,
 		nil,
+		nil,
 	)
 	if check.Status != doctorStatusPass {
 		t.Fatalf("status = %q, want pass: %s", check.Status, check.Message)
@@ -352,6 +353,7 @@ func TestRootCLI_InspectCodexCapture_DoesNotTreatTrustedManifestAsFinalTurnEvide
 			PluginKey: "traceary@traceary-marketplace",
 			Status:    codexPluginHookTrustTrusted,
 		},
+		nil,
 		nil,
 		nil,
 	)

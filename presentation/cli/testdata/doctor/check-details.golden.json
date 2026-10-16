@@ -1,0 +1,257 @@
+[
+  {
+    "case": "complete",
+    "check": "codex-capture",
+    "status": "pass",
+    "details": {
+      "codex_capture": {
+        "inspection": "complete",
+        "reason": "capture_observed",
+        "surface": "plugin_managed_hooks",
+        "hook_trust": "trusted",
+        "window_seconds": 604800,
+        "boundaries": [
+          {
+            "name": "session_start",
+            "state": "stored"
+          },
+          {
+            "name": "prompt",
+            "state": "stored"
+          },
+          {
+            "name": "tool",
+            "state": "not_observed"
+          },
+          {
+            "name": "compact",
+            "state": "not_observed"
+          },
+          {
+            "name": "stop",
+            "state": "stored"
+          },
+          {
+            "name": "usage",
+            "state": "stored"
+          }
+        ],
+        "usage_state": "known",
+        "counts": {
+          "stored_events": 3,
+          "prompt_turns": 1,
+          "uncovered_final_turns": 0,
+          "usage_observations": 1,
+          "headless_usage_observations": 0,
+          "stop_sessions": 1,
+          "stop_sessions_with_usage": 1,
+          "pending_deliveries": 0,
+          "unscoped_pending_deliveries": 0,
+          "unreadable_spool_records": 0
+        }
+      }
+    }
+  },
+  {
+    "case": "empty_evidence",
+    "check": "codex-capture",
+    "status": "warn",
+    "details": {
+      "codex_capture": {
+        "inspection": "complete",
+        "reason": "no_recent_capture_evidence",
+        "surface": "manual_hooks",
+        "hook_trust": "absent",
+        "window_seconds": 604800,
+        "boundaries": [
+          {
+            "name": "session_start",
+            "state": "not_observed"
+          },
+          {
+            "name": "prompt",
+            "state": "not_observed"
+          },
+          {
+            "name": "tool",
+            "state": "not_observed"
+          },
+          {
+            "name": "compact",
+            "state": "not_observed"
+          },
+          {
+            "name": "stop",
+            "state": "not_observed"
+          },
+          {
+            "name": "usage",
+            "state": "not_observed"
+          }
+        ],
+        "usage_state": "not_observed",
+        "counts": {
+          "stored_events": 0,
+          "prompt_turns": 0,
+          "uncovered_final_turns": 0,
+          "usage_observations": 0,
+          "headless_usage_observations": 0,
+          "stop_sessions": 0,
+          "stop_sessions_with_usage": 0,
+          "pending_deliveries": 0,
+          "unscoped_pending_deliveries": 0,
+          "unreadable_spool_records": 0
+        }
+      }
+    }
+  },
+  {
+    "case": "partial",
+    "check": "codex-capture",
+    "status": "warn",
+    "details": {
+      "codex_capture": {
+        "inspection": "partial",
+        "reason": "spool_projection_partial",
+        "surface": "manual_hooks",
+        "hook_trust": "absent",
+        "window_seconds": 604800,
+        "boundaries": [
+          {
+            "name": "session_start",
+            "state": "not_observed"
+          },
+          {
+            "name": "prompt",
+            "state": "not_observed"
+          },
+          {
+            "name": "tool",
+            "state": "not_observed"
+          },
+          {
+            "name": "compact",
+            "state": "not_observed"
+          },
+          {
+            "name": "stop",
+            "state": "not_observed"
+          },
+          {
+            "name": "usage",
+            "state": "not_observed"
+          }
+        ],
+        "usage_state": "not_observed",
+        "counts": {
+          "stored_events": 2,
+          "prompt_turns": 0,
+          "uncovered_final_turns": 0,
+          "usage_observations": 0,
+          "headless_usage_observations": 0,
+          "stop_sessions": 0,
+          "stop_sessions_with_usage": 0,
+          "pending_deliveries": 0,
+          "unscoped_pending_deliveries": 0,
+          "unreadable_spool_records": 0
+        }
+      }
+    }
+  },
+  {
+    "case": "read_failed",
+    "check": "codex-capture",
+    "status": "fail",
+    "details": {
+      "codex_capture": {
+        "inspection": "read_failed",
+        "reason": "diagnostic_read_failed",
+        "surface": "plugin_managed_hooks",
+        "hook_trust": "trusted"
+      }
+    }
+  },
+  {
+    "case": "spool_read_failed",
+    "check": "codex-capture",
+    "status": "fail",
+    "details": {
+      "codex_capture": {
+        "inspection": "read_failed",
+        "reason": "diagnostic_read_failed",
+        "surface": "plugin_managed_hooks",
+        "hook_trust": "trusted"
+      }
+    }
+  },
+  {
+    "case": "dependencies_unavailable",
+    "check": "codex-capture",
+    "status": "warn",
+    "details": {
+      "codex_capture": {
+        "inspection": "dependencies_unavailable",
+        "reason": "diagnostic_dependencies_unavailable",
+        "surface": "plugin_managed_hooks",
+        "hook_trust": "trusted"
+      }
+    }
+  },
+  {
+    "case": "large_store_not_inspected",
+    "check": "codex-capture",
+    "status": "skip",
+    "details": {
+      "codex_capture": {
+        "inspection": "not_inspected",
+        "reason": "large_store_bounded",
+        "surface": "plugin_managed_hooks",
+        "hook_trust": "trusted"
+      }
+    }
+  },
+  {
+    "case": "host_capabilities",
+    "check": "codex-host-capabilities",
+    "status": "pass",
+    "details": {
+      "host_capabilities": {
+        "schema_version": 1,
+        "source": "application/hostcoverage",
+        "last_verified": "2026-09-06",
+        "host": "codex",
+        "package": "plugins/traceary",
+        "events": [
+          {
+            "id": "session_started",
+            "status": "wired"
+          },
+          {
+            "id": "prompt",
+            "status": "wired"
+          },
+          {
+            "id": "command_executed",
+            "status": "wired"
+          },
+          {
+            "id": "transcript",
+            "status": "wired"
+          },
+          {
+            "id": "compact_summary",
+            "status": "wired"
+          },
+          {
+            "id": "session_ended",
+            "status": "unsupported"
+          },
+          {
+            "id": "consolidation_request",
+            "status": "wired"
+          }
+        ]
+      }
+    }
+  }
+]

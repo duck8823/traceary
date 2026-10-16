@@ -57,6 +57,7 @@ type codexCaptureEvidence struct {
 	PendingDeliveries         int
 	UnscopedDeliveries        int
 	SpoolPartial              bool
+	UnreadableSpoolRecords    int
 	StoredBoundaries          map[string]bool
 	PendingBoundaries         map[string]bool
 }
@@ -83,15 +84,12 @@ func (c *RootCLI) inspectCodexCapture(
 	pluginState codexPluginHookFallbackState,
 	trust codexPluginHookTrustResult,
 	spoolRecords []hookSpoolRecord,
+	spoolUnreadable []string,
 	spoolErr error,
 ) doctorCheck {
 	workspace := resolveDoctorEventCoverageWorkspace(ctx, projectDir)
-	surface := "manual_hooks"
-	if pluginState.PluginEnabled {
-		surface = "plugin_managed_hooks"
-	}
 	identity := codexCaptureIdentity{
-		Surface:         surface,
+		Surface:         codexCaptureSurface(pluginState),
 		PluginKey:       pluginState.PluginKey,
 		HookTrust:       string(trust.Status),
 		TracearyVersion: currentVersion,
@@ -105,7 +103,8 @@ func (c *RootCLI) inspectCodexCapture(
 			Name:   codexCaptureCheckName,
 			Status: doctorStatusWarn,
 			Message: formatCodexCaptureIdentity(identity) +
-				" reason=diagnostic_dependencies_unavailable",
+				" reason=" + codexCaptureReasonDependencies,
+			Details: newCodexCaptureUninspectedDetails(identity, codexCaptureInspectionDependencies, codexCaptureReasonDependencies),
 		}
 	}
 
@@ -147,6 +146,9 @@ func (c *RootCLI) inspectCodexCapture(
 	projected, unscoped, projectionPartial := projectCodexSpoolMetadata(ctx, spoolRecords, workspace)
 	evidence.UnscopedDeliveries = unscoped
 	evidence.SpoolPartial = projectionPartial
+	// Unreadable spool files cannot be attributed to a client, so pending
+	// counts are a lower bound; details report the inspection as partial.
+	evidence.UnreadableSpoolRecords = len(spoolUnreadable)
 	for _, pending := range projected {
 		evidence.PendingDeliveries++
 		for _, boundary := range codexSpoolBoundaries(pending.Command, pending.Action) {
@@ -172,6 +174,7 @@ func (c *RootCLI) inspectCodexCapture(
 			evidence.PendingDeliveries,
 			evidence.UnscopedDeliveries,
 		),
+		Details: newCodexCaptureInspectedDetails(identity, classification, evidence, stored.PromptTurns),
 	}
 	switch classification.Reason {
 	case codexCaptureReasonSpool:
@@ -227,7 +230,8 @@ func codexCaptureFailure(identity codexCaptureIdentity, message string) doctorCh
 	return doctorCheck{
 		Name:    codexCaptureCheckName,
 		Status:  doctorStatusFail,
-		Message: formatCodexCaptureIdentity(identity) + " reason=diagnostic_read_failed error=" + message,
+		Message: formatCodexCaptureIdentity(identity) + " reason=" + codexCaptureReasonReadFailed + " error=" + message,
+		Details: newCodexCaptureUninspectedDetails(identity, codexCaptureInspectionReadFailed, codexCaptureReasonReadFailed),
 	}
 }
 
@@ -391,4 +395,24 @@ func formatCodexBoundaryStates(states map[string]string) string {
 		values = append(values, boundary+":"+states[boundary])
 	}
 	return strings.Join(values, ",")
+}
+
+// skippedLargeStoreCodexCaptureCheck keeps codex-capture visible on the bounded
+// large-store path as an explicit skip, so its absence is never read as
+// missing or successful capture evidence.
+func skippedLargeStoreCodexCaptureCheck(
+	pluginState codexPluginHookFallbackState,
+	trust codexPluginHookTrustResult,
+) doctorCheck {
+	identity := codexCaptureIdentity{Surface: codexCaptureSurface(pluginState), HookTrust: string(trust.Status)}
+	check := skippedLargeStoreDoctorCheck(codexCaptureCheckName)
+	check.Details = newCodexCaptureUninspectedDetails(identity, codexCaptureInspectionNotInspected, codexCaptureReasonNotInspected)
+	return check
+}
+
+func codexCaptureSurface(pluginState codexPluginHookFallbackState) string {
+	if pluginState.PluginEnabled {
+		return "plugin_managed_hooks"
+	}
+	return "manual_hooks"
 }

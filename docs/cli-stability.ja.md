@@ -40,7 +40,7 @@ v0.15 以降に追加された互換 alias も含む現在の公開コマンド�
 - **durable memory inbox** — `traceary memory inbox list`、`traceary memory inbox show`、`traceary memory inbox accept`、`traceary memory inbox reject`、`traceary memory inbox attach`、`traceary memory inbox cleanup`、`traceary memory inbox restore`、`traceary memory inbox review`（TTY のみ）
 - **durable memory store** — `traceary memory store propose`、`traceary memory store distill`
 - **hooks** — `traceary hooks install`（`--dry-run` を含む）、`traceary completion`（`bash` / `zsh` / `fish` / `powershell`）
-- **診断** — `traceary doctor`（alias `traceary status`、additive な `store-capacity` check と `--json` の `workspace_identity` ブロックを含む）、`traceary report`
+- **診断** — `traceary doctor`（alias `traceary status`、additive な `store-capacity` check と `--json` の `workspace_identity` ブロック、check ごとの任意の `details` オブジェクトを含む）、`traceary report`
 - **bundle import / export** — `traceary bundle export`、`traceary bundle import`
 
 `traceary doctor` の JSON envelope（`sections` / `summary` / `exit_code` / 各 check のフィールド）、`traceary list --blocks --json`（`workspace_breakdown`。旧 `traceary timeline --json`）、`traceary context --handoff` の構造化テキストのフィールドラベル（旧 `traceary session handoff`）はいずれも公開契約の一部です。これらは `presentation/cli/testdata/` で golden test により固定されています。詳細は [JSON / snapshot contract test](./operations/json-contract-tests.ja.md) を参照してください。

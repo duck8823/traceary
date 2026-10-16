@@ -168,6 +168,43 @@ If a local path alias returns no session or events, rerun the CLI read with the
 `workspace=` value printed by `codex-capture`. `list`, the usage aggregate,
 and this diagnostic all use that canonical workspace identity.
 
+### Structured diagnostics (`details.codex_capture`)
+
+`doctor --json` also attaches an optional `details.codex_capture` object to the
+`codex-capture` check so tools (for example a desktop client) do not have to
+parse the localized `message`. Machine fields are identical in English and
+Japanese; the existing `name` / `status` / `severity` / `message` / `hint` and
+exit codes are unchanged. A missing `details` block means "not available":
+fall back to `status`.
+
+| Field | Values |
+|---|---|
+| `inspection` | `complete`, `partial` (spool projection exceeded its bound, or undecodable spool files exist; pending counts are a lower bound), `read_failed`, `dependencies_unavailable`, `not_inspected` (bounded large-store doctor) |
+| `reason` | the reason table above, or `diagnostic_read_failed` / `diagnostic_dependencies_unavailable` / `large_store_bounded` |
+| `surface` / `hook_trust` | `plugin_managed_hooks` or `manual_hooks`; the hook-trust status |
+| `window_seconds` | look-back window of the committed-event aggregates (`604800`, ending at doctor run time) |
+| `boundaries` | `[{name, state}]` in the order `session_start`, `prompt`, `tool`, `compact`, `stop`, `usage` |
+| `usage_state` | `known`, `unavailable_recorded`, `mixed_known_and_unavailable`, `delivery_pending`, `not_observed` |
+| `counts` | `stored_events`, `prompt_turns`, `uncovered_final_turns`, `usage_observations`, `headless_usage_observations`, `stop_sessions`, `stop_sessions_with_usage`, `pending_deliveries`, `unscoped_pending_deliveries`, `unreadable_spool_records` |
+
+`window_seconds`, `boundaries`, `usage_state`, and `counts` appear only when
+`inspection` is `complete` or `partial`. Other states omit them rather than
+reporting zeros, so a failed or skipped inspection is never read as "no
+capture". On stores at or above 2 GiB the default doctor emits `codex-capture`
+as an explicit `skip` with `inspection: not_inspected`. The object carries no
+workspace path, session IDs, prompt/transcript bodies, or tool input/output.
+
+These fields are evidence that native Codex hooks were **recorded** in this
+workspace window. They are not a process-alive signal and do not mean Codex is
+working, waiting for input, or waiting for approval.
+
+Do not poll doctor as a heartbeat: a run may initialize the store, apply
+migrations, and probe host configuration and installed packages. A desktop
+client should run it on explicit user action, at startup, or after a hook
+install/update, with `--client codex --project-dir <workspace> --json
+--warnings-ok`, one run at a time, and never against a store it is also
+compacting or migrating.
+
 ## Verified usage capture
 
 On each trusted interactive Codex `Stop`, Traceary reads the matching local rollout JSONL under `CODEX_HOME/sessions` (or `~/.codex/sessions`). A turn begins at `turn_context` and ends at the matching `task_complete` or `turn_aborted`. Traceary subtracts the last cumulative `token_count.info.total_token_usage` before the turn from the final cumulative snapshot at the terminal boundary. Intermediate and compaction snapshots replace earlier snapshots; they are never added together. Each token dimension is independent: a reported non-negative dimension (including zero) remains known, while an omitted dimension remains unavailable. A negative value or a decrease in any dimension known in both snapshots makes the turn an excluded `unavailable` observation; Traceary never creates a negative delta. A missing baseline or terminal snapshot, or an ambiguous boundary, also makes the turn unavailable. A terminal without a snapshot also invalidates attribution for the following turn; that following terminal snapshot can establish a fresh baseline only for later turns.
