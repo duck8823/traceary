@@ -492,9 +492,18 @@ final-head CI still apply; native gates cannot be replaced by documentation chec
 - [ ] Full five-host native interaction/approval/binding probes.
 - [ ] Equivalent native UI measurements and all manual mandatory gates.
 - [x] Independent Anthropic/Claude packet review completed; findings are triaged, not treated as approval.
-- [ ] Final-delta independent review and maintainer architecture adoption decision.
+- [x] Final-delta Anthropic/Claude review of `5b0b41d6` on 2026-10-18; its lexical/ledger conditions are verified separately by the main session.
+- [ ] Maintainer architecture/framework adoption decision.
+- [ ] Full D0 acceptance and Status change to Accepted.
 - [x] D1–D10 planning child issues created with ownership, dependencies, positive/negative acceptance, validation and rollback; implementation remains blocked on D0 acceptance.
-- [ ] ADR merged after verified acceptance and independent review. For this PR only, the maintainer explicitly authorized this main session to perform restoration, validation, review, fixes, merge and cleanup; the earlier human-UI-only delivery restriction is replaced, not the acceptance gates.
+Proposed-document delivery: on 2026-10-18 the maintainer explicitly authorized
+this main session to restore, validate, arrange independent review, fix, merge
+and clean up this PR, replacing the earlier human-UI-only delivery restriction.
+The maintainer also explicitly allowed a PR-specific closing-rule exception for
+Proposed integration with #2424/#2414 open. The bounded documentation checkpoint
+is tracked separately as #2440; no native acceptance or architecture adoption is
+implied. Integration status is the actual PR #2429 history, not a D0-acceptance
+checkbox in this document.
 
 Do not close #2424 or claim certification while these gates remain open.
 

@@ -101,7 +101,6 @@ renderer IPC は別の allowlist とし、sender/frame、schema、対象 resourc
 
 実装前の上限案は frame 64 KiB、CLI の単調時計で追加配送全体 250 ms、daemon 所有 queue 256 frame かつ 8 MiB とする。
 60 秒は後述の投影 TTL であり、source からの配送 age の保証ではない。
-host contract がより短い上限を要求する場合はそれを使う。
 超過や切断では Capture health を degraded、Interaction を unknown とする。
 agent をブロックせず、hook 判断の stdout を書き換えず、既存履歴と spool の配送を妨げない。
 これらは現行 CLI の保証ではなく提案値である。
@@ -333,7 +332,7 @@ rollback は任意の Desktop 機能を停止し、既存 CLI/hooks/history/memo
 ### 鮮度、identity、帰属
 
 - 250 ms の配送予算は CLI 内の任意処理だけを単調時計で制限する。daemon は受信時の単調時刻を記録し、host と daemon の wall clock を比較しない。host 時刻は診断用であり、受信時刻から callback の配送遅延は証明できない。generation/turn/因果順の証拠が不足する callback は unknown とする。
-- live interaction の TTL は、working と waiting の両方で、最初に受理した非重複観測から保守的に 60 秒とする。重複では更新しない。期限後は unknown とし、時刻付きの「最後に観測した待機・stale」を別の Attention 表示として保持できるが、現在の待機や権限とは扱わない。長い待機には新しい証拠が必要であり、合成 expiry 回帰テストもこの仕様に従う。
+- live interaction の TTL は、working と waiting の両方で、最初に受理した非重複観測から保守的に 60 秒とする。重複では更新しない。期限後は unknown とし、時刻付きの「最後に観測した待機・stale」を別の Attention 表示として保持するが、現在の待機や権限とは扱わない。長い待機には新しい証拠が必要であり、合成 expiry 回帰テストもこの仕様に従う。
 - 後続の受理済み観測、process 終了、epoch/generation 変更、sleep/wake、cursor gap で従前の投影を無効化する。reconciliation は新しい因果関係付き native 観測を受理するまで unknown とすることを意味する。履歴 replay、heartbeat、単なる process 生存では復元しない。
 - adapter の event identity は、証明できる native event/request identity と run/generation/epoch を含む。内容 hash だけで別 turn を重複にしない。identity/順序を区別できなければ unknown とし、捏造した重複排除をしない。unbound 観測は run/pane を更新せず、その Attention を発火しない。投影は権限を一切生成しない。
 
@@ -423,9 +422,14 @@ auto-start は opt-in のままとする。
 - [ ] 五ホストの native interaction/approval/binding 検証。
 - [ ] 同等条件の native UI 計測とすべての必須手動 gate。
 - [x] 独立した Anthropic/Claude の packet レビューを実施。指摘は分類し、承認とは扱わない。
-- [ ] 最終差分の独立レビューとユーザーによる設計採用判断。
+- [x] 2026-10-18 に `5b0b41d6` の最終差分を独立した Anthropic/Claude がレビュー。文言・台帳の条件修正は主担当が別に確認する。
+- [ ] ユーザーによる architecture/framework の採用判断。
+- [ ] D0 全体の受入と Status の Accepted への変更。
 - [x] ownership、依存、正負の受入条件、検証、rollback 付き D1–D10 計画 sub-issue を作成。D0 受入までは実装禁止。
-- [ ] 受入条件と独立レビューを確認した ADR merge。今回の PR に限り、ユーザーは主担当による復元・検証・独立レビュー・修正・merge・後片付けを明示承認した。従前の本人 UI 限定経路を置き換えるが、受入条件は免除しない。
+提案文書の delivery：2026-10-18 に、ユーザーは今回の PR に限り、主担当による復元・検証・独立レビューの手配・修正・merge・後片付けを明示承認し、従前の本人 UI 限定経路を置き換えた。
+ユーザーはさらに、#2424/#2414 を開いたまま提案成果を統合する今回限定の closing 規則例外も明示承認した。
+有界な文書 checkpoint は別途 #2440 で管理し、native 受入や architecture 採用とは扱わない。
+統合状態の正本は PR #2429 の実際の履歴であり、本書の D0 受入 checkbox ではない。
 
 未完了 gate がある間は #2424 を閉じず、認定完了と報告しない。
 

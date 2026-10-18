@@ -258,7 +258,19 @@
         "SHOULD": 18,
         "NIT": 11
       },
-      "final_delta_review": "pending",
+      "final_delta_review": {
+        "status": "completed_with_lexical_conditions",
+        "input_head": "5b0b41d6ceb386cc46aff62a38e7ea4ef83dfcbf",
+        "date": "2026-10-18",
+        "result_sha256": "7d690c08521767459247f34e734d461eb33f96ca9e696ca8b60f08d8fb2dc557",
+        "must_findings": [
+          "MUST-A ledger/delivery/approval separation",
+          "MUST-B Japanese TTL/stale Attention parity"
+        ],
+        "resolution": "Separate reviewed ledger from architecture adoption and actual PR merge history; record dated exact maintainer authorization; remove stale shorter-TTL clause; make stale Attention retention mandatory. No runtime behavior or acceptance gate is waived.",
+        "validated_commands": [],
+        "approval_scope": "conditional Proposed docs-only integration, not D0 acceptance"
+      },
       "approval": false,
       "model_usage_keys": [
         "claude-opus-5-5"
@@ -373,5 +385,22 @@
     "implementation_children": "blocked until all missing native gates and explicit adoption decision",
     "historical_stage_complete": "trial/report ended, not acceptance or fixture delivery",
     "threshold_policy": "frozen for recorded protocol; no post-measurement relaxation"
+  },
+  "deliveryAuthorization": {
+    "date": "2026-10-18",
+    "source": "explicit maintainer messages in this thread",
+    "main_session_actions": [
+      "restore",
+      "validate",
+      "arrange independent review",
+      "fix",
+      "merge",
+      "cleanup"
+    ],
+    "replaces": "human-UI-only delivery for this PR",
+    "proposed_document_integration_explicitly_approved": true,
+    "original_D0_remains_open": true,
+    "documentation_sub_issue": 2440,
+    "full_D0_or_framework_adoption": false
   }
 }
