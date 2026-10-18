@@ -47,7 +47,7 @@ Traceary certification evidence. See [sources](#sources).
 | Generation | Fresh launch/restart identity; includes daemon epoch | Old generation cannot overwrite a new run |
 | Binding | Immutable launch descriptor and validated native-session association | Ambiguous or foreign associations remain unbound |
 | Observation | Versioned host evidence with source, receipt time, host time if present, native turn/request IDs and event identity | Missing ordering evidence is not invented |
-| Projection | Pure interpretation of a run's accepted observations | Duplicate, stale or conflicting evidence cannot create a permission grant |
+| Projection | Pure interpretation of a run's accepted observations | Produces display state only; never creates any authority |
 | Review snapshot | Immutable old/new content and anchor identity | Changed content requires explicit reanchoring before submit |
 
 Keep five axes independent: process (`launching/running/exited/unknown`),
@@ -84,9 +84,10 @@ Native hook handlers call a narrow Traceary observation intake; its command name
 and schema remain proposed until their own public-contract implementation PR.
 
 Environment is a routing hint, not authorization. Muse's local echo probe shows
-that an arbitrary launch variable does **not** reach its hooks. Where supported,
-use a per-invocation native hook configuration carrying an owner-private binding
-descriptor path; no global config replacement. The descriptor binds store,
+that an arbitrary launch variable does **not** reach its hooks. Per-invocation
+native hook configuration carrying an owner-private binding descriptor path is
+a candidate only, not adopted until each host passes native validation; never
+replace global configuration. The proposed descriptor binds store,
 canonical worktree, host executable/version, run, generation and daemon epoch.
 Native session/turn IDs are associated after validation, not trusted as secrets.
 Descriptor paths and public run IDs do not grant input/stop authority.
@@ -115,8 +116,9 @@ allowlisted surface with sender/frame validation, schema validation and resource
 binding. No generic shell/file/socket method is exposed.
 
 Proposed bounds before implementation: observation frame 64 KiB; 250 ms total
-optional delivery budget; 256 pending frames and 8 MiB total queue; 60-second
-maximum live-observation age unless a narrower host contract requires less.
+optional delivery budget measured on the CLI monotonic clock; daemon-owned
+queue bounded by both 256 frames and 8 MiB. The 60-second projection TTL is
+defined below; it is not a guarantee about source-to-daemon delivery age.
 Overflow/disconnect makes capture health degraded and interaction unknown;
 it does not block the agent, overwrite hook decision stdout, or suppress existing
 history/spool delivery. These values are proposals, not current CLI guarantees.
@@ -155,7 +157,7 @@ do not introduce a competing spool drain without claim/lease design.
 ## Host capability matrix and evidence classification
 
 `D` means an official moving documentation source; `N` means an observed native
-binary result; `F` means deterministic/local echo fixture. None means certified
+binary result; `F` means synthetic/local echo fixture. None of these classes alone certifies
 interactive behavior. Each cell cites the source key below; unknown is deliberate.
 
 | Host and installed version | Working evidence | Input-wait evidence | Approval-wait evidence | Turn boundary | Process exit |
@@ -163,7 +165,7 @@ interactive behavior. Each cell cites the source key below; unknown is deliberat
 | Claude Code 2.1.302 (N0) | Prompt/tool hooks (D1); native unknown | Notification subtype (D1), delayed; native unknown | `permission_prompt` (D1); request alone insufficient; native unknown | Stop (D1); native unknown | Child wait only; hook alone unknown |
 | Codex 0.163.0 (N0) | Prompt/tool hooks (D2); native unknown | Dedicated proof unknown (D2) | PermissionRequest is telemetry, human visibility unknown (D2,D6) | Stop (D2); native unknown | Child wait only; hook alone unknown |
 | Antigravity CLI 1.4.0 (N0) | Invocation/tool hooks (D3); native unknown | `fullyIdle` alone does not prove input acceptance (D3) | Unknown (D3) | Stop plus `fullyIdle` (D3); native unknown | Child wait only; hook alone unknown |
-| Muse Code 1.4.10-R6427.1 (N0) | PreLLMCall observed in echo only (F1,D4) | Unknown; Stop does not prove it (F1,D4) | Notification documented (D4); native unknown | Stop observed in echo (F1) | SessionEnd not observed in F1; child wait only |
+| Muse Code 1.4.10-R6427.1 (N0) | PreLLMCall observed in echo only (F1,D4) | Unknown; Stop does not prove it (F1,D4) | Notification documented (D4); native unknown | Stop observed in echo only; Meta-provider behavior unknown (F1) | SessionEnd not observed in F1; child wait only |
 | Grok Build 1.0.62 (1474f9cbdd91) (N0) | Prompt/tool hooks (D5); native unknown | `idle_prompt` documented on main, installed-version behavior unknown (D5) | `permission_prompt` documented on main, native unknown (D5) | Stop documented (D5); native unknown | Child wait only; hook alone unknown |
 
 N0: real binary `--version` and `--help` in an empty project/HOME; not interaction
@@ -238,15 +240,18 @@ Use the same bundled frontend, three 80x12 terminals, 1,000-line scrollback,
 2 MiB in-flight cap per terminal, 1 MiB/s per terminal for 60 seconds, 200 resizes,
 and 100,000 generated diff input lines with an explicit 5,000-line preview.
 
-Proposed fixed thresholds: startup descriptive p95 <=3 s over five launches,
+Thresholds frozen for the recorded protocol (not adjustable after results): startup descriptive p95 <=3 s over five launches,
 interaction p95 <=100 ms, idle mean <=5% of one logical CPU over 60 s, total
 application RSS excluding agents <=1 GiB. Five samples do not establish
-statistical confidence. Record process trees including WebKit helpers; renderer
+statistical confidence; nearest-rank p95 at n=5 is the maximum (in these
+trials, the initial launch), not proof of a cold filesystem cache. Record process trees including WebKit helpers; renderer
 event-loop delay is not a substitute for native input latency. Package size must
 compare equivalent packaged builds, not one executable against an entire runtime.
 
-**No framework adoption yet.** Native Japanese IME commit/cancel, TUI/Unicode,
-clipboard, VoiceOver, multiple monitors, close/reopen, sleep/wake and fault tests
+**Implementation decision: no-go; neither framework is adopted.** D1–D10
+remain blocked until the missing native gates are resolved and a new explicit
+adoption decision is accepted. This negative checkpoint is not completed D0. Native Japanese IME commit/cancel, TUI/Unicode,
+clipboard, VoiceOver, multiple monitors, close/reopen and menus, sleep/wake and fault tests
 are mandatory. A successful build, renderer screenshot or synthetic throughput
 does not pass them. Spike code stays outside production packages and is not
 merged as product implementation. Do not revise failed thresholds after measuring.
@@ -265,6 +270,8 @@ only; there was no distribution.
 | Packaged fresh-process ready descriptive p95, 5 launches | 2,724.65 ms | 1,483.88 ms |
 | Uncompressed regular-file bytes in equivalent fixture app bundle | 305,440,958 | 11,240,190 |
 | Direct-binary trial: delivered terminal bytes / required 188,743,680 | 188,743,680 | 20,761,881 |
+| Direct-binary trial: resize count / required 200 | 200 | 66 |
+| Direct-binary renderer event-loop delay p95 (not input latency) | 1.10 ms | 1,072 ms |
 | Packaged trial: delivered terminal bytes / required 188,743,680 | 88,395,012 | 181,509,198 |
 | Packaged resize count / required 200 | 200 | 200 |
 | Packaged renderer event-loop delay p95 (not native input latency) | 2.30 ms | 8.00 ms |
@@ -274,7 +281,7 @@ focus/App Nap/timer behavior was not controlled, and a read-only CUA window
 observation occurred during the Electron packaged trial. The direct and packaged
 results differ substantially. These runs cannot establish a framework speed
 ranking or a passing 3 MiB/s terminal path. The generator uses timer-driven writes,
-not a real PTY stream; the next trial needs a controlled producer and explicit
+not a real PTY stream; the next trial needs a controlled real-PTY producer and explicit
 foreground/background cases. Do not reduce the workload to declare a pass.
 
 `ps` samples cover the app and discoverable descendants only; detached OS WebKit
@@ -283,6 +290,28 @@ time. Neither these samples nor the main-function readiness phase certify the
 total CPU/RSS/native-input gates. External readiness uses process-to-report
 monotonic time, with 10 ms polling for quick launches; filesystem caches were not
 flushed. Native screenshots confirmed drawing only, not IME or VoiceOver.
+
+### Revised native PTY fixture
+
+A protocol fixed before this second trial retained the original three terminals,
+1 MiB/s per terminal for 60 seconds, 2 MiB source queue per terminal, 200 resizes
+and bounded 5,000-line diff preview. A local broker reads three real raw PTYs;
+the renderer awaits each bounded read and xterm write acknowledgement. Both
+direct native variants delivered all 188,743,680 bytes with zero reported drops,
+200 resizes and source EOF, in 60,281.4 ms (Electron) / 60,269 ms (Wails).
+Terminal write-ack p95 was 22.60 ms / 10.00 ms, respectively; this is not native
+input latency or a fair framework ranking. Same-UID/path/protocol/UTF-8 smoke
+tests passed twice (two cases); cross-UID resistance was not tested.
+
+This fixes the earlier timer-producer delivery defect without reducing the load.
+It does not replace equivalent packaged reruns, complete process CPU/RSS, native
+TUI/IME/clipboard/accessibility or crash/sleep-wake tests. A repeated CUA launch
+of the isolated manual fixture returned `timeoutReached`, so no manual pass is
+claimed and no alternate GUI driver or OS-security workaround was used. A read-only
+code-signature check subsequently found an incomplete signature on the copied
+self-authored manual app. Normal ad-hoc development signing and strict signature
+verification succeeded, but CUA still returned `timeoutReached`. The cause of
+the remaining launch failure is unknown; no OS protection was disabled.
 
 ## Behavior tests and TDD plan
 
@@ -312,22 +341,24 @@ not cover the real daemon, native causality, peer identity, sockets or store lea
 
 ## Implementation issue plan and rollout
 
-Create sub-issues only after the D0 decision; no requirement is silently waived.
+Planning sub-issues exist under #2414 but remain explicitly blocked on D0
+acceptance and a framework decision. Their creation is not implementation
+approval or native certification; no requirement is silently waived.
 Every issue has one owning writer, a dedicated branch/draft PR, positive/negative
 acceptance, exact validation commands and a rollback section.
 
 | Package | Dependencies | Acceptance focus / rollback |
 |---|---|---|
-| D1 Native read-only shell | D0 | Approved panes; bounded Audit/History/Memory; disable UI only |
-| D2 Project/worktree registry | D1 | Canonical paths, missing/duplicate targets; retain existing worktrees |
-| D3 Managed daemon/PTY (split launch and reconnect) | D0,D2 | Real CLI, detach/reattach, bounded output, explicit stop; no forced cleanup |
-| D4 Host observations/Attention (split reducer and adapters) | D3 | Five versioned hosts, unknown, ordering/binding/fault tests; disable observation |
-| D5 New worktree flow | D2,D3 | Branch/path collision and partial failure; no force delete |
-| D6 Immutable diff | D2 | Staged/unstaged/untracked, rename/delete/binary/large files; retain snapshots/drafts |
-| D7 Review and safe Submit | D4,D6 | Stale anchors, target revalidation, manual fallback, uncertain receipts; disable sending |
-| D8 Memory/refinement mutations | D1 | Explicit adoption, scope/source/coverage, existing recovery; disable Desktop writes |
-| D9 Native QA/internal beta | D4,D5,D7,D8 | Security/native E2E/fault and compatibility evidence on integrated SHA; no automatic publication |
-| D10 More OS/hosts | D9 | Separate OS/version certification; unsupported stays unknown |
+| [D1](https://github.com/duck8823/traceary/issues/2430) Native read-only shell | D0 | Approved panes; bounded Audit/History/Memory; disable UI only |
+| [D2](https://github.com/duck8823/traceary/issues/2431) Project/worktree registry | [D1](https://github.com/duck8823/traceary/issues/2430) | Canonical paths, missing/duplicate targets; retain existing worktrees |
+| [D3](https://github.com/duck8823/traceary/issues/2432) Managed daemon/PTY (split launch and reconnect) | D0,D2 | Real CLI, detach/reattach, bounded output, explicit stop; no forced cleanup |
+| [D4](https://github.com/duck8823/traceary/issues/2433) Host observations/Attention (split reducer and adapters) | [D3](https://github.com/duck8823/traceary/issues/2432) | Five versioned hosts, unknown, ordering/binding/fault tests; disable observation |
+| [D5](https://github.com/duck8823/traceary/issues/2434) New worktree flow | D2,D3 | Branch/path collision and partial failure; no force delete |
+| [D6](https://github.com/duck8823/traceary/issues/2435) Immutable diff | [D2](https://github.com/duck8823/traceary/issues/2431) | Staged/unstaged/untracked, rename/delete/binary/large files; retain snapshots/drafts |
+| [D7](https://github.com/duck8823/traceary/issues/2436) Review and safe Submit | D4,D6 | Stale anchors, target revalidation, manual fallback, uncertain receipts; disable sending |
+| [D8](https://github.com/duck8823/traceary/issues/2437) Memory/refinement mutations | [D1](https://github.com/duck8823/traceary/issues/2430) | Explicit adoption, scope/source/coverage, existing recovery; disable Desktop writes |
+| [D9](https://github.com/duck8823/traceary/issues/2438) Native QA/internal beta | D4,D5,D7,D8 | Security/native E2E/fault and compatibility evidence on integrated SHA; no automatic publication |
+| [D10](https://github.com/duck8823/traceary/issues/2439) More OS/hosts | [D9](https://github.com/duck8823/traceary/issues/2438) | Separate OS/version certification; unsupported stays unknown |
 
 First technical slice: register existing worktree -> real CLI -> terminal ->
 detach/reconnect -> evidence-labelled state. Then add diff and review drafts.
@@ -339,6 +370,118 @@ memory intact. No existing store migration is introduced. A future required
 commit cursor/schema change gets its own compatibility checkpoint and full-store
 backup/restore plan; old binaries are not assumed to read a new schema.
 
+## Normative clarifications from independent review
+
+These are proposed contracts, not implemented guarantees or D0 adoption.
+
+### Freshness, identity and attribution
+
+- Delivery budget (250 ms) bounds only optional CLI work. Daemon receipt records
+  its monotonic time, not a comparison of host and daemon wall clocks. Host time
+  is diagnostic. Receipt time cannot prove how long a callback was delayed. A
+  callback lacking sufficient generation/turn/causality evidence stays unknown.
+- Live interaction has a conservative 60-second TTL from the first accepted
+  nonduplicate observation, for working **and waiting** states. Duplicates never
+  refresh it. At expiry show unknown; preserve a separately labelled stale
+  “last observed waiting” Attention item and its timestamp, not a current wait
+  or authorization. Long-lived waiting cannot remain authoritative without new
+  evidence. This explicitly matches the synthetic expiry regression.
+- Later accepted observations, process exit, changed epoch/generation, sleep/wake
+  and cursor gaps invalidate prior projection. Reconciliation means unknown
+  until a new accepted, causally bound native observation; history replay,
+  heartbeat and mere process liveness do not restore it.
+- Adapter event identity must include native event/request identity plus run,
+  generation and epoch, where provable. Content hashes alone cannot collapse
+  repeated turns. If identity/order cannot be distinguished, mark ambiguity
+  unknown rather than inventing deduplication. Unbound observations never update
+  a run/pane or trigger its Attention. Projection never creates authority.
+
+### Binding and hook composition matrix
+
+| Host | Environment / per-run configuration / prechosen session binding | Hook composition |
+|---|---|---|
+| Claude | Native unknown | Native unknown |
+| Codex | Native unknown | Native unknown |
+| Antigravity | Native unknown | Native unknown |
+| Muse | Environment lost; per-run literal correlated in F2 echo only; native provider unknown | Native global/per-run merge unknown |
+| Grok | Native unknown | Native unknown |
+
+Unknown binding permits history/unbound display only, not managed live
+interaction. Prefer one existing handler receiving binding over adding a second
+recording hook. Test additive/override semantics per host and reject suppression
+or duplicate history capture. D4 certifies exact host versions initially; an
+auto-update loses certification until re-probed. No compatible range is inferred.
+The user may explicitly select an existing custom executable by absolute path;
+Desktop does not silently unwrap, replace or create it.
+
+### Transport and input safety
+
+Both CLI and daemon verify the connected peer UID. Validate every path component
+from the user-owned state root; reject symlinks/unsafe ownership or permissions.
+Create the private runtime directory with 0700, bind under umask 077, revalidate
+path/socket ownership and inode after bind/connect and reject detected races.
+Component checks alone are not a proof against same-UID TOCTOU; implementation
+needs descriptor-relative/no-follow operations and native negative tests. The
+private directory and peer identity are primary controls, not socket mode alone.
+An overlength Unix path makes live delivery unavailable; history capture continues.
+
+Frames contain derived, validated metadata only: protocol/source/host version,
+binding/generation/epoch, native event/turn identity, receive/diagnostic times and
+state/evidence labels. Never send raw prompts, tool output, audit bodies, terminal
+content or credentials. Oversize frames are rejected whole, never truncated.
+Queue overflow drops optional observations with explicit degraded/unknown state;
+the short-lived CLI has no durable runtime queue and never replaces existing
+history/spool receipts with live transport receipts.
+
+Review Submit targets the selected agent, not GitHub. Untrusted text must reject
+or visibly neutralize C0/C1 controls (only LF and TAB may be preserved as text),
+including ESC and bracketed-paste terminators. If a host cannot safely delimit
+multiline paste, use a preview/manual transfer without automatic Enter. Every
+send is a revalidated explicit user action; observed waiting never grants input
+or approval authority. Test control injection, target changes and uncertain
+partial sends; no automatic resend.
+
+Executable/argv/env profiles are changed only through explicitly confirmed
+native host configuration; the renderer references an allowlisted profile ID,
+not arbitrary commands. D9 must verify app/update signatures, notarization and
+hardened-runtime policy and Electron fuses before distribution. Local ad-hoc
+fixture signing is not distribution certification.
+
+### Lifetime, tests and implementation traceability
+
+UI quit is detach. Full daemon shutdown requires listing affected runs and explicit
+confirmation: closing the PTY master may deliver SIGHUP, terminate agents or lose
+their controlling terminal. Crash can lose work; “orphaned” is not recovery. D3
+must evaluate a separate PTY holder without promising it now. Never auto-kill or
+resume survivors. Updates may remain deferred while runs exist; notify in-app
+after 24 hours and on each explicit update attempt, with cancel/export/explicit
+stop choices, never a forced timeout. Auto-start stays opt-in.
+
+| Given / when | Required result | Level / owner |
+|---|---|---|
+| Daemon loses PTY master | Possible SIGHUP/work loss is reported; no guessed recovery | Native fault / D3 |
+| Active run during update | Deferred, notification at 24h, no automatic stop | Native fault / D3,D9 |
+| Sleep/wake or cursor gap | Unknown until new bound evidence | Reducer + native / D3,D4 |
+| Duplicate Attention / OS notification denied | Single transition notice; metadata only; in-app fallback | Component + native / D4 |
+| Metadata limit / delete cancelled | Mutation rejected visibly; no eviction or deletion | Integration / D2,D8 |
+| Output exceeds queue / unbound observation | Bounded output with gap; no foreign-run Attention | PTY + reducer / D3,D4 |
+| Draft contains ESC/control/paste terminator | No injected keystrokes, approval or automatic Enter | Unit + native / D7 |
+| Global + per-run hook compose | One history capture, or explicit unsupported/unknown | Host integration / D4 |
+
+| Requirement | Owning planning issue |
+|---|---|
+| Public CLI observation intake, stdout/receipt/backward compatibility | D4 #2433 |
+| Runtime lifetime, update deferral, opt-in auto-start, sleep/wake | D3 #2432; integrated D9 #2438 |
+| Metadata bounds and export/delete | D2 #2431; existing mutation usecases D8 #2437 |
+| Metadata-only notifications and Attention | D4 #2433 |
+| Immutable text and safe agent Submit | D6 #2435, D7 #2436 |
+| Signing, packaging and final native/compatibility evidence | D9 #2438 |
+
+Planning issues contain ownership, dependencies, positive/negative acceptance and
+rollback. Exact new frontend commands remain blocked on framework/source-layout
+selection, not invented now. Existing `make docs/check`, staged selector and
+final-head CI still apply; native gates cannot be replaced by documentation checks.
+
 ## Completion ledger
 
 - [x] Scope and constraints recovered; real binary versions resolved.
@@ -348,9 +491,10 @@ backup/restore plan; old binaries are not assumed to read a new schema.
 - [x] Proposed structure, contracts, threat model, test plan and rollback.
 - [ ] Full five-host native interaction/approval/binding probes.
 - [ ] Equivalent native UI measurements and all manual mandatory gates.
-- [ ] Independent review and maintainer architecture decision.
-- [ ] D1–D10 child issues created with finalized acceptance.
-- [ ] ADR merged by maintainer through the human-gated GitHub UI path.
+- [x] Independent Anthropic/Claude packet review completed; findings are triaged, not treated as approval.
+- [ ] Final-delta independent review and maintainer architecture adoption decision.
+- [x] D1–D10 planning child issues created with ownership, dependencies, positive/negative acceptance, validation and rollback; implementation remains blocked on D0 acceptance.
+- [ ] ADR merged after verified acceptance and independent review. For this PR only, the maintainer explicitly authorized this main session to perform restoration, validation, review, fixes, merge and cleanup; the earlier human-UI-only delivery restriction is replaced, not the acceptance gates.
 
 Do not close #2424 or claim certification while these gates remain open.
 
@@ -358,12 +502,15 @@ The first independent-review dispatch requested Claude Fable 5.1/xhigh with only
 this paired ADR and sanitized evidence. The shared launcher stopped **before
 provider execution** with `delegation_adapter_denied reason=author_unknown`:
 the configured author model `gpt-6.1-sol` is absent from the local model registry.
-No AI review result exists; do not substitute a different author ID, weaken the
-gate, or classify the empty attempt as approval. Updating the separate dotfiles
-registry requires its own scope authorization. Main-session docs checks and
-synthetic tests are not replacements for the required independent review.
+That attempt produced no AI review; never substitute a different author ID,
+weaken the gate or classify the empty attempt as approval. This was a legacy launcher metadata/version-coupling failure, not proof that a
+model-version registration or pin is necessary. No dotfiles change is authorized
+or made. A compliant direct read-only review may use the registered Claude engine
+and its current CLI model selection without falsifying author identity or
+weakening permissions. Main-session docs checks and synthetic tests are not
+replacements for the required independent review.
 
-The optional manual-input fixture could not be opened through CUA (native app
+The manual-input test fixture could not be opened through CUA (native app
 lookup timed out), so no IME, clipboard or VoiceOver pass is recorded. No other
 GUI automation mechanism or OS security workaround was used.
 

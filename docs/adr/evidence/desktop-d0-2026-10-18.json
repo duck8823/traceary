@@ -13,7 +13,8 @@
       "electron": "44.9.0",
       "wails": "v2.16.0",
       "xterm": "6.0.0",
-      "monaco": "0.57.0"
+      "monaco": "0.57.0",
+      "esbuild": "0.28.2"
     },
     "fixtures": {
       "terminals": 3,
@@ -24,7 +25,9 @@
       "diff_input_lines": 100000,
       "diff_preview_lines_limit": 5000,
       "resize_count": 200,
-      "startup_runs": 5
+      "startup_runs": 5,
+      "terminal_columns": 80,
+      "terminal_rows": 12
     },
     "thresholds": {
       "startup_p95_ms": 3000,
@@ -39,7 +42,8 @@
       "VoiceOver",
       "native close/reopen and menus",
       "sleep/wake",
-      "multiple monitors"
+      "multiple monitors",
+      "fault tests"
     ],
     "decision_rule": "Any missing mandatory gate remains pending; no adoption or pass is inferred from dependency download, build, renderer timing or synthetic tests. Startup p95 from five runs is descriptive only, not a statistical confidence claim. Failed thresholds are not changed after measurement."
   },
@@ -230,13 +234,41 @@
     "CUA manual variant app lookup timed out; manual gates remain not_run"
   ],
   "independentReview": {
-    "requested_engine": "claude",
-    "requested_model": "claude-fable-5-1",
-    "requested_effort": "xhigh",
-    "provider_launched": false,
-    "status": "not_run",
-    "exact_failure": "delegation_adapter_denied reason=author_unknown",
-    "meaning": "configured author gpt-6.1-sol missing from local registry; no relabeling or bypass"
+    "previous_attempts": [
+      {
+        "provider_launched": false,
+        "status": "not_run",
+        "exact_failure": "delegation_adapter_denied reason=author_unknown"
+      }
+    ],
+    "current": {
+      "engine": "claude",
+      "family": "Anthropic",
+      "model_selection": "CLI configured/default; no model override",
+      "model_self_reported": "claude-opus-5-5（実行環境の自己申告。CLI の現行 configured/default 選択であり、version registry は要求しません）",
+      "provider_launched": true,
+      "status": "completed_with_findings",
+      "input_head": "e2f6fb156c14f2c79053b54824a46997c6485573",
+      "packet_only": true,
+      "validated_commands": [],
+      "result_sha256": "a597359a69ee14cd18ec7e3cb31343431e2f176ba8b9d8086365f9b0b591f5c5",
+      "triage_sha256": "0153e36be5b48cd78bf715eac7bd50a26960b597f223bf329c30676dc3005ffd",
+      "finding_counts": {
+        "MUST": 6,
+        "SHOULD": 18,
+        "NIT": 11
+      },
+      "final_delta_review": "pending",
+      "approval": false,
+      "model_usage_keys": [
+        "claude-opus-5-5"
+      ],
+      "dispositions": {
+        "fix_now": 32,
+        "dismiss": 1,
+        "follow_up": 2
+      }
+    }
   },
   "baselineRoundtrip": {
     "command": "scripts/verify-record-search-refine.sh --traceary /opt/homebrew/bin/traceary (empty HOME; throwaway store)",
@@ -248,5 +280,98 @@
     ],
     "storeBytes": 778240,
     "meaning": "existing CLI synthetic history paths only; no live-state/native-host certification"
+  },
+  "nativePtyV2": {
+    "protocol_sha256": "e4690247540ab76378f555c2feff7a994d9ec6bc58f26cccb2adb83a6a8b3506",
+    "source_sha256": {
+      "native-pty-broker.py": "4e1d6a3a3e531e9ea87a0bc8f7ac63559a97f21124a38cf7c8c149ce838728a7",
+      "test_native_pty.py": "dc35ef515782ca85f91d219be495af14e87b0313a5236d214ad23f5da639e0ff",
+      "measure-native-pty-ui.py": "98d12a13af54faee7a3df641e308485c2ba1672461939794886354447921f2f3"
+    },
+    "native_socket_smoke_tests": {
+      "passed": 2,
+      "scope": "same-UID positive peer check, unsafe/symlink path rejection, bad version/index, bounded UTF-8 streams; no cross-UID proof"
+    },
+    "measurements": [
+      {
+        "framework": "electron",
+        "fixture": "native-pty-v2",
+        "source_bytes": [
+          62914560,
+          62914560,
+          62914560
+        ],
+        "renderer_received_bytes": 188743680,
+        "resize_count": 200,
+        "source_complete": true,
+        "full_load_fixture_delivered": true,
+        "elapsed_ms": 60281.40000000596,
+        "terminal_write_ack_p95_ms": 22.599999994039536,
+        "pending_bytes": 0,
+        "dropped_bytes": 0,
+        "scope": "direct native fixture, not packaged or native input latency; focus uncontrolled; CPU/RSS and manual gates not certified"
+      },
+      {
+        "framework": "wails",
+        "fixture": "native-pty-v2",
+        "source_bytes": [
+          62914560,
+          62914560,
+          62914560
+        ],
+        "renderer_received_bytes": 188743680,
+        "resize_count": 200,
+        "source_complete": true,
+        "full_load_fixture_delivered": true,
+        "elapsed_ms": 60269,
+        "terminal_write_ack_p95_ms": 10.000000000014552,
+        "pending_bytes": 0,
+        "dropped_bytes": 0,
+        "scope": "direct native fixture, not packaged or native input latency; focus uncontrolled; CPU/RSS and manual gates not certified"
+      }
+    ],
+    "manual_cua_retry": "timeoutReached before and after normal ad-hoc signing of own fixture; strict signature validation passed; remaining cause unknown; native manual gates not passed",
+    "protocol_timestamp_evidence": {
+      "protocol_file_mtime_utc": "2026-10-17T21:23:18.465549+00:00",
+      "archived_checkpoint_protocol_mtime_utc": "2026-10-17T21:23:18.465549+00:00",
+      "matches_archived_pre_run_checkpoint": true,
+      "scope": "local timestamps plus earlier audited checkpoint creation; not cryptographically timestamped external attestation"
+    }
+  },
+  "planningChildren": {
+    "D1": 2430,
+    "D2": 2431,
+    "D3": 2432,
+    "D4": 2433,
+    "D5": 2434,
+    "D6": 2435,
+    "D7": 2436,
+    "D8": 2437,
+    "D9": 2438,
+    "D10": 2439
+  },
+  "artifactRetention": {
+    "local_checkpoint": ".ai/handoff/desktop-d0-2424-stop-20261018/",
+    "scope": "ignored owner-local verified source archives and complete Git bundles, preserved during worktree/branch cleanup; not a public reproducible source distribution",
+    "temporary_raw_evidence": "/private/tmp/traceary-d0-2424/",
+    "traceary_binary_version_used": "0.53.0",
+    "verified_source_manifest": ".ai/handoff/desktop-d0-2424-stop-20261018/source-artifacts/manifest.json",
+    "verified_source_manifest_sha256": "b91e83849ad85ba4be297653ea19d12854118f1a086627cd424ae25e50292856"
+  },
+  "projectionFreshness": {
+    "optional_cli_budget_ms": 250,
+    "live_projection_ttl_seconds": 60,
+    "clock": "daemon receipt monotonic; not source wall-clock age",
+    "applies_to_waiting": true,
+    "duplicates_refresh_ttl": false,
+    "expiry": "unknown plus separately labelled stale last-wait Attention; never authority",
+    "wake_or_gap": "unknown until new accepted causally bound native observation"
+  },
+  "decision": {
+    "status": "no-go for implementation; neither framework adopted",
+    "d0_complete": false,
+    "implementation_children": "blocked until all missing native gates and explicit adoption decision",
+    "historical_stage_complete": "trial/report ended, not acceptance or fixture delivery",
+    "threshold_policy": "frozen for recorded protocol; no post-measurement relaxation"
   }
 }
