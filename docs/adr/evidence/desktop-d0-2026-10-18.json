@@ -1,0 +1,406 @@
+{
+  "schema": "traceary-desktop-d0-evidence/v1",
+  "date": "2026-10-18",
+  "baseline": "c6c4d2dbb8790be33a4d6903a9b9e833cbdb2af5",
+  "status": "partial; D0 incomplete; no framework adopted",
+  "protocol": {
+    "schema": "traceary-desktop-d0-spike/v1",
+    "fixed_before_measurement": true,
+    "platform": "macOS 26.5 arm64",
+    "memory_bytes": 17179869184,
+    "physical_cpu_count": 10,
+    "dependencies": {
+      "electron": "44.9.0",
+      "wails": "v2.16.0",
+      "xterm": "6.0.0",
+      "monaco": "0.57.0",
+      "esbuild": "0.28.2"
+    },
+    "fixtures": {
+      "terminals": 3,
+      "bytes_per_second_per_terminal": 1048576,
+      "duration_seconds": 60,
+      "terminal_scrollback_lines": 1000,
+      "inflight_bytes_limit_per_terminal": 2097152,
+      "diff_input_lines": 100000,
+      "diff_preview_lines_limit": 5000,
+      "resize_count": 200,
+      "startup_runs": 5,
+      "terminal_columns": 80,
+      "terminal_rows": 12
+    },
+    "thresholds": {
+      "startup_p95_ms": 3000,
+      "interaction_p95_ms": 100,
+      "idle_cpu_percent_one_logical_cpu": 5,
+      "total_app_rss_bytes_excluding_agents": 1073741824
+    },
+    "mandatory_manual_gates": [
+      "Japanese IME commit and cancellation",
+      "native clipboard",
+      "TUI/Unicode",
+      "VoiceOver",
+      "native close/reopen and menus",
+      "sleep/wake",
+      "multiple monitors",
+      "fault tests"
+    ],
+    "decision_rule": "Any missing mandatory gate remains pending; no adoption or pass is inferred from dependency download, build, renderer timing or synthetic tests. Startup p95 from five runs is descriptive only, not a statistical confidence claim. Failed thresholds are not changed after measurement."
+  },
+  "sourceSha256": {
+    "spike-protocol.json": "66ef4f2b82fb6217b3882c4e66fdb610ad38e9a9ffbed4ffbb3f053c431fa600",
+    "collect-hook.py": "fbe30791b383293dc699f8740d136fcabd14c217e2eedf8620fb733c31a7d466",
+    "probe-muse-echo.py": "172914acc99e67f039abbf6e9285ca2a467460c7e05cfda99ef9131526a8d815",
+    "probe-muse-config-binding.py": "57a58a252c451eeae22972cbb108ecc5062da1b9af3116484ca6400f862bf50b",
+    "observation_model.py": "100204e71920260662f6bf5587efa1c705b781453c24ae1636c041debef0cb39",
+    "test_observation_model.py": "9b24ff1fb14b9051f418e7023533c70580a427ff3530ba6a31c4e4be74a4c968",
+    "ui/frontend/source.js": "3a84c3afe53546c790e2c56847ec10e9dae92a7c52bec06079cda87cbbf83ce0",
+    "ui/package-lock.json": "07fa366c1e322a77398ee7556984b50aa62db9d8347c4b26ac72d90148d7d5db",
+    "ui/main.go": "1ac51da9c69660a57c9145970089a5b853415ef227b308726b029c84dfcf0365",
+    "ui/electron.cjs": "d197d324fad6a8d29130878f2c48a601c539d47e91fcb5b5a6ee73eb3987d178",
+    "measure-ui.py": "f3c548cd1f702444adcda324f208e819e8b1a9e8b1688e74c918f520f52117ae",
+    "measure-packaged-ui.py": "ce121aa9e4e4ecbf1cca8c59c51e870f3350d6270af43c99830fb71fa53396dd"
+  },
+  "versions": {
+    "claude": "2.1.302",
+    "codex": "0.163.0",
+    "antigravity": "1.4.0",
+    "muse": "1.4.10-R6427.1",
+    "grok": "1.0.62 (1474f9cbdd91)"
+  },
+  "nativeEcho": {
+    "host": "muse",
+    "provider": "echo",
+    "events": [
+      "SessionStart",
+      "UserPromptSubmit",
+      "PreLLMCall",
+      "PostLLMCall",
+      "Stop"
+    ],
+    "environmentBindingPreserved": false,
+    "sessionEndObserved": false,
+    "concurrentConfiguredBindingRuns": 2,
+    "concurrentObservedEvents": 6,
+    "distinctNativeSessionsPerBinding": true,
+    "meaning": "correlation only; no auth/approval/input certification"
+  },
+  "syntheticReducer": {
+    "tests": 16,
+    "passed": 16,
+    "expiryDuplicateRegressionRedThenGreen": true,
+    "productionImplementation": false
+  },
+  "directBinaryMeasurements": [
+    {
+      "framework": "electron",
+      "mainPhaseReadyMs": [
+        688.3304169999999,
+        368.82462499999997,
+        345.617792,
+        375.07800000000003,
+        568.6316250000001
+      ],
+      "externalProcessReadyMs": [
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "externalProcessReadyDescriptiveP95Ms": null,
+      "stage": "complete",
+      "receivedBytes": 188743680,
+      "droppedBytes": 0,
+      "resizeCount": 200,
+      "eventLoopDelayP95Ms": 1.0999999940395355,
+      "peakScopedDescendantRSSBytes": 591790080,
+      "idleMeanReportedEWMACPUPercent": 0.12040816326530611,
+      "fullLoadFixtureDelivered": true,
+      "scope": "fresh process launches; filesystem cache not flushed; no packaging comparison; descendant process coverage excludes any detached OS helpers; ps CPU is reported EWMA, not CPU-time integration",
+      "acceptance": "not_certified; foreground state and native input latency not controlled; detached OS helpers may be missing; no mandatory manual gate inferred"
+    },
+    {
+      "framework": "wails",
+      "mainPhaseReadyMs": [
+        2190,
+        521,
+        463,
+        477,
+        514
+      ],
+      "externalProcessReadyMs": [
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "externalProcessReadyDescriptiveP95Ms": null,
+      "stage": "complete",
+      "receivedBytes": 20761881,
+      "droppedBytes": 0,
+      "resizeCount": 66,
+      "eventLoopDelayP95Ms": 1072,
+      "peakScopedDescendantRSSBytes": 110460928,
+      "idleMeanReportedEWMACPUPercent": 0.03018867924528302,
+      "fullLoadFixtureDelivered": false,
+      "scope": "fresh process launches; filesystem cache not flushed; no packaging comparison; descendant process coverage excludes any detached OS helpers; ps CPU is reported EWMA, not CPU-time integration",
+      "acceptance": "not_certified; foreground state and native input latency not controlled; detached OS helpers may be missing; no mandatory manual gate inferred"
+    }
+  ],
+  "packagedMeasurements": [
+    {
+      "framework": "electron-packaged",
+      "mainPhaseReadyMs": [
+        767.9064999999999,
+        272.819417,
+        274.16,
+        273.039375,
+        265.638
+      ],
+      "externalProcessReadyMs": [
+        2724.6472080005333,
+        353.94966701278463,
+        356.71625001123175,
+        359.98033298528753,
+        347.1026249753777
+      ],
+      "externalProcessReadyDescriptiveP95Ms": 2724.6472080005333,
+      "stage": "complete",
+      "receivedBytes": 88395012,
+      "droppedBytes": 0,
+      "resizeCount": 200,
+      "eventLoopDelayP95Ms": 2.2999999821186066,
+      "peakScopedDescendantRSSBytes": 569851904,
+      "idleMeanReportedEWMACPUPercent": 0.29387755102040813,
+      "fullLoadFixtureDelivered": false,
+      "scope": "fresh process launches; filesystem cache not flushed; equivalent bundled fixture; external ready polling 10ms quick/1s load;  descendant process coverage excludes any detached OS helpers; ps CPU is reported EWMA, not CPU-time integration",
+      "acceptance": "not_certified; foreground state and native input latency not controlled; detached OS helpers may be missing; no mandatory manual gate inferred"
+    },
+    {
+      "framework": "wails-packaged",
+      "mainPhaseReadyMs": [
+        1009,
+        500,
+        460,
+        476,
+        489
+      ],
+      "externalProcessReadyMs": [
+        1483.8772499933839,
+        520.5025420000311,
+        479.19312500744127,
+        491.7222500080243,
+        502.71995802177116
+      ],
+      "externalProcessReadyDescriptiveP95Ms": 1483.8772499933839,
+      "stage": "complete",
+      "receivedBytes": 181509198,
+      "droppedBytes": 0,
+      "resizeCount": 200,
+      "eventLoopDelayP95Ms": 8,
+      "peakScopedDescendantRSSBytes": 112132096,
+      "idleMeanReportedEWMACPUPercent": 0.03461538461538462,
+      "fullLoadFixtureDelivered": false,
+      "scope": "fresh process launches; filesystem cache not flushed; equivalent bundled fixture; external ready polling 10ms quick/1s load;  descendant process coverage excludes any detached OS helpers; ps CPU is reported EWMA, not CPU-time integration",
+      "acceptance": "not_certified; foreground state and native input latency not controlled; detached OS helpers may be missing; no mandatory manual gate inferred"
+    }
+  ],
+  "packageSizes": {
+    "electron": {
+      "regularFileBytes": 305440958,
+      "compressed": false
+    },
+    "wails": {
+      "regularFileBytes": 11240190,
+      "compressed": false
+    }
+  },
+  "pending": [
+    "five-host native interaction and approval probes",
+    "controlled native focus and timer effects",
+    "complete CPU/RSS attribution",
+    "native IME/clipboard/VoiceOver/TUI/sleep-wake/fault tests",
+    "maintainer architecture acceptance",
+    "D1-D10 issue creation after D0"
+  ],
+  "friction": [
+    "Git metadata required escalation despite definitive writable-root preflight",
+    "Wails required CGO_ENABLED=1 and UniformTypeIdentifiers link flag",
+    "Grok build suffix was not resolvable in the public source repository",
+    "native AX did not expose Electron web controls in the read-only CUA snapshot; this is not a VoiceOver test",
+    "shared reviewer launcher denied unregistered author before any AI-provider launch",
+    "CUA manual variant app lookup timed out; manual gates remain not_run"
+  ],
+  "independentReview": {
+    "previous_attempts": [
+      {
+        "provider_launched": false,
+        "status": "not_run",
+        "exact_failure": "delegation_adapter_denied reason=author_unknown"
+      }
+    ],
+    "current": {
+      "engine": "claude",
+      "family": "Anthropic",
+      "model_selection": "CLI configured/default; no model override",
+      "model_self_reported": "claude-opus-5-5（実行環境の自己申告。CLI の現行 configured/default 選択であり、version registry は要求しません）",
+      "provider_launched": true,
+      "status": "completed_with_findings",
+      "input_head": "e2f6fb156c14f2c79053b54824a46997c6485573",
+      "packet_only": true,
+      "validated_commands": [],
+      "result_sha256": "a597359a69ee14cd18ec7e3cb31343431e2f176ba8b9d8086365f9b0b591f5c5",
+      "triage_sha256": "0153e36be5b48cd78bf715eac7bd50a26960b597f223bf329c30676dc3005ffd",
+      "finding_counts": {
+        "MUST": 6,
+        "SHOULD": 18,
+        "NIT": 11
+      },
+      "final_delta_review": {
+        "status": "completed_with_lexical_conditions",
+        "input_head": "5b0b41d6ceb386cc46aff62a38e7ea4ef83dfcbf",
+        "date": "2026-10-18",
+        "result_sha256": "7d690c08521767459247f34e734d461eb33f96ca9e696ca8b60f08d8fb2dc557",
+        "must_findings": [
+          "MUST-A ledger/delivery/approval separation",
+          "MUST-B Japanese TTL/stale Attention parity"
+        ],
+        "resolution": "Separate reviewed ledger from architecture adoption and actual PR merge history; record dated exact maintainer authorization; remove stale shorter-TTL clause; make stale Attention retention mandatory. No runtime behavior or acceptance gate is waived.",
+        "validated_commands": [],
+        "approval_scope": "conditional Proposed docs-only integration, not D0 acceptance"
+      },
+      "approval": false,
+      "model_usage_keys": [
+        "claude-opus-5-5"
+      ],
+      "dispositions": {
+        "fix_now": 32,
+        "dismiss": 1,
+        "follow_up": 2
+      }
+    }
+  },
+  "baselineRoundtrip": {
+    "command": "scripts/verify-record-search-refine.sh --traceary /opt/homebrew/bin/traceary (empty HOME; throwaway store)",
+    "passed": [
+      "muse/grok/kimi synthetic record",
+      "search",
+      "refine",
+      "memory propose/search"
+    ],
+    "storeBytes": 778240,
+    "meaning": "existing CLI synthetic history paths only; no live-state/native-host certification"
+  },
+  "nativePtyV2": {
+    "protocol_sha256": "e4690247540ab76378f555c2feff7a994d9ec6bc58f26cccb2adb83a6a8b3506",
+    "source_sha256": {
+      "native-pty-broker.py": "4e1d6a3a3e531e9ea87a0bc8f7ac63559a97f21124a38cf7c8c149ce838728a7",
+      "test_native_pty.py": "dc35ef515782ca85f91d219be495af14e87b0313a5236d214ad23f5da639e0ff",
+      "measure-native-pty-ui.py": "98d12a13af54faee7a3df641e308485c2ba1672461939794886354447921f2f3"
+    },
+    "native_socket_smoke_tests": {
+      "passed": 2,
+      "scope": "same-UID positive peer check, unsafe/symlink path rejection, bad version/index, bounded UTF-8 streams; no cross-UID proof"
+    },
+    "measurements": [
+      {
+        "framework": "electron",
+        "fixture": "native-pty-v2",
+        "source_bytes": [
+          62914560,
+          62914560,
+          62914560
+        ],
+        "renderer_received_bytes": 188743680,
+        "resize_count": 200,
+        "source_complete": true,
+        "full_load_fixture_delivered": true,
+        "elapsed_ms": 60281.40000000596,
+        "terminal_write_ack_p95_ms": 22.599999994039536,
+        "pending_bytes": 0,
+        "dropped_bytes": 0,
+        "scope": "direct native fixture, not packaged or native input latency; focus uncontrolled; CPU/RSS and manual gates not certified"
+      },
+      {
+        "framework": "wails",
+        "fixture": "native-pty-v2",
+        "source_bytes": [
+          62914560,
+          62914560,
+          62914560
+        ],
+        "renderer_received_bytes": 188743680,
+        "resize_count": 200,
+        "source_complete": true,
+        "full_load_fixture_delivered": true,
+        "elapsed_ms": 60269,
+        "terminal_write_ack_p95_ms": 10.000000000014552,
+        "pending_bytes": 0,
+        "dropped_bytes": 0,
+        "scope": "direct native fixture, not packaged or native input latency; focus uncontrolled; CPU/RSS and manual gates not certified"
+      }
+    ],
+    "manual_cua_retry": "timeoutReached before and after normal ad-hoc signing of own fixture; strict signature validation passed; remaining cause unknown; native manual gates not passed",
+    "protocol_timestamp_evidence": {
+      "protocol_file_mtime_utc": "2026-10-17T21:23:18.465549+00:00",
+      "archived_checkpoint_protocol_mtime_utc": "2026-10-17T21:23:18.465549+00:00",
+      "matches_archived_pre_run_checkpoint": true,
+      "scope": "local timestamps plus earlier audited checkpoint creation; not cryptographically timestamped external attestation"
+    }
+  },
+  "planningChildren": {
+    "D1": 2430,
+    "D2": 2431,
+    "D3": 2432,
+    "D4": 2433,
+    "D5": 2434,
+    "D6": 2435,
+    "D7": 2436,
+    "D8": 2437,
+    "D9": 2438,
+    "D10": 2439
+  },
+  "artifactRetention": {
+    "local_checkpoint": ".ai/handoff/desktop-d0-2424-stop-20261018/",
+    "scope": "ignored owner-local verified source archives and complete Git bundles, preserved during worktree/branch cleanup; not a public reproducible source distribution",
+    "temporary_raw_evidence": "/private/tmp/traceary-d0-2424/",
+    "traceary_binary_version_used": "0.53.0",
+    "verified_source_manifest": ".ai/handoff/desktop-d0-2424-stop-20261018/source-artifacts/manifest.json",
+    "verified_source_manifest_sha256": "b91e83849ad85ba4be297653ea19d12854118f1a086627cd424ae25e50292856"
+  },
+  "projectionFreshness": {
+    "optional_cli_budget_ms": 250,
+    "live_projection_ttl_seconds": 60,
+    "clock": "daemon receipt monotonic; not source wall-clock age",
+    "applies_to_waiting": true,
+    "duplicates_refresh_ttl": false,
+    "expiry": "unknown plus separately labelled stale last-wait Attention; never authority",
+    "wake_or_gap": "unknown until new accepted causally bound native observation"
+  },
+  "decision": {
+    "status": "no-go for implementation; neither framework adopted",
+    "d0_complete": false,
+    "implementation_children": "blocked until all missing native gates and explicit adoption decision",
+    "historical_stage_complete": "trial/report ended, not acceptance or fixture delivery",
+    "threshold_policy": "frozen for recorded protocol; no post-measurement relaxation"
+  },
+  "deliveryAuthorization": {
+    "date": "2026-10-18",
+    "source": "explicit maintainer messages in this thread",
+    "main_session_actions": [
+      "restore",
+      "validate",
+      "arrange independent review",
+      "fix",
+      "merge",
+      "cleanup"
+    ],
+    "replaces": "human-UI-only delivery for this PR",
+    "proposed_document_integration_explicitly_approved": true,
+    "original_D0_remains_open": true,
+    "documentation_sub_issue": 2440,
+    "full_D0_or_framework_adoption": false
+  }
+}
