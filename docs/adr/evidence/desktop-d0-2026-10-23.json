@@ -1,0 +1,388 @@
+{
+  "schema": "traceary-desktop-d0-candidate-evidence-refresh/v1",
+  "createdUtc": "2026-10-22T16:47:46.716307+00:00",
+  "status": "candidate only; Proposed; D0 incomplete; neither runtime adopted",
+  "baseHead": "e87631e6e7ada6e766036886b7308067680b1c62",
+  "archives": [
+    {
+      "archive": "fixed-fixture-headless-checkpoint-20261022.tar.gz",
+      "archiveSha256": "87739e882ebd8d46d40378a556134b97ea29d747b6a2f778c313818b38b386f4"
+    },
+    {
+      "archive": "wails-resize-offline-diagnosis-20261023.tar.gz",
+      "archiveSha256": "43828f8b5eceb6d221dc5ea1797f49e31631f338743a3fea7aba5b71d5cbaa9a"
+    }
+  ],
+  "nativeManualArchive": {
+    "archive": "native-manual-evidence-20261022.tar.gz",
+    "sha256": "a3080344c3345816d68cb0347a4b027c4718dec65e1942af35f6c38a50348c2f"
+  },
+  "startup": {
+    "electron": {
+      "runCount": 5,
+      "p95Ms": 1855.653042002814,
+      "withinFixedThresholdObserved": true,
+      "acceptance": null,
+      "reason": "descriptive n=5 nearest-rank maximum; no cold-cache/confidence or framework-ranking claim",
+      "valuesMs": [
+        1855.653042002814,
+        375.71475000004284,
+        388.0737499857787,
+        380.71716600097716,
+        387.444082996808
+      ]
+    },
+    "wails": {
+      "runCount": 5,
+      "p95Ms": 1020.1325000089128,
+      "withinFixedThresholdObserved": true,
+      "acceptance": null,
+      "reason": "descriptive n=5 nearest-rank maximum; no cold-cache/confidence or framework-ranking claim",
+      "valuesMs": [
+        1020.1325000089128,
+        538.9155000157189,
+        547.7955419919454,
+        524.7976670216303,
+        541.2442499946337
+      ]
+    }
+  },
+  "bundleChecks": {
+    "TracearyD0v4Electron.app": {
+      "regularFiles": 274,
+      "regularFileBytes": 308336437
+    },
+    "TracearyD0v4Wails.app": {
+      "regularFiles": 3,
+      "regularFileBytes": 14593507
+    }
+  },
+  "runs": [
+    {
+      "framework": "electron",
+      "mode": "load",
+      "receivedBytes": [
+        62914560,
+        62914560,
+        62914560
+      ],
+      "eof": [
+        true,
+        true,
+        true
+      ],
+      "pendingBytes": 0,
+      "payloadMismatches": [
+        0,
+        0,
+        0
+      ],
+      "nativeResizeRecords": 200,
+      "nativeResizeMatchingReadbacks": 200,
+      "terminalResizeRecords": 200,
+      "sampledForegroundObserved": false,
+      "idleCPU": {
+        "percentOneLogicalCPU": 0.7032234575478864,
+        "windowSeconds": 60.23730116698425,
+        "firstSampleMonotonic": 181496.055571083,
+        "sampleCount": 58,
+        "stableSampledMembership": true,
+        "withinFixedThresholdObserved": true,
+        "acceptance": null,
+        "reason": "descriptive cumulative ns delta; transient unsampled helpers remain possible"
+      },
+      "sampledPeakRSSBytes": 566591488,
+      "rssAcceptance": null,
+      "droppedBytes": null,
+      "nativeInputLatencyMs": null,
+      "sourceCohortSha256": "6534f9be1f4f011a4adc568d691f03540e81f52225a23a1445d7a137d85e2c15",
+      "protocolSha256": "f9de55c9b66aa2052e6722ec335b185c48f1f12121347983e8ea7c0366a29558",
+      "packageManifestSha256": "b1cb3e5b21d90aab0f53eb14982e31c5e1d555f735d5a1a62d595b0d1e415a53"
+    },
+    {
+      "framework": "wails",
+      "mode": "load",
+      "receivedBytes": [
+        62914560,
+        62914560,
+        62914560
+      ],
+      "eof": [
+        true,
+        true,
+        true
+      ],
+      "pendingBytes": 0,
+      "payloadMismatches": [
+        0,
+        0,
+        0
+      ],
+      "nativeResizeRecords": 200,
+      "nativeResizeMatchingReadbacks": 0,
+      "terminalResizeRecords": 200,
+      "sampledForegroundObserved": false,
+      "idleCPU": {
+        "percentOneLogicalCPU": 0.41957350841316826,
+        "windowSeconds": 60.83568454199121,
+        "firstSampleMonotonic": 181623.529272833,
+        "sampleCount": 59,
+        "stableSampledMembership": true,
+        "withinFixedThresholdObserved": true,
+        "acceptance": null,
+        "reason": "descriptive cumulative ns delta; transient unsampled helpers remain possible"
+      },
+      "sampledPeakRSSBytes": 557121536,
+      "rssAcceptance": null,
+      "droppedBytes": null,
+      "nativeInputLatencyMs": null,
+      "sourceCohortSha256": "6534f9be1f4f011a4adc568d691f03540e81f52225a23a1445d7a137d85e2c15",
+      "protocolSha256": "f9de55c9b66aa2052e6722ec335b185c48f1f12121347983e8ea7c0366a29558",
+      "packageManifestSha256": "b1cb3e5b21d90aab0f53eb14982e31c5e1d555f735d5a1a62d595b0d1e415a53"
+    },
+    {
+      "framework": "electron",
+      "mode": "background",
+      "receivedBytes": [
+        62914560,
+        62914560,
+        62914560
+      ],
+      "eof": [
+        true,
+        true,
+        true
+      ],
+      "pendingBytes": 0,
+      "payloadMismatches": [
+        0,
+        0,
+        0
+      ],
+      "nativeResizeRecords": 200,
+      "nativeResizeMatchingReadbacks": 200,
+      "terminalResizeRecords": 200,
+      "sampledForegroundObserved": null,
+      "idleCPU": {
+        "percentOneLogicalCPU": 0.5189124068981906,
+        "windowSeconds": 60.53215741700842,
+        "firstSampleMonotonic": 181751.344612208,
+        "sampleCount": 58,
+        "stableSampledMembership": true,
+        "withinFixedThresholdObserved": true,
+        "acceptance": null,
+        "reason": "descriptive cumulative ns delta; transient unsampled helpers remain possible"
+      },
+      "sampledPeakRSSBytes": 564887552,
+      "rssAcceptance": null,
+      "droppedBytes": null,
+      "nativeInputLatencyMs": null,
+      "sourceCohortSha256": "6534f9be1f4f011a4adc568d691f03540e81f52225a23a1445d7a137d85e2c15",
+      "protocolSha256": "f9de55c9b66aa2052e6722ec335b185c48f1f12121347983e8ea7c0366a29558",
+      "packageManifestSha256": "b1cb3e5b21d90aab0f53eb14982e31c5e1d555f735d5a1a62d595b0d1e415a53"
+    },
+    {
+      "framework": "wails",
+      "mode": "background",
+      "receivedBytes": [
+        62914560,
+        62914560,
+        62914560
+      ],
+      "eof": [
+        true,
+        true,
+        true
+      ],
+      "pendingBytes": 0,
+      "payloadMismatches": [
+        0,
+        0,
+        0
+      ],
+      "nativeResizeRecords": 200,
+      "nativeResizeMatchingReadbacks": 0,
+      "terminalResizeRecords": 200,
+      "sampledForegroundObserved": null,
+      "idleCPU": {
+        "percentOneLogicalCPU": 0.2932376007295463,
+        "windowSeconds": 60.595656749996124,
+        "firstSampleMonotonic": 181878.610346791,
+        "sampleCount": 59,
+        "stableSampledMembership": true,
+        "withinFixedThresholdObserved": true,
+        "acceptance": null,
+        "reason": "descriptive cumulative ns delta; transient unsampled helpers remain possible"
+      },
+      "sampledPeakRSSBytes": 560889856,
+      "rssAcceptance": null,
+      "droppedBytes": null,
+      "nativeInputLatencyMs": null,
+      "sourceCohortSha256": "6534f9be1f4f011a4adc568d691f03540e81f52225a23a1445d7a137d85e2c15",
+      "protocolSha256": "f9de55c9b66aa2052e6722ec335b185c48f1f12121347983e8ea7c0366a29558",
+      "packageManifestSha256": "b1cb3e5b21d90aab0f53eb14982e31c5e1d555f735d5a1a62d595b0d1e415a53"
+    }
+  ],
+  "manualScope": [
+    {
+      "framework": "electron",
+      "scopedOutcomes": {
+        "textareaNativeJapaneseCommitObserved": true,
+        "textareaNativeJapaneseCancelObserved": true,
+        "textareaNativeRomajiKanjiCommitObserved": true,
+        "exactDecomposedUnicodeNativePastePreserved": true,
+        "asciiBaselinePassed": false,
+        "xtermPtyInputCertified": false,
+        "fullManualAcceptanceCertified": false
+      }
+    },
+    {
+      "framework": "wails",
+      "scopedOutcomes": {
+        "textareaNativeJapaneseCommitObserved": true,
+        "textareaNativeJapaneseCancelObserved": true,
+        "textareaNativeRomajiKanjiCommitObserved": true,
+        "exactDecomposedUnicodeNativePastePreserved": false,
+        "asciiBaselinePassed": false,
+        "xtermPtyInputCertified": false,
+        "fullManualAcceptanceCertified": false
+      }
+    }
+  ],
+  "nativeSamePtyElectron": {
+    "retained_samples": 4,
+    "software_endpoint_only": true,
+    "under_full_load": false,
+    "Wails_native_xterm_input": "unexecuted"
+  },
+  "wailsResizeDiagnosis": {
+    "conclusion": "Immediate size comparison is not a completion acknowledgement: SetSize dispatches asynchronously to the main queue; GetSize reads immediately without waiting; appendNative independently queries size again. The retained zero matching first-comparison flags do not prove zero actual resizes. Full 200 native resize acceptance remains unproven.",
+    "trials": [
+      {
+        "mode": "load",
+        "source_sha256": "893afbb3a351c3dcd626bb4c338c4e4dfec297d94f7fea60af6139cab77dd343",
+        "original_archive_member": "v4/results/wails-load-1792662470060389000/result.json",
+        "comparison_false": 200,
+        "later_snapshot_matches": 4,
+        "later_matching_indices": [
+          2,
+          5,
+          39,
+          63
+        ],
+        "final_size": [
+          1300,
+          904
+        ]
+      },
+      {
+        "mode": "background",
+        "source_sha256": "48d57405d55d7ff3548b9780f476c625175702bad5caff7d4a43579cf466d83b",
+        "original_archive_member": "v4/results/wails-background-1792662725137031000/result.json",
+        "comparison_false": 200,
+        "later_snapshot_matches": 2,
+        "later_matching_indices": [
+          1,
+          164
+        ],
+        "final_size": [
+          1300,
+          904
+        ]
+      }
+    ],
+    "upstreamVersion": "v2.16.0",
+    "sourceProvenance": "Pinned GitHub tag source fetches returned 404/cache miss through the web tool. This finding relies on verified installed module source and archived own receipts, not a claimed successful web fetch."
+  },
+  "nativeAgyBinding": {
+    "hostVersion": "1.4.5",
+    "bindingProbePassed": true,
+    "distinctNativeSessionIds": true,
+    "nativeSessionsOverlapBeforeFirstSupervisedExit": true,
+    "limits": [
+      "Headless native session correlation and explicit store routing only.",
+      "No input, approval, ordering, generation, descriptor security or live interaction authority is certified.",
+      "Stored session_started timestamps bracket observed overlap, not exact OS process-launch timestamps.",
+      "The first verifier inherited an unrelated workspace default and returned zero rows; corrected by clearing that default in an empty non-Git cwd, without rerunning the native probe.",
+      "One output omitted the requested final period; exact prompt formatting was not universally followed.",
+      "No assertion is made that native session-end events were emitted; process exits were separately supervised."
+    ],
+    "probeProtocol": {
+      "schema": "traceary-d0-native-antigravity-binding/v1",
+      "fixedBeforeProbeUtc": "2026-10-22T08:15:45.562805+00:00",
+      "purpose": "Two simultaneous fresh native headless invocations in one empty cwd; explicit distinct throwaway Traceary DB routes; compare native conversation ID to recorded session ID without deriving authority.",
+      "hostVersion": "1.4.5",
+      "modelSelection": "CLI configured/default, no model version",
+      "prompt": "No tools, file access, browser, shell, writes, delegation or subagents. Reply exactly D0 native binding probe.",
+      "cliMode": "plan plus native sandbox, output json, effort low, print-timeout 3m",
+      "assertions": [
+        "both supervised CLI exits zero",
+        "both output native conversation UUIDs are valid and distinct",
+        "each dedicated DB contains exactly its own native session grouping for this shared cwd",
+        "no other native session appears in either DB",
+        "no current interaction/input/approval/process-exit semantics inferred from history rows"
+      ],
+      "limits": "Headless native correlation/store routing only, not permission authority, descriptor security or interactive state certification. No hooks/config/trust/auth writes. Existing native CLI auth handled only by CLI; source data is a static non-sensitive probe."
+    }
+  },
+  "nativeAgyBindingResultSha256": "f04ed25911373a18c1eae008cb971520ce29f3a31d396302993ab8399c9bd279",
+  "unknownGates": [
+    "full five-host native input/approval/generation/authority",
+    "native input under full load",
+    "Wails xterm native input",
+    "Monaco native IME",
+    "full mandatory manual/VoiceOver/sleep-wake/crash",
+    "multiple monitors unavailable",
+    "controlled foreground comparison",
+    "native Wails resize200 acceptance",
+    "human architecture adoption"
+  ],
+  "newReviewScope": "Evidence-refresh differential review only; original architecture contracts unchanged; not final High-risk architecture signoff.",
+  "binaryMetadataN1": {
+    "observedUtc": "2026-10-22T07:35:08.211846+00:00",
+    "scope": "Binary banner metadata only, not native interaction certification; all five CLI paths queried. Claude direct native binary separately rechecked during this refresh.",
+    "hosts": [
+      {
+        "host": "codex",
+        "exit": 0,
+        "version": "codex-cli 0.163.0",
+        "stderrPresent": false
+      },
+      {
+        "host": "claude",
+        "exit": 0,
+        "version": "2.1.304 (Claude Code)",
+        "stderrPresent": false
+      },
+      {
+        "host": "agy",
+        "exit": 0,
+        "version": "1.4.5",
+        "stderrPresent": false
+      },
+      {
+        "host": "muse",
+        "exit": 0,
+        "version": "Muse Code 1.4.10 (1.4.10-R6427.1)",
+        "stderrPresent": false
+      },
+      {
+        "host": "grok",
+        "exit": 0,
+        "version": "grok 1.0.62 (1474f9cbdd91)",
+        "stderrPresent": false
+      }
+    ],
+    "originalMetadataSha256": "0e4116e0553fd5dbd08ebba726de93963fd8283ba43c9d481b900ea8e097031b",
+    "claudeNativeRecheck": {
+      "command": [
+        "native-claude",
+        "--version"
+      ],
+      "exit_code": 0,
+      "stdout": "2.1.304 (Claude Code)",
+      "stderrPresent": false,
+      "scope": "Direct native binary metadata only; no model request/auth/config/trust operation."
+    }
+  }
+}

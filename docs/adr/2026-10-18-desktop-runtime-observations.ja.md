@@ -143,11 +143,11 @@ D は公式の可変な文書、N は native binary の観測、F は local echo
 
 | ホストと導入版 | 作業中の証拠候補 | 入力待ち | 人間の承認待ち | turn boundary | process 終了 |
 |---|---|---|---|---|---|
-| Claude Code 2.1.302 (N0) | prompt/tool (D1)、native 未確認 | 種別付き通知 (D1)、遅延あり、native 未確認 | permission_prompt (D1)、要求だけでは不足、native 未確認 | Stop (D1)、native 未確認 | child wait のみ。hook 単独は unknown |
-| Codex 0.163.0 (N0) | prompt/tool (D2)、native 未確認 | 専用の証明は unknown (D2) | PermissionRequest は telemetry。人間への表示は unknown (D2,D6) | Stop (D2)、native 未確認 | child wait のみ。hook 単独は unknown |
-| Antigravity CLI 1.4.0 (N0) | invocation/tool (D3)、native 未確認 | fullyIdle 単独では入力受付を証明しない (D3) | unknown (D3) | Stop と fullyIdle (D3)、native 未確認 | child wait のみ。hook 単独は unknown |
-| Muse 1.4.10-R6427.1 (N0) | PreLLMCall を echo で観測 (F1,D4) | unknown。Stop だけでは不足 (F1,D4) | Notification の文書あり、native 未確認 (D4) | Stop を echo で観測 (F1) | F1 では SessionEnd 未観測。child wait のみ |
-| Grok 1.0.62 (1474f9cbdd91) (N0) | prompt/tool (D5)、native 未確認 | main 文書に idle_prompt、導入版は未確認 (D5) | main 文書に permission_prompt、native 未確認 (D5) | Stop の文書あり、native 未確認 (D5) | child wait のみ。hook 単独は unknown |
+| Claude Code 2.1.304 (N1) | prompt/tool (D1)、native 未確認 | 種別付き通知 (D1)、遅延あり、native 未確認 | permission_prompt (D1)、要求だけでは不足、native 未確認 | Stop (D1)、native 未確認 | child wait のみ。hook 単独は unknown |
+| Codex 0.163.0 (N1) | prompt/tool (D2)、native 未確認 | 専用の証明は unknown (D2) | PermissionRequest は telemetry。人間への表示は unknown (D2,D6) | Stop (D2)、native 未確認 | child wait のみ。hook 単独は unknown |
+| Antigravity CLI 1.4.5 (N1) | invocation/tool (D3)、native 未確認 | fullyIdle 単独では入力受付を証明しない (D3) | unknown (D3) | Stop と fullyIdle (D3)、native 未確認 | child wait のみ。hook 単独は unknown |
+| Muse Code 1.4.10-R6427.1 (N1) | PreLLMCall を echo で観測 (F1,D4) | unknown。Stop だけでは不足 (F1,D4) | Notification の文書あり、native 未確認 (D4) | Stop を echo で観測 (F1) | F1 では SessionEnd 未観測。child wait のみ |
+| Grok Build 1.0.62 (1474f9cbdd91) (N1) | prompt/tool (D5)、native 未確認 | main 文書に idle_prompt、導入版は未確認 (D5) | main 文書に permission_prompt、native 未確認 (D5) | Stop の文書あり、native 未確認 (D5) | child wait のみ。hook 単独は unknown |
 
 N0 は空 project/HOME で実 binary の version/help を確認したもの。
 PATH の claude は既存の print routing wrapper だったため、変更せず `~/.local/bin/claude` を直接使った。
@@ -259,7 +259,8 @@ native screenshot は描画だけを確認し、IME や VoiceOver の証明に�
 
 第二試行も事前に protocol を固定し、3 terminal、各 1 MiB/s を 60 秒、各 source queue 2 MiB、200 resize、有界 5,000 行 diff preview を維持した。
 ローカル broker は実際の raw PTY 3 本から読み、renderer は有界 read と xterm write acknowledgement を待つ。
-直接起動した両 native variant は 188,743,680 bytes 全量、報告上の欠落 0、200 resize、source EOF を確認した。
+直接起動した両 native variant は 188,743,680 bytes 全量、200 resize、source EOF を確認した。
+旧zero-drop fieldは定数であり、parser/display dropを計測した値ではなかった。
 所要時間は Electron 60,281.4 ms、Wails 60,269 ms だった。
 terminal write-ack p95 はそれぞれ 22.60 ms と 10.00 ms だが、native 入力遅延や公正な framework 順位ではない。
 same-UID、path、protocol、UTF-8 の smoke 2 ケースが合格したが、他 UID への耐性は未検証である。
@@ -271,6 +272,109 @@ same-UID、path、protocol、UTF-8 の smoke 2 ケースが合格したが、他
 その後の read-only 署名検証では、コピーした自作手動アプリの署名不整合を検出した。
 通常の ad-hoc 開発署名と strict 検証に成功した後も、CUA は `timeoutReached` を返した。
 残る起動失敗の原因は不明であり、OS 保護を無効化していない。
+
+## 2026-10-22 の証跡更新と 2026-10-23 のオフライン診断
+
+これはProposedの証跡更新であり、D0 の受入ではありません。
+[最小化した更新証跡](evidence/desktop-d0-2026-10-23.json)は、過去の不合格、新しいsource cohort、native観測、未実施gateを区別します。
+どちらのランタイムも未採用です。
+以前のCUA timeoutは過去の失敗として残し、後のnative観測で更新するのは「native入力が一度も届かなかった」という一律の制約だけです。
+
+### ホストの版とbindingの観測
+
+N1は2026-10-22のbinary metadataです。
+Codex0.163.0、Claude Code2.1.304、Antigravity1.4.5、Muse1.4.10-R6427.1、Grok1.0.62(1474f9cbdd91)を観測しました。
+今回、Claudeの直接のnative binaryの版も2.1.304と再確認し、routingされたbannerをnative起動の証明には使いません。
+N0は2026-10-18のmetadata、N1は更新JSONに保存した後のbanner記録を表します。
+これはhostの版の観測であり、モデル版番号の固定や未検証状態の認定ではありません。
+
+N2は更新JSONのnative binding probeと再現可能な固定protocolを表します。
+Antigravity1.4.5では、一つの空cwdからfreshなnative headless実行を2本並行起動し、異なる使い捨てTraceary DBへ明示的に振り分けました。
+各DBには自分のnative groupingとmetadata3件だけが記録され、監督したprocessはexit0でした。
+この証拠はnative相関と明示的なstore routingに限定し、入力受付、人間への承認表示、ordering/generation、descriptorの安全性、authorityの認定ではありません。
+応答末尾の句点不一致1件と、最初のverifierがworkspaceを継承して失敗した事実も残します。
+Museの2実行のecho/literal-hook相関はecho限定で、任意の環境bindingは保持されませんでした。
+Claudeのfunding失敗からnative interactionを推論しません。
+Codexのhook hash trustとGrokのproject trustを維持し、広域のtrust/config変更やGrokのモデル要求で証拠を作っていません。
+未証明のinteractionセルはunknownです。
+
+### 固定packaged実PTYバッチと比較の制約
+
+変更していない署名済みv4 fixture bundle2個で、各ランタイムのfresh-process起動5回と、nominal load、最小化したbackground各1回を一つの有限なCLI駆動バッチで実施しました。
+そのバッチ内の再build、版の更新、Computer Useは0回です。
+元の3 PTY×各1MiB/s×60秒、各2MiBの上限、terminal/nativeサイズ要求各200回、scrollback1000行、diff入力100k行とpreview5k行を維持しました。
+source、生成asset、protocol、bundle内regular fileのhashは前後で一致しました。
+Electron自身のaccessibility renderingは明示的に有効化しており、そのコストもこのsource cohortに含めます。
+別の入力試行で行ったnative UI操作を、この自動バッチの操作数に混ぜません。
+
+RSS列はsampleしたapp memberのRSS合計の最大値（`sampledPeakRSSBytes`）で、OSのhigh-water markではありません。
+
+| Runtime / 要求モード | 配送した生成bytes | terminal resize receipt | 直後のnativeサイズ比較で一致 | sampled idle CPU（論理CPU1個） | RSS合計のsample内最大値（bytes） |
+|---|---:|---:|---:|---:|---:|
+| electron / load | 188743680 | 200/200 | 200/200 | 0.703% | 566591488 |
+| wails / load | 188743680 | 200/200 | 0/200 | 0.420% | 557121536 |
+| electron / background | 188743680 | 200/200 | 200/200 | 0.519% | 564887552 |
+| wails / background | 188743680 | 200/200 | 0/200 | 0.293% | 560889856 |
+
+実PTYの全負荷試行4件（nominal load2件、background2件）はすべて3 EOF、pending0、固定payloadのbyte不一致0でした。
+これはbyte収支と受信bridge payload比較であり、terminal parser/displayのdrop counterを計測したものではありません（`droppedBytes=null`）。
+nominal loadの両試行には、前景を制御できたことに否定的なsampleが含まれます。
+最小化されていないことと前景であることを区別し、制御した前景/背景のframework比較とは扱いません。
+
+packaged起動の記述統計n5 nearest-rank p95はElectron1855.65ms、Wails1020.13msでした。
+cold cache、統計的信頼性、性能順位を主張しません。
+同等fixture bundleのregular-file合計は308336437bytesと14593507bytesでした。
+ready後の最初のsampleから60秒以上後の次のidle両側確認sampleまで、校正済みの累積CPU nsで計算し、ps EWMAは使いません。
+sample時点でdistinct coalitionの構成が安定していても、一時的なhelperが存在しなかったことまでは証明しません。
+sampled RSSは共有pageを重複計上する可能性があり、全期間のpeakではありません。
+閾値との比較は記述的な観測で、CPU/RSS全体やnativeの受入ではありません。
+以前のElectron起動3150.77ms、background terminal resize8/65の不合格は元のcohortのまま残します。
+
+### 範囲を限定したnative入力の観測
+
+別の実native textarea操作では、両ランタイムで日本語の確定、cancel、ローマ字から漢字への変換を観測しました。
+Electronは既知のdecomposed Unicodeのpasteを正確に保持しました。
+Wailsは2回とも完全一致に失敗しました（UTF16 length11、期待12、観測U+00E9、入力U+0065 U+0301）。
+CUA/OS/WebKitのどこが変換したかは未証明で、期待値を正規化して合格にはしません。
+日本語入力は既に有効であり、入力ソースやshortcutを変更したり切り替えたりしていません。
+正確なactive-source IDは取得せず、ASCII baselineも合格していません。
+
+その後のElectron xterm fixtureでは、trusted native ingressから同じPTY0、完全一致のecho、xterm write、2 animation-frame機会までのsoftware sample4件（CR、日本語確定、漢字、既知Unicode paste）を保存しました。
+native brokerのledgerも4件の完全一致echoと整合します。
+これは無負荷の小さな診断であり、物理key-to-display遅延、全負荷時のinteraction p95、IME全般、Monaco、host入力の受入ではありません。
+初回のElectron診断はrendererのnative sample0件に対してbackendのCR ledger1件でしたが、backendの1件だけからrenderer/native成功を推論しません。
+Wailsのxterm試行はstale-target tool guard後にnative入力を受けず、既定の実行期限で終了しました。
+Wailsのxterm入力は合格にしていません。
+別途native menu Quitと対象processの不在を観測しましたが、close-detach/reopenとdaemon/PTY寿命は未検証です。
+
+### Wailsの直後のサイズ比較は完了確認ではない
+
+検証した固定済みWailsv2.16.0のSetSizeはmain queueへの非同期要求であり、GetSizeはその適用完了を待ちません。
+自作controllerは最初の照会で比較し、レポート作成時に独立した再照会を行います。
+両試行の最初の比較200件はすべてfalseですが、後のレポート照会ではload4件とbackground2件が既に要求値に一致し、最後のframe照会は両方とも1300×904です。
+これは直後の比較の失敗であり、実際のresizeが0回だった証拠ではありません。
+native200回のgateも合格にはしません。
+`go mod verify`とオフラインのソース/保存結果確認8件は合格しました。
+導入moduleのoriginはcommit457bf210d5eb976ff3726c8629f7725575163307ですが、固定Web sourceの取得は失敗しており、外部取得成功は主張しません。
+snapshotの同名パス衝突はhash確認が検出し、失敗snapshotを残して階層を保つ形に修正しました。
+上流のコードは変更していません。
+
+次の計測では、元の200要求/150ms間隔と全負荷を維持し、boundedなrequest/generation IDとmain/UI threadでの適用acknowledgementを対応付ける必要があります。
+実寸法、比較結果、acknowledgementは同じ取得点から記録します。
+欠落、遅延、重複、順序逆転を失敗として残し、嵐の速度低下、indexずらし、高さ補正、合うまでpollする方法では合格にしません。
+これはfixture計測の修正案であり、product APIや実装済み/native受入済みの保証ではありません。
+
+### 残るdeliveryと受入gate
+
+五ホスト全体のinteraction/approval/authority、負荷中のnative入力、Wailsのxterm入力、Monaco IME、VoiceOver、sleep/wake/crash、close/reopen、複数モニターは未完了です。
+利用可能なのは内蔵display1台で、ユーザーは外部displayを用意できません。
+これは未実施であって合格や免除ではありません。
+以前の設計PR2429は、そのPRだけのProposed文書例外でmerge済みですが、その当時の許可だけでは新しい未完了closing PRを許可していませんでした。
+2026-10-23にユーザーは今回の証跡更新（#2441）への許可拡張を明示し、#2424を開いたまま、この限定sub-issueだけを閉じるPRのmergeを許可しました。
+Desktop全体のゴールはpausedのままであり、この許可はD0受入やランタイム採用ではありません。
+元のD0全scope、独立レビュー、human-gatedな採用判断を維持します。
+この更新でproductionコード、schema、資格情報、config/trust設定、配布は変更していません。
+証拠保存後に試作nativeアプリを削除しており、将来の再buildを同一binaryの証拠とは扱いません。
 
 ## 振る舞いテストと TDD
 
@@ -342,7 +446,7 @@ rollback は任意の Desktop 機能を停止し、既存 CLI/hooks/history/memo
 |---|---|---|
 | Claude | native unknown | native unknown |
 | Codex | native unknown | native unknown |
-| Antigravity | native unknown | native unknown |
+| Antigravity | N2: native fresh sessionと明示した実行別storeの相関を観測（1.4.5）。任意の環境変数、事前session/generation、descriptor authorityはunknown | global/実行別hook合成はnative unknown |
 | Muse | 環境変数は欠落。実行別 literal の相関は F2 echo のみ。native provider は unknown | global と実行別設定の native 合成は unknown |
 | Grok | native unknown | native unknown |
 
@@ -443,9 +547,9 @@ dotfiles の変更は許可されておらず、行っていない。
 作者の偽装や権限の緩和をせず、登録済み Claude engine と CLI の現行モデル選択による直接の read-only レビューを利用できる。
 主担当の docs 検証と合成テストで必須の独立レビューを置き換えない。
 
-手動入力試験 fixture は CUA の native app lookup が timeout し、開けなかった。
-IME、clipboard、VoiceOver の合格は記録しない。
-別の GUI 自動化手段や OS 保護の回避は使っていない。
+以前の手動fixture lookupはtimeoutした。
+後に得た範囲限定のnative入力観測は日付付き更新節に記録したが、全手動試験やVoiceOverのgateは合格にしていない。
+別のGUI driverやOS保護の回避は使っていない。
 
 ## 出典
 

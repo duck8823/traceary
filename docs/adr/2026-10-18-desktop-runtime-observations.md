@@ -162,11 +162,11 @@ interactive behavior. Each cell cites the source key below; unknown is deliberat
 
 | Host and installed version | Working evidence | Input-wait evidence | Approval-wait evidence | Turn boundary | Process exit |
 |---|---|---|---|---|---|
-| Claude Code 2.1.302 (N0) | Prompt/tool hooks (D1); native unknown | Notification subtype (D1), delayed; native unknown | `permission_prompt` (D1); request alone insufficient; native unknown | Stop (D1); native unknown | Child wait only; hook alone unknown |
-| Codex 0.163.0 (N0) | Prompt/tool hooks (D2); native unknown | Dedicated proof unknown (D2) | PermissionRequest is telemetry, human visibility unknown (D2,D6) | Stop (D2); native unknown | Child wait only; hook alone unknown |
-| Antigravity CLI 1.4.0 (N0) | Invocation/tool hooks (D3); native unknown | `fullyIdle` alone does not prove input acceptance (D3) | Unknown (D3) | Stop plus `fullyIdle` (D3); native unknown | Child wait only; hook alone unknown |
-| Muse Code 1.4.10-R6427.1 (N0) | PreLLMCall observed in echo only (F1,D4) | Unknown; Stop does not prove it (F1,D4) | Notification documented (D4); native unknown | Stop observed in echo only; Meta-provider behavior unknown (F1) | SessionEnd not observed in F1; child wait only |
-| Grok Build 1.0.62 (1474f9cbdd91) (N0) | Prompt/tool hooks (D5); native unknown | `idle_prompt` documented on main, installed-version behavior unknown (D5) | `permission_prompt` documented on main, native unknown (D5) | Stop documented (D5); native unknown | Child wait only; hook alone unknown |
+| Claude Code 2.1.304 (N1) | Prompt/tool hooks (D1); native unknown | Notification subtype (D1), delayed; native unknown | `permission_prompt` (D1); request alone insufficient; native unknown | Stop (D1); native unknown | Child wait only; hook alone unknown |
+| Codex 0.163.0 (N1) | Prompt/tool hooks (D2); native unknown | Dedicated proof unknown (D2) | PermissionRequest is telemetry, human visibility unknown (D2,D6) | Stop (D2); native unknown | Child wait only; hook alone unknown |
+| Antigravity CLI 1.4.5 (N1) | Invocation/tool hooks (D3); native unknown | `fullyIdle` alone does not prove input acceptance (D3) | Unknown (D3) | Stop plus `fullyIdle` (D3); native unknown | Child wait only; hook alone unknown |
+| Muse Code 1.4.10-R6427.1 (N1) | PreLLMCall observed in echo only (F1,D4) | Unknown; Stop does not prove it (F1,D4) | Notification documented (D4); native unknown | Stop observed in echo only; Meta-provider behavior unknown (F1) | SessionEnd not observed in F1; child wait only |
+| Grok Build 1.0.62 (1474f9cbdd91) (N1) | Prompt/tool hooks (D5); native unknown | `idle_prompt` documented on main, installed-version behavior unknown (D5) | `permission_prompt` documented on main, native unknown (D5) | Stop documented (D5); native unknown | Child wait only; hook alone unknown |
 
 N0: real binary `--version` and `--help` in an empty project/HOME; not interaction
 certification. The configured `claude` on PATH is an existing print-routing
@@ -297,8 +297,9 @@ A protocol fixed before this second trial retained the original three terminals,
 1 MiB/s per terminal for 60 seconds, 2 MiB source queue per terminal, 200 resizes
 and bounded 5,000-line diff preview. A local broker reads three real raw PTYs;
 the renderer awaits each bounded read and xterm write acknowledgement. Both
-direct native variants delivered all 188,743,680 bytes with zero reported drops,
-200 resizes and source EOF, in 60,281.4 ms (Electron) / 60,269 ms (Wails).
+direct native variants delivered all 188,743,680 bytes with
+200 resizes and source EOF in 60,281.4 ms (Electron) / 60,269 ms (Wails).
+The old zero-drop field was a constant, not a measured parser/display drop counter.
 Terminal write-ack p95 was 22.60 ms / 10.00 ms, respectively; this is not native
 input latency or a fair framework ranking. Same-UID/path/protocol/UTF-8 smoke
 tests passed twice (two cases); cross-UID resistance was not tested.
@@ -312,6 +313,49 @@ code-signature check subsequently found an incomplete signature on the copied
 self-authored manual app. Normal ad-hoc development signing and strict signature
 verification succeeded, but CUA still returned `timeoutReached`. The cause of
 the remaining launch failure is unknown; no OS protection was disabled.
+
+## Evidence refresh from 2026-10-22 and offline diagnosis on 2026-10-23
+
+This is a Proposed evidence update, not D0 acceptance. The [sanitized refresh evidence](evidence/desktop-d0-2026-10-23.json) distinguishes historical failures, new source cohorts, native observations and unexecuted gates. Neither runtime is adopted. The earlier CUA timeouts remain historical failures; later successful native observations supersede only the blanket claim that no native input was ever delivered.
+
+### Host/version and binding observations
+
+N1 records 2026-10-22 binary metadata: Codex 0.163.0, Claude Code 2.1.304, Antigravity 1.4.5, Muse 1.4.10-R6427.1 and Grok 1.0.62(1474f9cbdd91). Claude's direct native binary version was separately rechecked as 2.1.304 for this refresh; a routed banner is not used as native-launch proof. N0 denotes the earlier 2026-10-18 metadata; N1 is the later banner record in the refresh JSON. These are host-version observations, not model-version pins or certification of untested states.
+
+N2 denotes the native binding probe and reproducible fixed protocol in the refresh JSON. Two fresh, overlapping Antigravity 1.4.5 headless native invocations from one empty cwd routed to distinct throwaway Traceary databases. Each database had exactly its own native grouping and three own metadata rows; supervised processes exited 0. This establishes scoped native correlation and explicit store routing, not input readiness, approval visibility, ordering/generation, descriptor security or authority. One exact-response punctuation mismatch and the initial verifier's inherited-workspace failure are retained. Muse's two-run echo/literal-hook correlation remains echo-only; arbitrary environment binding was not preserved. Claude funding failure produced no native interaction proof. Codex hook-hash trust and Grok unified project trust remain intact; no broad trust/config change or Grok model request was used to manufacture evidence. All unproven interaction cells remain unknown.
+
+### Fixed packaged real-PTY batch, not a controlled foreground ranking
+
+The two unchanged, signed v4 fixture bundles completed one finite CLI-driven batch: five fresh-process startup observations per runtime, then one nominal load and one minimized/background trial each. Zero rebuilds, version increments and Computer Use calls occurred within that batch. Original three PTYs × 1 MiB/s × 60 s, 2 MiB/terminal bounds, 200 terminal/native size requests, 1000-line scrollback and 100k-input/5k-preview diff workload were retained. Source, generated assets, protocol and regular bundle-file hashes matched before/after. Electron's own accessibility rendering was explicitly enabled; its cost belongs to this source cohort. Native UI actions performed for separate input trials are not counted as part of this automatic batch.
+
+The RSS column is the maximum of sampled per-app member RSS sums (`sampledPeakRSSBytes`), not an OS high-water mark.
+
+| Runtime / requested mode | Generated bytes delivered | Terminal resize receipts | Immediate native size comparisons matching | Sampled idle CPU, one logical CPU | Peak of sampled summed RSS bytes |
+|---|---:|---:|---:|---:|---:|
+| electron / load | 188743680 | 200/200 | 200/200 | 0.703% | 566591488 |
+| wails / load | 188743680 | 200/200 | 0/200 | 0.420% | 557121536 |
+| electron / background | 188743680 | 200/200 | 200/200 | 0.519% | 564887552 |
+| wails / background | 188743680 | 200/200 | 0/200 | 0.293% | 560889856 |
+
+All four real-PTY workload trials (two nominal load and two background) had 3 EOFs, pending 0 and zero fixed-payload byte mismatches. This is byte conservation plus received bridge-payload comparison, not a measured terminal parser/display drop counter (`droppedBytes=null`). Both nominal load trials have negative sampled foreground evidence; non-minimized is not foreground. Their observations do not certify a controlled foreground/background framework comparison.
+
+Packaged startup descriptive n5 nearest-rank p95 was 1855.65 ms for Electron and 1020.13 ms for Wails. No cold-cache or confidence/ranking claim follows. Equivalent fixture bundle regular-file sizes were 308336437 and 14593507 bytes. The first-post-ready idle sample through the next bracketed idle sample≥60s used calibrated cumulative CPU ns, not ps EWMA. Stable sampled distinct-coalition membership is not proof that no transient helper existed; sampled RSS can count shared pages more than once and is not an all-time peak. Fixed threshold comparisons are descriptive, not broad CPU/RSS/native acceptance. Older Electron startup 3150.77 ms and background terminal resize 8/65 failures remain unchanged in their original cohorts.
+
+### Native input observations have separate, limited scope
+
+Separate real native textarea actions observed Japanese commit/cancel and Romaji-to-Kanji conversion in both runtimes. Electron preserved the known decomposed Unicode paste. Wails failed exact preservation twice (UTF-16 length 11 vs expected 12; observed composed U+00E9 vs source U+0065 U+0301); the responsible CUA/OS/WebKit component is unproven. No normalization changes the expected value. Japanese was already active; no source/shortcut was changed or switched, exact active-source ID was not captured and the ASCII baseline did not pass.
+
+A subsequent Electron xterm fixture retained four trusted native-ingress→samePTY0→matched echo→xterm-write→two-animation-frame software samples (CR, Japanese commit, Kanji and known Unicode paste). The native broker ledger corroborated all four exact echoes. These are a small unloaded diagnostic, not physical key-to-display latency, full-load interaction p95 or all IME/Monaco/host input acceptance. The initial Electron diagnostic had zero renderer native samples but one backend CR ledger entry; no renderer/native success is inferred from it alone. The Wails xterm attempt received no native input after a stale-target tool guard and ended at its existing execution deadline. No Wails xterm input pass is claimed. Native menu Quit and own-process absence were observed separately; close-detach/reopen and daemon/PTY lifetime remain untested.
+
+### Wails immediate native-size comparison is not a completion acknowledgement
+
+Verified installed Wails v2.16.0 source queues SetSize asynchronously on the main queue; GetSize does not wait for that queued setter. Our controller compares one immediate read, then report construction queries the size independently. All 200 first comparisons are false in each Wails trial, while the later report already matches 4 requested frames in load and 2 in background; both final queried frames are 1300 × 904. The flags are failed immediate comparisons, not proof of zero actual resizes. They do not pass the native200 gate either. `go mod verify` and eight offline source/receipt checks passed. The installed module origin records commit 457bf210d5eb976ff3726c8629f7725575163307; pinned web source retrieval failed, so no successful external retrieval is claimed. A basename-colliding source snapshot was caught by hashes and corrected with the failed snapshot retained; upstream code was not changed.
+
+A future measurement must keep the same 200-command/150 ms cadence and original workload, and associate bounded request/generation identities with main/UI-thread application acknowledgements. Actual bounds, comparison and acknowledgement must come from the same capture. Missing/late/duplicate/reversed acknowledgements are failures, not reasons to slow the storm, shift indices, apply a height offset or poll until a passing result. This is a proposed fixture-measurement correction, not a product API or an implemented/native-accepted guarantee.
+
+### Remaining delivery and acceptance gates
+
+Full five-host interaction/approval/authority, loaded native input, Wails xterm input, Monaco IME, VoiceOver, sleep/wake/crash, close/reopen and multiple-monitor gates remain incomplete. Only one built-in display is available; the maintainer cannot supply an external display. That is unexecuted, not passed or waived. Prior design PR2429 was merged under an explicitly PR-specific Proposed-document exception; that historical permission did not authorize another incomplete-closing PR. On 2026-10-23, the maintainer explicitly extended permission to this evidence refresh (#2441): its PR may merge and close only that bounded sub-issue while #2424 remains open. The full Desktop goal remains paused; this permission does not accept D0 or adopt a runtime. Original full D0 scope, independent review and human-gated adoption remain required. This refresh changes no production code, schema, credential/config/trust setting or distribution. Temporary native apps were removed after evidence preservation; identical-binary evidence must not be claimed for a future rebuild.
 
 ## Behavior tests and TDD plan
 
@@ -402,7 +446,7 @@ These are proposed contracts, not implemented guarantees or D0 adoption.
 |---|---|---|
 | Claude | Native unknown | Native unknown |
 | Codex | Native unknown | Native unknown |
-| Antigravity | Native unknown | Native unknown |
+| Antigravity | N2: native fresh-session → explicit per-invocation store correlation observed (1.4.5); arbitrary environment, prechosen session/generation and descriptor authority unknown | Native global/per-run hook composition unknown |
 | Muse | Environment lost; per-run literal correlated in F2 echo only; native provider unknown | Native global/per-run merge unknown |
 | Grok | Native unknown | Native unknown |
 
@@ -519,9 +563,9 @@ and its current CLI model selection without falsifying author identity or
 weakening permissions. Main-session docs checks and synthetic tests are not
 replacements for the required independent review.
 
-The manual-input test fixture could not be opened through CUA (native app
-lookup timed out), so no IME, clipboard or VoiceOver pass is recorded. No other
-GUI automation mechanism or OS security workaround was used.
+The earlier manual-input fixture lookup timed out. Later limited native input
+observations are recorded in the dated refresh above; they do not pass the full
+manual/VoiceOver gate. No alternate GUI driver or OS-security workaround was used.
 
 ## Sources
 
