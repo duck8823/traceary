@@ -161,7 +161,31 @@
   "runtimeAdopted": false,
   "fullD0Accepted": false,
   "fullGoal": "paused",
-  "independentReview": "pending static evidence review",
+  "independentReview": {
+    "scope": "static evidence-only review, not final High-risk D0/security/adoption gate",
+    "sourceSnapshotCommit": "8ea3bb7ec47e52c6eceef5ffbafcfa66f9dd41eb",
+    "externalAttempts": [
+      {
+        "family": "Google",
+        "outcome": "quota, no review"
+      },
+      {
+        "family": "Anthropic",
+        "outcome": "quota, no review"
+      }
+    ],
+    "completion": "author-independent isolated-context local reviewer after bounded soft external failures, per Medium substitution policy",
+    "differentFamilyReviewObtained": false,
+    "findings": [],
+    "localReviewerValidation": [
+      "diff whitespace",
+      "allowed-row/prose identity",
+      "archive/member/protocol/receipt SHA consistency",
+      "make docs/check"
+    ],
+    "historicalNativeExecutionIndependentlyRerun": false,
+    "remainingRisk": "N3 verification query implementation not archived; raw DB/output removed; tracked metadata alone cannot independently replay full fixture"
+  },
   "parentIssue": 2424,
   "boundedIssue": 2445
 }
