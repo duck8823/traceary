@@ -376,6 +376,25 @@ Desktop全体のゴールはpausedのままであり、この許可はD0受入�
 この更新でproductionコード、schema、資格情報、config/trust設定、配布は変更していません。
 証拠保存後に試作nativeアプリを削除しており、将来の再buildを同一binaryの証拠とは扱いません。
 
+## 2026-10-23のMuse非依存で再実行できる追加証跡
+
+ユーザーは#2424を開いたまま、#2443の追加証跡だけを別途統合することを明示許可しました。
+[再実行できるprobeのsourceとコマンド](evidence/desktop-d0-probes-2026-10-23/README.ja.md)と[最小化metadata](evidence/desktop-d0-probes-2026-10-23.json)に、Proposed contractや未採用状態を変えずに2つの限定結果を保存します。
+Museは保留し、呼び出しません。
+
+- 合成resizeレシートledgerの31テストが合格し、150ms cadenceの200要求を交互に処理するfixtureを含みます。
+  独立静的reviewがcapture再利用による誤った成功判定を指摘し、主sessionが再現して修正した後、最終reviewは残る指摘なしとしました。
+  capture ID/pairの再利用は両要求の判定を無効にします。
+  native UI完了や物理表示を認定しておらず、500msのfixture deadlineは採用済み性能閾値ではありません。
+- macOSのUnix socket実行可能性probeの29テストが合格し、同一UIDの別processと実際のlibc getpeereid、0700/0600 mode bit、上限付き・分割frame、合計250ms deadline、観測専用fixtureを含みます。
+  異なるUIDのclient、ACL、同一UIDの敵対的race、完全な送信元認可は認定していません。
+  製品daemon、採用済みpublic protocol、history/lease/PTY統合の証明ではありません。
+
+sourceはproduction packageの外に置いています。
+試験にDesktop appのbuild/起動、版番号のincrement、GUI自動操作、login、権限変更は不要で、所有するローカルsocket fixtureを削除します。
+残るnative/manual/hardware gateや最終High-risk設計reviewと採用gateを合格にしていません。
+元のnative不合格とunknown状態を維持します。
+
 ## 振る舞いテストと TDD
 
 | 条件 | 期待する観測可能な結果 | 段階 |

@@ -357,6 +357,15 @@ A future measurement must keep the same 200-command/150 ms cadence and original 
 
 Full five-host interaction/approval/authority, loaded native input, Wails xterm input, Monaco IME, VoiceOver, sleep/wake/crash, close/reopen and multiple-monitor gates remain incomplete. Only one built-in display is available; the maintainer cannot supply an external display. That is unexecuted, not passed or waived. Prior design PR2429 was merged under an explicitly PR-specific Proposed-document exception; that historical permission did not authorize another incomplete-closing PR. On 2026-10-23, the maintainer explicitly extended permission to this evidence refresh (#2441): its PR may merge and close only that bounded sub-issue while #2424 remains open. The full Desktop goal remains paused; this permission does not accept D0 or adopt a runtime. Original full D0 scope, independent review and human-gated adoption remain required. This refresh changes no production code, schema, credential/config/trust setting or distribution. Temporary native apps were removed after evidence preservation; identical-binary evidence must not be claimed for a future rebuild.
 
+## 2026-10-23 reproducible non-Muse follow-up
+
+The maintainer explicitly authorized a separate evidence-only integration for #2443 while #2424 remains open. The [reproducible probe sources and commands](evidence/desktop-d0-probes-2026-10-23/README.md) and [sanitized metadata](evidence/desktop-d0-probes-2026-10-23.json) preserve two limited results without changing this Proposed contract or adopting a runtime. Muse remains deferred and is not invoked.
+
+- The synthetic resize receipt ledger passes 31 tests, including 200 interleaved requests at 150 ms cadence. Independent static review identified a reused-capture false-success path; the main session reproduced/fixed it and a final review reported no remaining findings. Capture ID/pair reuse now invalidates both request classifications. No native UI completion or physical presentation is certified; the 500 ms fixture deadline is not an adopted performance threshold.
+- The macOS Unix-socket feasibility probe passes 29 tests, including a separate same-UID process and actual libc getpeereid, 0700/0600 mode bits, bounded/fragmented frames, a total 250 ms exchange deadline and an observation-only fixture. Different-UID clients, ACLs, same-UID adversarial races and full sender authorization are not certified. It is not a product daemon, adopted public protocol or proof of history/lease/PTY integration.
+
+The sources are deliberately outside production packages. Their tests require no Desktop app build/launch, version increment, GUI automation, login or privilege change; owned local socket fixtures are cleaned. These results do not pass the remaining native/manual/hardware gates or the final High-risk architecture/adoption gate. Original native failures and unknown states remain unchanged.
+
 ## Behavior tests and TDD plan
 
 | Given / when | Required observable outcome | Level |
