@@ -50,7 +50,13 @@
     "productionTOCTOUResistanceCertified": false,
     "publicProtocolAdopted": false,
     "productDaemonOrCLIImplemented": false,
-    "independentReview": "pending integration checkpoint review"
+    "independentReview": {
+      "kind": "Google-family static code/evidence checkpoint review",
+      "outcome": "SUCCESS, no findings",
+      "sourceSnapshotCommit": "bd3994e8f99741e33ad753049bdb45bd0207c398",
+      "reviewerValidatedCommands": [],
+      "nativeSecurityOrD0Certification": false
+    }
   },
   "muse": {
     "deferred": true,
