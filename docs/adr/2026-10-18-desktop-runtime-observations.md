@@ -163,7 +163,7 @@ interactive behavior. Each cell cites the source key below; unknown is deliberat
 | Host and installed version | Working evidence | Input-wait evidence | Approval-wait evidence | Turn boundary | Process exit |
 |---|---|---|---|---|---|
 | Claude Code 2.1.304 (N1) | Prompt/tool hooks (D1); native unknown | Notification subtype (D1), delayed; native unknown | `permission_prompt` (D1); request alone insufficient; native unknown | Stop (D1); native unknown | Child wait only; hook alone unknown |
-| Codex 0.163.0 (N1) | Prompt/tool hooks (D2); native unknown | Dedicated proof unknown (D2) | PermissionRequest is telemetry, human visibility unknown (D2,D6) | Stop (D2); native unknown | Child wait only; hook alone unknown |
+| Codex 0.163.0 (N1,N3,N4) | Prompt captured in samples (N3,N4); tool hooks/current working state unknown (D2) | Dedicated proof unknown (D2) | PermissionRequest is telemetry, human visibility unknown (D2,D6) | Stop observed in three headless sample turns (N3,N4); not input readiness or process-exit evidence | Supervised native child exits 0 (N3,N4); hook alone unknown |
 | Antigravity CLI 1.4.5 (N1) | Invocation/tool hooks (D3); native unknown | `fullyIdle` alone does not prove input acceptance (D3) | Unknown (D3) | Stop plus `fullyIdle` (D3); native unknown | Child wait only; hook alone unknown |
 | Muse Code 1.4.10-R6427.1 (N1) | PreLLMCall observed in echo only (F1,D4) | Unknown; Stop does not prove it (F1,D4) | Notification documented (D4); native unknown | Stop observed in echo only; Meta-provider behavior unknown (F1) | SessionEnd not observed in F1; child wait only |
 | Grok Build 1.0.62 (1474f9cbdd91) (N1) | Prompt/tool hooks (D5); native unknown | `idle_prompt` documented on main, installed-version behavior unknown (D5) | `permission_prompt` documented on main, native unknown (D5) | Stop documented (D5); native unknown | Child wait only; hook alone unknown |
@@ -366,6 +366,16 @@ The maintainer explicitly authorized a separate evidence-only integration for #2
 
 The sources are deliberately outside production packages. Their tests require no Desktop app build/launch, version increment, GUI automation, login or privilege change; owned local socket fixtures are cleaned. These results do not pass the remaining native/manual/hardware gates or the final High-risk architecture/adoption gate. Original native failures and unknown states remain unchanged.
 
+## 2026-10-23 native Codex sample follow-up
+
+N3/N4 in the [sanitized Codex evidence](evidence/desktop-d0-codex-native-2026-10-23.json) replace only the blanket native-unknown statements for the sampled prompt/Stop and history correlation. One single turn and two concurrent fresh Codex CLI0.163.0 ephemeral turns completed normally; each requested throwaway DB contained only its corresponding native thread as one session and three configured-hook events. The two concurrent process handles were observed live, shared one empty cwd, returned distinct expected markers and showed no opposite-run marker in the inspected records. These are three bounded samples, not a universal concurrency or live-state guarantee.
+
+On-request approvals, read-only sandbox and existing Guardian/hook trust were retained; model shell, multi-agent and dependency-auto-install capabilities were disabled. The initial approval-never proposal was rejected before execution; the separately permitted on-request alternative did not bypass that boundary. The parent supplied only synthetic prompts and inspected owned-store metadata/marker booleans, not global history or raw event bodies. Native CLI system/config context and full OS isolation were not independently audited. Local source/protocol/archive hashes are retained; the tracked metadata alone is not a complete independently replayable fixture.
+
+A session grouping's ended_at remained absent despite supervised child exit. Stop, committed history and native process exit are separate evidence; none grants input/approval authority. Arbitrary environment propagation, a generation witness, prechosen-session/resume behavior, descriptor security, global/per-run hook composition, all UI/manual/hardware gates and final adoption remain unknown. No earlier failure was rewritten into a pass.
+
+The maintainer explicitly authorized this additional evidence-only integration while #2424 remains open, D0 stays Proposed/incomplete, neither runtime is adopted and the full goal stays paused. No further native qualification, Muse invocation, Desktop build/launch, version increment or Computer Use is performed for this delivery.
+
 ## Behavior tests and TDD plan
 
 | Given / when | Required observable outcome | Level |
@@ -454,7 +464,7 @@ These are proposed contracts, not implemented guarantees or D0 adoption.
 | Host | Environment / per-run configuration / prechosen session binding | Hook composition |
 |---|---|---|
 | Claude | Native unknown | Native unknown |
-| Codex | Native unknown | Native unknown |
+| Codex | N3/N4: fresh native thread and explicit per-invocation DB-route/cwd association observed (0.163.0); arbitrary environment, prechosen session/generation and descriptor authority unknown | Native global/per-run hook composition unknown |
 | Antigravity | N2: native fresh-session → explicit per-invocation store correlation observed (1.4.5); arbitrary environment, prechosen session/generation and descriptor authority unknown | Native global/per-run hook composition unknown |
 | Muse | Environment lost; per-run literal correlated in F2 echo only; native provider unknown | Native global/per-run merge unknown |
 | Grok | Native unknown | Native unknown |

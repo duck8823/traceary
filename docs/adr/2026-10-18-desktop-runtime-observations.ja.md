@@ -144,7 +144,7 @@ D は公式の可変な文書、N は native binary の観測、F は local echo
 | ホストと導入版 | 作業中の証拠候補 | 入力待ち | 人間の承認待ち | turn boundary | process 終了 |
 |---|---|---|---|---|---|
 | Claude Code 2.1.304 (N1) | prompt/tool (D1)、native 未確認 | 種別付き通知 (D1)、遅延あり、native 未確認 | permission_prompt (D1)、要求だけでは不足、native 未確認 | Stop (D1)、native 未確認 | child wait のみ。hook 単独は unknown |
-| Codex 0.163.0 (N1) | prompt/tool (D2)、native 未確認 | 専用の証明は unknown (D2) | PermissionRequest は telemetry。人間への表示は unknown (D2,D6) | Stop (D2)、native 未確認 | child wait のみ。hook 単独は unknown |
+| Codex 0.163.0 (N1,N3,N4) | sampleのpromptを記録（N3,N4）。tool hookと現在のworking stateはunknown（D2） | 専用の証明は unknown (D2) | PermissionRequest は telemetry。人間への表示は unknown (D2,D6) | headless sampleの3 turnでStopを観測（N3,N4）。入力可能性やprocess終了の証拠ではない | 監督したnative childはexit 0（N3,N4）。hook単独はunknown |
 | Antigravity CLI 1.4.5 (N1) | invocation/tool (D3)、native 未確認 | fullyIdle 単独では入力受付を証明しない (D3) | unknown (D3) | Stop と fullyIdle (D3)、native 未確認 | child wait のみ。hook 単独は unknown |
 | Muse Code 1.4.10-R6427.1 (N1) | PreLLMCall を echo で観測 (F1,D4) | unknown。Stop だけでは不足 (F1,D4) | Notification の文書あり、native 未確認 (D4) | Stop を echo で観測 (F1) | F1 では SessionEnd 未観測。child wait のみ |
 | Grok Build 1.0.62 (1474f9cbdd91) (N1) | prompt/tool (D5)、native 未確認 | main 文書に idle_prompt、導入版は未確認 (D5) | main 文書に permission_prompt、native 未確認 (D5) | Stop の文書あり、native 未確認 (D5) | child wait のみ。hook 単独は unknown |
@@ -395,6 +395,28 @@ sourceはproduction packageの外に置いています。
 残るnative/manual/hardware gateや最終High-risk設計reviewと採用gateを合格にしていません。
 元のnative不合格とunknown状態を維持します。
 
+## 2026-10-23のCodex native sampleの追加証跡
+
+[最小化したCodex証跡](evidence/desktop-d0-codex-native-2026-10-23.json)のN3/N4で更新するのは、sampleのprompt/Stopと履歴相関について一律native unknownとしていた記述だけです。
+Codex CLI0.163.0の単独1 turnと同時2 turnをfreshなephemeral実行で正常終了させ、各隔離DBで対応するnative threadだけを1 sessionと3件の設定済みhook eventとして確認しました。
+同時実行の2 process handleの生存、共通の空cwd、別々の期待marker、検査対象recordに相手runのmarkerがないことを確認しています。
+3件の限定sampleであり、一般的な同時実行や現在のlive stateの保証ではありません。
+
+on-request承認、read-only sandbox、既存Guardian/hook trustを維持し、modelのshell、multi-agent、依存自動導入機能を無効にしました。
+最初のapproval-never案は実行前に拒否され、別途許可されたon-requestの代替でもその境界を迂回していません。
+親が明示投入したのは合成promptだけで、所有storeのmetadataとmarkerの真偽値を検査し、global履歴やraw event bodyは読み出していません。
+native CLIのsystem/config contextやOS隔離全体を独立監査してはいません。
+local source/protocol/archiveのhashを保存していますが、追跡対象metadataだけでは完全に独立再実行できるfixtureになりません。
+
+監督したchildが終了してもsession groupingのended_atは未設定でした。
+Stop、commit済み履歴、native process終了は別の証跡であり、入力や承認の権限を与えません。
+任意の環境変数の伝播、generation witness、事前session/resume、descriptor security、global/実行別hook合成、全UI/manual/hardware gate、最終採用はunknownです。
+過去の不合格を合格へ書き換えていません。
+
+ユーザーは#2424を開いたまま、この追加証跡だけの統合を明示許可しました。
+D0はProposed/未完了、両runtimeは未採用、全体ゴールは停止中のままです。
+今回のdeliveryでは追加native検証、Muse呼出し、Desktop build/起動、版番号increment、Computer Useを行いません。
+
 ## 振る舞いテストと TDD
 
 | 条件 | 期待する観測可能な結果 | 段階 |
@@ -464,7 +486,7 @@ rollback は任意の Desktop 機能を停止し、既存 CLI/hooks/history/memo
 | Host | 環境変数・実行別設定・事前 session 指定の binding | Hook 合成 |
 |---|---|---|
 | Claude | native unknown | native unknown |
-| Codex | native unknown | native unknown |
+| Codex | N3/N4: fresh native threadと明示した実行別DB経路/cwdの相関を観測（0.163.0）。任意の環境変数、事前session/generation、descriptor authorityはunknown | global/実行別hook合成はnative unknown |
 | Antigravity | N2: native fresh sessionと明示した実行別storeの相関を観測（1.4.5）。任意の環境変数、事前session/generation、descriptor authorityはunknown | global/実行別hook合成はnative unknown |
 | Muse | 環境変数は欠落。実行別 literal の相関は F2 echo のみ。native provider は unknown | global と実行別設定の native 合成は unknown |
 | Grok | native unknown | native unknown |

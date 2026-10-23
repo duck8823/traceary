@@ -1,0 +1,167 @@
+{
+  "schema": "traceary-desktop-d0-native-codex-evidence/v1",
+  "scope": "completed native headless sample evidence only; no D0 acceptance or authority certification",
+  "hostVersion": "codex-cli 0.163.0",
+  "hostVersionIsNotModelPin": true,
+  "evidenceClasses": {
+    "N3": "one native fresh ephemeral turn",
+    "N4": "two native fresh ephemeral turns in the same empty cwd with distinct requested stores"
+  },
+  "baseCommit": "70e17bb88c5c2a6be42a516263bd9ffc917e778f",
+  "single": {
+    "nativeExitCode": 0,
+    "nativeSequence": [
+      "thread.started",
+      "turn.started",
+      "item.completed",
+      "turn.completed"
+    ],
+    "reportedItemTypes": [
+      "agent_message"
+    ],
+    "exactSyntheticResponse": true,
+    "storeSessions": 1,
+    "storeEvents": 3,
+    "nativeThreadMatchesStoredSession": true,
+    "requestedCwdMatchesRecordedWorkspace": true,
+    "sourceHooks": [
+      "session_start",
+      "user_prompt_submit",
+      "stop"
+    ],
+    "groupingEndedAtPresentDespiteNativeProcessExit": false,
+    "processExitWasSeparatelySupervised": true
+  },
+  "concurrent": {
+    "nativeExitCodes": [
+      0,
+      0
+    ],
+    "bothNativeProcessHandlesObservedLive": true,
+    "sameEmptyCwd": true,
+    "distinctNativeThreads": true,
+    "perStoreSessions": [
+      1,
+      1
+    ],
+    "perStoreEvents": [
+      3,
+      3
+    ],
+    "eachStoreMatchesOnlyItsNativeThread": true,
+    "ownMarkerObservedInEach": true,
+    "otherRunMarkerObserved": false,
+    "exactSyntheticResponses": true,
+    "reportedModelToolItems": 0
+  },
+  "protocol": {
+    "modelSelection": "native configured/default; no model override or registry change",
+    "approval": "on-request retained",
+    "sandbox": "read-only",
+    "ephemeral": true,
+    "disabledModelCapabilities": [
+      "shell_tool",
+      "multi_agent",
+      "skill_mcp_dependency_install"
+    ],
+    "guardianHookTrustUserConfigRules": "not bypassed, ignored or rewritten",
+    "singlePrompt": "Reply exactly D0_CODEX_NATIVE_OK. Do not use tools, files, shell, browser, memory, plugins, delegation or subagents. Do not modify anything.",
+    "concurrentFixedProtocol": {
+      "schema": "traceary-d0-native-codex-concurrent-binding/v1",
+      "fixedBeforeExecutionUtc": "2026-10-23T07:25:02.382619+00:00",
+      "purpose": "two independent native fresh ephemeral turns in the same empty cwd, distinct requested throwaway hook stores; no GUI or product code",
+      "count": 2,
+      "nativeApproval": "on-request retained",
+      "nativeSandbox": "read-only",
+      "disabledModelCapabilities": [
+        "shell_tool",
+        "multi_agent",
+        "skill_mcp_dependency_install"
+      ],
+      "guardianHookTrustUserConfigRules": "unchanged; no bypass or ignore flags",
+      "modelSelection": "native configured/default, no model version override",
+      "dataShared": "one different fixed synthetic literal prompt per invocation; no source/private data",
+      "assertions": [
+        "both native process handles observed live after second spawn",
+        "both native CLI exits0",
+        "distinct valid native thread UUIDs",
+        "each own DB exactly one own native session and three own hook events for shared cwd",
+        "no other run marker in either own DB prompt/transcript, via SQL booleans only",
+        "one exact assistant marker response and no tool items reported per native JSON stream"
+      ],
+      "limits": [
+        "native one-turn session/store correlation only",
+        "not generation witness, descriptor security, input/approval or live-state authority",
+        "not native UI, crash/restart, per-run/global hook composition or D0 acceptance"
+      ],
+      "cleanup": "wait both supervised processes, preserve only selected metadata/source, remove owned raw outputs/DB/state/root; never restart on observation expiry"
+    },
+    "requestedRoutes": [
+      "TRACEARY_DB_PATH",
+      "TRACEARY_WORKSPACE",
+      "TRACEARY_HOOK_STATE_DIR"
+    ],
+    "workspaceAssociationDoesNotProveArbitraryEnvironmentPropagation": true
+  },
+  "preExecutionDenial": {
+    "originalApprovalNeverInvocationExecuted": false,
+    "reason": "auto-review rejected approval never before process creation",
+    "alternative": "separately permitted native on-request approval, all tool/sandbox restrictions maintained",
+    "authRetryOrBoundaryBypass": false
+  },
+  "dataMinimization": {
+    "explicitCallerInput": "fixed synthetic prompts; no repository/private body deliberately selected",
+    "nativeSystemConfigurationContext": "normal CLI context not independently audited; do not claim complete prompt/OS isolation",
+    "auth": "existing host authentication used only by CLI; parent did not acquire/display/copy credentials",
+    "verification": "owned SQLite read-only session/event metadata and marker SQL booleans; no global store query or raw event body output",
+    "rawNativeIdentifiersInTrackedMetadata": false
+  },
+  "localEvidenceArchives": [
+    {
+      "key": "N3",
+      "localArchive": ".ai/handoff/desktop-d0-native-v3-20261022/codex-native-events-20261023/selected-evidence.tar.gz",
+      "sha256": "2cf831af5629aeef273ff9fdf17eed5cd83601060dfaea4435b141c5d2265595",
+      "memberSha256": {
+        "start.json": "7f6e96aaeb9400bba84abc289ba3edd7800c325aef4a37cae2be3127598c0b18",
+        "exit.json": "33540d0131aeca37479628cd3f7707c12476a10ffd4d5c52d0a7902361861d95",
+        "verified-correlation.json": "09002bbf0231b7078ca39e457072e57b4aa3e9349c98f8e989fcfb8bf379f244",
+        "source/run-codex-native-20261023.py": "173ad7aee900af65c3bfadd4858ddbf789b892a59db887ae13f3efe850ead285",
+        "source/run-codex-native-on-request-20261023.py": "bfa2affe08bb5d2a7793b77f56577df903ff26548ff54a554e96c5bd52b7227a",
+        "source/CODEX-NATIVE-PREEXEC-DENIAL-20261023.json": "325e9b7637c4006cbeca1409cba5cc6b134c3a088a73555ddd75a16b97aaf72b",
+        "metadata/traceary-d0-agy-help-20261023.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "metadata/traceary-d0-codex-help-20261023.txt": "df0d864ca2076f7654288c6a1e3394e3eaa2ea8f15021df2524efdd90c70986c",
+        "metadata/traceary-d0-codex-top-help-20261023.txt": "4a7f0188d4d6e6d812c5cfbcf82468336b899acd5e437de7450421a403c0071e",
+        "metadata/traceary-d0-codex-features-20261023.txt": "b791e154bd065fe3f9f70c8ab98e35f169fad18ea391688e647081459e71f8a4"
+      }
+    },
+    {
+      "key": "N4",
+      "localArchive": ".ai/handoff/desktop-d0-native-v3-20261022/codex-concurrent-binding-20261023/selected-evidence.tar.gz",
+      "sha256": "97c0d6dbd437c496b3a1dfa6a5efd222f8dcdf377d4ef1b5f3dfe58e4845360e",
+      "memberSha256": {
+        "protocol.json": "077001d1b9a220297257e11c8e03abd4eea9bb9b9868788668f10a4d8116e4c5",
+        "run.py": "4c14f71a63ef92736271f764ca662b6803a9bb8eb325d919baf14539a918365a",
+        "start.json": "558f3de7e51a275635547f6fe0008a412cff427dbc4fa2d81efc17225c2eceb6",
+        "verified-result.json": "30d19adbce9ea97b5a450feff9b3c9272edfa2cce86c016e8e899e0bfa7a8429"
+      }
+    }
+  ],
+  "reproducibilityLimit": "Full selected source/receipts remain in maintainer-local archives; tracked metadata alone is not a complete independently replayable fixture. No further native qualification was run for this delivery.",
+  "unknownGates": [
+    "live working/input-wait/approval-wait and human prompt visibility",
+    "input/approval authority",
+    "generation witness, delayed callback rejection, descriptor security",
+    "multi-turn/resume and per-run/global hook composition",
+    "native UI/manual/hardware, full D0 and human runtime adoption"
+  ],
+  "museInvocationsForThisDelivery": 0,
+  "additionalNativeQualificationRunsForThisDelivery": 0,
+  "desktopAppsBuiltOrLaunched": 0,
+  "computerUseCalls": 0,
+  "runtimeAdopted": false,
+  "fullD0Accepted": false,
+  "fullGoal": "paused",
+  "independentReview": "pending static evidence review",
+  "parentIssue": 2424,
+  "boundedIssue": 2445
+}
