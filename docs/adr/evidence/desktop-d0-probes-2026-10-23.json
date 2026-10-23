@@ -1,0 +1,81 @@
+{
+  "schema": "traceary-desktop-d0-additional-probes/v1",
+  "scope": "reproducible non-production probe evidence, not full D0 or security acceptance",
+  "parentIssue": 2424,
+  "boundedIssue": 2443,
+  "baseCommit": "0c0e58a91246fc8ebc2ff096e84630a9832a4a7d",
+  "sourceRoot": "desktop-d0-probes-2026-10-23",
+  "sourceSha256": {
+    "README.md": "6532fdb4c8ff07584dd1f9d4cfce54c0ceaa55832ff64f2821d9e5cd6c4d6bc9",
+    "README.ja.md": "60ca30e5c5e5cc835f9b41167cf5ad8d124c383c405bfab9c9dff16d30af3d94",
+    "resize_ack/resize_ack.py": "dd3f765ee5007e0d918b826e115ea0387749d2469b27bdade255ef0f6a610226",
+    "resize_ack/test_resize_ack.py": "00f4cedd0099041abedf9bb1282ff2c444e6136a924086d61ce37c0e875ba244",
+    "unix_ipc/test_unix_probe.py": "9a786ccd79ad0bbb35eabf6ce8d6bbbbcc053b0d38e63af1489f9c5f95107fe7",
+    "unix_ipc/unix_probe.py": "669d526d84f9af3269307685590e09918449fbdc8cffba71001ca01f82899228"
+  },
+  "resize": {
+    "testCount": 31,
+    "outcome": "31 passed from integration source",
+    "evidenceClass": "synthetic executable specification",
+    "requestCount": 200,
+    "cadenceMs": 150,
+    "fixtureDeadlineMs": 500,
+    "fixtureDeadlineIsAdoptedNativeThreshold": false,
+    "independentReview": {
+      "kind": "Google-family static differential review",
+      "rounds": 2,
+      "finalFindings": [],
+      "reviewerValidatedCommands": [],
+      "mainTriage": "capture reuse defect reproduced and fixed; old-runner-receipt-clock counterexample dismissed against explicit single-runner boundary; scope/counters clarified"
+    },
+    "nativeResizeAccepted": false,
+    "physicalPresentationAccepted": false
+  },
+  "unixIPC": {
+    "testCount": 29,
+    "outcome": "29 passed from integration source",
+    "platform": "macOS",
+    "evidenceClass": "actual local Unix sockets plus explicitly identified codec/branch fixtures",
+    "separateSameUIDClientProcess": true,
+    "peerUIDSource": "libc getpeereid",
+    "rawUIDsRetained": false,
+    "directoryMode": "0700",
+    "socketMode": "0600",
+    "frameBoundBytes": 65536,
+    "totalExchangeDeadlineMs": 250,
+    "differentUIDClientExecuted": false,
+    "mismatchingExpectedUIDBranchExecuted": true,
+    "aclAudit": false,
+    "sameUIDAdversarialIsolation": false,
+    "productionTOCTOUResistanceCertified": false,
+    "publicProtocolAdopted": false,
+    "productDaemonOrCLIImplemented": false,
+    "independentReview": {
+      "kind": "Google-family static code/evidence checkpoint review",
+      "outcome": "SUCCESS, no findings",
+      "sourceSnapshotCommit": "bd3994e8f99741e33ad753049bdb45bd0207c398",
+      "reviewerValidatedCommands": [],
+      "nativeSecurityOrD0Certification": false
+    }
+  },
+  "muse": {
+    "deferred": true,
+    "invocationsForThisDelivery": 0
+  },
+  "nativeAppsBuilt": 0,
+  "nativeAppsLaunched": 0,
+  "computerUseCalls": 0,
+  "appVersionIncrements": 0,
+  "fullD0Accepted": false,
+  "runtimeAdopted": false,
+  "unknownGates": [
+    "native completion provenance and presentation",
+    "five-host interaction/approval/generation authority",
+    "loaded native input and Wails xterm",
+    "Monaco native IME and VoiceOver",
+    "sleep/wake/crash and close/reopen",
+    "multiple monitors unavailable",
+    "controlled foreground and complete CPU/RSS attribution",
+    "human architecture adoption and final High-risk review"
+  ]
+}
