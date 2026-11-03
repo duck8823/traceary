@@ -3,7 +3,7 @@
 [English](./history-reconciliation.md)
 
 実装途中です。maintenance に譲る SQLite 読取 capability、domain/application の履歴 page、実 SQLite reader/source adapter、公開 daemon SDK/CLI transport、coarse hint transport は実装済みです。
-任意の commit 後 hint 生成と信頼済み managed root への配送は実装済みです。metadata export/forget、統合検証は未完了です。リリース可能・native host/session の復旧認定済みとは扱いません。
+任意の commit 後 hint 生成と信頼済み managed root への配送は実装済みです。既存 execution/receipt envelope の metadata audit/preview/forget は実装済みですが、lifecycle envelope の統合と全体検証は未完了です。リリース可能・native host/session の復旧認定済みとは扱いません。
 
 ## store の正本と reader の寿命
 
@@ -93,3 +93,43 @@ hint は欠落し得ます。
 cancel、admission、timeout、observer を使わない writer では通知が一切届かない場合があります。
 receipt と hint ACK は commit 済み query の代わりにはなりません。
 再接続、gap、定期更新の後は要求 view の先頭から全 page を再走査する必要があります。
+
+## 明示的な runtime metadata 監査と損失
+
+次のコマンドには正規形の `--runtime-dir` が必須です。
+HOME/XDG の既定値選択、存在しない root の作成、core SQL の open、daemon の起動・停止、保存 PID の検査・kill・adopt は行いません。
+
+```sh
+traceary runtime metadata export --runtime-dir /absolute/private/runtime
+traceary runtime metadata forget-preview --runtime-dir /absolute/private/runtime
+```
+
+export version1 は復元用 backup ではなく、有界な監査要約です。
+最大 1024 件の記録済み run、32 件の profile、安全な target/profile 参照、receipt と不確定性の件数、正確な revision 文字列、物理 root witness、raw envelope の digest を返します。
+実行ファイル/store path、PID、terminal/input body、環境、native 会話 data は含みません。
+符号化した出力は 16 MiB を上限とし、超過時は切り捨てず明示 error にします。
+`recorded_state` と `uncertain` は永続化した証跡であり、現在の native 生存状態ではありません。
+終了記録があっても pending/unknown receipt の不確定性は残ります。
+
+`forget` は記録済み launch と control receipt group の全件を消し、native 会話は消しません。
+新しい preview の正確な `--preview-digest` と、`--acknowledge-forget-history`、`--acknowledge-recovery-record-loss` の両方が必要です。
+消した履歴にある復旧用の結び付けは失われ、export 要約では復元できません。
+profile、Registry、core 履歴/spool、Git、native 会話は保持します。
+preview を破棄しても履歴は変わりませんが、既存 root 内に調停 lock file が作られる場合があります。
+
+確認時は実際の daemon lifetime 排他 lease、同一 process の root claim、metadata lock が必要です。
+稼働中 owner は busy とし、停止や signal は送りません。
+実 replace 境界でも lease/root identity を再検証します。
+同じ内容の JSON 整形を含め、raw content/revision/root の変更は preview を無効にします。
+receipt group を先、launch 記録を後に置換し、各 commit 済み prefix の参照整合性を維持します。
+効果が発生した後の失敗/cancel は明示的な不確定結果とし、rollback・成功とは扱わず自動再試行もしません。
+export と新たな preview で確認してから、別の明示判断が必要です。
+すでに空の receipt は書き直さず、no-op は履歴 envelope を作成せず revision も進めません。
+出力 error でも受け付け済み mutation は取り消せません。
+
+**統合は未完了です。**
+現在の branch は registry/execution/receipt version1 のみを扱います。
+未統合の lifecycle/endpoints/recovery envelope を含む、未知・危険・非互換の metadata は mutation 前に拒否します。
+この中間 guard は最終受け入れではありません。
+Issue 完了前に、通常の対応済み lifecycle root でも動作し、監査の保持と復旧記録の消去範囲を明示する必要があります。
+sidecar の一括削除や orphan の自動 cleanup は提供しません。

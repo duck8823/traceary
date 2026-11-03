@@ -2,7 +2,7 @@
 
 [日本語](./history-reconciliation.ja.md)
 
-Implementation is in progress. The maintenance-yielding SQLite read capability, domain/application history paging and real SQLite reader/source adapters are implemented; public daemon SDK/CLI transport and coarse hint transport are implemented. Optional post-commit hint production and trusted managed-root routing are implemented. Metadata export/forget and integrated qualification are not yet complete. This document does not claim release readiness or native-host/session recovery certification.
+Implementation is in progress. The maintenance-yielding SQLite read capability, domain/application history paging and real SQLite reader/source adapters are implemented; public daemon SDK/CLI transport and coarse hint transport are implemented. Optional post-commit hint production and trusted managed-root routing are implemented. Metadata audit/preview/forget for the existing execution/receipt envelopes are implemented; lifecycle-envelope integration and full qualification are not yet complete. This document does not claim release readiness or native-host/session recovery certification.
 
 ## Store authority and reader lifetime
 
@@ -47,3 +47,20 @@ The main composition opts EventUsecase into metadata-free notifications only whe
 Log, audit and transcript-delete notify only after successful persistence. Failed writes never notify; canonical event IDs, inserted/redelivery outcomes, audit rebinding and stdout/exit contracts remain unchanged. The optional call has a 25 ms context budget and at most one in-flight callback per service; extra hints drop, and a timed-out callback retains its slot until actual exit. Callback failure, panic or an absent daemon cannot invalidate the committed primary write. Notifications contain no event, body, session or native identifiers and never use another spool/drain worker.
 
 Hints remain lossy: cancellation, admission, timeout and writers without the optional observer can produce no hint at all. Receipts and hint ACKs do not replace committed queries. Consumers must still restart and walk the full requested view after reconnect, gaps and periodic refresh.
+
+## Explicit runtime metadata audit and loss
+
+These commands require an explicit canonical `--runtime-dir`; they never select HOME/XDG defaults, create missing roots, open core SQL, start/stop a daemon, or inspect/kill/adopt a saved PID:
+
+```sh
+traceary runtime metadata export --runtime-dir /absolute/private/runtime
+traceary runtime metadata forget-preview --runtime-dir /absolute/private/runtime
+```
+
+Export version1 is a bounded audit summary, NOT a restore backup: up to1024 recorded runs/32 profiles, safe target/profile references and receipt/uncertainty counts, exact revision strings, physical root witness and a raw-envelope digest. It contains no executable/store paths, PIDs, terminal/input bodies, environment or native conversation data. Encoded output is capped at16MiB with an explicit error, never truncation. `recorded_state`/`uncertain` describe persisted evidence, not current native liveness. Pending/unknown receipts remain uncertain even after a recorded exit.
+
+`forget` erases ALL recorded launches and complete control-receipt groups, not native conversations. It requires the exact fresh `--preview-digest` AND both `--acknowledge-forget-history` and `--acknowledge-recovery-record-loss`. Recovery linkage in forgotten history is lost; export summaries cannot restore it. Profiles, Registry, core history/spool, Git and native conversations are retained. Abandoning a preview changes no history; coordination lock files may be created in an existing root.
+
+Confirmation requires the actual exclusive daemon lifetime lease plus same-process root claim and metadata lock. An active owner is busy; it is never stopped or signalled. The actual replace boundary revalidates lease/root identity. Raw content/revision/root changes invalidate a preview, including equivalent JSON formatting changes. Receipt groups are replaced first and launch records second, retaining valid references at each committed prefix. A failure/cancel after an effect is explicitly uncertain, never rollback/success or automatic retry. Export and obtain a NEW preview before a new explicit decision; alreadyempty receipts are not rewritten. A no-op creates no history envelope and does not advance revisions. An output error cannot undo an admitted mutation.
+
+**Integration remains incomplete:** this branch supports registry/execution/receipt version1 only. Unknown/unsafe/incompatible metadata, including lifecycle/endpoints/recovery envelopes not yet integrated from the lifecycle branch, is refused before mutation. This intermediate guard is not final acceptance: normal supported lifecycle roots must work with explicit audit retention/recovery erasure semantics before issue completion. No blind sidecar deletion or automatic orphan cleanup is provided.
