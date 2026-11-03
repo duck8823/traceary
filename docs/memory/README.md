@@ -394,3 +394,5 @@ That means:
 - [Event lifecycle](../lifecycle.md)
 
 See [Memory usefulness evaluation](usefulness-evaluation.md) for the synthetic comparison and defer decision.
+
+See [Memory provenance boundaries](provenance-boundaries.md) for the source/trust matrix, regression coverage and limits of review/export.
