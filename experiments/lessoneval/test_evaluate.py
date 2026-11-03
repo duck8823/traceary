@@ -108,6 +108,21 @@ class LessonEvaluationTest(unittest.TestCase):
         self.assertFalse(result["results"][0]["correct"])
         self.assertTrue(result["results"][0]["decision_correct"])
 
+    def test_missing_evidence_is_a_measured_schema_failure(self):
+        receipt = self.receipt()
+        del receipt["response"]["evidence"]
+        result = evaluate.score(self.corpus, self.inputs, [receipt])
+        self.assertEqual(result["measured_responses"], 1)
+        self.assertFalse(result["results"][0]["schema_valid"])
+        self.assertFalse(result["results"][0]["correct"])
+        self.assertTrue(result["results"][0]["decision_correct"])
+
+    def test_empty_evidence_list_is_well_formed(self):
+        receipt = self.receipt()
+        receipt["response"]["evidence"] = []
+        result = evaluate.score(self.corpus, self.inputs, [receipt])
+        self.assertTrue(result["results"][0]["schema_valid"])
+
 
 if __name__ == "__main__":
     unittest.main()

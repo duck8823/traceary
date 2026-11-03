@@ -101,7 +101,7 @@ def score(corpus, inputs, receipts):
         schema_valid = isinstance(response, dict) and response.get("answer") in ("ACCEPT", "WAIT", "DIRECT_RESULT", "UNKNOWN")
         if not isinstance(response, dict):
             response = {}
-        evidence = response.get("evidence", [])
+        evidence = response.get("evidence")
         if not isinstance(evidence, list) or any(not isinstance(ref, str) for ref in evidence):
             schema_valid = False
             evidence = []
