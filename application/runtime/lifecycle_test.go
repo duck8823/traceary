@@ -544,3 +544,111 @@ func TestLifecycleExitPublicationFailureRemainsUnknownAfterActualWait(t *testing
 		t.Fatal("actual exit and metadata uncertainty were conflated")
 	}
 }
+
+func TestLifecycleEmptyUncertainShutdownCannotPublishCleanOrPretendNativeClosure(t *testing.T) {
+	for _, phase := range []string{"reserve", "save"} {
+		t.Run(phase, func(t *testing.T) {
+			owner, launch, child, journal := lifecycleFixture(t)
+			if _, err := owner.InitializeLifecycle(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if phase == "reserve" {
+				journal.shutdownReserveErr = app.ErrLifecycleCommitUncertain
+			} else {
+				journal.shutdownSaveErr = domain.ErrLimit
+			}
+			preview, err := owner.PreviewShutdown(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := owner.ConfirmShutdown(context.Background(), app.ShutdownConfirmation{Binding: preview.Binding, WorkLossAcknowledged: true})
+			if !errors.Is(err, app.ErrShutdownUnknown) || result.Outcome != domain.ShutdownUnknown || result.ClosedTerminals != 0 {
+				t.Fatalf("ambiguous empty decision fabricated success: %+v %v", result, err)
+			}
+			if err = owner.PublishCleanShutdown(context.Background()); !errors.Is(err, app.ErrShutdownUnknown) || journal.cleans.Load() != 0 {
+				t.Fatalf("empty ambiguous journal fabricated clean marker: %v clean=%d", err, journal.cleans.Load())
+			}
+			if _, err = owner.Launch(context.Background(), launch); !errors.Is(err, app.ErrRuntimeBusy) {
+				t.Fatal("ambiguous lifecycle left new launch authority", err)
+			}
+			if _, err = owner.PreviewShutdown(context.Background()); !errors.Is(err, app.ErrRuntimeBusy) {
+				t.Fatal("ambiguous lifecycle admitted a new effect plan", err)
+			}
+			stored, err := owner.ShutdownReceipt(preview.Binding)
+			if err != nil || stored.Outcome != domain.ShutdownUnknown || child.closes.Load() != 0 || child.effects.Load() != 0 {
+				t.Fatal("uncertain read-only receipt changed or native effect occurred", err)
+			}
+			if phase == "reserve" {
+				ctx, cancel := context.WithCancel(context.Background())
+				cancel()
+				if err = owner.AwaitShutdownConfirmation(ctx); !errors.Is(err, context.Canceled) {
+					t.Fatal("pre-reserve ambiguity claimed actual committed closure", err)
+				}
+			}
+		})
+	}
+}
+
+func TestLifecycleDisabledLaunchesStillAllowExplicitSafeEmptyShutdown(t *testing.T) {
+	owner, _, child, journal := lifecycleFixture(t)
+	if _, err := owner.InitializeLifecycle(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	owner.DisableLaunches()
+	preview, err := owner.PreviewShutdown(context.Background())
+	if err != nil {
+		t.Fatal("launch freeze revoked explicit shutdown", err)
+	}
+	result, err := owner.ConfirmShutdown(context.Background(), app.ShutdownConfirmation{Binding: preview.Binding, WorkLossAcknowledged: true})
+	if err != nil || result.Outcome != domain.ShutdownDraining || result.ClosedTerminals != 0 {
+		t.Fatal("safe explicit empty shutdown refused", err)
+	}
+	if err = owner.PublishCleanShutdown(context.Background()); err != nil || journal.cleans.Load() != 1 || child.closes.Load() != 0 {
+		t.Fatal("known empty shutdown did not publish clean", err)
+	}
+}
+
+func TestLifecycleUncertainReserveFreezesNewInputButPreservesExplicitOwnedStop(t *testing.T) {
+	owner, launch, child, journal := lifecycleFixture(t)
+	if _, err := owner.InitializeLifecycle(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	run, err := owner.Launch(context.Background(), launch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	journal.shutdownReserveErr = app.ErrLifecycleCommitUncertain
+	preview, err := owner.PreviewShutdown(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = owner.ConfirmShutdown(context.Background(), app.ShutdownConfirmation{Binding: preview.Binding, WorkLossAcknowledged: true}); !errors.Is(err, app.ErrShutdownUnknown) {
+		t.Fatal(err)
+	}
+	selection := app.OutputSelection{Identity: run.Identity, Worktree: run.Target.Worktree().ID(), Profile: run.Profile.ID()}
+	input, err := domain.ControlIntentFrom(domain.ControlIntentState{RequestID: "uncertain-input", Kind: domain.ControlInput, ManualTerminal: true, InputBytes: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = owner.Control(context.Background(), app.ControlRequest{Selection: selection, Intent: input, Data: []byte("raw")}); !errors.Is(err, app.ErrRuntimeBusy) || child.effects.Load() != 0 || child.closes.Load() != 0 {
+		t.Fatal("ambiguous reservation admitted new input or closed terminal", err)
+	}
+	if err = owner.CancelShutdown(preview.Binding); !errors.Is(err, domain.ErrChanged) {
+		t.Fatal("cancel pretended an ambiguous accepted decision was undone", err)
+	}
+	stop, err := domain.ControlIntentFrom(domain.ControlIntentState{RequestID: "uncertain-explicit-stop", Kind: domain.ControlStop, WorkLossAcknowledged: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	child.result.WrittenBytes = 0
+	if _, err = owner.Control(context.Background(), app.ControlRequest{Selection: selection, Intent: stop}); err != nil || child.effects.Load() != 1 {
+		t.Fatal("unknown decision revoked separately explicit owned Stop", err)
+	}
+	child.finish()
+	if err = owner.AwaitIdle(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err = owner.PublishCleanShutdown(context.Background()); !errors.Is(err, app.ErrShutdownUnknown) || journal.cleans.Load() != 0 {
+		t.Fatal("actual later Wait erased earlier lifecycle uncertainty", err)
+	}
+}

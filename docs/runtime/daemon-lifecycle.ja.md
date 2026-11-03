@@ -39,6 +39,8 @@ cancel は confirm の受理前に元 preview を破棄するだけです。閉�
 
 `draining` は terminal close を示し、**daemon/process/descendant の終了を意味しません**。`pending`/`unknown` は delivery 成功や再試行許可ではありません。caller cancel、ACK の喪失・不正・矛盾、一部 close、永続化の不確定で `unknown` になります。daemon の終了処理と競合して最後の Stop ACK が失われる場合もあります。client/daemon は不確定な effect を自動再送しません。owner に接続できる間は元 binding の `receipt` を使い、終了後は read-only history を使います。
 
+intent 予約の commit が不確定なら、新規 launch/input/resize を凍結し、master を閉じたり shutdown commit 済みと扱ったりしません。owner は元の read-only decision receipt と、別途明示する guarded Stop を維持します。空 roster でも lifecycle commit が不確定なら clean marker を記録せず、後から child が実際に終了しても不確定性を消去しません。単なる新規 launch の凍結では、明示承認した安全な shutdown の権限を取り消しません。
+
 ## offline history と上限
 
 ```sh

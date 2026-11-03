@@ -111,7 +111,7 @@ func (s *Runtime) Control(ctx context.Context, request ControlRequest) (ControlR
 		s.mu.Unlock()
 		return ControlResult{}, domain.ErrLimit
 	}
-	if s.shutdownPreparing || s.shutdownCommitted && request.Intent.Snapshot().Kind != domain.ControlStop {
+	if s.shutdownPreparing || (s.shutdownCommitted || s.lifecycleUncertain) && request.Intent.Snapshot().Kind != domain.ControlStop {
 		s.mu.Unlock()
 		return ControlResult{}, ErrRuntimeBusy
 	}

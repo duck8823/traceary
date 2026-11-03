@@ -77,6 +77,7 @@ type ownedRun struct {
 // It has no core Session lifecycle or authority over externally started processes.
 type Runtime struct {
 	lifecycleBound, lifecycleStarting    bool
+	lifecycleUncertain                   bool
 	shutdownPreview                      *ShutdownPreview
 	shutdownTickets                      map[string]*shutdownTicket
 	shutdownPreparing, shutdownCommitted bool

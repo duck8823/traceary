@@ -39,6 +39,8 @@ Cancellation discards only the original preview before confirm admission. It nev
 
 `draining` means terminal closure, **not** daemon/process/descendant exit. `pending`/`unknown` never means delivered or safe to repeat. Caller cancellation, lost/malformed/contradictory ACKs, partial closure or ambiguous persistence report `unknown`. A final Stop ACK can be lost during completed daemon teardown. Neither client nor daemon automatically resubmits an uncertain effect. Use `receipt` with the original binding while the owner is reachable; after exit use read-only history.
 
+An ambiguous intent reservation freezes new launch/input/resize without closing masters or automatically treating shutdown as committed. The frozen owner retains its original read-only decision receipt and separately explicit guarded Stop. Even an empty roster cannot publish a clean marker after an uncertain lifecycle commit; later actual child exit does not erase that uncertainty. A general launch-admission freeze alone does not revoke explicitly acknowledged safe shutdown.
+
 ## Offline history and bounds
 
 ```sh

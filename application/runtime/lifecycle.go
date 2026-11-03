@@ -107,7 +107,7 @@ func (s *Runtime) PreviewShutdown(ctx context.Context) (ShutdownPreview, error) 
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.shutdownPreparing || s.shutdownCommitted || s.lifecycleStarting {
+	if s.shutdownPreparing || s.shutdownCommitted || s.lifecycleStarting || s.lifecyclePending > 0 || s.lifecycleUncertain {
 		return ShutdownPreview{}, ErrRuntimeBusy
 	}
 	if s.revisionExhausted || s.revision == math.MaxUint64 {
@@ -137,7 +137,7 @@ func (s *Runtime) ReadShutdownPreview(binding domain.ShutdownBindingState) (Shut
 func (s *Runtime) CancelShutdown(binding domain.ShutdownBindingState) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.shutdownPreview == nil || s.shutdownPreview.Binding != binding || s.shutdownPreparing || s.shutdownCommitted {
+	if s.shutdownPreview == nil || s.shutdownPreview.Binding != binding || s.shutdownPreparing || s.shutdownCommitted || s.lifecycleUncertain {
 		return domain.ErrChanged
 	}
 	s.shutdownPreview = nil
@@ -178,7 +178,7 @@ func (s *Runtime) ConfirmShutdown(ctx context.Context, request ShutdownConfirmat
 		s.mu.Unlock()
 		return ShutdownResult{}, domain.ErrLimit
 	}
-	if s.shutdownPreparing || s.shutdownCommitted || s.hasUncertainLocked() {
+	if s.shutdownPreparing || s.shutdownCommitted || s.lifecycleStarting || s.lifecyclePending > 0 || s.hasUncertainLocked() {
 		s.mu.Unlock()
 		return ShutdownResult{}, ErrRuntimeBusy
 	}
@@ -237,6 +237,14 @@ func (s *Runtime) awaitShutdown(ctx context.Context, ticket *shutdownTicket) (Sh
 	}
 }
 func (s *Runtime) hasUncertainLocked() bool {
+	if s.lifecycleUncertain {
+		return true
+	}
+	for _, ticket := range s.shutdownTickets {
+		if ticket.result.Outcome == domain.ShutdownUnknown {
+			return true
+		}
+	}
 	for _, run := range s.runs {
 		if run.descriptor.Snapshot().PublicationUncertain {
 			return true
@@ -255,6 +263,12 @@ func (s *Runtime) finishShutdown(ticket *shutdownTicket, result ShutdownResult, 
 	ticket.result = result
 	ticket.err = err
 	s.shutdownPreparing = false
+	if result.Outcome == domain.ShutdownUnknown {
+		// Metadata uncertainty is independent of live/launch publication. Even
+		// an empty roster cannot turn an ambiguous durable decision into clean.
+		s.lifecycleUncertain = true
+		s.disabled = true
+	}
 	if committed {
 		s.shutdownCommitted = true
 		s.disabled = true
@@ -301,7 +315,10 @@ func (s *Runtime) performShutdown(parent context.Context, ticket *shutdownTicket
 	if err := journal.ReserveShutdown(ctx, binding); err != nil {
 		if errors.Is(err, ErrLifecycleCommitUncertain) || ctx.Err() != nil {
 			result.Outcome = domain.ShutdownUnknown
-			s.finishShutdown(ticket, result, ErrShutdownUnknown, true)
+			// No master close was attempted. Freeze new effects, but keep the
+			// owner/management receipt available instead of asserting a known
+			// committed shutdown and automatically exiting an empty daemon.
+			s.finishShutdown(ticket, result, ErrShutdownUnknown, false)
 		} else {
 			reject(err)
 		}
@@ -362,8 +379,9 @@ func (s *Runtime) ShutdownReceipt(binding domain.ShutdownBindingState) (Shutdown
 	return ticket.result, nil
 }
 
-// AwaitShutdownConfirmation waits for a durable or uncertain accepted work-loss
-// decision. It never initiates shutdown or equates closure with process exit.
+// AwaitShutdownConfirmation waits for a known-reserved work-loss decision.
+// Pre-reservation uncertainty retains a frozen owner for inspection instead.
+// This never initiates shutdown or equates closure with process exit.
 func (s *Runtime) AwaitShutdownConfirmation(ctx context.Context) error {
 	for {
 		s.mu.Lock()
@@ -385,7 +403,7 @@ func (s *Runtime) AwaitShutdownConfirmation(ctx context.Context) error {
 func (s *Runtime) ShutdownInProgress() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.shutdownPreparing || s.shutdownCommitted
+	return s.shutdownPreparing || s.shutdownCommitted || s.lifecycleUncertain
 }
 
 // PublishCleanShutdown requires permanently frozen launch admission and actual
@@ -439,6 +457,9 @@ func (s *Runtime) InitializeLifecycle(ctx context.Context) (LifecycleSnapshot, e
 	s.lifecycleStarting = false
 	if err != nil {
 		s.disabled = true
+		if errors.Is(err, ErrLifecycleCommitUncertain) {
+			s.lifecycleUncertain = true
+		}
 	} else {
 		s.lifecycleBound = true
 	}
