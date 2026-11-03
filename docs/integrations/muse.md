@@ -50,7 +50,7 @@ The eight packaged hooks (#2352 runtime, `integrations/muse-plugin/hooks/hooks.j
 | `PreToolUse` | `traceary hook muse pre-tool-use` | validation only |
 | `PostToolUse` | `traceary hook muse post-tool-use` | `command_executed` **available** (declared; no live tool-dispatch capture probe) |
 | `PostToolUseFailure` | `traceary hook muse post-tool-use-failure` | `command_executed` **available** (same) |
-| `Stop` | `traceary hook muse stop` | `transcript` **wired** (turn boundary, not session end) |
+| `Stop` | `traceary hook muse stop` | Turn boundary only; no `transcript` event is recorded. Transcript capture is **available**, not wired (#2426) |
 | `PreCompact` | `traceary hook muse pre-compact` | `compact_summary` **available** (declared; dispatch unobserved on exec/TUI/resume) |
 | `PostCompact` | `traceary hook muse post-compact` | `compact_summary` **available** (same) |
 

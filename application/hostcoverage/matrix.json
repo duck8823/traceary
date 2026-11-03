@@ -455,10 +455,10 @@
           }
         },
         "transcript": {
-          "status": "wired",
+          "status": "available",
           "summary": {
-            "en": "● `Stop` to `traceary hook muse stop` (turn boundary, #2352 runtime)",
-            "ja": "● `Stop` を `traceary hook muse stop` へ（turn 境界、#2352 runtime）"
+            "en": "○ `Stop` is registered for the turn boundary; no transcript is recorded by the handler (#2426)",
+            "ja": "○ `Stop` は turn 境界用に登録済み。handler は transcript は記録しない（#2426）"
           }
         },
         "compact_summary": {
