@@ -50,7 +50,7 @@ A fixed-size process-local lock stripe and an OS file lock serialize independent
 instances and processes. Lock waits observe cancellation. Failed or canceled
 mutations before rename preserve the prior envelope. Writes use an exclusive
 random temporary file, file sync, same-directory atomic rename and directory
-sync. A post-rename directory-sync failure returns `ErrCommitUncertain`: reload
+sync. A post-rename directory-sync failure or lost pinned root identity returns `ErrCommitUncertain`: reload
 and reconcile rather than assuming nothing changed. No silent retry is performed.
 
 Strict decoding rejects unknown fields, duplicate object keys, noncanonical field case, invalid UTF-8,

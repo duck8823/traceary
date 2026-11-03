@@ -41,7 +41,7 @@ symlink/FIFO/deviceを辿らず拒否する。
 lock待ちはcancel可能とする。
 rename前の失敗/cancelでは前のenvelopeを残す。
 排他的random一時file、file sync、同directory内atomic rename、directory syncを使う。
-rename後のdirectory-sync失敗は`ErrCommitUncertain`で返し、未変更と決め付けずreload/照合する。
+rename後のdirectory-sync失敗や固定root identityの消失は`ErrCommitUncertain`で返し、未変更と決め付けずreload/照合する。
 黙ってretryしない。
 
 strict decodeで未知field、重複key、非canonicalなfield大小文字、不正UTF-8、必須fieldの欠落/null、余剰JSON、偽identity、不正所属、サイズ超過、未知versionを拒否し、上書きしない。

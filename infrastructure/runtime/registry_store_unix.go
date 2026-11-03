@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"hash/fnv"
 	"io"
 	"os"
@@ -27,8 +28,8 @@ import (
 // MaxRegistryBytes is the R0 runtime metadata envelope ceiling.
 const MaxRegistryBytes int64 = 128 * 1024 * 1024
 
-// ErrCommitUncertain means rename succeeded but directory durability could not be proven.
-var ErrCommitUncertain = errors.New("runtime registry commit durability uncertain; reload before retry")
+// ErrCommitUncertain means rename succeeded but durability or root identity was lost.
+var ErrCommitUncertain = errors.New("runtime registry commit outcome uncertain; reload and reconcile before retry")
 
 // macOS flock ownership alone does not serialize independent descriptors in one
 // process. Fixed stripes bound memory while serializing same-root local callers;
@@ -51,8 +52,8 @@ func NewRegistryStore(root string, budget int64) (*RegistryStore, error) {
 	if err != nil {
 		return nil, xerrors.Errorf("load runtime registry: %w", err)
 	}
-	_ = unix.Close(fd)
-	witness, err := ownedIdentity(root, true)
+	defer func() { _ = unix.Close(fd) }()
+	witness, err := directoryWitness(fd)
 	if err != nil {
 		return nil, xerrors.Errorf("load runtime registry: %w", err)
 	}
@@ -65,6 +66,9 @@ func (s *RegistryStore) Load(ctx context.Context) (*domain.Registry, error) {
 	err := s.locked(ctx, func(fd int) error {
 		r, _, err := s.read(fd)
 		if err != nil {
+			return err
+		}
+		if err = s.verifyRoot(fd); err != nil {
 			return err
 		}
 		result = r
@@ -129,7 +133,7 @@ func (s *RegistryStore) locked(ctx context.Context, fn func(int) error) error {
 		return err
 	}
 	defer func() { _ = unix.Close(fd) }()
-	witness, err := ownedIdentity(s.root, true)
+	witness, err := directoryWitness(fd)
 	if err != nil || witness != s.witness {
 		return domain.ErrChanged
 	}
@@ -165,6 +169,9 @@ func (s *RegistryStore) locked(ctx context.Context, fn func(int) error) error {
 	}
 	if err = ctx.Err(); err != nil {
 		return xerrors.Errorf("runtime registry canceled: %w", err)
+	}
+	if err = s.verifyRoot(fd); err != nil {
+		return err
 	}
 	return fn(fd)
 }
@@ -275,14 +282,8 @@ func (s *RegistryStore) write(ctx context.Context, dir int, data []byte, old *un
 	if err = ctx.Err(); err != nil {
 		return xerrors.Errorf("runtime registry canceled: %w", err)
 	}
-	check, err := registryDir(s.root, false)
-	if err != nil {
+	if err = s.verifyRoot(dir); err != nil {
 		return err
-	}
-	defer func() { _ = unix.Close(check) }()
-	var a, b unix.Stat_t
-	if unix.Fstat(dir, &a) != nil || unix.Fstat(check, &b) != nil || a.Dev != b.Dev || a.Ino != b.Ino {
-		return domain.ErrChanged
 	}
 	var current unix.Stat_t
 	err = unix.Fstatat(dir, "registry.json", &current, unix.AT_SYMLINK_NOFOLLOW)
@@ -298,6 +299,9 @@ func (s *RegistryStore) write(ctx context.Context, dir int, data []byte, old *un
 	}
 	present = false
 	if err = unix.Fsync(dir); err != nil {
+		return ErrCommitUncertain
+	}
+	if err = s.verifyRoot(dir); err != nil {
 		return ErrCommitUncertain
 	}
 	return nil
@@ -346,6 +350,16 @@ func decodeRegistry(data []byte) (*domain.Registry, error) {
 	strict := json.NewDecoder(bytes.NewReader(data))
 	if err := uniqueJSONValue(strict, 0); err != nil {
 		return nil, xerrors.Errorf("load runtime registry: %w", err)
+	}
+	// Discriminate versions before applying v1-specific required/unknown fields.
+	var header struct {
+		Version *int `json:"version"`
+	}
+	if err := json.Unmarshal(data, &header); err != nil || header.Version == nil {
+		return nil, domain.ErrInvalid
+	}
+	if *header.Version != 1 {
+		return nil, domain.ErrUnsupported
 	}
 
 	var doc registryEnvelope
@@ -431,9 +445,6 @@ func uniqueJSONValue(d *json.Decoder, depth int) error {
 				return err
 			}
 		}
-		if depth == 0 && len(keys) != 4 {
-			return domain.ErrInvalid
-		}
 		end, err := d.Token()
 		if err != nil || end != json.Delim('}') {
 			return domain.ErrInvalid
@@ -455,6 +466,35 @@ func uniqueJSONValue(d *json.Decoder, depth int) error {
 		}
 	default:
 		return domain.ErrInvalid
+	}
+	return nil
+}
+
+// directoryWitness derives identity from the no-follow-walked descriptor, never
+// from a separate path lookup that could name a replacement directory.
+func directoryWitness(fd int) (string, error) {
+	var stat unix.Stat_t
+	if unix.Fstat(fd, &stat) != nil || stat.Uid != uint32(os.Geteuid()) || stat.Mode&unix.S_IFMT != unix.S_IFDIR || stat.Mode&0777 != 0700 {
+		return "", domain.ErrUnsafe
+	}
+	return fmt.Sprintf("%d:%d:%d", stat.Uid, stat.Dev, stat.Ino), nil
+}
+func (s *RegistryStore) verifyRoot(dir int) error {
+	current, err := registryDir(s.root, false)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = unix.Close(current) }()
+	opened, err := directoryWitness(dir)
+	if err != nil {
+		return err
+	}
+	named, err := directoryWitness(current)
+	if err != nil {
+		return err
+	}
+	if opened != s.witness || named != s.witness {
+		return domain.ErrChanged
 	}
 	return nil
 }

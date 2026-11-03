@@ -172,7 +172,7 @@ func RegistryFrom(s RegistryState) (*Registry, error) {
 			return nil, err
 		}
 	}
-	if s.Revision == 0 && (len(s.Projects) > 0 || len(s.Worktrees) > 0) {
+	if s.Revision < r.revision {
 		return nil, ErrInvalid
 	}
 	r.revision = s.Revision

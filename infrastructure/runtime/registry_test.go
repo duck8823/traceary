@@ -6,6 +6,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"golang.org/x/sys/unix"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -171,6 +173,8 @@ func TestRegistryStoreRejectsUnsafeVersionAndCorruptionWithoutOverwrite(t *testi
 		want       error
 	}{
 		{"new schema", `{"version":2,"revision":0,"projects":[],"worktrees":[]}`, domain.ErrUnsupported},
+		{"new schema with new fields", `{"version":2,"revision":0,"projects":[],"worktrees":[],"profiles":[]}`, domain.ErrUnsupported},
+		{"null version", `{"version":null,"revision":0,"projects":[],"worktrees":[]}`, domain.ErrInvalid},
 		{"missing arrays", `{"version":1,"revision":0}`, domain.ErrInvalid},
 		{"null arrays", `{"version":1,"revision":0,"projects":null,"worktrees":null}`, domain.ErrInvalid},
 		{"null revision", `{"version":1,"revision":null,"projects":[],"worktrees":[]}`, domain.ErrInvalid},
@@ -410,6 +414,24 @@ func TestRegistryStoreProcessHelper(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if os.Getenv("TRACEARY_TEST_REGISTRY_HOLD_LOCK") == "1" {
+		lock, err := os.OpenFile(filepath.Join(os.Getenv("TRACEARY_TEST_REGISTRY_ROOT"), "registry.lock"), os.O_RDWR, 0600)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = lock.Close() }()
+		if err = unix.Flock(int(lock.Fd()), unix.LOCK_EX); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = fmt.Fprintln(os.Stdout, "locked"); err != nil {
+			t.Fatal(err)
+		}
+		_, _ = io.Copy(io.Discard, os.Stdin)
+		if err = unix.Flock(int(lock.Fd()), unix.LOCK_UN); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
 	prefix := os.Getenv("TRACEARY_TEST_REGISTRY_PREFIX")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -459,5 +481,83 @@ func TestRegistryStoreSerializesIndependentProcesses(t *testing.T) {
 	r, err := store.Load(context.Background())
 	if err != nil || len(r.Snapshot().Projects) != 20 {
 		t.Fatalf("lost subprocess writes: %v", err)
+	}
+}
+
+// Observing Done proves the OS flock wait loop has been reached after opening
+// the root and lock descriptors; no sleep-based assumption is used for the race.
+type lockWaitContext struct {
+	context.Context
+	waiting chan struct{}
+	once    sync.Once
+}
+
+func (c *lockWaitContext) Done() <-chan struct{} {
+	c.once.Do(func() { close(c.waiting) })
+	return c.Context.Done()
+}
+func TestRegistryLoadRejectsRootReplacedWhileWaitingOnAnotherProcess(t *testing.T) {
+	root, repo, _ := fixture(t)
+	s, store := service(t, root)
+	if _, err := s.RegisterProject(context.Background(), repo); err != nil {
+		t.Fatal(err)
+	}
+	metadata := filepath.Join(root, "metadata")
+	binary, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	bounded, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(bounded, binary, "-test.run=^TestRegistryStoreProcessHelper$")
+	cmd.Env = append(os.Environ(), "TRACEARY_TEST_REGISTRY_CHILD=1", "TRACEARY_TEST_REGISTRY_ROOT="+metadata, "TRACEARY_TEST_REGISTRY_HOLD_LOCK=1")
+	input, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = input.Close()
+		if cmd.ProcessState == nil {
+			_ = cmd.Wait()
+		}
+	}()
+	ready := make([]byte, len("locked\n"))
+	if _, err = io.ReadFull(output, ready); err != nil || string(ready) != "locked\n" {
+		t.Fatalf("lock fixture did not start: %v", err)
+	}
+	observed := &lockWaitContext{Context: bounded, waiting: make(chan struct{})}
+	result := make(chan error, 1)
+	go func() { _, err := store.Load(observed); result <- err }()
+	select {
+	case <-observed.waiting:
+	case <-bounded.Done():
+		t.Fatal("reader never reached flock wait")
+	}
+	if err = os.Rename(metadata, metadata+".replaced"); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Mkdir(metadata, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err = input.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err = cmd.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-result:
+		if !errors.Is(err, domain.ErrChanged) {
+			t.Fatalf("returned state from replaced root: %v", err)
+		}
+	case <-bounded.Done():
+		t.Fatal("reader did not finish")
 	}
 }

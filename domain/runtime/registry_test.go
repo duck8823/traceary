@@ -136,3 +136,15 @@ func TestRegistryWorktreeBoundAndForeignCommonDirectory(t *testing.T) {
 		t.Fatalf("worktree limit: %v", err)
 	}
 }
+
+func TestRegistryRestorationRejectsRevisionBelowEntryCount(t *testing.T) {
+	p := project(t)
+	other, err := rt.ProjectOf("/other", "/other.git", "other identity")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = rt.RegistryFrom(rt.RegistryState{Revision: 1, Projects: []rt.Project{p, other}})
+	if !errors.Is(err, rt.ErrInvalid) {
+		t.Fatalf("impossible revision accepted: %v", err)
+	}
+}
