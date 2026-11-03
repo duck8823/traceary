@@ -44,6 +44,8 @@ type metadataAuditState struct {
 	executionStamp *unix.Stat_t
 	controls       controlEnvelope
 	controlStamp   *unix.Stat_t
+	lifecycle      metadataLifecycleEnvelope
+	lifecycleStamp *unix.Stat_t
 }
 
 // Export returns only bounded safe summaries, not the raw storage envelopes.
@@ -100,6 +102,14 @@ func (s *MetadataStore) readAudit(ctx context.Context, fd int) (metadataAuditSta
 	if err != nil {
 		return metadataAuditState{}, err
 	}
+	lifecycle, lifecycleStamp, err := s.readAuditLifecycle(fd, execution)
+	if err != nil {
+		return metadataAuditState{}, err
+	}
+	endpoints, endpointStamp, err := s.readAuditEndpoints(fd)
+	if err != nil {
+		return metadataAuditState{}, err
+	}
 	hash := sha256.New()
 	_, _ = fmt.Fprintf(hash, "traceary-runtime-metadata-v1\x00%d:%s\x00", len(m.witness), m.witness)
 	for _, file := range []struct {
@@ -108,6 +118,7 @@ func (s *MetadataStore) readAudit(ctx context.Context, fd int) (metadataAuditSta
 		stamp *unix.Stat_t
 	}{
 		{"registry.json", m.budget, registryStamp}, {"execution.json", min(maxExecutionBytes, m.budget), executionStamp}, {"receipts.json", min(maxControlMetadataBytes, m.budget), controlStamp},
+		{"lifecycle.json", min(maxMetadataLifecycleBytes, m.budget), lifecycleStamp}, {"endpoints.json", min(maxMetadataEndpointBytes, m.budget), endpointStamp},
 	} {
 		if err = ctx.Err(); err != nil {
 			return metadataAuditState{}, xerrors.Errorf("hash runtime metadata canceled: %w", err)
@@ -121,8 +132,24 @@ func (s *MetadataStore) readAudit(ctx context.Context, fd int) (metadataAuditSta
 		}
 		_, _ = fmt.Fprintf(hash, "%s:%t:%d:", file.name, stamp != nil, len(data))
 		_, _ = hash.Write(data)
+		if stamp != nil {
+			_, _ = fmt.Fprintf(hash, ":%d:%d:%d:%d:%d:%d:%d:%d:%d:", stamp.Dev, stamp.Ino, stamp.Mode, stamp.Uid, stamp.Nlink, stamp.Ctim.Sec, stamp.Ctim.Nsec, stamp.Mtim.Sec, stamp.Mtim.Nsec)
+		}
 	}
 	view := app.MetadataExport{Version: 1, Authority: "persisted_metadata_not_liveness", RootWitness: m.witness, Digest: hex.EncodeToString(hash.Sum(nil)), RegistryRevision: strconv.FormatUint(registry.Snapshot().Revision, 10), ExecutionRevision: strconv.FormatUint(*execution.Revision, 10), ReceiptRevision: strconv.FormatUint(*controls.Revision, 10), Profiles: make([]app.MetadataProfileSummary, 0, len(execution.Profiles)), Runs: make([]app.MetadataRunSummary, 0, len(execution.Launches))}
+	view.LifecycleRevision = strconv.FormatUint(*lifecycle.Revision, 10)
+	if endpointStamp != nil {
+		view.EndpointRevision = strconv.FormatUint(*endpoints.Revision, 10)
+	}
+	view.InterruptedRuns = len(lifecycle.Interrupted)
+	view.RetainedShutdowns = len(lifecycle.Shutdowns)
+	view.RetainedUpdateDeferral = lifecycle.Update != nil
+	view.RetainedAutoStartOptIn = lifecycle.AutoStartOptIn
+	view.RetainedEndpointEvidence = endpointStamp != nil
+	interrupted := make(map[string]bool, len(lifecycle.Interrupted))
+	for _, r := range lifecycle.Interrupted {
+		interrupted[r.Selection.Run] = true
+	}
 	counts := make(map[string]int, len(controls.Runs))
 	uncertainReceipts := make(map[string]int, len(controls.Runs))
 	for _, group := range controls.Runs {
@@ -139,7 +166,7 @@ func (s *MetadataStore) readAudit(ctx context.Context, fd int) (metadataAuditSta
 		view.Profiles = append(view.Profiles, app.MetadataProfileSummary{ID: domain.ProfileID(profile.ID), Host: profile.Host, Version: profile.Version})
 	}
 	for _, run := range execution.Launches {
-		uncertain := run.State != string(domain.RunExited) || *run.Uncertain || uncertainReceipts[run.Identity.Run] > 0
+		uncertain := run.State != string(domain.RunExited) || *run.Uncertain || uncertainReceipts[run.Identity.Run] > 0 || interrupted[run.Identity.Run]
 		if uncertain {
 			view.UncertainRuns++
 		}
@@ -158,7 +185,7 @@ func (s *MetadataStore) readAudit(ctx context.Context, fd int) (metadataAuditSta
 	if err = m.verifyRoot(fd); err != nil {
 		return metadataAuditState{}, err
 	}
-	return metadataAuditState{view, execution, executionStamp, controls, controlStamp}, nil
+	return metadataAuditState{export: view, execution: execution, executionStamp: executionStamp, controls: controls, controlStamp: controlStamp, lifecycle: lifecycle, lifecycleStamp: lifecycleStamp}, nil
 }
 
 func auditMetadataInventory(fd int) error {
@@ -178,9 +205,9 @@ func auditMetadataInventory(fd int) error {
 	for _, entry := range entries {
 		name := entry.Name()
 		switch name {
-		case "registry.json", "execution.json", "receipts.json", "daemon.lock", "registry.lock", "daemon.sock", "observations.sock":
+		case "registry.json", "execution.json", "receipts.json", "lifecycle.json", "endpoints.json", "daemon.lock", "registry.lock", "daemon.sock", "observations.sock":
 		default:
-			// Known later lifecycle/recovery formats require their actual codecs
+			// Unknown recovery formats require their actual codecs
 			// and erasure/retention contract. Never silently omit or unlink them.
 			return domain.ErrUnsupported
 		}
@@ -259,13 +286,13 @@ type metadataReplacement struct {
 }
 
 // forgetWrites owns the cross-envelope integrity rule: all increments are
-// reserved before any effect, receipt groups disappear before their launches,
+// reserved before any effect; receipts, then interruptions, disappear before launches;
 // profiles survive, and alreadyempty envelopes are never rewritten.
 func (state metadataAuditState) forgetWrites() ([]metadataReplacement, error) {
-	if len(state.controls.Runs) > 0 && *state.controls.Revision == math.MaxUint64 || len(state.execution.Launches) > 0 && *state.execution.Revision == math.MaxUint64 {
+	if len(state.controls.Runs) > 0 && *state.controls.Revision == math.MaxUint64 || len(state.execution.Launches) > 0 && *state.execution.Revision == math.MaxUint64 || len(state.lifecycle.Interrupted) > 0 && *state.lifecycle.Revision == math.MaxUint64 {
 		return nil, domain.ErrLimit
 	}
-	writes := make([]metadataReplacement, 0, 2)
+	writes := make([]metadataReplacement, 0, 3)
 	if len(state.controls.Runs) > 0 {
 		revision := *state.controls.Revision + 1
 		doc := controlEnvelope{Version: state.controls.Version, Revision: &revision, Runs: []controlRunRecord{}}
@@ -274,6 +301,17 @@ func (state metadataAuditState) forgetWrites() ([]metadataReplacement, error) {
 			return nil, domain.ErrInvalid
 		}
 		writes = append(writes, metadataReplacement{"receipts.json", data, state.controlStamp})
+	}
+	if len(state.lifecycle.Interrupted) > 0 {
+		revision := *state.lifecycle.Revision + 1
+		doc := state.lifecycle
+		doc.Revision = &revision
+		doc.Interrupted = []metadataInterruptionRecord{}
+		data, err := json.Marshal(doc)
+		if err != nil {
+			return nil, domain.ErrInvalid
+		}
+		writes = append(writes, metadataReplacement{"lifecycle.json", data, state.lifecycleStamp})
 	}
 	if len(state.execution.Launches) > 0 {
 		revision := *state.execution.Revision + 1
@@ -285,6 +323,18 @@ func (state metadataAuditState) forgetWrites() ([]metadataReplacement, error) {
 			return nil, domain.ErrInvalid
 		}
 		writes = append(writes, metadataReplacement{"execution.json", data, state.executionStamp})
+	}
+	for _, write := range writes {
+		limit := maxExecutionBytes
+		switch write.name {
+		case "receipts.json":
+			limit = maxControlMetadataBytes
+		case "lifecycle.json":
+			limit = maxMetadataLifecycleBytes
+		}
+		if int64(len(write.data)) > limit {
+			return nil, domain.ErrLimit
+		}
 	}
 	return writes, nil
 }
@@ -343,7 +393,7 @@ func (s *MetadataStore) Forget(ctx context.Context, confirmation domain.Metadata
 			if committed {
 				outcome = "forgotten"
 			}
-			result = app.MetadataForgetResult{Outcome: outcome, Runs: len(state.export.Runs), Receipts: state.export.TotalReceipts}
+			result = app.MetadataForgetResult{Outcome: outcome, Runs: len(state.export.Runs), Receipts: state.export.TotalReceipts, InterruptedRuns: state.export.InterruptedRuns}
 			return nil
 		})
 	})

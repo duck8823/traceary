@@ -3,7 +3,7 @@
 [English](./history-reconciliation.md)
 
 実装途中です。maintenance に譲る SQLite 読取 capability、domain/application の履歴 page、実 SQLite reader/source adapter、公開 daemon SDK/CLI transport、coarse hint transport は実装済みです。
-任意の commit 後 hint 生成と信頼済み managed root への配送は実装済みです。既存 execution/receipt envelope の metadata audit/preview/forget は実装済みですが、lifecycle envelope の統合と全体検証は未完了です。リリース可能・native host/session の復旧認定済みとは扱いません。
+任意の commit 後 hint 生成と信頼済み managed root への配送は実装済みです。metadata audit/preview/forget は対応する v1 lifecycle envelope と endpoint envelope も扱いますが、最終検証と delivery gate は未完了です。リリース可能・native host/session の復旧認定済みとは扱いません。
 
 ## store の正本と reader の寿命
 
@@ -20,7 +20,7 @@
 公開 daemon transport と CLI は、履歴 core を厳密な要求照合、有界 frame、正しい prefix と継続位置の制御を伴って公開しています。
 commit 後の hint は capture 結果、標準出力、spool 所有権、receipt 冪等性を変更してはいけません。
 明示 runtime metadata export/forget では範囲、version、上限、同意、部分変更の不確定性を定義し、Registry、core 履歴、Git data、native 会話を削除してはいけません。
-lifecycle metadata の統合、最終レビューと delivery gate が残っています。別の実 prepared upgrade と filesystem spool fixture の検証を後述しますが、実 host の認定ではありません。
+lifecycle の最終検証、独立した実装レビューと delivery gate が残っています。別の実 prepared upgrade と filesystem spool fixture の検証を後述しますが、実 host の認定ではありません。
 これらは未完了の delivery 作業であり、現在の daemon が提供済みの capability ではありません。
 
 ## commit 済み page と登録済みの読取 source
@@ -109,30 +109,39 @@ export version1 は復元用 backup ではなく、有界な監査要約です�
 実行ファイル/store path、PID、terminal/input body、環境、native 会話 data は含みません。
 符号化した出力は 16 MiB を上限とし、超過時は切り捨てず明示 error にします。
 `recorded_state` と `uncertain` は永続化した証跡であり、現在の native 生存状態ではありません。
-終了記録があっても pending/unknown receipt の不確定性は残ります。
+終了記録があっても pending/unknown receipt と interrupted-run の記録による不確定性は残ります。
+lifecycle/endpoint の revision、中断記録の件数、保持する shutdown/update/autostart/endpoint の範囲を明示しますが、update の内容や socket identity は export しません。
 
-`forget` は記録済み launch と control receipt group の全件を消し、native 会話は消しません。
+`forget` は記録済み launch、control receipt group と lifecycle 中断記録の全件を消し、native 会話は消しません。
 新しい preview の正確な `--preview-digest` と、`--acknowledge-forget-history`、`--acknowledge-recovery-record-loss` の両方が必要です。
 消した履歴にある復旧用の結び付けは失われ、export 要約では復元できません。
 profile、Registry、core 履歴/spool、Git、native 会話は保持します。
+lifecycle の epoch/clean、以前の epoch 状態、shutdown 監査、update deferral と autostart 設定を保持します。
+endpoint 証跡は byte 単位で保持し、socket の unlink や native 権限の認定は行いません。
 preview を破棄しても履歴は変わりませんが、既存 root 内に調停 lock file が作られる場合があります。
 
 確認時は実際の daemon lifetime 排他 lease、同一 process の root claim、metadata lock が必要です。
 稼働中 owner は busy とし、停止や signal は送りません。
 実 replace 境界でも lease/root identity を再検証します。
-同じ内容の JSON 整形を含め、raw content/revision/root の変更は preview を無効にします。
-receipt group を先、launch 記録を後に置換し、各 commit 済み prefix の参照整合性を維持します。
+同じ内容の JSON 整形を含め、全 5 envelope の raw content/revision/file identity/root の変更は preview を無効にします。
+同じ byte 内容でファイルを交換した場合も preview は無効になります。
+receipt group、中断記録、launch 記録の順に置換し、各 commit 済み prefix の参照整合性を維持します。
+すべての revision 増分、各 envelope の encode 後サイズ上限と合計 byte budget を、最初の置換前に検証します。
 効果が発生した後の失敗/cancel は明示的な不確定結果とし、rollback・成功とは扱わず自動再試行もしません。
 export と新たな preview で確認してから、別の明示判断が必要です。
-すでに空の receipt は書き直さず、no-op は履歴 envelope を作成せず revision も進めません。
+すでに空の receipt、中断記録、launch は書き直さず、no-op は履歴 envelope を作成せず revision も進めません。
 出力 error でも受け付け済み mutation は取り消せません。
 
-**統合は未完了です。**
-現在の branch は registry/execution/receipt version1 のみを扱います。
-未統合の lifecycle/endpoints/recovery envelope を含む、未知・危険・非互換の metadata は mutation 前に拒否します。
-この中間 guard は最終受け入れではありません。
-Issue 完了前に、通常の対応済み lifecycle root でも動作し、監査の保持と復旧記録の消去範囲を明示する必要があります。
-sidecar の一括削除や orphan の自動 cleanup は提供しません。
+対応する registry/execution/receipt/lifecycle/endpoint v1 envelope を厳密に検証します。
+中断記録から launch への参照、保持する shutdown/update の不変条件と物理 root に結び付いた endpoint 証跡も検証対象です。
+正しい JSON の未対応 version は v1 固有の field/null 検証より先に未対応として拒否し、壊れた JSON や重複 key は不正として拒否します。
+未知、危険、非互換の metadata（実 schema を統合する前の recovery/history format を含む）は mutation 前に拒否します。
+offline endpoint 検証は、保持する lifecycle epoch を新たな daemon 起動時の epoch と混同しません。
+sidecar の一括削除、orphan の自動 cleanup、endpoint 回収や native 復旧は提供しません。
+
+**delivery は未完了です。**
+固定した実 lifecycle producer/reader との検証、最終独立実装レビューと新しい CI/security/merge/wave gate が必要です。
+この監査操作は native 会話の再開を実装、認定するものではありません。
 
 ## 実 compaction と所有 PTY の検証
 
@@ -173,7 +182,7 @@ runtime 履歴全件と既存 CLI metadata query の結果も一致させます�
 daemon の別 drainer、native 入力、実 AI は追加しません。
 
 これらは生成 SQLite/filesystem と所有有限 PTY の検証であり、性能 benchmark、fresh-store bootstrap の採用、実 host/会話の復旧認定ではありません。
-対応済み lifecycle/endpoints/recovery metadata の統合、最終独立レビュー、新しい CI/security、merge/wave gate は引き続き必要です。
+実 schema の確定後の recovery format 統合、最終独立実装レビュー、新しい CI/security、merge/wave gate は引き続き必要です。
 
 compaction の診断用 build-progress worker は、停止時に実際の終了まで join します。
 停止の反復・同時呼出しも扱い、cancel だけを完了とは扱いません。

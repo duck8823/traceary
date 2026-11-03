@@ -35,18 +35,25 @@ type MetadataRunSummary struct {
 // MetadataExport is a versioned bounded audit summary, not a restore backup.
 // Revision strings preserve exact counters beyond JSON's numeric precision.
 type MetadataExport struct {
-	Version           int                      `json:"version"`
-	Authority         string                   `json:"authority"`
-	RootWitness       string                   `json:"root_witness"`
-	Digest            string                   `json:"digest"`
-	RegistryRevision  string                   `json:"registry_revision"`
-	ExecutionRevision string                   `json:"execution_revision"`
-	ReceiptRevision   string                   `json:"receipt_revision"`
-	Profiles          []MetadataProfileSummary `json:"profiles"`
-	Runs              []MetadataRunSummary     `json:"runs"`
-	TotalReceipts     int                      `json:"total_receipts"`
-	UncertainRuns     int                      `json:"uncertain_runs"`
-	UncertainReceipts int                      `json:"uncertain_receipts"`
+	LifecycleRevision        string                   `json:"lifecycle_revision"`
+	EndpointRevision         string                   `json:"endpoint_revision"`
+	InterruptedRuns          int                      `json:"interrupted_runs"`
+	RetainedShutdowns        int                      `json:"retained_shutdowns"`
+	RetainedUpdateDeferral   bool                     `json:"retained_update_deferral"`
+	RetainedAutoStartOptIn   bool                     `json:"retained_autostart_opt_in"`
+	RetainedEndpointEvidence bool                     `json:"retained_endpoint_evidence"`
+	Version                  int                      `json:"version"`
+	Authority                string                   `json:"authority"`
+	RootWitness              string                   `json:"root_witness"`
+	Digest                   string                   `json:"digest"`
+	RegistryRevision         string                   `json:"registry_revision"`
+	ExecutionRevision        string                   `json:"execution_revision"`
+	ReceiptRevision          string                   `json:"receipt_revision"`
+	Profiles                 []MetadataProfileSummary `json:"profiles"`
+	Runs                     []MetadataRunSummary     `json:"runs"`
+	TotalReceipts            int                      `json:"total_receipts"`
+	UncertainRuns            int                      `json:"uncertain_runs"`
+	UncertainReceipts        int                      `json:"uncertain_receipts"`
 }
 
 // MetadataForgetPreview describes exact historical scope and unavoidable loss.
@@ -58,9 +65,10 @@ type MetadataForgetPreview struct {
 
 // MetadataForgetResult exists only for a confirmed successful/no-op operation.
 type MetadataForgetResult struct {
-	Outcome  string `json:"outcome"`
-	Runs     int    `json:"runs"`
-	Receipts int    `json:"receipts"`
+	InterruptedRuns int    `json:"interrupted_runs"`
+	Outcome         string `json:"outcome"`
+	Runs            int    `json:"runs"`
+	Receipts        int    `json:"receipts"`
 }
 
 // MetadataAudit keeps explicit read/preview/mutation operations separate.
