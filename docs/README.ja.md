@@ -19,6 +19,8 @@
 
 - [Headless runtime R0（提案）](./adr/2026-11-03-headless-runtime-r0.ja.md)：UI非依存Daemonの設計・安全境界・受入gate
 
+- [Headless registry backend](./runtime/registry.ja.md)：共有registry API、固定target、private metadataと安全な削除
+
 ## 連携まわり
 
 - [ネイティブ連携ガイド](./integrations/README.ja.md): Claude / Codex / Gemini（レガシー）向けパッケージ、導入手順、smoke test
