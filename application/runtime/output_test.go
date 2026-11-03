@@ -212,3 +212,25 @@ func TestOutputRejectsMalformedWorktreeIdentity(t *testing.T) {
 		}
 	}
 }
+
+func TestOutputOwnerResizeSequenceCannotJumpOrReuseForNewControl(t *testing.T) {
+	output, selection := outputFixture(t, app.OutputLimits{})
+	if err := output.AcknowledgeResize(selection, 0, 24, 80); err != nil {
+		t.Fatal(err)
+	}
+	if err := output.AcknowledgeResize(selection, 5, 30, 100); !errors.Is(err, domain.ErrChanged) {
+		t.Fatal("owner acknowledgment skipped sequence")
+	}
+	if err := output.ValidateResize(selection, 1, 30, 100); err != nil {
+		t.Fatal(err)
+	}
+	if err := output.AcknowledgeResize(selection, 1, 30, 100); err != nil {
+		t.Fatal(err)
+	}
+	if err := output.ValidateResize(selection, 1, 30, 100); !errors.Is(err, domain.ErrChanged) {
+		t.Fatal("new request reused an applied sequence")
+	}
+	if err := output.AcknowledgeResize(selection, 1, 30, 100); err != nil {
+		t.Fatal("exact existing acknowledgment lost idempotency")
+	}
+}

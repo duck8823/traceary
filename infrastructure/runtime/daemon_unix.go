@@ -380,7 +380,7 @@ func (s *daemonServer) handle(conn *net.UnixConn, endpoint *daemonSocket) {
 		seen[request.ID] = struct{}{}
 		reply := runtimeResponse{Version: RuntimeProtocolVersion, ID: request.ID}
 		if hello {
-			if request.Operation != "hello" || request.Role != endpoint.role || request.Observation != nil || request.Launch != nil || request.Page != nil || request.Attach != nil {
+			if request.Operation != "hello" || request.Role != endpoint.role || request.Observation != nil || request.Launch != nil || request.Page != nil || request.Attach != nil || request.Control != nil || request.Receipt != nil {
 				reply.Code = "invalid"
 				_ = writeRuntimeFrame(conn, reply)
 				return
@@ -390,6 +390,17 @@ func (s *daemonServer) handle(conn *net.UnixConn, endpoint *daemonSocket) {
 			hello = false
 		} else if request.Role != "" {
 			reply.Code = "invalid"
+		} else if request.Control != nil || request.Receipt != nil {
+			clear(data)
+			clean := request.Attach == nil && request.Observation == nil && request.Launch == nil && request.Page == nil && endpoint.role == "management"
+			switch {
+			case clean && request.Control != nil && request.Receipt == nil && (request.Operation == "input" || request.Operation == "resize" || request.Operation == "stop"):
+				s.controlReply(&reply, request.Control, request.Operation)
+			case clean && request.Receipt != nil && request.Control == nil && request.Operation == "receipt":
+				s.receiptReply(&reply, request.Receipt)
+			default:
+				reply.Code = "unsupported"
+			}
 		} else {
 			switch {
 			case endpoint.role == "management" && request.Operation == "attach" && request.Attach != nil && request.Page == nil && request.Launch == nil && request.Observation == nil:
@@ -407,7 +418,7 @@ func (s *daemonServer) handle(conn *net.UnixConn, endpoint *daemonSocket) {
 				}
 				state := "listening"
 				if s.runtime != nil {
-					capabilities = append(capabilities, "list_runs", "attach")
+					capabilities = append(capabilities, "list_runs", "attach", "input", "resize", "stop", "receipt")
 					if s.runtime.Disabled() {
 						state = "draining"
 					} else {
@@ -505,7 +516,7 @@ func (d *LocalDaemon) Status(ctx context.Context, root string) (app.DaemonStatus
 	if err != nil {
 		return app.DaemonStatus{}, err
 	}
-	if reply.Output != nil || reply.Code != "ok" || reply.Status == nil || reply.Role != "" || reply.Run != nil || reply.Page != nil {
+	if reply.Control != nil || reply.Output != nil || reply.Code != "ok" || reply.Status == nil || reply.Role != "" || reply.Run != nil || reply.Page != nil {
 		return app.DaemonStatus{}, app.ErrRuntimeProtocol
 	}
 	return decodeRuntimeStatus(reply)
@@ -522,7 +533,7 @@ func (d *LocalDaemon) Observe(ctx context.Context, root string, metadata app.Obs
 	if err != nil {
 		return err
 	}
-	if reply.Output != nil || reply.Code != "queued" || reply.Status != nil || reply.Role != "" || reply.Run != nil || reply.Page != nil {
+	if reply.Control != nil || reply.Output != nil || reply.Code != "queued" || reply.Status != nil || reply.Role != "" || reply.Run != nil || reply.Page != nil {
 		return app.ErrRuntimeProtocol
 	}
 	return nil
@@ -621,7 +632,7 @@ func (d *LocalDaemon) openRuntime(ctx context.Context, root, operation string) (
 	if err != nil {
 		return nil, "", err
 	}
-	if hello.Output != nil || hello.Code != "ok" || hello.Role != role || hello.Status != nil || hello.Run != nil || hello.Page != nil {
+	if hello.Control != nil || hello.Output != nil || hello.Code != "ok" || hello.Role != role || hello.Status != nil || hello.Run != nil || hello.Page != nil {
 		return nil, "", app.ErrRuntimeProtocol
 	}
 	success = true

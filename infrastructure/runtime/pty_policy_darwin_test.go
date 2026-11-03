@@ -1,0 +1,64 @@
+//go:build darwin
+
+package runtime
+
+import (
+	"context"
+	"errors"
+	domain "github.com/duck8823/traceary/domain/runtime"
+	"golang.org/x/sys/unix"
+	"os"
+	"os/exec"
+	"os/signal"
+	"syscall"
+	"testing"
+	"time"
+	"unsafe"
+)
+
+func TestPTYKernelReapPolicyRefusesUnsafeDisposition(t *testing.T) {
+	for _, mode := range []string{"ignored", "no_cld_wait"} {
+		t.Run(mode, func(t *testing.T) {
+			binary, err := os.Executable()
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			command := exec.CommandContext(ctx, binary, "-test.run=^TestPTYKernelReapPolicyHelper$")
+			command.Env = []string{"TRACEARY_REAP_POLICY_HELPER=" + mode, "GORACE=atexit_sleep_ms=0"}
+			out, err := command.CombinedOutput()
+			if err != nil {
+				t.Fatalf("isolated negative policy fixture: %v %.500s", err, out)
+			}
+		})
+	}
+}
+func TestPTYKernelReapPolicyHelper(t *testing.T) {
+	mode := os.Getenv("TRACEARY_REAP_POLICY_HELPER")
+	if mode == "" {
+		t.Skip("isolated helper only")
+	}
+	if mode == "ignored" {
+		signal.Ignore(syscall.SIGCHLD)
+	} else {
+		// Test-only mutation in an isolated helper: kernel NOCLDWAIT without Go Ignore.
+		// No children are spawned after this point; the parent process is untouched.
+		action := struct {
+			handler, trampoline uintptr
+			mask                uint32
+			flags               int32
+		}{flags: 0x20}
+		//nolint:staticcheck // SA1019: isolated ABI negative test matching the read-only production query.
+		_, _, err := unix.Syscall6(unix.SYS_SIGACTION, uintptr(syscall.SIGCHLD), uintptr(unsafe.Pointer(&action)), 0, 0, 0, 0)
+		if err != 0 {
+			t.Fatal("unable to establish isolated kernel policy fixture")
+		}
+		if signal.Ignored(syscall.SIGCHLD) {
+			t.Fatal("fixture must exercise actual kernel flags rather than Go Ignore")
+		}
+	}
+	if err := checkReapPolicy(context.Background()); !errors.Is(err, domain.ErrUnsafe) {
+		t.Fatal("unsafe kernel reaping policy admitted")
+	}
+}

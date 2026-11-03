@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -137,6 +138,9 @@ func (l *PTYLauncher) Start(ctx context.Context, descriptor domain.LaunchDescrip
 	if snapshot.State != domain.RunReserved || !snapshot.Identity.Valid() {
 		return nil, domain.ErrInvalid
 	}
+	if err := checkReapPolicy(ctx); err != nil {
+		return nil, err
+	}
 	if err := l.verifyVersion(ctx, snapshot.Profile); err != nil {
 		return nil, err
 	}
@@ -146,6 +150,19 @@ func (l *PTYLauncher) Start(ctx context.Context, descriptor domain.LaunchDescrip
 	if err := ctx.Err(); err != nil {
 		return nil, xerrors.Errorf("validate launch budget: %w", err)
 	}
+	if err := checkReapPolicy(ctx); err != nil {
+		return nil, err
+	}
+	watch, err := prepareExitWatch(ctx)
+	if err != nil {
+		return nil, err
+	}
+	watchTransferred := false
+	defer func() {
+		if !watchTransferred {
+			watch.close()
+		}
+	}()
 	master, slave, err := pty.Open()
 	if err != nil {
 		return nil, domain.ErrUnsafe
@@ -193,22 +210,43 @@ func (l *PTYLauncher) Start(ctx context.Context, descriptor domain.LaunchDescrip
 		_ = unix.Close(fd)
 		return nil, xerrors.Errorf("validate launch budget before start: %w", err)
 	}
+	if err = checkReapPolicy(ctx); err != nil {
+		_ = slave.Close()
+		_ = unix.Close(fd)
+		return nil, err
+	}
 	err = command.Start()
 	_ = slave.Close()
 	if err != nil {
 		_ = unix.Close(fd)
 		return nil, domain.ErrUnsafe
 	}
-	child := &ptyChild{pid: command.Process.Pid, done: make(chan struct{}), output: output}
+	watchErr := watch.bind(ctx, command.Process.Pid)
+	child := &ptyChild{pid: command.Process.Pid, done: make(chan struct{}), output: output, fd: fd, launcher: l, target: snapshot.Target, profile: snapshot.Profile, selection: selection, controlsClosed: watchErr != nil, controlErr: watchErr}
+	watchTransferred = true
 	drained := make(chan struct{})
 	stopDrain := make(chan struct{})
 	// The single native reader feeds only bounded volatile retention.
 	go func() { drainPTY(fd, stopDrain, output); close(drained) }()
 	go func() {
+		watchErr := watch.wait()
+		watch.close()
+		child.exitObserved.Store(true)
+		child.mu.Lock()
+		child.controlsClosed = true
+		if watchErr != nil && child.controlErr == nil {
+			child.controlErr = watchErr
+		}
+		child.mu.Unlock()
+		// Closed is permanent before the sole reap; never hold admission while
+		// a fallback Wait or descendant-held PTY tail can block.
 		waitErr := command.Wait()
 		close(stopDrain)
 		<-drained
+		child.mu.Lock()
 		_ = unix.Close(fd)
+		child.fd = -1
+		child.mu.Unlock()
 		if command.ProcessState != nil {
 			child.code = command.ProcessState.ExitCode()
 		}
@@ -291,10 +329,19 @@ func drainPTY(fd int, stopped <-chan struct{}, output *app.Output) {
 }
 
 type ptyChild struct {
-	output    *app.Output
-	pid, code int
-	err       error
-	done      chan struct{}
+	mu             sync.Mutex
+	fd             int
+	controlsClosed bool
+	controlErr     error
+	exitObserved   atomic.Bool
+	launcher       *PTYLauncher
+	target         domain.Target
+	profile        domain.HostProfile
+	selection      app.OutputSelection
+	output         *app.Output
+	pid, code      int
+	err            error
+	done           chan struct{}
 }
 
 func (c *ptyChild) SubscribeOutput(selection app.OutputSelection, cursor domain.ByteOffset) (*app.OutputSubscription, error) {

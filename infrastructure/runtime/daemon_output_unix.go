@@ -96,6 +96,11 @@ func (s *outputStream) Next(ctx context.Context) (app.OutputFrame, error) {
 		_ = s.Close()
 		return app.OutputFrame{}, xerrors.Errorf("read runtime stream: %w", err)
 	}
+	deadline, _ := ctx.Deadline()
+	if !deadline.IsZero() && !time.Now().Before(deadline) {
+		_ = s.Close()
+		return app.OutputFrame{}, context.DeadlineExceeded
+	}
 	if s.closed.Load() {
 		return app.OutputFrame{}, io.EOF
 	}
@@ -106,7 +111,6 @@ func (s *outputStream) Next(ctx context.Context) (app.OutputFrame, error) {
 	}
 	stop := context.AfterFunc(ctx, func() { _ = s.Close() })
 	defer stop()
-	deadline, _ := ctx.Deadline()
 	if s.conn.SetReadDeadline(deadline) != nil {
 		_ = s.Close()
 		return app.OutputFrame{}, app.ErrDaemonUnavailable
@@ -117,9 +121,12 @@ func (s *outputStream) Next(ctx context.Context) (app.OutputFrame, error) {
 		if ctx.Err() != nil {
 			return app.OutputFrame{}, xerrors.Errorf("read runtime stream: %w", ctx.Err())
 		}
+		if !deadline.IsZero() && !time.Now().Before(deadline) {
+			return app.OutputFrame{}, context.DeadlineExceeded
+		}
 		return app.OutputFrame{}, xerrors.Errorf("read runtime stream: %w", err)
 	}
-	if reply.Code != "ok" || reply.Output == nil || reply.Run != nil || reply.Page != nil || reply.Status != nil || reply.Role != "" {
+	if reply.Control != nil || reply.Code != "ok" || reply.Output == nil || reply.Run != nil || reply.Page != nil || reply.Status != nil || reply.Role != "" {
 		_ = s.Close()
 		return app.OutputFrame{}, app.ErrRuntimeProtocol
 	}

@@ -27,6 +27,14 @@ import (
 // TestMain is the explicitly selected fixture executable, not a real AI CLI.
 func TestMain(m *testing.M) {
 	if os.Getenv("TRACEARY_PTY_FIXTURE") == "1" {
+		if len(os.Args) == 2 && os.Args[1] == "--fixture-scope-descendant" {
+			role := os.Getenv("FIXTURE_DESC_ROLE")
+			base := os.Getenv("FIXTURE_RESULT")
+			_ = os.WriteFile(base+"."+role+".ready", []byte("ready"), 0600)
+			time.Sleep(1500 * time.Millisecond)
+			_ = os.WriteFile(base+"."+role+".survived", []byte("survived"), 0600)
+			os.Exit(0)
+		}
 		if len(os.Args) == 2 && os.Args[1] == "--fixture-hold-pty" {
 			time.Sleep(800 * time.Millisecond)
 			os.Exit(0)
@@ -58,6 +66,63 @@ func TestMain(m *testing.M) {
 		data, _ := json.Marshal(result)
 		if os.WriteFile(os.Getenv("FIXTURE_RESULT"), data, 0600) != nil {
 			os.Exit(90)
+		}
+		if os.Getenv("FIXTURE_OUTPUT_MODE") == "control_descendants" {
+			executable, e := os.Executable()
+			if e != nil {
+				os.Exit(95)
+			}
+			for _, role := range []string{"group", "escaped"} {
+				child := exec.Command(executable, "--fixture-scope-descendant")
+				child.Env = append(os.Environ(), "FIXTURE_DESC_ROLE="+role)
+				child.Stdin = os.Stdin
+				child.Stdout = os.Stdout
+				child.Stderr = os.Stderr
+				if role == "escaped" {
+					child.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+				}
+				if child.Start() != nil {
+					os.Exit(96)
+				}
+				deadline := time.Now().Add(3 * time.Second)
+				for {
+					if _, e := os.Stat(os.Getenv("FIXTURE_RESULT") + "." + role + ".ready"); e == nil {
+						break
+					}
+					if time.Now().After(deadline) {
+						os.Exit(95)
+					}
+					time.Sleep(time.Millisecond)
+				}
+			}
+			_ = os.WriteFile(os.Getenv("FIXTURE_RESULT")+".ready", []byte("ready"), 0600)
+			time.Sleep(15 * time.Second)
+			os.Exit(92)
+		}
+		if os.Getenv("FIXTURE_OUTPUT_MODE") == "control" {
+			if _, e := term.MakeRaw(0); e != nil {
+				os.Exit(97)
+			}
+			_ = os.WriteFile(os.Getenv("FIXTURE_RESULT")+".ready", []byte("ready"), 0600)
+			input := make([]byte, 5)
+			if _, e := io.ReadFull(os.Stdin, input); e != nil {
+				os.Exit(98)
+			}
+			if os.WriteFile(os.Getenv("FIXTURE_RESULT")+".input", input, 0600) != nil {
+				os.Exit(99)
+			}
+			marker := make([]byte, 1)
+			if _, e := io.ReadFull(os.Stdin, marker); e != nil {
+				os.Exit(98)
+			}
+			size, e := unix.IoctlGetWinsize(0, unix.TIOCGWINSZ)
+			if e != nil {
+				os.Exit(99)
+			}
+			geometry, _ := json.Marshal([]uint16{size.Row, size.Col})
+			_ = os.WriteFile(os.Getenv("FIXTURE_RESULT")+".geometry", geometry, 0600)
+			time.Sleep(15 * time.Second)
+			os.Exit(92)
 		}
 		if os.Getenv("FIXTURE_OUTPUT_MODE") == "descendant" {
 			signal.Ignore(syscall.SIGHUP)
@@ -397,5 +462,209 @@ func TestPTYDescendantHeldSlaveUsesNativeEOFOrBoundedUnknownTail(t *testing.T) {
 	}
 	if string(data) != "TAIL" || !unknown && snapshotFrame.Info.Reason != app.CaptureClosed {
 		t.Fatalf("kernel tail lost or descendant cutoff hidden: bytes=%d unknown=%v", len(data), unknown)
+	}
+}
+
+func TestPTYExplicitRawInputResizeAndOwnedGroupStop(t *testing.T) {
+	launcher, descriptor, result := ptyFixture(t, "FIXTURE_OUTPUT_MODE=control")
+	child, err := launcher.Start(context.Background(), descriptor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		done := make(chan struct{})
+		go func() { _, _ = child.Wait(); close(done) }()
+		select {
+		case <-done:
+		case <-time.After(17 * time.Second):
+			t.Error("synthetic child failed to finish cleanup")
+		}
+	})
+	controller, ok := child.(app.ControlledChild)
+	if !ok {
+		t.Fatal("owned PTY has no explicit control capability")
+	}
+	stop, err := domain.ControlIntentFrom(domain.ControlIntentState{RequestID: "stop", Kind: domain.ControlStop, WorkLossAcknowledged: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = controller.ApplyControl(context.Background(), stop, nil) })
+	waitFile := func(path string) []byte {
+		t.Helper()
+		deadline := time.Now().Add(4 * time.Second)
+		for {
+			data, e := os.ReadFile(path)
+			if e == nil {
+				return data
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("synthetic native fixture did not produce expected file")
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	_ = waitFile(result + ".ready")
+	raw := []byte{0xe6, 0x97, 0xa5, 0x1b, 0xff}
+	input, err := domain.ControlIntentFrom(domain.ControlIntentState{RequestID: "input", Kind: domain.ControlInput, ManualTerminal: true, InputBytes: len(raw)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = controller.ValidateControl(context.Background(), input); err != nil {
+		t.Fatal(err)
+	}
+	effect, err := controller.ApplyControl(context.Background(), input, raw)
+	if err != nil || effect.Outcome != domain.ControlDelivered || effect.WrittenBytes != len(raw) {
+		t.Fatalf("native input: %v", err)
+	}
+	if !bytes.Equal(waitFile(result+".input"), raw) {
+		t.Fatal("raw input altered or Enter appended")
+	}
+	resize, err := domain.ControlIntentFrom(domain.ControlIntentState{RequestID: "resize", Kind: domain.ControlResize, ResizeSequence: 1, Rows: 31, Cols: 101})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = controller.ValidateControl(context.Background(), resize); err != nil {
+		t.Fatal(err)
+	}
+	if effect, err = controller.ApplyControl(context.Background(), resize, nil); err != nil || effect.Outcome != domain.ControlDelivered {
+		t.Fatalf("native resize: %v", err)
+	}
+	if err = controller.ValidateControl(context.Background(), resize); !errors.Is(err, domain.ErrChanged) {
+		t.Fatal("new control reused an applied resize sequence")
+	}
+	marker, _ := domain.ControlIntentFrom(domain.ControlIntentState{RequestID: "marker", Kind: domain.ControlInput, ManualTerminal: true, InputBytes: 1})
+	if _, err = controller.ApplyControl(context.Background(), marker, []byte("r")); err != nil {
+		t.Fatal(err)
+	}
+	if string(waitFile(result+".geometry")) != "[31,101]" {
+		t.Fatal("resize acknowledgment preceded actual native application")
+	}
+	if _, err = controller.ApplyControl(context.Background(), stop, nil); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { _, e := child.Wait(); done <- e }()
+	select {
+	case err = <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(4 * time.Second):
+		t.Fatal("explicit owned group stop did not reconcile")
+	}
+	if _, err = controller.ApplyControl(context.Background(), input, raw); !errors.Is(err, domain.ErrChanged) {
+		t.Fatal("exited child accepted late input")
+	}
+	if _, err = controller.ApplyControl(context.Background(), stop, nil); !errors.Is(err, domain.ErrChanged) {
+		t.Fatal("exited child accepted late group signal")
+	}
+}
+
+func TestPTYExplicitStopDoesNotSweepEscapedDescendants(t *testing.T) {
+	launcher, descriptor, result := ptyFixture(t, "FIXTURE_OUTPUT_MODE=control_descendants")
+	child, err := launcher.Start(context.Background(), descriptor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	controller := child.(app.ControlledChild)
+	stop, _ := domain.ControlIntentFrom(domain.ControlIntentState{RequestID: "stop-group", Kind: domain.ControlStop, WorkLossAcknowledged: true})
+	t.Cleanup(func() { _, _ = controller.ApplyControl(context.Background(), stop, nil); _, _ = child.Wait() })
+	waitFile := func(path string) {
+		t.Helper()
+		deadline := time.Now().Add(4 * time.Second)
+		for {
+			if _, e := os.Stat(path); e == nil {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("synthetic descendant scope evidence missing")
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	waitFile(result + ".ready")
+	if _, err = controller.ApplyControl(context.Background(), stop, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = child.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	waitFile(result + ".escaped.survived")
+	if _, err = os.Stat(result + ".group.survived"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("in-group descendant survived explicit group stop")
+	}
+}
+
+func TestPTYControlChangedExecutableWitnessRefusesBeforeEffect(t *testing.T) {
+	launcher, descriptor, result := ptyFixture(t, "FIXTURE_OUTPUT_MODE=control")
+	original, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	copyBinary := func(path string) {
+		t.Helper()
+		source, e := os.Open(original)
+		if e != nil {
+			t.Fatal(e)
+		}
+		defer func() { _ = source.Close() }()
+		target, e := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0700)
+		if e != nil {
+			t.Fatal(e)
+		}
+		_, e = io.Copy(target, source)
+		closeErr := target.Close()
+		if e != nil || closeErr != nil {
+			t.Fatal("synthetic executable copy failed")
+		}
+	}
+	path := filepath.Join(filepath.Dir(result), "registered-agent")
+	copyBinary(path)
+	profile, err := launcher.InspectProfile(context.Background(), string(descriptor.Target().Profile()), "codex", path, "fixture 1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	descriptor, err = domain.LaunchDescriptorOf(descriptor.Identity(), descriptor.Target(), profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, err := launcher.Start(context.Background(), descriptor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	controller := child.(app.ControlledChild)
+	stop, _ := domain.ControlIntentFrom(domain.ControlIntentState{RequestID: "cleanup", Kind: domain.ControlStop, WorkLossAcknowledged: true})
+	moved := false
+	t.Cleanup(func() {
+		if moved {
+			_ = os.Rename(path+".original", path)
+		}
+		_, _ = controller.ApplyControl(context.Background(), stop, nil)
+		_, _ = child.Wait()
+	})
+	deadline := time.Now().Add(4 * time.Second)
+	for {
+		if _, e := os.Stat(result + ".ready"); e == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("synthetic child not ready")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if err = os.Rename(path, path+".original"); err != nil {
+		t.Fatal(err)
+	}
+	moved = true
+	copyBinary(path)
+	input, _ := domain.ControlIntentFrom(domain.ControlIntentState{RequestID: "refused", Kind: domain.ControlInput, ManualTerminal: true, InputBytes: 1})
+	if err = controller.ValidateControl(context.Background(), input); !errors.Is(err, domain.ErrChanged) {
+		t.Fatal("changed executable identity accepted")
+	}
+	if _, err = controller.ApplyControl(context.Background(), input, []byte("x")); !errors.Is(err, domain.ErrChanged) {
+		t.Fatal("changed executable reached terminal effect")
+	}
+	if _, err = os.Stat(result + ".input"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("refused executable witness still wrote input")
 	}
 }
