@@ -228,7 +228,7 @@ func (c *RootCLI) newRuntimeCommand() *cobra.Command {
 	list.Flags().StringVar(&cursor, "cursor", "", "Previous page next cursor")
 	list.Flags().Uint64Var(&revision, "revision", 0, "Previous page revision (required with cursor)")
 	requireRuntimeFlags(list, "epoch")
-	group.AddCommand(project, worktree, registry, profile, launch, list)
+	group.AddCommand(project, worktree, registry, profile, launch, list, c.newRuntimeAttachCommand(&root))
 	return group
 }
 

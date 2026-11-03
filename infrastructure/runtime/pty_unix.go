@@ -171,6 +171,16 @@ func (l *PTYLauncher) Start(ctx context.Context, descriptor domain.LaunchDescrip
 		_ = slave.Close()
 		return nil, domain.ErrUnsafe
 	}
+	selection := app.OutputSelection{Identity: snapshot.Identity, Worktree: snapshot.Target.Worktree().ID(), Profile: snapshot.Profile.ID()}
+	output, outputErr := app.NewOutput(selection, app.OutputLimits{})
+	if outputErr == nil {
+		outputErr = output.AcknowledgeResize(selection, 0, 24, 80)
+	}
+	if outputErr != nil {
+		_ = unix.Close(fd)
+		_ = slave.Close()
+		return nil, xerrors.Errorf("initialize owned PTY output: %w", outputErr)
+	}
 	command := exec.Command(snapshot.Profile.Snapshot().Executable)
 	command.Dir = snapshot.Target.Worktree().Path()
 	command.Env = launchEnvironment(l.environment, snapshot.Target.Worktree().Store(), snapshot.Identity)
@@ -189,11 +199,11 @@ func (l *PTYLauncher) Start(ctx context.Context, descriptor domain.LaunchDescrip
 		_ = unix.Close(fd)
 		return nil, domain.ErrUnsafe
 	}
-	child := &ptyChild{pid: command.Process.Pid, done: make(chan struct{})}
+	child := &ptyChild{pid: command.Process.Pid, done: make(chan struct{}), output: output}
 	drained := make(chan struct{})
 	stopDrain := make(chan struct{})
-	// No terminal data is persisted; cursor retention/subscribers are #2462.
-	go func() { drainPTY(fd, stopDrain); close(drained) }()
+	// The single native reader feeds only bounded volatile retention.
+	go func() { drainPTY(fd, stopDrain, output); close(drained) }()
 	go func() {
 		waitErr := command.Wait()
 		close(stopDrain)
@@ -213,38 +223,86 @@ func (l *PTYLauncher) Start(ctx context.Context, descriptor domain.LaunchDescrip
 
 // drainPTY never shares a live descriptor with Close/reuse. Native reads are
 // nonblocking and poll is bounded, so owned Wait cannot hang on a Go TTY poller.
-func drainPTY(fd int, stop <-chan struct{}) {
-	buffer := make([]byte, 32*1024)
+func drainPTY(fd int, stopped <-chan struct{}, output *app.Output) {
+	buffer := make([]byte, domain.MaxOutputChunk)
+	var deadline time.Time
+	remaining := domain.MaxOutputBytes
+	finish := func(reason app.CaptureReason, unknown bool) { output.Finish(reason, unknown) }
 	for {
-		select {
-		case <-stop:
-			return
-		default:
+		if deadline.IsZero() {
+			select {
+			case <-stopped:
+				deadline = time.Now().Add(250 * time.Millisecond)
+			default:
+			}
 		}
-		n, err := unix.Read(fd, buffer)
+		if !deadline.IsZero() && remaining == 0 {
+			// A nonblocking one-byte probe distinguishes exact-budget clean EOF
+			// from an open/noisy descendant. Any discarded probe byte is unknown.
+			var probe [1]byte
+			n, err := unix.Read(fd, probe[:])
+			if n == 0 && (err == nil || errors.Is(err, unix.EIO)) {
+				finish(app.CaptureClosed, false)
+			} else {
+				finish(app.CaptureTailUnknown, true)
+			}
+			return
+		}
+		if !deadline.IsZero() && !time.Now().Before(deadline) {
+			finish(app.CaptureTailUnknown, true)
+			return
+		}
+		chunk := buffer
+		if !deadline.IsZero() {
+			chunk = chunk[:min(len(chunk), remaining)]
+		}
+		n, err := unix.Read(fd, chunk)
 		if n > 0 {
+			if appendErr := output.Append(chunk[:n]); appendErr != nil {
+				finish(app.CaptureReadError, true)
+				return
+			}
+			if !deadline.IsZero() {
+				remaining -= n
+			}
 			continue
 		}
-		if err == nil {
+		if err == nil || errors.Is(err, unix.EIO) {
+			finish(app.CaptureClosed, false)
 			return
 		}
 		if errors.Is(err, unix.EINTR) {
 			continue
 		}
 		if !errors.Is(err, unix.EAGAIN) && !errors.Is(err, unix.EWOULDBLOCK) {
+			finish(app.CaptureReadError, true)
 			return
 		}
 		polls := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}}
-		if _, err = unix.Poll(polls, 25); err != nil && !errors.Is(err, unix.EINTR) {
+		timeout := 25
+		if !deadline.IsZero() {
+			timeout = min(timeout, max(1, int(time.Until(deadline).Milliseconds())))
+		}
+		if _, err = unix.Poll(polls, timeout); err != nil && !errors.Is(err, unix.EINTR) {
+			finish(app.CaptureReadError, true)
 			return
 		}
 	}
 }
 
 type ptyChild struct {
+	output    *app.Output
 	pid, code int
 	err       error
 	done      chan struct{}
+}
+
+func (c *ptyChild) SubscribeOutput(selection app.OutputSelection, cursor domain.ByteOffset) (*app.OutputSubscription, error) {
+	sub, err := c.output.Subscribe(selection, cursor)
+	if err != nil {
+		return nil, xerrors.Errorf("subscribe owned PTY output: %w", err)
+	}
+	return sub, nil
 }
 
 func (c *ptyChild) PID() int           { return c.pid }

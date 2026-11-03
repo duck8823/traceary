@@ -5,6 +5,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -54,7 +55,7 @@ func TestRuntimeCLIEndToEndRegistrationLaunchAndListWithoutHomeOrCoreBootstrap(t
 	agentBinary := filepath.Join(root, "fixture-agent")
 	program := `package main
 import("os";"encoding/json";"bytes")
-func main(){if len(os.Args)==2&&os.Args[1]=="--version"{os.Stdout.WriteString("fixture-runtime 1\n");return};if len(os.Args)!=1{os.Exit(93)};cwd,_:=os.Getwd();data,_:=json.Marshal(map[string]string{"cwd":cwd,"store":os.Getenv("TRACEARY_DB_PATH"),"run":os.Getenv("TRACEARY_RUNTIME_RUN_ID")});if os.WriteFile(os.Getenv("TRACEARY_TEST_RUNTIME_RESULT"),data,0600)!=nil{os.Exit(90)};os.Stdout.Write(bytes.Repeat([]byte("fixture"),300000));os.Exit(7)}
+func main(){if len(os.Args)==2&&os.Args[1]=="--version"{os.Stdout.WriteString("fixture-runtime 1\n");return};if len(os.Args)!=1{os.Exit(93)};cwd,_:=os.Getwd();data,_:=json.Marshal(map[string]string{"cwd":cwd,"store":os.Getenv("TRACEARY_DB_PATH"),"run":os.Getenv("TRACEARY_RUNTIME_RUN_ID")});if os.WriteFile(os.Getenv("TRACEARY_TEST_RUNTIME_RESULT"),data,0600)!=nil{os.Exit(90)};os.Stdout.Write(bytes.Repeat([]byte("x"),2*1024*1024));os.Exit(7)}
 `
 	if err = os.WriteFile(agentSource, []byte(program), 0600); err != nil {
 		t.Fatal(err)
@@ -173,6 +174,56 @@ func main(){if len(os.Args)==2&&os.Args[1]=="--version"{os.Stdout.WriteString("f
 	page := jsonCommand("runtime", "list", "--runtime-dir", metadata, "--epoch", status.Epoch)
 	if len(page["runs"].([]any)) != 1 {
 		t.Fatal("CLI list lost managed run")
+	}
+	runView := launched["run"].(map[string]any)
+	attachArgs := []string{"runtime", "attach", "--runtime-dir", metadata, "--epoch", status.Epoch, "--run", runView["run"].(string), "--generation", runView["generation"].(string), "--worktree", w["id"].(string), "--profile", "codex-fixture"}
+	attach := func(cursor string) (int, string) {
+		t.Helper()
+		out, e := command(append(append([]string{}, attachArgs...), "--cursor", cursor)...).CombinedOutput()
+		if e != nil {
+			t.Fatalf("actual CLI attach failed: %v", e)
+		}
+		var count int
+		var last string
+		var sawSnapshot, sawEnd bool
+		for _, line := range bytes.Split(out, []byte("\n")) {
+			if len(line) == 0 || line[0] != '{' {
+				continue
+			}
+			var frame map[string]any
+			if e = json.Unmarshal(line, &frame); e != nil {
+				t.Fatal(e)
+			}
+			switch frame["kind"] {
+			case "snapshot":
+				sawSnapshot = true
+			case "end":
+				sawEnd = true
+			case "data":
+				data, e := base64.StdEncoding.DecodeString(frame["data"].(string))
+				if e != nil {
+					t.Fatal(e)
+				}
+				if !bytes.Equal(data, bytes.Repeat([]byte("x"), len(data))) {
+					t.Fatal("actual CLI changed raw bytes")
+				}
+				count += len(data)
+				last = frame["end"].(string)
+			default:
+				t.Fatal("unexpected actual CLI gap")
+			}
+		}
+		if !sawSnapshot || !sawEnd {
+			t.Fatal("actual CLI stream incomplete")
+		}
+		return count, last
+	}
+	count, last := attach("0")
+	if count != 2*1024*1024 || last != "2097152" {
+		t.Fatal("actual CLI lost native output")
+	}
+	if count, _ = attach(last); count != 0 {
+		t.Fatal("actual CLI replayed already consumed bytes")
 	}
 	actual, err := os.ReadFile(store)
 	if err != nil || !bytes.Equal(actual, original) {

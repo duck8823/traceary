@@ -9,8 +9,11 @@ import (
 	"errors"
 	"io"
 	"os"
+	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -24,6 +27,11 @@ import (
 // TestMain is the explicitly selected fixture executable, not a real AI CLI.
 func TestMain(m *testing.M) {
 	if os.Getenv("TRACEARY_PTY_FIXTURE") == "1" {
+		if len(os.Args) == 2 && os.Args[1] == "--fixture-hold-pty" {
+			time.Sleep(800 * time.Millisecond)
+			os.Exit(0)
+		}
+
 		if len(os.Args) == 2 && os.Args[1] == "--version" {
 			if delay, err := time.ParseDuration(os.Getenv("FIXTURE_VERSION_DELAY")); err == nil && delay > 0 && delay < 2*time.Second {
 				time.Sleep(delay)
@@ -51,10 +59,40 @@ func TestMain(m *testing.M) {
 		if os.WriteFile(os.Getenv("FIXTURE_RESULT"), data, 0600) != nil {
 			os.Exit(90)
 		}
+		if os.Getenv("FIXTURE_OUTPUT_MODE") == "descendant" {
+			signal.Ignore(syscall.SIGHUP)
+			executable, e := os.Executable()
+			if e != nil {
+				os.Exit(95)
+			}
+			child := exec.Command(executable, "--fixture-hold-pty")
+			child.Env = os.Environ()
+			child.Stdin = os.Stdin
+			child.Stdout = os.Stdout
+			child.Stderr = os.Stderr
+			if child.Start() != nil {
+				os.Exit(96)
+			}
+			_, _ = os.Stdout.Write([]byte("TAIL"))
+			os.Exit(7)
+		}
+		if os.Getenv("FIXTURE_OUTPUT_MODE") == "unicode" {
+			if _, e := term.MakeRaw(1); e != nil {
+				os.Exit(93)
+			}
+			for i := 0; i < 300; i++ {
+				if e := unix.IoctlSetWinsize(1, unix.TIOCSWINSZ, &unix.Winsize{Row: uint16(24 + i%20), Col: uint16(80 + i%40)}); e != nil {
+					os.Exit(94)
+				}
+			}
+			_, _ = os.Stdout.Write([]byte("日本語🙂\x1b[2J\x1b[H\x1b]52;c;ZmFrZQ==\a\x1b]8;;https://example.invalid\aTAIL"))
+			os.Exit(7)
+		}
 		// A missing continuous drain would deadlock the child on this >PTY capacity write.
 		if _, err = os.Stdout.Write(bytes.Repeat([]byte("x"), 2*1024*1024)); err != nil {
 			os.Exit(91)
 		}
+		_ = os.WriteFile(os.Getenv("FIXTURE_RESULT")+".output-ready", []byte("ready"), 0600)
 		if release := os.Getenv("FIXTURE_RELEASE"); release != "" {
 			deadline := time.Now().Add(15 * time.Second)
 			for {
@@ -147,6 +185,38 @@ func TestPTYDirectBinaryControllingTerminalTargetAndOwnedWait(t *testing.T) {
 	if child.PID() <= 0 {
 		t.Fatal("missing diagnostic PID")
 	}
+	// Reconnect to the same exited owned child; buffered kernel tail must survive Wait.
+	source, ok := child.(app.OutputChild)
+	if !ok {
+		t.Fatal("PTY child does not expose owned output")
+	}
+	selection := app.OutputSelection{Identity: snapshot.Identity, Worktree: snapshot.Target.Worktree().ID(), Profile: snapshot.Profile.ID()}
+	sub, err := source.SubscribeOutput(selection, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sub.Close()
+	frame, err := sub.Next(context.Background())
+	if err != nil || frame.Kind != "snapshot" || frame.Info.Head != 2*1024*1024 || frame.Info.Resize.Rows != 24 || frame.Info.Resize.Cols != 80 {
+		t.Fatal("incorrect output snapshot or native exit tail")
+	}
+	var outputBytes int
+	for {
+		frame, err = sub.Next(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if frame.Kind == "end" {
+			break
+		}
+		if frame.Kind != "data" || !bytes.Equal(frame.Data, bytes.Repeat([]byte("x"), len(frame.Data))) {
+			t.Fatal("unexpected output gap or changed bytes")
+		}
+		outputBytes += len(frame.Data)
+	}
+	if outputBytes != 2*1024*1024 {
+		t.Fatal("native output lost before owned exit")
+	}
 	// Adapter caches its single exec.Cmd.Wait result; this is not a second OS wait.
 	if code, err := child.Wait(); err != nil || code != 7 {
 		t.Fatalf("owned cached wait: %v", err)
@@ -238,5 +308,94 @@ func TestPTYInvalidStaticProfileRefusedBeforeMissingPathInspection(t *testing.T)
 	_, err = launcher.InspectProfile(context.Background(), "../bad", "shell", filepath.Join(root, "nonexistent"), "")
 	if !errors.Is(err, domain.ErrInvalid) {
 		t.Fatalf("invalid profile unnecessarily inspected path: %v", err)
+	}
+}
+
+func TestPTYRawUnicodeTUICaptureAndNativeResizeDoNotForgeOwnerEvidence(t *testing.T) {
+	launcher, descriptor, _ := ptyFixture(t, "FIXTURE_OUTPUT_MODE=unicode")
+	child, err := launcher.Start(context.Background(), descriptor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, e := child.Wait(); e != nil || code != 7 {
+		t.Fatal("synthetic raw fixture failed")
+	}
+	snapshot := descriptor.Snapshot()
+	selection := app.OutputSelection{Identity: snapshot.Identity, Worktree: snapshot.Target.Worktree().ID(), Profile: snapshot.Profile.ID()}
+	source, ok := child.(app.OutputChild)
+	if !ok {
+		t.Fatal("missing output port")
+	}
+	sub, err := source.SubscribeOutput(selection, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sub.Close()
+	first, err := sub.Next(context.Background())
+	if err != nil || first.Info.Resize.Sequence != 0 || first.Info.Resize.Rows != 24 || first.Info.Resize.Cols != 80 {
+		t.Fatal("child geometry forged an owner acknowledgment")
+	}
+	var got []byte
+	for {
+		frame, e := sub.Next(context.Background())
+		if e != nil {
+			t.Fatal(e)
+		}
+		if frame.Kind == "end" {
+			break
+		}
+		if frame.Kind != "data" {
+			t.Fatal("unexpected raw byte gap")
+		}
+		got = append(got, frame.Data...)
+	}
+	want := []byte("日本語🙂\x1b[2J\x1b[H\x1b]52;c;ZmFrZQ==\a\x1b]8;;https://example.invalid\aTAIL")
+	if !bytes.Equal(got, want) {
+		t.Fatal("raw Unicode, TUI escapes or exit tail changed")
+	}
+}
+
+func TestPTYDescendantHeldSlaveUsesNativeEOFOrBoundedUnknownTail(t *testing.T) {
+	launcher, descriptor, _ := ptyFixture(t, "FIXTURE_OUTPUT_MODE=descendant")
+	child, err := launcher.Start(context.Background(), descriptor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := time.Now()
+	if code, e := child.Wait(); e != nil || code != 7 {
+		t.Fatal("synthetic descendant fixture failed")
+	}
+	// The descendant deliberately retains the slave for 800ms; root Wait cannot wait for it.
+	if time.Since(before) > 650*time.Millisecond {
+		t.Fatal("descendant retained owned reconciliation")
+	}
+	snapshot := descriptor.Snapshot()
+	selection := app.OutputSelection{Identity: snapshot.Identity, Worktree: snapshot.Target.Worktree().ID(), Profile: snapshot.Profile.ID()}
+	source := child.(app.OutputChild)
+	sub, err := source.SubscribeOutput(selection, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sub.Close()
+	snapshotFrame, _ := sub.Next(context.Background())
+	var data []byte
+	var unknown bool
+	for {
+		frame, e := sub.Next(context.Background())
+		if e != nil {
+			t.Fatal(e)
+		}
+		if frame.Kind == "end" {
+			break
+		}
+		if frame.Kind == "data" {
+			data = append(data, frame.Data...)
+		}
+		if frame.Gap != nil {
+			unknown = frame.Gap.Reason == "tail_unknown" && frame.Gap.DeliveryUnknown && frame.Gap.From == frame.Gap.To
+		}
+	}
+	if string(data) != "TAIL" || !unknown && snapshotFrame.Info.Reason != app.CaptureClosed {
+		t.Fatalf("kernel tail lost or descendant cutoff hidden: bytes=%d unknown=%v", len(data), unknown)
 	}
 }

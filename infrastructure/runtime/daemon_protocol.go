@@ -12,6 +12,7 @@ import (
 )
 
 type runtimeRequest struct {
+	Attach      *outputAttachRecord   `json:"attach,omitempty"`
 	Version     int                   `json:"protocol_version"`
 	ID          string                `json:"request_id"`
 	Operation   string                `json:"operation"`
@@ -33,6 +34,7 @@ type observationRecord struct {
 	Kind            string `json:"kind"`
 }
 type runtimeResponse struct {
+	Output  *outputRecord        `json:"output,omitempty"`
 	Version int                  `json:"protocol_version"`
 	ID      string               `json:"request_id"`
 	Code    string               `json:"code"`
@@ -169,6 +171,8 @@ func (v observationRecord) metadata() app.ObservationMetadata {
 }
 func responseError(code string) error {
 	switch code {
+	case "output_cursor":
+		return domain.ErrOutputCursor
 	case "launch_unknown":
 		return app.ErrLaunchUnknown
 	case "changed":
