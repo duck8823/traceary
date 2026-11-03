@@ -32,6 +32,13 @@ type pillarInventoryEntry struct {
 // Usage counts are not grounds. memory store remember was removed in
 // v0.36.0 (#1870) after the v0.35 notice.
 var pillarInventory = []pillarInventoryEntry{
+	{Path: "runtime project register", Pillar: pillarKeep, Reason: "explicit owner-scoped runtime operation; no core Session lifecycle or approval authority"},
+	{Path: "runtime worktree register", Pillar: pillarKeep, Reason: "explicit owner-scoped runtime operation; no core Session lifecycle or approval authority"},
+	{Path: "runtime registry list", Pillar: pillarKeep, Reason: "explicit owner-scoped runtime operation; no core Session lifecycle or approval authority"},
+	{Path: "runtime profile register", Pillar: pillarKeep, Reason: "explicit owner-scoped runtime operation; no core Session lifecycle or approval authority"},
+	{Path: "runtime profile list", Pillar: pillarKeep, Reason: "explicit owner-scoped runtime operation; no core Session lifecycle or approval authority"},
+	{Path: "runtime launch", Pillar: pillarKeep, Reason: "explicit owner-scoped runtime operation; no core Session lifecycle or approval authority"},
+	{Path: "runtime list", Pillar: pillarKeep, Reason: "explicit owner-scoped runtime operation; no core Session lifecycle or approval authority"},
 	{Path: "daemon serve", Pillar: pillarKeep, Reason: "explicit local runtime transport; not a history or permission authority"},
 	{Path: "daemon status", Pillar: pillarKeep, Reason: "bounded local transport readiness; does not query the core store"},
 	{Path: "audit", Pillar: pillarRecord, Reason: "persist command-audit records"},

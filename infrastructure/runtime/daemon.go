@@ -9,19 +9,22 @@ import (
 
 // Fixed R0 transport admission limits (bytes exclude the four-byte prefix).
 const (
-	RuntimeProtocolVersion = 1
-	MaxRuntimeFrameBytes   = 65536
-	MaxRuntimeConnections  = 32
-	MaxObservationFrames   = 256
-	MaxObservationBytes    = 8 * 1024 * 1024
-	OptionalRuntimeBudget  = 250 * time.Millisecond
-	MaxRuntimeIOTimeout    = time.Second
+	RuntimeProtocolVersion  = 1
+	MaxRuntimeFrameBytes    = 65536
+	MaxRuntimeConnections   = 32
+	MaxObservationFrames    = 256
+	MaxObservationBytes     = 8 * 1024 * 1024
+	OptionalRuntimeBudget   = 250 * time.Millisecond
+	MaxRuntimeIOTimeout     = time.Second
+	ManagementRuntimeBudget = 8 * time.Second
 )
 
 // DaemonOptions can tighten, never expand, the fixed admission limits.
 type DaemonOptions struct {
 	ManagementConnections, ObservationConnections, ObservationFrames, ObservationBytes int
 	IOTimeout                                                                          time.Duration
+	// RuntimeFactory is trusted composition only, never client-supplied policy.
+	RuntimeFactory app.Factory
 }
 
 // LocalDaemon is a foreground transport owner and a bounded, non-starting client.

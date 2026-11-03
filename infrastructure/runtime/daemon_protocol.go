@@ -8,14 +8,17 @@ import (
 	"unicode/utf8"
 
 	app "github.com/duck8823/traceary/application/runtime"
+	domain "github.com/duck8823/traceary/domain/runtime"
 )
 
 type runtimeRequest struct {
-	Version     int                `json:"protocol_version"`
-	ID          string             `json:"request_id"`
-	Operation   string             `json:"operation"`
-	Role        string             `json:"role,omitempty"`
-	Observation *observationRecord `json:"observation,omitempty"`
+	Version     int                   `json:"protocol_version"`
+	ID          string                `json:"request_id"`
+	Operation   string                `json:"operation"`
+	Role        string                `json:"role,omitempty"`
+	Observation *observationRecord    `json:"observation,omitempty"`
+	Launch      *launchRequestRecord  `json:"launch,omitempty"`
+	Page        *runPageRequestRecord `json:"page,omitempty"`
 }
 type observationRecord struct {
 	Host            string `json:"host"`
@@ -35,6 +38,25 @@ type runtimeResponse struct {
 	Code    string               `json:"code"`
 	Role    string               `json:"role,omitempty"`
 	Status  *runtimeStatusRecord `json:"status,omitempty"`
+	Run     *launchRecord        `json:"run,omitempty"`
+	Page    *runPageRecord       `json:"page,omitempty"`
+}
+type launchRequestRecord struct {
+	Epoch     string `json:"epoch"`
+	Worktree  string `json:"worktree"`
+	Profile   string `json:"profile"`
+	RequestID string `json:"request_id"`
+}
+type runPageRequestRecord struct {
+	Epoch    string `json:"epoch"`
+	Cursor   string `json:"cursor,omitempty"`
+	Revision uint64 `json:"revision"`
+}
+type runPageRecord struct {
+	Epoch    string         `json:"epoch"`
+	Revision uint64         `json:"revision"`
+	Runs     []launchRecord `json:"runs"`
+	Next     string         `json:"next,omitempty"`
 }
 type runtimeStatusRecord struct {
 	Version             int      `json:"protocol_version"`
@@ -147,6 +169,16 @@ func (v observationRecord) metadata() app.ObservationMetadata {
 }
 func responseError(code string) error {
 	switch code {
+	case "launch_unknown":
+		return app.ErrLaunchUnknown
+	case "changed":
+		return domain.ErrChanged
+	case "limit":
+		return domain.ErrLimit
+	case "not_found":
+		return domain.ErrNotFound
+	case "rejected":
+		return app.ErrRuntimeRejected
 	case "unsupported":
 		return app.ErrRuntimeUnsupported
 	case "busy":

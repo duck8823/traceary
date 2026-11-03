@@ -56,3 +56,5 @@ Human-facing Markdown is maintained in English/Japanese pairs.
 - keep the language switch link near the top of each paired document
 
 `go run ./cmd/repo-tooling docs verify-i18n` enforces the pairing and top-of-file language links in CI.
+
+- [Managed PTY launch](runtime/managed-launch.md)

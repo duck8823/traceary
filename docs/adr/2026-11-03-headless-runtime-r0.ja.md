@@ -2,7 +2,7 @@
 
 [English](2026-11-03-headless-runtime-r0.md)
 
-- 状態：**Proposed。独立レビューと人間による明示的な受入が必要**。
+- 状態：2026-11-03 の [#2473](https://github.com/duck8823/traceary/pull/2473) の maintainer による merge で**受入済み**。各 leaf の実装・認定 gate は維持する。
 - 設計Issue：[#2471](https://github.com/duck8823/traceary/issues/2471)。
 - 親：[#2414](https://github.com/duck8823/traceary/issues/2414)。
 - 基準：`dc6055f6545749c449708f621217a60bc4a105f7`。

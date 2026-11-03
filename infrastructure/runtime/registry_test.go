@@ -3,6 +3,7 @@
 package runtime_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -465,18 +466,24 @@ func TestRegistryStoreSerializesIndependentProcesses(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	commands := make([]*exec.Cmd, 4)
+	logs := make([]bytes.Buffer, len(commands))
 	for i := range commands {
 		cmd := exec.CommandContext(ctx, binary, "-test.run=^TestRegistryStoreProcessHelper$")
 		cmd.Env = append(os.Environ(), "TRACEARY_TEST_REGISTRY_CHILD=1", "TRACEARY_TEST_REGISTRY_ROOT="+root, fmt.Sprintf("TRACEARY_TEST_REGISTRY_PREFIX=%d", i))
+		cmd.Stdout = &logs[i]
+		cmd.Stderr = &logs[i]
 		if err = cmd.Start(); err != nil {
 			t.Fatal(err)
 		}
 		commands[i] = cmd
 	}
-	for _, cmd := range commands {
+	for i, cmd := range commands {
 		if err = cmd.Wait(); err != nil {
-			t.Fatal(err)
+			t.Errorf("owned registry helper %d: %v: %.2000s", i, err, logs[i].String())
 		}
+	}
+	if t.Failed() {
+		return
 	}
 	r, err := store.Load(context.Background())
 	if err != nil || len(r.Snapshot().Projects) != 20 {

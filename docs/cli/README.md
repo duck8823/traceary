@@ -956,3 +956,7 @@ foreground local Unix transport. `traceary daemon status --json` queries readine
 without starting a daemon or touching the core store. `--db-path` is not a daemon
 option. Listening is not agent liveness; native observation/PTY/resume integration
 remains separate work. See [the IPC contract](../runtime/daemon-ipc.md).
+
+## Runtime operator commands
+
+[Explicit managed PTY launch](../runtime/managed-launch.md) documents registry/profile registration, typed launch/list, bounded receipts and ownership-preserving foreground drain.

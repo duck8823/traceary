@@ -16,6 +16,8 @@ import (
 // RootCLI provides the Traceary root command.
 type RootCLI struct {
 	runtimeDaemon               appruntime.Daemon
+	runtimeClient               appruntime.Client
+	runtimeOperators            appruntime.OperatorFactory
 	event                       usecase.EventUsecase
 	eventMetadata               usecase.EventMetadataUsecase
 	twoTierSearch               queryservice.TwoTierSearch
@@ -422,6 +424,7 @@ func (c *RootCLI) Command() *cobra.Command {
 	rootCmd.AddCommand(c.newHooksCommand())
 	rootCmd.AddCommand(c.newDoctorCommand())
 	rootCmd.AddCommand(c.newDaemonCommand())
+	rootCmd.AddCommand(c.newRuntimeCommand())
 	rootCmd.AddCommand(c.newReportCommand())
 	rootCmd.AddCommand(c.newBundleCommand())
 

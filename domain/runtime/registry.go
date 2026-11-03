@@ -134,6 +134,18 @@ type Target struct {
 	profile  ProfileID
 }
 
+// TargetOf reconstructs immutable metadata, not registry membership or launch authority.
+func TargetOf(worktree Worktree, profile string) (Target, error) {
+	id, err := ProfileIDFrom(profile)
+	if err != nil {
+		return Target{}, err
+	}
+	if worktree.ID() == "" {
+		return Target{}, ErrInvalid
+	}
+	return Target{worktree: worktree, profile: id}, nil
+}
+
 // Worktree returns the pinned worktree/store snapshot.
 func (t Target) Worktree() Worktree { return t.worktree }
 

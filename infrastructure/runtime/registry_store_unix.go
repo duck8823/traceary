@@ -42,10 +42,18 @@ type RegistryStore struct {
 
 // NewRegistryStore creates an owner-private root and pins it. Budget may only tighten R0.
 func NewRegistryStore(root string, budget int64) (*RegistryStore, error) {
+	return newRegistryStore(root, budget, true)
+}
+
+// OpenRegistryStore opens an existing private root without creating any directory.
+func OpenRegistryStore(root string, budget int64) (*RegistryStore, error) {
+	return newRegistryStore(root, budget, false)
+}
+func newRegistryStore(root string, budget int64, create bool) (*RegistryStore, error) {
 	if budget <= 0 || budget > MaxRegistryBytes {
 		return nil, domain.ErrLimit
 	}
-	fd, err := privateRuntimeDir(root, true)
+	fd, err := privateRuntimeDir(root, create)
 	if err != nil {
 		return nil, xerrors.Errorf("load runtime registry: %w", err)
 	}
@@ -134,14 +142,14 @@ func (s *RegistryStore) locked(ctx context.Context, fn func(int) error) error {
 	if err != nil || witness != s.witness {
 		return domain.ErrChanged
 	}
-	lock, err := unix.Openat(fd, "registry.lock", unix.O_RDWR|unix.O_CREAT|unix.O_NOFOLLOW|unix.O_CLOEXEC|unix.O_NONBLOCK, 0600)
+	lock, err := openPrivateLock(fd, "registry.lock")
 	if err != nil {
-		return domain.ErrUnsafe
+		return xerrors.Errorf("open runtime metadata lock (%v): %w", err, domain.ErrUnsafe)
 	}
 	defer func() { _ = unix.Close(lock) }()
 	var initial unix.Stat_t
 	if err = unix.Fstat(lock, &initial); err != nil || !privateRegular(initial) {
-		return domain.ErrUnsafe
+		return xerrors.Errorf("verify runtime metadata lock attributes: %w", domain.ErrUnsafe)
 	}
 	for {
 		err = unix.Flock(lock, unix.LOCK_EX|unix.LOCK_NB)
@@ -149,7 +157,7 @@ func (s *RegistryStore) locked(ctx context.Context, fn func(int) error) error {
 			break
 		}
 		if !errors.Is(err, unix.EWOULDBLOCK) && !errors.Is(err, unix.EAGAIN) {
-			return domain.ErrUnsafe
+			return xerrors.Errorf("acquire runtime metadata lock: %w", domain.ErrUnsafe)
 		}
 		timer := time.NewTimer(10 * time.Millisecond)
 		select {
@@ -177,44 +185,84 @@ func privateRegular(s unix.Stat_t) bool {
 }
 
 func (s *RegistryStore) read(dir int) (*domain.Registry, *unix.Stat_t, error) {
-	fd, err := unix.Openat(dir, "registry.json", unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC|unix.O_NONBLOCK, 0)
-	if errors.Is(err, unix.ENOENT) {
+	data, stamp, err := s.readMetadata(dir, "registry.json", s.budget)
+	if err != nil {
+		return nil, nil, err
+	}
+	if stamp == nil {
 		return domain.NewRegistry(), nil, nil
 	}
+	r, err := decodeRegistry(data)
+	return r, stamp, err
+}
+func (s *RegistryStore) readMetadata(dir int, name string, budget int64) ([]byte, *unix.Stat_t, error) {
+	fd, err := unix.Openat(dir, name, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC|unix.O_NONBLOCK, 0)
+	if errors.Is(err, unix.ENOENT) {
+		return nil, nil, nil
+	}
 	if err != nil {
-		return nil, nil, domain.ErrUnsafe
+		return nil, nil, xerrors.Errorf("open runtime metadata file: %w", domain.ErrUnsafe)
 	}
 	f := os.NewFile(uintptr(fd), "runtime registry")
 	defer func() { _ = f.Close() }()
 	var stat unix.Stat_t
 	if err = unix.Fstat(fd, &stat); err != nil || !privateRegular(stat) {
-		return nil, nil, domain.ErrUnsafe
+		return nil, nil, xerrors.Errorf("verify runtime metadata file attributes: %w", domain.ErrUnsafe)
 	}
-	if stat.Size > s.budget {
+	if stat.Size > budget {
 		return nil, nil, domain.ErrLimit
 	}
-	data, err := io.ReadAll(io.LimitReader(f, s.budget+1))
+	data, err := io.ReadAll(io.LimitReader(f, budget+1))
 	if err != nil {
 		return nil, nil, xerrors.Errorf("read runtime registry: %w", err)
 	}
-	if int64(len(data)) > s.budget {
+	if int64(len(data)) > budget {
 		return nil, nil, domain.ErrLimit
 	}
-	r, err := decodeRegistry(data)
-	if err != nil {
-		return nil, nil, err
-	}
-	return r, &stat, nil
+	return data, &stat, nil
 }
 func (s *RegistryStore) write(ctx context.Context, dir int, data []byte, old *unix.Stat_t) error {
+	return s.writeMetadata(ctx, dir, "registry.json", data, old)
+}
+
+// metadataBudget runs under the shared root lock. It accounts committed metadata
+// across owners; temporary atomic-write copies are bounded separately by file size.
+func (s *RegistryStore) metadataBudget(dir int, target string, size int64) error {
+	if size < 0 || size > s.budget {
+		return domain.ErrLimit
+	}
+	total := size
+	for _, name := range []string{"registry.json", "execution.json", "recovery.json", "receipts.json", "history.json"} {
+		if name == target {
+			continue
+		}
+		var stamp unix.Stat_t
+		err := unix.Fstatat(dir, name, &stamp, unix.AT_SYMLINK_NOFOLLOW)
+		if errors.Is(err, unix.ENOENT) {
+			continue
+		}
+		if err != nil || !privateRegular(stamp) {
+			return xerrors.Errorf("verify sibling runtime metadata attributes: %w", domain.ErrUnsafe)
+		}
+		if stamp.Size < 0 || stamp.Size > s.budget-total {
+			return domain.ErrLimit
+		}
+		total += stamp.Size
+	}
+	return nil
+}
+func (s *RegistryStore) writeMetadata(ctx context.Context, dir int, target string, data []byte, old *unix.Stat_t) error {
+	if err := s.metadataBudget(dir, target, int64(len(data))); err != nil {
+		return err
+	}
 	random := make([]byte, 16)
 	if _, err := rand.Read(random); err != nil {
-		return domain.ErrUnsafe
+		return xerrors.Errorf("generate runtime metadata temporary identity: %w", domain.ErrUnsafe)
 	}
 	name := ".registry-" + hex.EncodeToString(random)
 	fd, err := unix.Openat(dir, name, unix.O_WRONLY|unix.O_CREAT|unix.O_EXCL|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0600)
 	if err != nil {
-		return domain.ErrUnsafe
+		return xerrors.Errorf("create runtime metadata temporary: %w", domain.ErrUnsafe)
 	}
 	f := os.NewFile(uintptr(fd), "runtime registry temporary")
 	present := true
@@ -225,7 +273,7 @@ func (s *RegistryStore) write(ctx context.Context, dir int, data []byte, old *un
 		}
 	}()
 	if err = f.Chmod(0600); err != nil {
-		return domain.ErrUnsafe
+		return xerrors.Errorf("set runtime metadata temporary permissions: %w", domain.ErrUnsafe)
 	}
 	if _, err = f.Write(data); err != nil {
 		return xerrors.Errorf("write runtime registry: %w", err)
@@ -243,7 +291,7 @@ func (s *RegistryStore) write(ctx context.Context, dir int, data []byte, old *un
 		return err
 	}
 	var current unix.Stat_t
-	err = unix.Fstatat(dir, "registry.json", &current, unix.AT_SYMLINK_NOFOLLOW)
+	err = unix.Fstatat(dir, target, &current, unix.AT_SYMLINK_NOFOLLOW)
 	if old == nil {
 		if !errors.Is(err, unix.ENOENT) {
 			return domain.ErrChanged
@@ -251,7 +299,7 @@ func (s *RegistryStore) write(ctx context.Context, dir int, data []byte, old *un
 	} else if err != nil || !privateRegular(current) || current.Dev != old.Dev || current.Ino != old.Ino {
 		return domain.ErrChanged
 	}
-	if err = unix.Renameat(dir, name, dir, "registry.json"); err != nil {
+	if err = unix.Renameat(dir, name, dir, target); err != nil {
 		return xerrors.Errorf("replace runtime registry: %w", err)
 	}
 	present = false
@@ -264,20 +312,6 @@ func (s *RegistryStore) write(ctx context.Context, dir int, data []byte, old *un
 	return nil
 }
 
-type projectRecord struct {
-	ID      string `json:"id"`
-	Root    string `json:"root"`
-	Common  string `json:"common"`
-	Witness string `json:"witness"`
-}
-type worktreeRecord struct {
-	ID      string `json:"id"`
-	Project string `json:"project"`
-	Path    string `json:"path"`
-	Common  string `json:"common"`
-	Store   string `json:"store"`
-	Witness string `json:"witness"`
-}
 type registryEnvelope struct {
 	Version   int              `json:"version"`
 	Revision  *uint64          `json:"revision"`

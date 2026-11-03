@@ -79,6 +79,7 @@ type daemonServer struct {
 	workerStarted        bool
 	degraded             atomic.Bool
 	releaseOnce          sync.Once
+	runtime              *app.Runtime
 }
 
 // Serve owns the two local endpoints. It starts no agent and performs no core-store I/O.
@@ -91,7 +92,6 @@ func (d *LocalDaemon) Serve(ctx context.Context, root string) error {
 	}
 	s, err := prepareDaemon(ctx, d, root)
 	if err != nil {
-		d.serving.Store(false)
 		return err
 	}
 	defer s.shutdown()
@@ -101,7 +101,16 @@ func (d *LocalDaemon) Serve(ctx context.Context, root string) error {
 		s.network.Add(1)
 		go s.accept(endpoint)
 	}
-	<-s.ctx.Done()
+	select {
+	case <-ctx.Done():
+	case <-s.ctx.Done():
+	}
+	if s.runtime != nil {
+		s.runtime.DisableLaunches()
+		// A caller/transport interruption is not permission to close active PTYs.
+		// Keep owner/lease and surviving management endpoints until owned reconciliation.
+		_ = s.runtime.AwaitIdle(context.Background())
+	}
 	select {
 	case err := <-s.failure:
 		return err
@@ -110,7 +119,7 @@ func (d *LocalDaemon) Serve(ctx context.Context, root string) error {
 	}
 }
 func prepareDaemon(parent context.Context, d *LocalDaemon, root string) (*daemonServer, error) {
-	ctx, cancel := context.WithCancel(parent)
+	ctx, cancel := context.WithCancel(context.WithoutCancel(parent))
 	s := &daemonServer{daemon: d, ctx: ctx, cancel: cancel, root: root, rootFD: -1, leaseFD: -1, connections: make(map[*net.UnixConn]struct{}), failure: make(chan error, 1), notify: make(chan struct{}, 1), workerDone: make(chan struct{})}
 	complete := false
 	defer func() {
@@ -134,7 +143,7 @@ func prepareDaemon(parent context.Context, d *LocalDaemon, root string) (*daemon
 	if err != nil {
 		return nil, err
 	}
-	lock, err := unix.Openat(fd, "daemon.lock", unix.O_RDWR|unix.O_CREAT|unix.O_NOFOLLOW|unix.O_CLOEXEC|unix.O_NONBLOCK, 0600)
+	lock, err := openPrivateLock(fd, "daemon.lock")
 	if err != nil {
 		return nil, app.ErrUnsafeRuntime
 	}
@@ -158,11 +167,20 @@ func prepareDaemon(parent context.Context, d *LocalDaemon, root string) (*daemon
 		return nil, app.ErrDaemonUnavailable
 	}
 	s.epoch = hex.EncodeToString(random)
+	if d.options.RuntimeFactory != nil {
+		s.runtime, err = d.options.RuntimeFactory(parent, root, s.epoch)
+		if err != nil {
+			return nil, err
+		}
+		if s.runtime == nil {
+			return nil, app.ErrRuntimeUnsupported
+		}
+	}
 	for _, endpoint := range []struct {
 		name, role string
 		limit      int
 	}{{"daemon.sock", "management", d.options.ManagementConnections}, {"observations.sock", "observations", d.options.ObservationConnections}} {
-		if err = ctx.Err(); err != nil {
+		if err = parent.Err(); err != nil {
 			return nil, xerrors.Errorf("start local endpoints: %w", err)
 		}
 		owned, err := s.listen(endpoint.name, endpoint.role, endpoint.limit)
@@ -362,7 +380,7 @@ func (s *daemonServer) handle(conn *net.UnixConn, endpoint *daemonSocket) {
 		seen[request.ID] = struct{}{}
 		reply := runtimeResponse{Version: RuntimeProtocolVersion, ID: request.ID}
 		if hello {
-			if request.Operation != "hello" || request.Role != endpoint.role || request.Observation != nil {
+			if request.Operation != "hello" || request.Role != endpoint.role || request.Observation != nil || request.Launch != nil || request.Page != nil {
 				reply.Code = "invalid"
 				_ = writeRuntimeFrame(conn, reply)
 				return
@@ -374,7 +392,7 @@ func (s *daemonServer) handle(conn *net.UnixConn, endpoint *daemonSocket) {
 			reply.Code = "invalid"
 		} else {
 			switch {
-			case endpoint.role == "management" && request.Operation == "status" && request.Observation == nil:
+			case endpoint.role == "management" && request.Operation == "status" && request.Observation == nil && request.Launch == nil && request.Page == nil:
 				delivery := "unavailable"
 				capabilities := []string{"status"}
 				if s.daemon.receiver != nil {
@@ -384,9 +402,18 @@ func (s *daemonServer) handle(conn *net.UnixConn, endpoint *daemonSocket) {
 						delivery = "degraded"
 					}
 				}
+				state := "listening"
+				if s.runtime != nil {
+					capabilities = append(capabilities, "list_runs")
+					if s.runtime.Disabled() {
+						state = "draining"
+					} else {
+						capabilities = append(capabilities, "launch")
+					}
+				}
 				reply.Code = "ok"
-				reply.Status = &runtimeStatusRecord{RuntimeProtocolVersion, s.epoch, "listening", capabilities, delivery}
-			case endpoint.role == "observations" && request.Operation == "observe" && request.Observation != nil:
+				reply.Status = &runtimeStatusRecord{RuntimeProtocolVersion, s.epoch, state, capabilities, delivery}
+			case endpoint.role == "observations" && request.Operation == "observe" && request.Observation != nil && request.Launch == nil && request.Page == nil:
 				metadata := request.Observation.metadata()
 				if !validObservation(metadata) {
 					reply.Code = "invalid"
@@ -397,9 +424,16 @@ func (s *daemonServer) handle(conn *net.UnixConn, endpoint *daemonSocket) {
 				} else {
 					reply.Code = "queued"
 				}
+			case endpoint.role == "management" && request.Operation == "launch" && request.Launch != nil && request.Page == nil && request.Observation == nil:
+				s.launchReply(&reply, request.Launch)
+			case endpoint.role == "management" && request.Operation == "list_runs" && request.Page != nil && request.Launch == nil && request.Observation == nil:
+				s.pageReply(&reply, request.Page)
 			default:
 				reply.Code = "unsupported"
 			}
+		}
+		if conn.SetWriteDeadline(time.Now().Add(s.daemon.options.IOTimeout)) != nil {
+			return
 		}
 		if writeRuntimeFrame(conn, reply) != nil {
 			return
@@ -458,139 +492,150 @@ func (s *daemonServer) consume() {
 }
 
 type runtimeCallResult struct {
-	status app.DaemonStatus
-	err    error
+	reply runtimeResponse
+	err   error
 }
 
 // Status queries readiness only. It never creates a directory or starts a daemon.
 func (d *LocalDaemon) Status(ctx context.Context, root string) (app.DaemonStatus, error) {
-	return d.call(ctx, root, "status", nil)
+	reply, _, err := d.exchange(ctx, root, runtimeRequest{Operation: "status"}, OptionalRuntimeBudget)
+	if err != nil {
+		return app.DaemonStatus{}, err
+	}
+	if reply.Code != "ok" || reply.Status == nil || reply.Role != "" || reply.Run != nil || reply.Page != nil {
+		return app.DaemonStatus{}, app.ErrRuntimeProtocol
+	}
+	return decodeRuntimeStatus(reply)
 }
 
-// Observe returns transport queuing only, never semantic/native-state acceptance.
+// Observe acknowledges transport queue admission only, never native-state acceptance.
 func (d *LocalDaemon) Observe(ctx context.Context, root string, metadata app.ObservationMetadata) error {
 	bounded, cancel := context.WithTimeout(ctx, OptionalRuntimeBudget)
 	defer cancel()
 	if !validObservation(metadata) {
 		return app.ErrRuntimeProtocol
 	}
-	_, err := d.call(bounded, root, "observe", recordObservation(metadata))
-	return err
+	reply, _, err := d.exchange(bounded, root, runtimeRequest{Operation: "observe", Observation: recordObservation(metadata)}, OptionalRuntimeBudget)
+	if err != nil {
+		return err
+	}
+	if reply.Code != "queued" || reply.Status != nil || reply.Role != "" || reply.Run != nil || reply.Page != nil {
+		return app.ErrRuntimeProtocol
+	}
+	return nil
 }
-func (d *LocalDaemon) call(parent context.Context, root, operation string, observation *observationRecord) (app.DaemonStatus, error) {
-	ctx, cancel := context.WithTimeout(parent, OptionalRuntimeBudget)
+func (d *LocalDaemon) exchange(parent context.Context, root string, request runtimeRequest, budget time.Duration) (runtimeResponse, bool, error) {
+	ctx, cancel := context.WithTimeout(parent, budget)
 	defer cancel()
 	if err := ctx.Err(); err != nil {
-		return app.DaemonStatus{}, xerrors.Errorf("local runtime call: %w", err)
+		return runtimeResponse{}, false, xerrors.Errorf("local runtime call: %w", err)
 	}
 	select {
 	case runtimeClientSlots <- struct{}{}:
 	default:
-		return app.DaemonStatus{}, app.ErrRuntimeBusy
+		return runtimeResponse{}, false, app.ErrRuntimeBusy
 	}
 	result := make(chan runtimeCallResult, 1)
-	// A stalled filesystem check cannot hold the caller past the optional budget.
-	// The worker retains its global slot until actual completion, bounding leaks.
+	var phase atomic.Int32
 	go func() {
 		defer func() { <-runtimeClientSlots }()
-		status, err := d.performCall(ctx, root, operation, observation)
-		result <- runtimeCallResult{status, err}
+		reply, err := d.performExchange(ctx, root, request, &phase)
+		result <- runtimeCallResult{reply, err}
 	}()
 	select {
 	case <-ctx.Done():
-		return app.DaemonStatus{}, xerrors.Errorf("local runtime call: %w", ctx.Err())
+		phase.CompareAndSwap(0, 2)
+		return runtimeResponse{}, phase.Load() == 1, xerrors.Errorf("local runtime call: %w", ctx.Err())
 	case value := <-result:
-		return value.status, value.err
+		return value.reply, phase.Load() == 1, value.err
 	}
 }
-func (d *LocalDaemon) performCall(ctx context.Context, root, operation string, observation *observationRecord) (app.DaemonStatus, error) {
+func (d *LocalDaemon) performExchange(ctx context.Context, root string, request runtimeRequest, phase *atomic.Int32) (runtimeResponse, error) {
 	if !validRuntimeRoot(root) {
-		return app.DaemonStatus{}, app.ErrUnsafeRuntime
+		return runtimeResponse{}, app.ErrUnsafeRuntime
 	}
 	if _, err := os.Lstat(root); errors.Is(err, os.ErrNotExist) {
-		return app.DaemonStatus{}, app.ErrDaemonUnavailable
+		return runtimeResponse{}, app.ErrDaemonUnavailable
 	}
 	rootFD, err := privateRuntimeDir(root, false)
 	if err != nil {
-		return app.DaemonStatus{}, app.ErrUnsafeRuntime
+		return runtimeResponse{}, app.ErrUnsafeRuntime
 	}
 	defer func() { _ = unix.Close(rootFD) }()
 	witness, err := directoryWitness(rootFD)
 	if err != nil {
-		return app.DaemonStatus{}, app.ErrUnsafeRuntime
+		return runtimeResponse{}, app.ErrUnsafeRuntime
 	}
 	name, role := "daemon.sock", "management"
-	if operation == "observe" {
+	if request.Operation == "observe" {
 		name, role = "observations.sock", "observations"
 	}
 	var before unix.Stat_t
 	err = unix.Fstatat(rootFD, name, &before, unix.AT_SYMLINK_NOFOLLOW)
 	if errors.Is(err, unix.ENOENT) {
-		return app.DaemonStatus{}, app.ErrDaemonUnavailable
+		return runtimeResponse{}, app.ErrDaemonUnavailable
 	}
 	if err != nil || !runtimeSocketStat(before) {
-		return app.DaemonStatus{}, app.ErrUnsafeRuntime
+		return runtimeResponse{}, app.ErrUnsafeRuntime
 	}
 	if err = ctx.Err(); err != nil {
-		return app.DaemonStatus{}, xerrors.Errorf("inspect local endpoint: %w", err)
+		return runtimeResponse{}, xerrors.Errorf("inspect local endpoint: %w", err)
 	}
 	connection, err := (&net.Dialer{}).DialContext(ctx, "unix", filepath.Join(root, name))
 	if err != nil {
-		return app.DaemonStatus{}, app.ErrDaemonUnavailable
+		return runtimeResponse{}, app.ErrDaemonUnavailable
 	}
 	conn, ok := connection.(*net.UnixConn)
 	if !ok {
 		_ = connection.Close()
-		return app.DaemonStatus{}, app.ErrUnsafeRuntime
+		return runtimeResponse{}, app.ErrUnsafeRuntime
 	}
 	defer func() { _ = conn.Close() }()
 	deadline, ok := ctx.Deadline()
 	if !ok || conn.SetDeadline(deadline) != nil {
-		return app.DaemonStatus{}, app.ErrDaemonUnavailable
+		return runtimeResponse{}, app.ErrDaemonUnavailable
 	}
 	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	defer stop()
 	var after unix.Stat_t
 	if verifyRuntimePeer(conn) != nil || verifyRuntimeRoot(root, witness, rootFD) != nil || unix.Fstatat(rootFD, name, &after, unix.AT_SYMLINK_NOFOLLOW) != nil || !sameSocket(before, after) {
-		return app.DaemonStatus{}, app.ErrUnsafeRuntime
+		return runtimeResponse{}, app.ErrUnsafeRuntime
 	}
 	random := make([]byte, 16)
 	if _, err = rand.Read(random); err != nil {
-		return app.DaemonStatus{}, app.ErrDaemonUnavailable
+		return runtimeResponse{}, app.ErrDaemonUnavailable
 	}
 	id := hex.EncodeToString(random)
 	if err = writeRuntimeFrame(conn, runtimeRequest{Version: RuntimeProtocolVersion, ID: id, Operation: "hello", Role: role}); err != nil {
-		return app.DaemonStatus{}, app.ErrDaemonUnavailable
+		return runtimeResponse{}, app.ErrDaemonUnavailable
 	}
 	hello, err := readRuntimeResponse(conn, id)
 	if err != nil {
-		return app.DaemonStatus{}, err
+		return runtimeResponse{}, err
 	}
-	if hello.Code != "ok" || hello.Role != role || hello.Status != nil {
-		return app.DaemonStatus{}, app.ErrRuntimeProtocol
+	if hello.Code != "ok" || hello.Role != role || hello.Status != nil || hello.Run != nil || hello.Page != nil {
+		return runtimeResponse{}, app.ErrRuntimeProtocol
 	}
 	id += "-request"
-	if err = writeRuntimeFrame(conn, runtimeRequest{Version: RuntimeProtocolVersion, ID: id, Operation: operation, Observation: observation}); err != nil {
-		return app.DaemonStatus{}, app.ErrDaemonUnavailable
+	request.Version = RuntimeProtocolVersion
+	request.ID = id
+	if err = ctx.Err(); err != nil {
+		return runtimeResponse{}, xerrors.Errorf("check management send budget: %w", err)
 	}
-	reply, err := readRuntimeResponse(conn, id)
-	if err != nil {
-		return app.DaemonStatus{}, err
+	if !phase.CompareAndSwap(0, 1) {
+		return runtimeResponse{}, context.Canceled
 	}
-	if operation == "observe" {
-		if reply.Code != "queued" || reply.Status != nil || reply.Role != "" {
-			return app.DaemonStatus{}, app.ErrRuntimeProtocol
-		}
-		return app.DaemonStatus{}, nil
+	if err = writeRuntimeFrame(conn, request); err != nil {
+		return runtimeResponse{}, app.ErrDaemonUnavailable
 	}
-	if reply.Code != "ok" || reply.Status == nil || reply.Role != "" {
-		return app.DaemonStatus{}, app.ErrRuntimeProtocol
-	}
+	return readRuntimeResponse(conn, id)
+}
+func decodeRuntimeStatus(reply runtimeResponse) (app.DaemonStatus, error) {
 	v := reply.Status
-	if v.Version != RuntimeProtocolVersion || len(v.Epoch) != 32 || v.State != "listening" || len(v.Capabilities) < 1 || len(v.Capabilities) > 16 {
+	if v.Version != RuntimeProtocolVersion || len(v.Epoch) != 32 || (v.State != "listening" && v.State != "draining") || len(v.Capabilities) < 1 || len(v.Capabilities) > 16 {
 		return app.DaemonStatus{}, app.ErrRuntimeProtocol
 	}
-	if _, err = hex.DecodeString(v.Epoch); err != nil {
+	if _, err := hex.DecodeString(v.Epoch); err != nil {
 		return app.DaemonStatus{}, app.ErrRuntimeProtocol
 	}
 	for _, capability := range v.Capabilities {
@@ -621,7 +666,7 @@ func readRuntimeResponse(conn *net.UnixConn, id string) (runtimeResponse, error)
 		return runtimeResponse{}, app.ErrRuntimeProtocol
 	}
 	if reply.Code != "ok" && reply.Code != "queued" {
-		return runtimeResponse{}, responseError(reply.Code)
+		return reply, responseError(reply.Code)
 	}
 	return reply, nil
 }
