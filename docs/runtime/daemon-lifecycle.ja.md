@@ -88,3 +88,18 @@ status は通知を消費しません。attempt は notice と現在 owner の m
 ## 残る検証
 
 実 CLI の shutdown/cancel/history、有限 agent fixture による crash/restart、read-only native power API 参照、合成した causal queue/wake test は実装検証であり、実 AI/native-session や物理 macOS sleep/wake の認定ではありません。readiness 到達済み daemon は正確な private endpoint receipt から再起動できますが、認識できない・未記録の socket は変更しません。許可済み環境での物理 macOS sleep/wake、host 固有 binding/reduction、更新延期・通知、正確な opt-in host descriptor、最終独立 review/native/full CI/wave gate は引き続き必須です。これらの command は host の login settings、launchd job、workstation sleep、配布を変更しません。
+
+## ログイン時自動起動のローカル設定（インストールなし）
+
+自動起動は既定で無効です。以下のコマンドは Daemon・エージェントの起動、core DB の参照、ログイン項目の検査、ジョブのインストール・削除、`launchctl` の実行を行いません。
+
+```sh
+traceary daemon autostart status --runtime-dir /absolute/private/runtime
+traceary daemon autostart opt-in --runtime-dir /absolute/private/runtime --enabled=true
+traceary daemon autostart descriptor --runtime-dir /absolute/private/runtime
+traceary daemon autostart opt-in --runtime-dir /absolute/private/runtime --enabled=false
+```
+
+`opt-in` は false の場合も `--enabled` の明示が必要です。選択された所有者専用の runtime metadata root だけを作成できます。`status` と `descriptor` は既存 root が必要で、存在しない root は作成しません。status は `opt_in`、`installation_state: "unknown"`、`host_inspection: "not_performed"`、`starts_agents: false` を返します。無効化はローカル設定だけを変更し、別途インストールされたホストジョブを削除しません。
+
+macOS の `descriptor` は事前の opt-in も必要で、エスケープ済み plist を標準出力へ出します。root は正規形の絶対パス・印字可能な UTF-8・所有者専用・物理同一性が不変で、runtime socket のパス長制限内でなければなりません。実行ファイルは現在実行中の実ファイルを正規化し、信頼できる所有者、安全なパーミッション、同一性・内容の安定性を検証します。descriptor は root 由来の固定 label、厳密に `[currentExecutable, daemon, serve, --runtime-dir, canonicalRoot]` の引数、`RunAtLoad=true` だけを持ち、環境変数・シェル・エージェント・再開・更新コマンドを含みません。他のプラットフォームでは descriptor 生成を明示的に拒否します。生成はインストールでも、その許可でもありません。返却前に実行ファイルと root を再検証しますが、その後のファイルシステム変更までは保証しません。ホストへのインストール・設定・配布は別途許可が必要で、これらのコマンドでは行いません。

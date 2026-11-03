@@ -23,7 +23,7 @@ import (
 )
 
 func TestRuntimeCLIEndToEndRegistrationLaunchAndListWithoutHomeOrCoreBootstrap(t *testing.T) {
-	for _, mode := range []string{"output", "controls", "shutdown", "crash", "update"} {
+	for _, mode := range []string{"output", "controls", "shutdown", "crash", "update", "autostart"} {
 		t.Run(mode, func(t *testing.T) { runtimeCLIProcessFixture(t, mode) })
 	}
 }
@@ -133,6 +133,46 @@ func main(){
 		return nil
 	}
 	missing := filepath.Join(root, "not-created")
+	if mode == "autostart" {
+		for _, args := range [][]string{{"status"}, {"descriptor"}, {"opt-in"}} {
+			args = append([]string{"daemon", "autostart", "--runtime-dir", missing}, args...)
+			if e := command(args...).Run(); e == nil {
+				t.Fatal("missing root/explicit flag accepted")
+			}
+			if _, e := os.Lstat(missing); !os.IsNotExist(e) {
+				t.Fatal("read/missing flag created root")
+			}
+		}
+		for _, value := range []string{"false", "true"} {
+			view := jsonCommand("daemon", "autostart", "opt-in", "--runtime-dir", metadata, "--enabled="+value)
+			if view["opt_in"] != (value == "true") || view["installation_state"] != "unknown" || view["host_inspection"] != "not_performed" || view["starts_agents"] != false {
+				t.Fatal("preference invented host installation", view)
+			}
+		}
+		view := jsonCommand("daemon", "autostart", "status", "--runtime-dir", metadata)
+		if view["opt_in"] != true {
+			t.Fatal("CLI lost preference")
+		}
+		out, e := command("daemon", "autostart", "descriptor", "--runtime-dir", metadata).CombinedOutput()
+		if runtime.GOOS == "darwin" {
+			actualBinary, pathErr := filepath.EvalSymlinks(binary)
+			if e != nil || pathErr != nil || !bytes.Contains(out, []byte("<string>"+actualBinary+"</string>")) || !bytes.Contains(out, []byte("<string>daemon</string>")) || !bytes.Contains(out, []byte("<string>serve</string>")) {
+				t.Fatalf("actual CLI descriptor failed: %v %.1000s", e, out)
+			}
+		} else if e == nil {
+			t.Fatal("unsupported descriptor unexpectedly succeeded")
+		}
+		actual, e := os.ReadFile(store)
+		if e != nil || !bytes.Equal(actual, original) {
+			t.Fatal("auto-start changed core store")
+		}
+		for _, path := range []string{filepath.Dir(poisonCore), resultFile, filepath.Join(metadata, "daemon.sock"), filepath.Join(metadata, "observations.sock"), filepath.Join(metadata, "execution.json"), filepath.Join(metadata, "registry.json")} {
+			if _, e = os.Stat(path); !os.IsNotExist(e) {
+				t.Fatal("auto-start created core/agent/daemon/registry state", path, e)
+			}
+		}
+		return
+	}
 	if e := command("runtime", "registry", "list", "--runtime-dir", missing).Run(); e == nil {
 		t.Fatal("missing registry silently initialized")
 	}

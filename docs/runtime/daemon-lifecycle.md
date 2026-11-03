@@ -88,3 +88,18 @@ For explicit empty handoff, use `daemon update handoff`, both target flags, **al
 ## Remaining qualification
 
 Actual CLI shutdown/cancel/history, isolated finite-agent crash/restart, read-only native power API access and synthetic causal queue/wake tests are implementation validation, not real-AI/native-session or physical macOS sleep/wake certification. A previously ready daemon can restart from its exact private endpoint receipt; unrecognized/unrecorded sockets remain untouched. Authorized physical macOS sleep/wake, host-specific binding/reduction, update postponement/reminders, truthful opt-in host descriptors and final independent/native/full-CI/wave gates remain mandatory. No host login settings, launchd jobs, workstation sleep or distribution is changed by these commands.
+
+## Local login auto-start preference (no installation)
+
+Auto-start is off by default. These commands do not start a daemon or agents, open the core database, inspect Login Items, install/remove a job, or invoke `launchctl`.
+
+```sh
+traceary daemon autostart status --runtime-dir /absolute/private/runtime
+traceary daemon autostart opt-in --runtime-dir /absolute/private/runtime --enabled=true
+traceary daemon autostart descriptor --runtime-dir /absolute/private/runtime
+traceary daemon autostart opt-in --runtime-dir /absolute/private/runtime --enabled=false
+```
+
+`opt-in` requires the explicit `--enabled` flag, including for false. It may create only the selected owner-private runtime metadata root. `status` and `descriptor` require an existing root and never create a missing one. Status reports `opt_in`, `installation_state: "unknown"`, `host_inspection: "not_performed"`, and `starts_agents: false`. Opting out changes local preference only; it does not remove an independently installed host job.
+
+On macOS, `descriptor` additionally requires prior opt-in and prints an escaped plist to stdout. Its root must be canonical, printable UTF-8, owner-private, physically unchanged, and short enough for the runtime sockets. The executable is the actual current executable, canonicalized and checked for trusted ownership, safe permissions, stable identity and content. The descriptor has a root-derived stable label, exactly `[currentExecutable, daemon, serve, --runtime-dir, canonicalRoot]`, and `RunAtLoad=true`; it contains no environment, shell, agent, resume or update command. Other platforms explicitly reject descriptor rendering. Rendering is not installation or permission to install. Executable/root witnesses are rechecked before returning, not a guarantee against later filesystem changes. Host installation, settings and distribution require separate authorization and are not performed by these commands.
