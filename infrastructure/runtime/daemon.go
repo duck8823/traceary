@@ -25,12 +25,16 @@ type DaemonOptions struct {
 	IOTimeout                                                                          time.Duration
 	// RuntimeFactory is trusted composition only, never client-supplied policy.
 	RuntimeFactory app.Factory
+	// CausalReceiver selects live native projection intake instead of legacy
+	// history delivery. Trusted composition only, never a client/config grant.
+	CausalReceiver app.CausalObservationReceiver
 }
 
 // LocalDaemon is a foreground transport owner and a bounded, non-starting client.
 // Its epoch/capabilities describe this transport, never current agent activity.
 type LocalDaemon struct {
 	receiver app.ObservationReceiver
+	sampler  app.ContinuitySampler
 	options  DaemonOptions
 	serving  atomic.Bool
 }
@@ -54,5 +58,5 @@ func NewLocalDaemon(receiver app.ObservationReceiver, o DaemonOptions) (*LocalDa
 	if o.IOTimeout < time.Millisecond || o.IOTimeout > MaxRuntimeIOTimeout {
 		return nil, app.ErrRuntimeProtocol
 	}
-	return &LocalDaemon{receiver: receiver, options: o}, nil
+	return &LocalDaemon{receiver: receiver, sampler: nativeContinuitySampler{}, options: o}, nil
 }

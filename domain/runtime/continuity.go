@@ -59,17 +59,20 @@ func (c *ObservationContinuity) Observe(sample ContinuitySample) error {
 	}
 	available, reason := sample.continuity()
 	if !available {
-		if c.state.Available {
+		wasAvailable := c.state.Available
+		if wasAvailable {
 			if err := c.advance(); err != nil {
 				return err
 			}
 		}
 		c.state.Available = false
-		// Repeated unavailable samples do not overwrite the initial loss reason.
-		if c.state.Reason == "" || !c.observed || c.last.Available {
+		// Repeated generic failures retain the initial loss reason. A readable
+		// native sleep can promote an earlier torn/API read's generic gap cause.
+		if c.state.Reason == "" || !c.observed || wasAvailable || reason == FreshnessSleepWake {
 			c.state.Reason = reason
 		}
-		c.last = ContinuitySample{}
+		// Retain the last valid power baseline, NOT its availability or evidence.
+		// Recovery can then recognize a changed native pair after a torn read.
 		c.observed = true
 		return nil
 	}
@@ -77,6 +80,9 @@ func (c *ObservationContinuity) Observe(sample ContinuitySample) error {
 		if !c.state.Available {
 			if err := c.advance(); err != nil {
 				return err
+			}
+			if !c.last.At.IsZero() && !samePowerWitness(sample.Power, c.last.Power) {
+				c.state.Reason = FreshnessSleepWake
 			}
 		} else if reason = c.discontinuity(sample); reason != "" {
 			if err := c.advance(); err != nil {
@@ -102,7 +108,7 @@ func (c *ObservationContinuity) advance() error {
 }
 
 func (c *ObservationContinuity) discontinuity(next ContinuitySample) FreshnessReason {
-	if !next.Power.Sleep.Round(0).Equal(c.last.Power.Sleep.Round(0)) || !next.Power.Wake.Round(0).Equal(c.last.Power.Wake.Round(0)) {
+	if !samePowerWitness(next.Power, c.last.Power) {
 		return FreshnessSleepWake
 	}
 	// Sub retains Go's monotonic clock where available. Stripping monotonic
@@ -113,6 +119,10 @@ func (c *ObservationContinuity) discontinuity(next ContinuitySample) FreshnessRe
 		return FreshnessCommunicationGap
 	}
 	return ""
+}
+
+func samePowerWitness(a, b PowerWitness) bool {
+	return a.Sleep.Round(0).Equal(b.Sleep.Round(0)) && a.Wake.Round(0).Equal(b.Wake.Round(0))
 }
 
 func (s ContinuitySample) continuity() (bool, FreshnessReason) {

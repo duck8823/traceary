@@ -34,6 +34,16 @@ type ObservationReceiver interface {
 	ConsumeObservation(context.Context, ObservationMetadata) error
 }
 
+// CausalObservationReceiver is explicitly trusted composition for live native
+// projection adapters, separate from the legacy untrusted history receiver.
+// Validate the complete descriptor/host/version/binding/native event causality
+// independently, then use the ORIGINAL stamp to guard BOTH commit and current
+// reads. Never replace it at dequeue or conflate gate and per-run revisions.
+// Honor cancellation; intake acceptance grants no input/approval/resume rights.
+type CausalObservationReceiver interface {
+	ConsumeCausalObservation(context.Context, ObservationMetadata, ObservationStamp) error
+}
+
 // Daemon is the typed local transport port used by CLI composition.
 // Serve is explicit and foreground; Status/Observe never start a daemon or touch core data.
 type Daemon interface {

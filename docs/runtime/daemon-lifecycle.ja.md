@@ -2,7 +2,7 @@
 
 [English](./daemon-lifecycle.md)
 
-この文書は lifecycle 作業で実装した shutdown SDK/CLI を説明します。作業全体はまだ Draft です。native power/gap intake、更新 handoff・auto-start descriptor、最終検証は未完了です。リリース済み・実 AI の復旧認定済みとは扱わないでください。
+この文書は lifecycle 作業で実装した shutdown SDK/CLI と継続性 fence を説明します。作業全体はまだ Draft です。更新 handoff・auto-start descriptor、native host binding、最終検証は未完了です。リリース済み・実 AI の復旧認定済みとは扱わないでください。
 
 ## detach と shutdown の違い
 
@@ -55,6 +55,14 @@ history は既存 private metadata だけを開きます。daemon の起動、co
 
 復旧するのは所有権を確認できた socket path だけです。旧 child の kill/adoption や session resume 許可は行いません。receipt は共有 private metadata 128 MiB 予算に含め、publication 失敗時は ready daemon を公開しません。悪意ある同一 UID との競合に対する完全分離は主張しません。
 
+## 電源変化と因果的な観測の継続性
+
+macOS では固定の kernel timestamp `kern.sleeptime`/`kern.waketime` だけを参照します。検証済みの組を 2 回読み取って完全一致を要求し、読み取り完了までの時間と時計の境界を確認します。組の変化、時計の逆行、参照不能・不整合、30 秒以上の watcher gap で旧 intake context を失効させます。参照できても sleep が進行中なら unknown です。1 秒周期の watcher で idle/in-flight evidence を失効させますが、intake と guarded projection read/commit でも直接再確認するため、poll 間の短い sleep で旧 stamp が現在有効と扱われることはありません。これらの参照は sleep の要求や host の電源設定変更を行いません。
+
+明示的に構成した causal receiver には **enqueue 前**の opaque stamp を渡し、遅延した dequeue 時には付け替えません。queue overflow と consumer error では queued/in-flight scope を失効させ、stale item が新 stamp を取得することを防ぎます。native read が停止しても gate ごとに single-flight とし、caller の全待機を 250 ms に制限して process ownership lock を保持しません。遅れて返った read で失効済み scope を再開せず、daemon shutdown は中断不能な native read の終了を待ちません。gate revision と run ごとの native event revision は別の軸です。正常な poll が戻っただけでは native interaction の知識を復元せず、現在の完全な binding に対して新しく独立検証した event が必要です。
+
+これは adapter contract であり host 認定ではありません。causal receiver は descriptor/host/version/worktree/run/generation/epoch/native event の因果関係を検証し、元 stamp で projection commit と現在の read の両方を guard する必要があります。非空 metadata や transport 受付はその検証ではありません。causal receiver を明示構成した場合はそれだけに配送し、power evidence が未対応でも history receiver に fallback しません。他 platform には現在認定済み power witness がありませんが、従来の history-only 配送は native freshness を主張せず維持します。通常の one-shot SDK socket の close は通信 gap と扱いません。入力・承認・停止・再開の権限を追加せず、これらの command から host 固有 native receiver を暗黙に有効化しません。
+
 ## 残る検証
 
-実 CLI の shutdown/cancel/history と、有限 agent fixture による crash/restart は実装検証であり、実 AI/native-session や物理 macOS sleep/wake の認定ではありません。認識できない・未記録の stale socket は変更してはいけません。readiness 到達済み daemon は正確な private endpoint receipt から再起動できますが、認識できない・未記録の socket は変更しません。power/gap 失効、更新延期・通知、正確な opt-in host descriptor、最終独立 review/native/full CI/wave gate は引き続き必須です。これらの command は host の login settings、launchd job、workstation sleep、配布を変更しません。
+実 CLI の shutdown/cancel/history、有限 agent fixture による crash/restart、read-only native power API 参照、合成した causal queue/wake test は実装検証であり、実 AI/native-session や物理 macOS sleep/wake の認定ではありません。readiness 到達済み daemon は正確な private endpoint receipt から再起動できますが、認識できない・未記録の socket は変更しません。許可済み環境での物理 macOS sleep/wake、host 固有 binding/reduction、更新延期・通知、正確な opt-in host descriptor、最終独立 review/native/full CI/wave gate は引き続き必須です。これらの command は host の login settings、launchd job、workstation sleep、配布を変更しません。

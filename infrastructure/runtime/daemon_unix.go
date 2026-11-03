@@ -58,6 +58,7 @@ type daemonSocket struct {
 type pendingObservation struct {
 	metadata app.ObservationMetadata
 	bytes    int
+	stamp    app.ObservationStamp
 }
 type daemonServer struct {
 	endpointMetadata     *RegistryStore
@@ -81,6 +82,9 @@ type daemonServer struct {
 	notify               chan struct{}
 	workerDone           chan struct{}
 	workerStarted        bool
+	gate                 *app.ObservationGate
+	powerDone            chan struct{}
+	powerStarted         bool
 	degraded             atomic.Bool
 	releaseOnce          sync.Once
 	runtime              *app.Runtime
@@ -101,6 +105,8 @@ func (d *LocalDaemon) Serve(ctx context.Context, root string) error {
 	defer s.shutdown()
 	s.workerStarted = true
 	go s.consume()
+	s.powerStarted = true
+	go s.watchContinuity()
 	for _, endpoint := range s.endpoints {
 		s.network.Add(1)
 		go s.accept(endpoint)
@@ -219,6 +225,11 @@ func prepareDaemon(parent context.Context, d *LocalDaemon, root string) (*daemon
 			return nil, app.ErrRuntimeUnsupported
 		}
 	}
+	s.gate, err = app.NewObservationGate(s.ctx, d.sampler, s.epoch)
+	if err != nil {
+		return nil, xerrors.Errorf("create daemon observation gate: %w", err)
+	}
+	s.powerDone = make(chan struct{})
 	complete = true
 	return s, nil
 }
@@ -294,6 +305,9 @@ func (s *daemonServer) release() {
 }
 func (s *daemonServer) shutdown() {
 	s.cancel()
+	if s.gate != nil {
+		s.gate.Close() // Never joins an uninterruptible native read.
+	}
 	for _, endpoint := range s.endpoints {
 		_ = endpoint.listener.Close()
 	}
@@ -303,6 +317,9 @@ func (s *daemonServer) shutdown() {
 	}
 	s.connectionMu.Unlock()
 	s.network.Wait()
+	if s.powerStarted {
+		<-s.powerDone // Watcher's gate wait is bounded/cancellable, not the OS call.
+	}
 	for _, endpoint := range s.endpoints {
 		s.cleanupSocket(endpoint)
 	}
@@ -449,7 +466,7 @@ func (s *daemonServer) handle(conn *net.UnixConn, endpoint *daemonSocket) {
 			case endpoint.role == "management" && request.Attach == nil && request.Operation == "status" && request.Observation == nil && request.Launch == nil && request.Page == nil:
 				delivery := "unavailable"
 				capabilities := []string{"status"}
-				if s.daemon.receiver != nil {
+				if s.daemon.receiver != nil || s.daemon.options.CausalReceiver != nil {
 					delivery = "configured"
 					capabilities = append(capabilities, "observe_metadata")
 					if s.degraded.Load() {
@@ -474,8 +491,10 @@ func (s *daemonServer) handle(conn *net.UnixConn, endpoint *daemonSocket) {
 				metadata := request.Observation.metadata()
 				if !validObservation(metadata) {
 					reply.Code = "invalid"
-				} else if s.daemon.receiver == nil {
+				} else if s.daemon.receiver == nil && s.daemon.options.CausalReceiver == nil {
 					reply.Code = "unsupported"
+				} else if s.daemon.options.CausalReceiver != nil && metadata.Epoch != s.epoch {
+					reply.Code = "changed"
 				} else if !s.enqueue(metadata, len(data)) {
 					reply.Code = "busy"
 				} else {
@@ -501,14 +520,27 @@ func (s *daemonServer) handle(conn *net.UnixConn, endpoint *daemonSocket) {
 	}
 }
 func (s *daemonServer) enqueue(metadata app.ObservationMetadata, size int) bool {
+	var stamp app.ObservationStamp
+	if s.daemon.options.CausalReceiver != nil {
+		var err error
+		stamp, err = s.gate.Stamp(s.ctx) // Intake, before queue lock; NEVER dequeue.
+		if err != nil {
+			s.degraded.Store(true)
+			return false
+		}
+	}
 	s.queueMu.Lock()
-	defer s.queueMu.Unlock()
 	if s.ctx.Err() != nil || len(s.queue) >= s.daemon.options.ObservationFrames || size > s.daemon.options.ObservationBytes-s.queueBytes {
+		s.queueMu.Unlock()
 		s.degraded.Store(true)
+		if s.gate != nil {
+			s.gate.InvalidateGap() // No queue/gate lock nesting.
+		}
 		return false
 	}
-	s.queue = append(s.queue, pendingObservation{metadata, size})
+	s.queue = append(s.queue, pendingObservation{metadata: metadata, bytes: size, stamp: stamp})
 	s.queueBytes += size
+	s.queueMu.Unlock()
 	select {
 	case s.notify <- struct{}{}:
 	default:
@@ -539,11 +571,36 @@ func (s *daemonServer) consume() {
 			if s.ctx.Err() != nil {
 				return
 			}
-			if s.daemon.receiver != nil {
+			if s.daemon.options.CausalReceiver != nil {
+				if item.stamp.Context().Err() != nil {
+					s.degraded.Store(true)
+					continue // Old queued evidence cannot acquire a new intake stamp.
+				}
+				if s.daemon.options.CausalReceiver.ConsumeCausalObservation(item.stamp.Context(), item.metadata, item.stamp) != nil {
+					s.degraded.Store(true)
+					s.gate.InvalidateGap()
+				}
+			} else if s.daemon.receiver != nil {
 				if s.daemon.receiver.ConsumeObservation(s.ctx, item.metadata) != nil {
 					s.degraded.Store(true)
 				}
 			}
+		}
+	}
+}
+
+func (s *daemonServer) watchContinuity() {
+	defer close(s.powerDone)
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		if _, err := s.gate.Stamp(s.ctx); err != nil && s.ctx.Err() == nil && s.daemon.options.CausalReceiver != nil {
+			s.degraded.Store(true)
+		}
+		select {
+		case <-s.ctx.Done():
+			return
+		case <-ticker.C:
 		}
 	}
 }

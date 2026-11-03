@@ -165,3 +165,34 @@ func TestObservationContinuityWitnessReversalCannotResurrectRevision(t *testing.
 		t.Fatal("equivalent native wall timestamps invalidated continuity")
 	}
 }
+
+func TestObservationContinuityPromotesConfirmedWakeAfterTornRead(t *testing.T) {
+	for _, intermediateSleep := range []bool{false, true} {
+		owner, err := domain.NewObservationContinuity(time.Minute)
+		if err != nil {
+			t.Fatal(err)
+		}
+		base := time.Now().Round(0)
+		if err = owner.Observe(domain.ContinuitySample{At: base, Available: true}); err != nil {
+			t.Fatal(err)
+		}
+		if err = owner.Observe(domain.ContinuitySample{}); err != nil {
+			t.Fatal(err)
+		}
+		lost := owner.Snapshot()
+		if intermediateSleep {
+			if err = owner.Observe(domain.ContinuitySample{At: base.Add(time.Second), Available: true, Power: domain.PowerWitness{Sleep: base}}); err != nil {
+				t.Fatal(err)
+			}
+			if state := owner.Snapshot(); state.Available || state.Reason != domain.FreshnessSleepWake || state.Revision != lost.Revision {
+				t.Fatalf("readable sleep lost behind torn read: %+v", state)
+			}
+		}
+		if err = owner.Observe(domain.ContinuitySample{At: base.Add(2 * time.Second), Available: true, Power: domain.PowerWitness{Sleep: base, Wake: base.Add(time.Second)}}); err != nil {
+			t.Fatal(err)
+		}
+		if state := owner.Snapshot(); !state.Available || state.Reason != domain.FreshnessSleepWake || state.Revision <= lost.Revision {
+			t.Fatalf("wake recovery lost its cause or reused a fence: %+v", state)
+		}
+	}
+}

@@ -2,7 +2,7 @@
 
 [日本語](./daemon-lifecycle.ja.md)
 
-This document describes the shutdown SDK/CLI implemented in the lifecycle workstream. The workstream remains draft: native power/gap intake, update handoff/autostart descriptors and final qualification are not yet complete. Do not treat these commands as release or real-host recovery certification.
+This document describes the shutdown SDK/CLI and continuity fencing implemented in the lifecycle workstream. The workstream remains draft: update handoff/autostart descriptors, native host binding and final qualification are not yet complete. Do not treat these commands as release or real-host recovery certification.
 
 ## Detach is not shutdown
 
@@ -55,6 +55,14 @@ History opens only existing private metadata. It does not start a daemon, create
 
 This recovers only proven owned socket paths. It does not kill/adopt old child processes or authorize session resume. The receipt shares the private 128-MiB metadata budget, and publication failure exposes no ready daemon. No isolation from malicious same-UID races is claimed.
 
+## Power changes and causal observation continuity
+
+On macOS the daemon reads only the fixed `kern.sleeptime`/`kern.waketime` kernel timestamps. It requires two identical validated pairs and checks the completed read's duration/clock bounds. A changed pair, clock reversal, unavailable/torn read or watcher gap of at least 30 seconds revokes old intake contexts. A readable sleep still in progress remains unknown. The one-second watcher invalidates idle/in-flight evidence, but intake and guarded projection reads/commits also refresh directly, so a short sleep between polls cannot make an old stamp current. None of these reads requests sleep or changes host power settings.
+
+An explicitly composed causal receiver gets an opaque stamp **before enqueue**, never at delayed dequeue. Queue overflow and consumer errors revoke queued/in-flight scopes; stale items cannot acquire fresh stamps. A stalled native read is single-flight per gate, with a complete caller wait bounded to 250 ms, never holding the process-ownership lock. Late reads cannot reopen a revoked scope, and daemon shutdown does not join an uninterruptible native read. The gate's revision and per-run native-event revisions are independent. A new healthy poll alone does **not** restore native interaction knowledge: a new independently validated event for the complete current binding is still required.
+
+This is an adapter contract, not host certification. A causal receiver must validate descriptor/host/version/worktree/run/generation/epoch/native-event causality and guard both projection commit and current read with the original stamp. Nonempty metadata and transport acceptance are not that validation. When a causal receiver is explicitly configured, it is the sole delivery path: unsupported power evidence never falls back to a history receiver. Other platforms currently have no certified power witness; legacy history-only delivery remains available without claiming native freshness. Normal one-shot SDK socket closure is not a communication gap. No new input/approval/stop/resume authority is created, and no host-specific native receiver is implicitly enabled by these commands.
+
 ## Remaining qualification
 
-Actual CLI shutdown/cancel/history and isolated finite-agent crash/restart tests are part of implementation validation, not real-AI/native-session or physical macOS sleep/wake certification. A previously ready daemon can restart from its exact private endpoint receipt; unrecognized/unrecorded sockets remain untouched. Power/gap invalidation, update postponement/reminders, truthful opt-in host descriptors and final independent/native/full-CI/wave gates remain mandatory. No host login settings, launchd jobs, workstation sleep or distribution is changed by these commands.
+Actual CLI shutdown/cancel/history, isolated finite-agent crash/restart, read-only native power API access and synthetic causal queue/wake tests are implementation validation, not real-AI/native-session or physical macOS sleep/wake certification. A previously ready daemon can restart from its exact private endpoint receipt; unrecognized/unrecorded sockets remain untouched. Authorized physical macOS sleep/wake, host-specific binding/reduction, update postponement/reminders, truthful opt-in host descriptors and final independent/native/full-CI/wave gates remain mandatory. No host login settings, launchd jobs, workstation sleep or distribution is changed by these commands.
