@@ -60,7 +60,7 @@ func NewManagedRuntime(ctx context.Context, root, epoch string) (*app.Runtime, e
 	if err != nil {
 		return nil, err
 	}
-	launcher, err := NewPTYLauncher(services.Registry, nil)
+	launcher, err := NewPTYLauncherWithHistoryRoot(services.Registry, nil, root)
 	if err != nil {
 		return nil, err
 	}

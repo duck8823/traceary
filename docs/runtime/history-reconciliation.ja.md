@@ -3,7 +3,7 @@
 [English](./history-reconciliation.md)
 
 実装途中です。maintenance に譲る SQLite 読取 capability、domain/application の履歴 page、実 SQLite reader/source adapter、公開 daemon SDK/CLI transport、coarse hint transport は実装済みです。
-commit 後の自動 hint 生成と配送先の設定、metadata export/forget、統合検証は未完了です。リリース可能・native host/session の復旧認定済みとは扱いません。
+任意の commit 後 hint 生成と信頼済み managed root への配送は実装済みです。metadata export/forget、統合検証は未完了です。リリース可能・native host/session の復旧認定済みとは扱いません。
 
 ## store の正本と reader の寿命
 
@@ -71,5 +71,25 @@ JSON は body-free event、more/next、物理 source witness、store_identity_ch
 独立した空の `history_hint` arm は observations.sock を使い、飽和する in-memory generation だけを進めます。
 native ObservationReceiver、架空の native ID、queue admission は不要で、SQL や native 操作も行いません。
 ACK は commit や表示の証明ではありません。
-SDK は任意 producer 向けの HintHistory を提供しますが、EventUsecase の commit 後自動通知と managed-root への配送設定は未実装です。
+SDK は任意 producer 向けの HintHistory を提供します。
 この transport の追加では capture、receipt、spool 所有権、native 権限は変更しません。
+
+## 任意の commit 後通知
+
+main は、明示的な `TRACEARY_RUNTIME_DIR` が既存の正規形かつ所有者専用の runtime root を示す場合だけ、EventUsecase に metadata を含まない通知を設定します。
+managed PTY 起動では環境から受け継いだ `TRACEARY_RUNTIME_*` を除き、実際の信頼済み root を渡します。
+profile の `--version` 検査と従来の launcher には配送先 root を渡しません。
+native 引数、実行ファイル、PATH、認証、model 選択は変更しません。
+配送先が存在しない、または安全でない場合は hint を無効にし、directory の作成や daemon の自動起動は行いません。
+
+log、audit、transcript 削除は永続化に成功した後だけ通知します。
+失敗した書込では通知せず、正規 event ID、inserted/redelivery の結果、audit の参照付け替え、標準出力と終了結果の契約を維持します。
+任意通知の context 予算は 25 ms、service ごとの実行中 callback は最大一つです。
+追加 hint は捨て、timeout 後も callback が実際に終了するまで slot を保持します。
+callback の失敗・panic・daemon 不在で、commit 済みの主書込を失敗に変更しません。
+通知に event、body、session、native の識別子は含めず、別の spool/drain worker も使いません。
+
+hint は欠落し得ます。
+cancel、admission、timeout、observer を使わない writer では通知が一切届かない場合があります。
+receipt と hint ACK は commit 済み query の代わりにはなりません。
+再接続、gap、定期更新の後は要求 view の先頭から全 page を再走査する必要があります。

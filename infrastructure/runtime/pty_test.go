@@ -41,6 +41,9 @@ func TestMain(m *testing.M) {
 		}
 
 		if len(os.Args) == 2 && os.Args[1] == "--version" {
+			if path := os.Getenv("FIXTURE_VERSION_ENV_RESULT"); path != "" {
+				_ = os.WriteFile(path, []byte(os.Getenv("TRACEARY_RUNTIME_DIR")), 0600)
+			}
 			if delay, err := time.ParseDuration(os.Getenv("FIXTURE_VERSION_DELAY")); err == nil && delay > 0 && delay < 2*time.Second {
 				time.Sleep(delay)
 			}
@@ -60,9 +63,9 @@ func TestMain(m *testing.M) {
 		}
 		cwd, _ := os.Getwd()
 		result := struct {
-			TTY, Controlling, NewGroup                      bool
-			CWD, Store, Run, Generation, Epoch, GitOverride string
-		}{term.IsTerminal(0) && term.IsTerminal(1) && term.IsTerminal(2), err == nil, unix.Getpgrp() == os.Getpid(), cwd, os.Getenv("TRACEARY_DB_PATH"), os.Getenv("TRACEARY_RUNTIME_RUN_ID"), os.Getenv("TRACEARY_RUNTIME_GENERATION"), os.Getenv("TRACEARY_RUNTIME_EPOCH"), os.Getenv("GIT_DIR")}
+			TTY, Controlling, NewGroup                                   bool
+			CWD, Store, Run, Generation, Epoch, GitOverride, RuntimeRoot string
+		}{term.IsTerminal(0) && term.IsTerminal(1) && term.IsTerminal(2), err == nil, unix.Getpgrp() == os.Getpid(), cwd, os.Getenv("TRACEARY_DB_PATH"), os.Getenv("TRACEARY_RUNTIME_RUN_ID"), os.Getenv("TRACEARY_RUNTIME_GENERATION"), os.Getenv("TRACEARY_RUNTIME_EPOCH"), os.Getenv("GIT_DIR"), os.Getenv("TRACEARY_RUNTIME_DIR")}
 		data, _ := json.Marshal(result)
 		if os.WriteFile(os.Getenv("FIXTURE_RESULT"), data, 0600) != nil {
 			os.Exit(90)
@@ -211,7 +214,7 @@ func ptyFixture(t *testing.T, extra ...string) (*infra.PTYLauncher, domain.Launc
 	return launcher, descriptor, result
 }
 func TestPTYDirectBinaryControllingTerminalTargetAndOwnedWait(t *testing.T) {
-	launcher, descriptor, result := ptyFixture(t)
+	launcher, descriptor, result := ptyFixture(t, "TRACEARY_RUNTIME_DIR=/untrusted/ambient")
 	child, err := launcher.Start(context.Background(), descriptor)
 	if err != nil {
 		t.Fatal(err)
@@ -239,6 +242,7 @@ func TestPTYDirectBinaryControllingTerminalTargetAndOwnedWait(t *testing.T) {
 	var got struct {
 		TTY, Controlling, NewGroup                      bool
 		CWD, Store, Run, Generation, Epoch, GitOverride string
+		RuntimeRoot                                     string
 	}
 	if err = json.Unmarshal(data, &got); err != nil {
 		t.Fatal(err)
@@ -246,6 +250,9 @@ func TestPTYDirectBinaryControllingTerminalTargetAndOwnedWait(t *testing.T) {
 	snapshot := descriptor.Snapshot()
 	if !got.TTY || !got.Controlling || !got.NewGroup || got.CWD != snapshot.Target.Worktree().Path() || got.Store != snapshot.Target.Worktree().Store() || got.Run != snapshot.Identity.Run || got.Generation != snapshot.Identity.Generation || got.Epoch != snapshot.Identity.Epoch || got.GitOverride != "" {
 		t.Fatal("incorrect native PTY/target/environment binding")
+	}
+	if got.RuntimeRoot != "" {
+		t.Fatal("legacy launcher leaked ambient routing")
 	}
 	if child.PID() <= 0 {
 		t.Fatal("missing diagnostic PID")

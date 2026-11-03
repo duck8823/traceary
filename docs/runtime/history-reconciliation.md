@@ -2,7 +2,7 @@
 
 [日本語](./history-reconciliation.ja.md)
 
-Implementation is in progress. The maintenance-yielding SQLite read capability, domain/application history paging and real SQLite reader/source adapters are implemented; public daemon SDK/CLI transport and coarse hint transport are implemented. Automatic post-commit hint production/routing, metadata export/forget and integrated qualification are not yet complete. This document does not claim release readiness or native-host/session recovery certification.
+Implementation is in progress. The maintenance-yielding SQLite read capability, domain/application history paging and real SQLite reader/source adapters are implemented; public daemon SDK/CLI transport and coarse hint transport are implemented. Optional post-commit hint production and trusted managed-root routing are implemented. Metadata export/forget and integrated qualification are not yet complete. This document does not claim release readiness or native-host/session recovery certification.
 
 ## Store authority and reader lifetime
 
@@ -38,4 +38,12 @@ Times must be canonical UTC RFC3339Nano and limit is 1..64. A continuation suppl
 
 JSON exposes body-free events, more/next, physical source witness, store_identity_changed, advisory hint_revision/hint_overflow, authority=`committed_page_not_commit_cursor`, consistency=`single_page_only` and native_target_revalidated=false. The response validates original request correlation and source identity. Actual escaped frame bytes are bounded to 64 KiB: trailing rows are deferred with a new exact next anchor, not dropped. An oversized single row/header is an explicit limit error. Missing/malformed/mixed/null/cross-operation replies never become valid history or old launch/control success.
 
-The distinct empty `history_hint` arm uses observations.sock and only increments a saturating in-memory generation. It needs no native ObservationReceiver, fabricated native IDs or queue admission; it does no SQL or native work. Its ACK proves neither commit nor display. The SDK exposes HintHistory for optional producers, but automatic EventUsecase post-commit notification and managed-root routing are still pending. No capture, receipt, spool ownership or native authority is changed by providing this transport.
+The distinct empty `history_hint` arm uses observations.sock and only increments a saturating in-memory generation. It needs no native ObservationReceiver, fabricated native IDs or queue admission; it does no SQL or native work. Its ACK proves neither commit nor display. The SDK exposes HintHistory for optional producers. No capture, receipt, spool ownership or native authority is changed by providing this transport.
+
+## Optional post-commit production
+
+The main composition opts EventUsecase into metadata-free notifications only when explicit `TRACEARY_RUNTIME_DIR` names an existing canonical owner-private runtime root. Managed PTY launches supply the actual trusted root after stripping ambient `TRACEARY_RUNTIME_*` values; profile `--version` probes and legacy launchers receive no routing root. This does not change native arguments, executable, PATH, authentication or model selection. Missing/unsafe routing disables hints without creating directories or starting a daemon.
+
+Log, audit and transcript-delete notify only after successful persistence. Failed writes never notify; canonical event IDs, inserted/redelivery outcomes, audit rebinding and stdout/exit contracts remain unchanged. The optional call has a 25 ms context budget and at most one in-flight callback per service; extra hints drop, and a timed-out callback retains its slot until actual exit. Callback failure, panic or an absent daemon cannot invalidate the committed primary write. Notifications contain no event, body, session or native identifiers and never use another spool/drain worker.
+
+Hints remain lossy: cancellation, admission, timeout and writers without the optional observer can produce no hint at all. Receipts and hint ACKs do not replace committed queries. Consumers must still restart and walk the full requested view after reconnect, gaps and periodic refresh.

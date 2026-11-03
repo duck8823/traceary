@@ -185,7 +185,8 @@ func run() error {
 	readPresets := cfg.ReadPresets
 	defaultReadColor := cfg.ReadColor
 
-	eventUsecase := usecase.NewEventUsecase(eventDatasource, eventDatasource)
+	eventUsecase := usecase.NewEventUsecase(eventDatasource, eventDatasource,
+		usecase.WithEventCommitObserver(runtimeinfra.NewHistoryCommitObserver(runtimeDaemon, os.Getenv("TRACEARY_RUNTIME_DIR"))))
 	eventMetadataUsecase := usecase.NewEventMetadataUsecase(eventDatasource)
 	reportUsecase := usecase.NewReportUsecase(reportDatasource)
 	codexCaptureDiagnosticUsecase := usecase.NewCodexCaptureDiagnosticUsecase(codexCaptureDiagnosticDatasource)

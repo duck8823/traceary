@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	apptypes "github.com/duck8823/traceary/application/types"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/domain/types"
 	infra "github.com/duck8823/traceary/infrastructure/runtime"
@@ -100,6 +102,7 @@ func TestRuntimeHistoryCLIActualProcessUsesExplicitStoreWithoutBootstrap(t *test
 	server := command("daemon", "serve", "--runtime-dir", metadata)
 	var stderr bytes.Buffer
 	server.Stderr = &stderr
+	server.Stdout = &stderr
 	if err = server.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -162,5 +165,73 @@ func TestRuntimeHistoryCLIActualProcessUsesExplicitStoreWithoutBootstrap(t *test
 	runs, err := executions.ListLaunches(ctx)
 	if err != nil || len(runs) != 0 {
 		t.Fatal("history implicitly launched an agent", err)
+	}
+	// Exercise ordinary capture through the actual main composition, not a
+	// manually invoked SDK hint. Core write/receipt survive optional routing.
+	capture := func(route, kind string) ([]byte, error) {
+		cmd := command("log", "--json", "--session-id", "explicit-fixture", "--workspace", project, "--kind", kind, "synthetic committed note")
+		for i, entry := range cmd.Env {
+			if strings.HasPrefix(entry, "TRACEARY_DB_PATH=") {
+				cmd.Env[i] = "TRACEARY_DB_PATH=" + store
+			}
+		}
+		cmd.Env = append(cmd.Env, "HOME="+root, "TRACEARY_RUNTIME_DIR="+route)
+		return cmd.CombinedOutput()
+	}
+	out, err := capture(metadata, "note")
+	if err != nil {
+		t.Fatalf("routed capture failed: %v %.1000s", err, out)
+	}
+	var receipt struct {
+		EventID string `json:"event_id"`
+	}
+	decodeReceipt := func(data []byte) error {
+		// The selected Go subprocess fixture appends its own PASS line after
+		// run returns; the actual CLI must emit exactly one JSON document.
+		document, found := bytes.CutSuffix(bytes.TrimSpace(data), []byte("\nPASS"))
+		if !found {
+			return errors.New("unexpected capture stdout")
+		}
+		receipt.EventID = ""
+		return json.Unmarshal(document, &receipt)
+	}
+	if err = decodeReceipt(out); err != nil || receipt.EventID == "" {
+		t.Fatal("capture receipt changed", err)
+	}
+	view = read("runtime", "history", "page", "--runtime-dir", metadata, "--epoch", epoch, "--worktree", w["id"].(string), "--from", base.Format(time.RFC3339Nano), "--to", base.Add(time.Hour).Format(time.RFC3339Nano), "--limit", "1")
+	if view["hint_revision"] != "2" {
+		t.Fatal("committed capture did not notify daemon")
+	}
+	rows, err := sqlite.NewEventDatasource(sqlite.NewDatabase(store, nil)).ListRecentMetadata(ctx, apptypes.NewEventListCriteriaBuilder(10).Build())
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, row := range rows {
+		found = found || row.EventID().String() == receipt.EventID
+	}
+	if !found {
+		t.Fatal("hint acknowledged without committed capture")
+	}
+	if _, err = capture(metadata, "invalid-kind"); err == nil {
+		t.Fatal("invalid capture unexpectedly succeeded")
+	}
+	view = read("runtime", "history", "page", "--runtime-dir", metadata, "--epoch", epoch, "--worktree", w["id"].(string), "--from", base.Format(time.RFC3339Nano), "--to", base.Add(time.Hour).Format(time.RFC3339Nano), "--limit", "1")
+	if view["hint_revision"] != "2" {
+		t.Fatal("failed capture emitted a commit hint")
+	}
+	// An existing private root with no daemon must not launch a background
+	// service or turn a successful primary write into an error.
+	absent := filepath.Join(root, "absent")
+	if err = os.Mkdir(absent, 0700); err != nil {
+		t.Fatal(err)
+	}
+	out, err = capture(absent, "note")
+	if err != nil || decodeReceipt(out) != nil || receipt.EventID == "" {
+		t.Fatal("absent optional daemon changed capture", err)
+	}
+	entries, err := os.ReadDir(absent)
+	if err != nil || len(entries) != 0 {
+		t.Fatal("capture started a daemon or created metadata", err)
 	}
 }
