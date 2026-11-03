@@ -73,7 +73,12 @@ func (j *launchJournal) SaveLaunch(_ context.Context, s domain.RunSnapshot) erro
 	return nil
 }
 
-type fakeChild struct{ exited chan struct{} }
+type fakeChild struct {
+	exited   chan struct{}
+	exitOnce sync.Once
+}
+
+func (c *fakeChild) finish() { c.exitOnce.Do(func() { close(c.exited) }) }
 
 func (c *fakeChild) PID() int           { return 321 }
 func (c *fakeChild) Wait() (int, error) { <-c.exited; return 7, nil }
@@ -109,6 +114,10 @@ func (f *launchFactory) Start(ctx context.Context, _ domain.LaunchDescriptor) (a
 }
 func runtimeFixture(t *testing.T, journalFailure bool) (*app.Runtime, app.LaunchRequest, *launchFactory, *launchRegistry) {
 	t.Helper()
+	return runtimeFixtureEpoch(t, journalFailure, strings.Repeat("e", 32))
+}
+func runtimeFixtureEpoch(t *testing.T, journalFailure bool, epoch string) (*app.Runtime, app.LaunchRequest, *launchFactory, *launchRegistry) {
+	t.Helper()
 	p, err := domain.ProjectOf("/project", "/project/.git", "p")
 	if err != nil {
 		t.Fatal(err)
@@ -131,12 +140,12 @@ func runtimeFixture(t *testing.T, journalFailure bool) (*app.Runtime, app.Launch
 	factory := &launchFactory{child: &fakeChild{exited: make(chan struct{})}}
 	r := &launchRegistry{target: target}
 	factory.journal = &launchJournal{fail: journalFailure}
-	service, err := app.NewRuntime(r, launchProfiles{profile}, factory, factory.journal, strings.Repeat("e", 32))
+	service, err := app.NewRuntime(r, launchProfiles{profile}, factory, factory.journal, epoch)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { close(factory.child.exited) })
-	return service, app.LaunchRequest{Epoch: strings.Repeat("e", 32), Worktree: w.ID(), Profile: "codex-fixture", RequestID: "request"}, factory, r
+	t.Cleanup(factory.child.finish)
+	return service, app.LaunchRequest{Epoch: epoch, Worktree: w.ID(), Profile: "codex-fixture", RequestID: "request"}, factory, r
 }
 func TestRuntimeConcurrentDuplicatesShareOneImmutableLaunch(t *testing.T) {
 	service, req, factory, _ := runtimeFixture(t, false)

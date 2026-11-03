@@ -131,68 +131,75 @@ func TestManagedDaemonLaunchListAndCancelPreserveActualPTYOwner(t *testing.T) {
 	}
 }
 
-func TestManagedLaunchLostAcknowledgementIsUnknownWithoutReplay(t *testing.T) {
-	root := daemonRoot(t)
-	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: filepath.Join(root, "daemon.sock"), Net: "unix"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	listener.SetUnlinkOnClose(false)
-	defer func() { _ = listener.Close() }()
-	if err = os.Chmod(filepath.Join(root, "daemon.sock"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	seen := make(chan string, 1)
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		conn, e := listener.AcceptUnix()
-		if e != nil {
-			return
-		}
-		defer func() { _ = conn.Close() }()
-		_ = conn.SetDeadline(time.Now().Add(time.Second))
-		read := func() map[string]any {
-			var prefix [4]byte
-			if _, e := io.ReadFull(conn, prefix[:]); e != nil {
-				return nil
+func TestManagedLaunchResponseLossIsUnknownWithoutReplay(t *testing.T) {
+	for _, mode := range []string{"lost_ack", "malformed_ack"} {
+		t.Run(mode, func(t *testing.T) {
+			root := daemonRoot(t)
+			listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: filepath.Join(root, "daemon.sock"), Net: "unix"})
+			if err != nil {
+				t.Fatal(err)
 			}
-			n := binary.BigEndian.Uint32(prefix[:])
-			if n > 65536 {
-				return nil
+			listener.SetUnlinkOnClose(false)
+			defer func() { _ = listener.Close() }()
+			if err = os.Chmod(filepath.Join(root, "daemon.sock"), 0600); err != nil {
+				t.Fatal(err)
 			}
-			data := make([]byte, n)
-			if _, e := io.ReadFull(conn, data); e != nil {
-				return nil
+			seen := make(chan string, 1)
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				conn, e := listener.AcceptUnix()
+				if e != nil {
+					return
+				}
+				defer func() { _ = conn.Close() }()
+				_ = conn.SetDeadline(time.Now().Add(time.Second))
+				read := func() map[string]any {
+					var prefix [4]byte
+					if _, e := io.ReadFull(conn, prefix[:]); e != nil {
+						return nil
+					}
+					n := binary.BigEndian.Uint32(prefix[:])
+					if n > 65536 {
+						return nil
+					}
+					data := make([]byte, n)
+					if _, e := io.ReadFull(conn, data); e != nil {
+						return nil
+					}
+					var value map[string]any
+					_ = json.Unmarshal(data, &value)
+					return value
+				}
+				hello := read()
+				if hello == nil {
+					return
+				}
+				data, _ := json.Marshal(map[string]any{"protocol_version": 1, "request_id": hello["request_id"], "code": "ok", "role": "management"})
+				rawFrame(t, conn, string(data))
+				request := read()
+				if request != nil {
+					seen <- request["operation"].(string)
+					if mode == "malformed_ack" {
+						rawFrame(t, conn, `{"protocol_version":1,"request_id":"wrong-receipt","code":"ok"}`)
+					}
+				}
+			}()
+			d := daemon(t, nil, infra.DaemonOptions{})
+			epoch := strings.Repeat("e", 32)
+			_, err = d.Launch(context.Background(), root, app.LaunchRequest{Epoch: epoch, Worktree: domain.WorktreeID("w_" + strings.Repeat("1", 64)), Profile: "codex", RequestID: "lost-ack"})
+			if !errors.Is(err, app.ErrLaunchUnknown) {
+				t.Fatalf("lost acknowledgement was falsely known: %v", err)
 			}
-			var value map[string]any
-			_ = json.Unmarshal(data, &value)
-			return value
-		}
-		hello := read()
-		if hello == nil {
-			return
-		}
-		data, _ := json.Marshal(map[string]any{"protocol_version": 1, "request_id": hello["request_id"], "code": "ok", "role": "management"})
-		rawFrame(t, conn, string(data))
-		request := read()
-		if request != nil {
-			seen <- request["operation"].(string)
-		}
-	}()
-	d := daemon(t, nil, infra.DaemonOptions{})
-	epoch := strings.Repeat("e", 32)
-	_, err = d.Launch(context.Background(), root, app.LaunchRequest{Epoch: epoch, Worktree: domain.WorktreeID("w_" + strings.Repeat("1", 64)), Profile: "codex", RequestID: "lost-ack"})
-	if !errors.Is(err, app.ErrLaunchUnknown) {
-		t.Fatalf("lost acknowledgement was falsely known: %v", err)
-	}
-	<-done
-	select {
-	case operation := <-seen:
-		if operation != "launch" {
-			t.Fatal("wrong named operation")
-		}
-	default:
-		t.Fatal("request was not observed")
+			<-done
+			select {
+			case operation := <-seen:
+				if operation != "launch" {
+					t.Fatal("wrong named operation")
+				}
+			default:
+				t.Fatal("request was not observed")
+			}
+		})
 	}
 }

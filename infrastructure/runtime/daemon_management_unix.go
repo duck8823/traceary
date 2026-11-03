@@ -80,24 +80,24 @@ func (s *daemonServer) pageReply(reply *runtimeResponse, request *runPageRequest
 // Launch makes one explicit management call; possible post-send transport loss is unknown, never replayed.
 func (d *LocalDaemon) Launch(ctx context.Context, root string, request app.LaunchRequest) (domain.RunSnapshot, error) {
 	reply, sent, err := d.exchange(ctx, root, runtimeRequest{Operation: "launch", Launch: &launchRequestRecord{request.Epoch, string(request.Worktree), string(request.Profile), request.RequestID}}, ManagementRuntimeBudget)
-	if sent && (errors.Is(err, app.ErrDaemonUnavailable) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+	if sent && (errors.Is(err, app.ErrDaemonUnavailable) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || reply.ID == "" && (errors.Is(err, app.ErrRuntimeProtocol) || errors.Is(err, app.ErrRuntimeUnsupported))) {
 		return domain.RunSnapshot{}, app.ErrLaunchUnknown
 	}
 	if reply.Status != nil || reply.Page != nil || reply.Role != "" {
-		return domain.RunSnapshot{}, app.ErrRuntimeProtocol
+		return domain.RunSnapshot{}, errors.Join(app.ErrLaunchUnknown, app.ErrRuntimeProtocol)
 	}
 	if reply.Run == nil {
 		if err != nil {
 			return domain.RunSnapshot{}, err
 		}
-		return domain.RunSnapshot{}, app.ErrRuntimeProtocol
+		return domain.RunSnapshot{}, errors.Join(app.ErrLaunchUnknown, app.ErrRuntimeProtocol)
 	}
 	snapshot, decodeErr := reply.Run.domainSnapshot()
 	if decodeErr != nil {
-		return domain.RunSnapshot{}, app.ErrRuntimeProtocol
+		return domain.RunSnapshot{}, errors.Join(app.ErrLaunchUnknown, app.ErrRuntimeProtocol)
 	}
 	if snapshot.Identity.Epoch != request.Epoch || snapshot.Target.Worktree().ID() != request.Worktree || snapshot.Profile.ID() != request.Profile {
-		return domain.RunSnapshot{}, app.ErrRuntimeProtocol
+		return domain.RunSnapshot{}, errors.Join(app.ErrLaunchUnknown, app.ErrRuntimeProtocol)
 	}
 	return snapshot, err
 }
