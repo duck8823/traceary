@@ -189,13 +189,15 @@ Reconnect requests a run/generation snapshot and bounded byte cursor; unknown or
 evicted cursors receive a gap. Subscription is not a new launch. Process exit is
 observed with the owned wait handle, separate from native hook interpretation.
 
-Initial decision: **the daemon itself owns PTY masters**; no separate PTY holder.
+Decision: **the daemon itself owns PTY masters**; no separate PTY holder is required by the recovery specification.
 A holder adds another protocol/process ownership boundary and is deferred rather
 than pretending crash recovery is free. Daemon crash may close the master, cause
 SIGHUP/agent termination and lose work. On restart, recorded active runs are
 unknown/orphaned; do not reopen saved PIDs, attach, kill or resume automatically.
-Full PTY recovery after daemon crash is explicitly not guaranteed. Revisit a
-separate holder only through a reviewed design change with fault evidence.
+Restoring the original PTY/process is not the recovery requirement. The durable
+product requirement is **safe, explicit resumption of the same native agent
+session after interruption**, as specified below. This is not an initial-version
+compromise. A separate holder is optional future architecture, not a prerequisite.
 
 Full shutdown is a two-step plan/confirm operation bound to current epoch and
 active run set. Show affected runs, PTY close/SIGHUP/termination/work-loss risks;
@@ -210,6 +212,64 @@ explicit scoped operation; test the descriptor in isolation by default. Sleep or
 wake/gap invalidates interaction freshness. Require new causally bound evidence,
 not a heartbeat, to restore state. Native sleep/wake behavior needs its own real
 macOS evidence; synthetic clock tests prove only the reducer contract.
+
+## Safe session resumption after interruption — product specification
+
+The maintainer explicitly selected session-level recovery on 2026-11-03.
+Interruption may end the old PTY/process. Traceary must offer an explicit recovery
+action for each host/profile certified for recovery, using that host CLI's native
+resume facility and the **same verified native conversation**, not a new chat or
+a synthesized replay. The previous process/terminal contents and unfinished tool
+execution are not restored. This specification is not limited to an initial release.
+
+Persist an owner-private, versioned recovery record when native identity is
+verified, before advertising the run as recoverable: canonical host/version/profile
+identity, native conversation ID, canonical project/worktree/store, old run and
+generation, immutable launch policy, observed child/process identity and recovery
+status. Write atomically with file and parent-directory durability appropriate to
+macOS; no raw prompts, terminal bytes, secrets or arbitrary resume command strings.
+A record is correlation, not authorization. Recovery support is certified separately
+from live interaction state; an unknown waiting state alone need not prevent a
+resume whose session identity and exclusivity can be independently proven.
+
+The operator selects the interrupted run and confirms its recovery target. Under
+a per-native-session exclusive reservation, verify the native session still
+exists, the original canonical worktree/store/profile is unchanged and usable,
+the exact host/version resume contract is supported, and the previous execution
+is definitively no longer active. A saved PID, absence of its parent, elapsed
+time or an orphan label alone cannot prove that no descendant or external host
+process still owns the native session. Use owned process identity and host-native
+exclusivity evidence where available; otherwise report blocked/unknown rather
+than guess, adopt or kill an existing process. Concurrent or duplicate recovery
+requests cannot start two owners of the same native session.
+
+Resume invokes the configured real CLI directly through its versioned, typed
+resume adapter, retaining host-owned authentication/approval and fixed target
+constraints. Allocate a fresh run/generation/epoch, link it to the interrupted
+predecessor, and bind it anew; old callbacks, input receipts and controls remain
+stale. A recovery request gets a bounded durable intent/result before reporting
+success. If recovery itself crashes or delivery is ambiguous, reconcile ownership
+and native identity; do not launch again automatically. Confirm actual resumption
+of the recorded native session, not merely successful process spawn.
+
+Never resend a pending prompt, partial input, approval answer or interrupted tool
+command automatically. Resume restores the host's committed conversation history;
+it does not prove an earlier shell command or external side effect did not finish.
+Show interruption and uncertain deliveries to the operator before further input.
+Missing/corrupt native history, unverifiable identity, unsupported version, changed
+worktree/profile or ambiguous old-process liveness produce an actionable recovery
+error; no implicit new conversation or alternate host/model/billing fallback.
+Preserve the recovery record and existing history. Do not delete a worktree or
+move the session to a replacement directory to make recovery appear successful.
+
+Each supported recovery host/version must pass a real interrupted-session →
+explicit resume test demonstrating the same native conversation and original
+worktree, a new generation and no input replay. Also test concurrent resume,
+old-process-still-live, PID reuse, missing history/record, changed target/version,
+partial input and crash during recovery. Fixture-only or unavailable resume stays
+unverified/unsupported, not certified. Muse native work stays deferred. Native
+resume limitations must be visible; recovery is not guaranteed against loss of
+the host's own persisted history or filesystem.
 
 ## Capture, native witnesses and projection
 
@@ -280,7 +340,7 @@ and safe IDs, never raw input, argv, secret-bearing environment or native payloa
 | Unsupported host/witness/order | unbound/unknown, no invented wait |
 | Maintenance | visible busy/retry, released store lease, PTY unaffected |
 | Client loss | detach, no duplicate child |
-| Daemon loss | work-loss risk disclosed, orphan/unknown, no PID adoption |
+| Daemon loss | interrupted/orphan/unknown; explicit same-session recovery after ownership checks, no PID adoption |
 
 No security claim is made for a compromised same-UID owner. If OS peer/path
 checks cannot be established, live delivery/control is unavailable rather than
@@ -298,6 +358,7 @@ silently downgraded. This is distinct from unsupported interaction evidence.
 | Detach/reattach/resize storm | Same generation; exact byte/ack identities | PTY fixture |
 | Partial input/crash/duplicate | Unknown receipt, no resend | fault injection |
 | Duplicate-after-expiry/reorder/wake | unknown, no revived wait/duplicate Attention | fake monotonic clock |
+| Interrupted session / concurrent or ambiguous resume | Same native conversation, new generation, no duplicate owner/input replay; ambiguity blocks | native + fault |
 | Daemon absent, global/per-run hooks | Same history/receipt/stdout, no double event | CLI + host-version native |
 | Store maintenance/late history insert | Release lease, resnapshot, PTY survives | real SQLite |
 | Shutdown cancel/changed run set | No hidden stop; stale plan rejected | process fixture |
@@ -319,6 +380,7 @@ UI/native/manual tests. Use external test packages and public observable APIs.
 | #2462 | Stream/detach/reconnect after launch |
 | #2463 | Explicit target-bound control after stream/launch |
 | #2464 | Lifecycle/shutdown/update/wake after control |
+| #2478 | Durable explicit same-session recovery after lifecycle + host resume adapters |
 | #2465 | History/maintenance after IPC/launch |
 | #2466 | Optional observation intake after IPC/launch |
 | #2467 | Pure projection after launch identity contract |
@@ -343,7 +405,8 @@ is human-operated, not automatically authorized by the general delivery goal.
 
 Rollback disables new launch/control/live delivery, presents affected active runs
 and cancel before daemon shutdown, preserves existing CLI/hooks/history/Memory
-and user metadata. Do not force-remove worktrees or kill/resume orphans. New core
+and user metadata. Do not force-remove worktrees or automatically kill/resume orphans.
+Keep the explicit, validated recovery path available when disabling live projection.  New core
 schema remains out of scope; any future migration needs a separate backup/restore
 checkpoint. If R0 is rejected, product runtime remains unimplemented; UI D0 is
 not silently accepted in its place.

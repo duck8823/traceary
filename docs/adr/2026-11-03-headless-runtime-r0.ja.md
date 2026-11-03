@@ -168,12 +168,14 @@ reconnectではrun/generation snapshotと有界byte cursorを要求し、不明�
 購読で新launchを行わない。
 process exitは所有wait handleで観測し、native hookの解釈と分離する。
 
-初期判断は**Daemon自身がPTY masterを所有し、別PTY holderを設けない**。
+判断は**Daemon自身がPTY masterを所有し、復旧仕様上は別PTY holderを必須としない**。
 holderはprotocol/process所有境界を増やすため後続へ送り、crash復旧が無償だとは扱わない。
 Daemon crashでmasterが閉じSIGHUP/agent終了/work-lossが起こり得る。
 再起動時の旧active recordはunknown/orphanedで、保存PIDの再open/attach/kill/resumeを自動実行しない。
-Daemon crash後の完全PTY復元は初期保証外である。
-別holderは障害証拠付きの設計変更でのみ再検討する。
+元のPTY/processの復元は復旧要件ではない。
+恒久的な製品仕様は、以下の**中断後に同じnative agent sessionを明示操作で安全に再開できること**とする。
+これは初期版だけの妥協ではなく、別holderも必須ではない。
+将来holderを導入するなら別の設計変更として扱う。
 
 完全終了は現在epochとactive run集合へ固定したplan/confirmの2段階とする。
 影響run、PTY close/SIGHUP/終了/work-lossを表示しcancel可能にする。
@@ -188,6 +190,49 @@ launchd job導入やlogin設定変更は別の明示scope許可を要し、既�
 sleep/wake/gapでinteraction freshnessを失効させる。
 heartbeatではなく新しい因果的にboundな証拠を要する。
 native sleep/wakeは実macOS証拠を要し、合成時計はreducer contractだけを検証する。
+
+## 中断後の安全なセッション再開 — 製品仕様
+
+2026-11-03、ユーザーはsession単位の復旧を製品仕様として明示選択した。
+中断で旧PTY/processが終了してもよい。
+復旧を認定したhost/profileには、実CLI自身のnative resumeで**同じ検証済み会話を再開する**明示操作を提供する。
+新chatの作成や過去入力の合成replayを復旧と扱わない。
+旧process/terminal内容や実行途中toolの復元は要件ではなく、初期版に限定した仕様でもない。
+
+recoverableと表示する前に、検証済みnative identityのowner-private/version付き復旧recordを保存する。
+内容はcanonical host/version/profile、native conversation ID、canonical project/worktree/store、旧run/generation、固定起動規則、観測したchild/process identity、復旧状態とする。
+macOSに適したfile/parent-directoryのdurabilityを伴うatomic writeとし、raw prompt/terminal byte/secret/任意resume command文字列を含めない。
+recordは相関情報であり認可ではない。
+復旧とlive interactionは別に認定する。
+session identityと排他的所有を独立に検証できるなら、waiting状態がunknownというだけでresumeを禁止しない。
+
+operatorが中断runを選び、復旧targetを確認する。
+native session単位の排他的reservation内で、native sessionの存在、元canonical worktree/store/profileの不変性と利用可能性、正確なhost/versionのresume contract、旧実行が確実に非稼働であることを検証する。
+保存PID、親processの消失、経過時間、orphan表示だけでは、descendantや外部host processが同じnative sessionを所有していない証明にならない。
+所有process identityと利用可能なhost-native排他証拠で検証し、証明できなければblocked/unknownとする。
+推測、既存processのadoption、killで代替しない。
+同時・重複resumeで同じnative sessionのownerを2つ起動しない。
+
+version付きtyped resume adapterを通じて設定済み実CLIを直接起動し、host認証/approvalと固定targetを維持する。
+新run/generation/epochを発行し、中断元への関連を残してbindingを再検証する。
+旧callback/input receipt/controlはstaleのままとする。
+成功報告前に有界かつdurableな復旧intent/resultを記録する。
+復旧自体のcrashや配送不明は所有とnative identityを再照合し、自動で再launchしない。
+spawn成功だけでなく、記録したnative sessionを実際に再開したことを確認する。
+
+pending prompt、部分input、承認回答、中断tool commandを自動再送しない。
+復旧対象はhostが永続化した会話であり、先のshell commandや外部副作用が未実行だったことを保証しない。
+以後の入力前に中断と配送不明をoperatorへ表示する。
+native履歴消失/破損、identity不明、未対応version、worktree/profile変更、旧process生存不明は対処可能な復旧errorとする。
+暗黙の新会話作成、別host/model/課金経路へのfallbackを行わない。
+復旧recordと既存historyを保持し、worktree削除や別directoryへの移動で復旧成功を装わない。
+
+復旧対応を認定する各host/versionで、実際の中断→明示resumeを検証する。
+同native会話・元worktree・新generation・input replayなしを証明する。
+同時resume、旧process生存、PID再利用、履歴/record消失、target/version変更、部分input、復旧中crashも試験する。
+fixtureだけ、未実施、resume不能は未認定/unsupportedであり成功としない。
+Muse native作業の保留を維持する。
+native resumeの制約を明示し、host自身の永続履歴やfilesystemを失った場合まで復旧を保証しない。
 
 ## Capture、native witness、投影
 
@@ -254,7 +299,7 @@ diagnostic codeと安全IDだけを記録し、raw input/argv/secretを含むenv
 | 未対応host/witness/順序 | unbound/unknown、waitを捏造しない |
 | maintenance | busy/retry明示、store lease解放、PTY維持 |
 | client消失 | detach、child重複起動なし |
-| Daemon消失 | work-loss説明、orphan/unknown、PID adoptionなし |
+| Daemon消失 | interrupted/orphan/unknown。所有検証後の同session明示復旧、PID adoptionなし |
 
 同一UID ownerが侵害された場合の隔離を保証しない。
 OS peer/path検証ができなければlive配送/controlをunavailableとし、黙って弱めない。
@@ -272,6 +317,7 @@ OS peer/path検証ができなければlive配送/controlをunavailableとし、
 | detach/reattach/resize storm | 同generation、byte/ack identity一致 | PTY fixture |
 | 部分input/crash/duplicate | unknown receipt、再送なし | fault injection |
 | expiry後重複/reorder/wake | unknown、wait復活・Attention重複なし | fake monotonic clock |
+| 中断session・同時/不明resume | 同native会話・新generation・重複owner/再送なし。不明なら停止 | native・fault |
 | Daemon不在・global/per-run hook | history/receipt/stdout不変、二重eventなし | CLI・host/version実機 |
 | maintenance・遅延history挿入 | lease解放、再snapshot、PTY維持 | 実SQLite |
 | shutdown cancel/run集合変更 | 暗黙stopなし、旧plan拒否 | process fixture |
@@ -292,6 +338,7 @@ external test packageとpublic APIの観測結果を使う。
 | #2462 | launch後のstream/detach/reconnect |
 | #2463 | stream/launch後の明示target control |
 | #2464 | control後の終了/更新/wake |
+| #2478 | lifecycleとhost resume adapter後のdurableな明示同session復旧 |
 | #2465 | IPC/launch後のhistory/maintenance |
 | #2466 | IPC/launch後の任意観測受付 |
 | #2467 | launch identity contract後のpure投影 |
@@ -313,6 +360,7 @@ exact command/input SHA/結果/log hash/未実施gateを残す。
 architecture PRのReady化/mergeは人間操作であり、一般的delivery goalから自動許可を生成しない。
 
 rollbackは新launch/control/live配送を停止し、Daemon shutdown前に影響runとcancelを提示する。
-既存CLI/hooks/history/Memoryとユーザーmetadataを維持し、worktree強制削除やorphan kill/resumeを行わない。
+既存CLI/hooks/history/Memoryとユーザーmetadataを維持し、worktree強制削除やorphanの自動kill/resumeを行わない。
+live投影の無効化だけで検証済みの明示復旧経路を失わせない。
 新core schemaは対象外で、将来migrationは別backup/restore checkpointを要する。
 R0不採用なら製品runtimeは未実装のままとし、UI D0を代わりに採用しない。
