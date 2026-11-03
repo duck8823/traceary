@@ -14,6 +14,8 @@ func operationCode(err error) string {
 	switch {
 	case err == nil:
 		return "ok"
+	case errors.Is(err, app.ErrLifecycleCommitUncertain) || errors.Is(err, app.ErrUpdateUnknown):
+		return "update_unknown"
 	case errors.Is(err, app.ErrShutdownUnknown):
 		return "shutdown_unknown"
 	case errors.Is(err, app.ErrControlUnknown):

@@ -23,7 +23,7 @@ import (
 )
 
 func TestRuntimeCLIEndToEndRegistrationLaunchAndListWithoutHomeOrCoreBootstrap(t *testing.T) {
-	for _, mode := range []string{"output", "controls", "shutdown", "crash"} {
+	for _, mode := range []string{"output", "controls", "shutdown", "crash", "update"} {
 		t.Run(mode, func(t *testing.T) { runtimeCLIProcessFixture(t, mode) })
 	}
 }
@@ -188,6 +188,48 @@ func main(){
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
+	if mode == "update" {
+		view := jsonCommand("daemon", "update", "status", "--runtime-dir", metadata, "--epoch", status.Epoch)
+		if view["quiescent"] != true || view["authority"] != "current_owner_metadata_only_not_installation" {
+			t.Fatal("CLI update status invented permission or work")
+		}
+		attempt := jsonCommand("daemon", "update", "attempt", "--runtime-dir", metadata, "--epoch", status.Epoch, "--target-version", "fixture-v2", "--target-protocol", "2")
+		if attempt["notice"] != true || attempt["outcome"] != "quiescent_snapshot_not_permission" {
+			t.Fatal("CLI attempt lost notice/boundary")
+		}
+		b := attempt["preview"].(map[string]any)
+		args := []string{"daemon", "update", "handoff", "--runtime-dir", metadata, "--epoch", status.Epoch, "--target-version", "fixture-v2", "--target-protocol", "2", "--preview-id", b["preview_id"].(string), "--revision", b["revision"].(string), "--roster-digest", b["roster_digest"].(string), "--total-runs", "0", "--pending-launches", "0", "--pending-controls", "0", "--pending-reconciliations", "0"}
+		if e := command(args...).Run(); e == nil {
+			t.Fatal("actual CLI handoff accepted missing exit acknowledgment")
+		}
+		out := jsonCommand(append(args, "--acknowledge-daemon-exit")...)
+		if out["outcome"] != "draining" || out["closed_terminals"] != float64(0) {
+			t.Fatal("empty CLI handoff changed live work")
+		}
+		select {
+		case e := <-done:
+			if e != nil {
+				t.Fatal(e)
+			}
+		case <-ctx.Done():
+			t.Fatal("actual CLI update handoff did not exit")
+		}
+		history := jsonCommand("daemon", "shutdown", "history", "--runtime-dir", metadata)
+		if history["clean"] != true {
+			t.Fatal("known empty CLI handoff not clean")
+		}
+		actual, e := os.ReadFile(store)
+		if e != nil || !bytes.Equal(actual, original) {
+			t.Fatal("CLI update changed core store")
+		}
+		if _, e = os.Stat(filepath.Dir(poisonCore)); !os.IsNotExist(e) {
+			t.Fatal("CLI update bootstrapped core path")
+		}
+		if _, e = os.Stat(resultFile); !os.IsNotExist(e) {
+			t.Fatal("CLI update launched native agent")
+		}
+		return
+	}
 	launched := jsonCommand("runtime", "launch", "--runtime-dir", metadata, "--epoch", status.Epoch, "--worktree", w["id"].(string), "--profile", "codex-fixture", "--request-id", "explicit-fixture-request")
 	if launched["request_id"] != "explicit-fixture-request" {
 		t.Fatal("launch receipt lost request")
@@ -205,6 +247,10 @@ func main(){
 		}
 		target := launched["run"].(map[string]any)
 		if mode == "shutdown" {
+			deferred := jsonCommand("daemon", "update", "attempt", "--runtime-dir", metadata, "--epoch", status.Epoch, "--target-version", "fixture-v2", "--target-protocol", "2")
+			if deferred["notice"] != true || deferred["outcome"] != "deferred" {
+				t.Fatal("active CLI update did not defer")
+			}
 			preview := jsonCommand("daemon", "shutdown", "preview", "--runtime-dir", metadata, "--epoch", status.Epoch)
 			bindingArgs := func(kind string, p map[string]any) []string {
 				b := p["binding"].(map[string]any)

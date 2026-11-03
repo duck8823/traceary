@@ -70,3 +70,18 @@ func (d *LocalDaemon) ConfirmShutdown(context.Context, string, app.ShutdownConfi
 func (d *LocalDaemon) ShutdownReceipt(context.Context, string, domain.ShutdownBindingState) (app.ShutdownResult, error) {
 	return app.ShutdownResult{}, app.ErrRuntimeUnsupported
 }
+
+// UpdateStatus never fabricates unsupported native owner metadata.
+func (d *LocalDaemon) UpdateStatus(context.Context, string, string) (app.UpdateStatus, error) {
+	return app.UpdateStatus{}, app.ErrRuntimeUnsupported
+}
+
+// AttemptUpdate has no unchecked transport or updater fallback.
+func (d *LocalDaemon) AttemptUpdate(context.Context, string, app.UpdateAttemptRequest) (app.UpdateAttemptResult, error) {
+	return app.UpdateAttemptResult{}, app.ErrRuntimeUnsupported
+}
+
+// HandoffUpdate has no unchecked process/update fallback.
+func (d *LocalDaemon) HandoffUpdate(context.Context, string, app.UpdateHandoffRequest) (app.ShutdownResult, error) {
+	return app.ShutdownResult{}, app.ErrRuntimeUnsupported
+}

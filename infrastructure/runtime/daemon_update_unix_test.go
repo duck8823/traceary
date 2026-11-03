@@ -146,8 +146,8 @@ func TestDaemonEmptyUpdateHandoffAtomicallyRetiresBeforeCleanAndReleasesLease(t 
 		t.Fatal(err)
 	}
 	epoch := serveContinuityFixture(t, d, root)
-	owner := <-owners
-	attempt, err := owner.AttemptUpdate(ctx, target)
+	<-owners
+	attempt, err := d.AttemptUpdate(ctx, root, app.UpdateAttemptRequest{Epoch: epoch, Target: target})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +155,7 @@ func TestDaemonEmptyUpdateHandoffAtomicallyRetiresBeforeCleanAndReleasesLease(t 
 	if !found || binding.TotalRuns != 0 {
 		t.Fatal("exact empty handoff preview missing")
 	}
-	result, err := owner.HandoffUpdate(ctx, app.UpdateHandoffRequest{Target: target, Binding: binding, DaemonExitAcknowledged: true})
+	result, err := d.HandoffUpdate(ctx, root, app.UpdateHandoffRequest{Target: target, Binding: binding, DaemonExitAcknowledged: true})
 	if err != nil || result.Outcome != domain.ShutdownDraining || result.ClosedTerminals != 0 {
 		t.Fatal("real empty handoff failed", err)
 	}

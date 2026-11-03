@@ -18,11 +18,14 @@ type shutdownConfirmationRecord struct {
 	WorkLossAcknowledged bool                  `json:"work_loss_acknowledged"`
 }
 type lifecycleRequestRecord struct {
-	Preview *shutdownPreviewRequestRecord `json:"preview,omitempty"`
-	Page    *shutdownPageRequestRecord    `json:"page,omitempty"`
-	Cancel  *shutdownBindingRecord        `json:"cancel,omitempty"`
-	Confirm *shutdownConfirmationRecord   `json:"confirm,omitempty"`
-	Receipt *shutdownBindingRecord        `json:"receipt,omitempty"`
+	Preview       *shutdownPreviewRequestRecord `json:"preview,omitempty"`
+	Page          *shutdownPageRequestRecord    `json:"page,omitempty"`
+	Cancel        *shutdownBindingRecord        `json:"cancel,omitempty"`
+	Confirm       *shutdownConfirmationRecord   `json:"confirm,omitempty"`
+	Receipt       *shutdownBindingRecord        `json:"receipt,omitempty"`
+	UpdateStatus  *updateStatusRequestRecord    `json:"update_status,omitempty"`
+	UpdateAttempt *updateAttemptRequestRecord   `json:"update_attempt,omitempty"`
+	UpdateHandoff *updateHandoffRequestRecord   `json:"update_handoff,omitempty"`
 }
 
 func validLifecycleID(value string) bool {
@@ -30,7 +33,7 @@ func validLifecycleID(value string) bool {
 }
 func (r lifecycleRequestRecord) validOperation(operation string) bool {
 	count := 0
-	for _, present := range []bool{r.Preview != nil, r.Page != nil, r.Cancel != nil, r.Confirm != nil, r.Receipt != nil} {
+	for _, present := range []bool{r.Preview != nil, r.Page != nil, r.Cancel != nil, r.Confirm != nil, r.Receipt != nil, r.UpdateStatus != nil, r.UpdateAttempt != nil, r.UpdateHandoff != nil} {
 		if present {
 			count++
 		}
@@ -40,6 +43,16 @@ func (r lifecycleRequestRecord) validOperation(operation string) bool {
 	}
 	var record *shutdownBindingRecord
 	switch operation {
+	case "update_status":
+		return r.UpdateStatus != nil && validLifecycleID(r.UpdateStatus.Epoch)
+	case "update_attempt":
+		return r.UpdateAttempt != nil && (app.UpdateAttemptRequest{Epoch: r.UpdateAttempt.Epoch, Target: r.UpdateAttempt.Target.target()}).Valid()
+	case "update_handoff":
+		if r.UpdateHandoff == nil {
+			return false
+		}
+		_, err := r.UpdateHandoff.request()
+		return err == nil
 	case "shutdown_preview":
 		return r.Preview != nil && validLifecycleID(r.Preview.Epoch)
 	case "shutdown_page":
@@ -81,9 +94,22 @@ type shutdownPreviewPageRecord struct {
 	Next    string                     `json:"next,omitempty"`
 }
 type lifecycleResponseRecord struct {
-	Preview   *shutdownPreviewPageRecord `json:"preview,omitempty"`
-	Decision  *shutdownRecord            `json:"decision,omitempty"`
-	Cancelled *shutdownBindingRecord     `json:"cancelled,omitempty"`
+	Preview       *shutdownPreviewPageRecord `json:"preview,omitempty"`
+	Decision      *shutdownRecord            `json:"decision,omitempty"`
+	Cancelled     *shutdownBindingRecord     `json:"cancelled,omitempty"`
+	UpdateStatus  *updateStatusRecord        `json:"update_status,omitempty"`
+	UpdateAttempt *updateAttemptResultRecord `json:"update_attempt,omitempty"`
+	UpdateHandoff *updateHandoffResultRecord `json:"update_handoff,omitempty"`
+}
+
+func (r lifecycleResponseRecord) singleArm() bool {
+	count := 0
+	for _, present := range []bool{r.Preview != nil, r.Decision != nil, r.Cancelled != nil, r.UpdateStatus != nil, r.UpdateAttempt != nil, r.UpdateHandoff != nil} {
+		if present {
+			count++
+		}
+	}
+	return count == 1
 }
 
 func recordShutdownPage(p app.ShutdownPreviewPage) *shutdownPreviewPageRecord {

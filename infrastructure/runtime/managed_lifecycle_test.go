@@ -133,6 +133,17 @@ func TestManagedConfirmedMasterCloseKeepsLeaseAndManagementUntilActualExit(t *te
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
+	updateStatus, updateErr := d.UpdateStatus(ctx, root, status.Epoch)
+	if updateErr != nil || updateStatus.Quiescent {
+		t.Fatal("live native owner falsely update-quiescent", updateErr)
+	}
+	deferred, updateErr := d.AttemptUpdate(ctx, root, app.UpdateAttemptRequest{Epoch: status.Epoch, Target: domain.UpdateTarget{Version: "fixture-v2", Protocol: 2}})
+	if updateErr != nil || !deferred.Notice || deferred.Status.Quiescent {
+		t.Fatal("live native update not deferred", updateErr)
+	}
+	if _, available := deferred.Preview.Value(); available {
+		t.Fatal("live native update returned empty handoff")
+	}
 	stream, err := d.Attach(ctx, root, selection, 0)
 	if err != nil {
 		t.Fatal(err)

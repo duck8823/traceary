@@ -69,9 +69,21 @@ macOS では固定の kernel timestamp `kern.sleeptime`/`kern.waketime` だけ�
 
 owner API は child の停止や通常の launch/control の凍結を行わず、継続的な更新延期を記録します。status は process 件数だけでなく、pending run/control/reconciliation/lifecycle/uncertainty の全阻害条件を含みます。target 変更と epoch 初期化を跨いで元の UTC 起算時刻と通知公開履歴を保持します。status 参照では通知を消費せず、対応済みの明示 attempt は busy・永続化失敗時にも attempt notice を返します。idle attempt の成功が返すのは正確な空 shutdown preview だけで、installer の競合実行許可ではありません。
 
-別の foreground scheduler が 24 時間後の private metadata notice を永続公開し、native power polling を遅延させません。`notified_24h` は公開の重複抑止であり、**人間への表示や OS 通知の配送証明ではありません**。応答喪失後も overdue status を参照できます。lifecycle metadata coordinator は実際の owner join に含め、以前の shutdown preview を失効させます。不確定な commit では新規 effect と clean marker を拒否します。binary updater は実行しません。公開 update SDK/CLI と opt-in autostart descriptor は、この Draft ではまだ未実装です。
+別の foreground scheduler が 24 時間後の private metadata notice を永続公開し、native power polling を遅延させません。`notified_24h` は公開の重複抑止であり、**人間への表示や OS 通知の配送証明ではありません**。応答喪失後も overdue status を参照できます。lifecycle metadata coordinator は実際の owner join に含め、以前の shutdown preview を失効させます。不確定な commit では新規 effect と clean marker を拒否します。binary updater は実行しません。この Draft では opt-in autostart descriptor と最終検証が残っています。
 
 owner 側の update handoff は shutdown coordinator を再利用しますが、正確な**空** digest/roster、pending counter がゼロ、対象 target の一致、明示的な daemon exit の確認を構造的に要求します。新規 work で preview は stale になり、生存 PTY を閉じることはできません。既存の private envelope 内で元 shutdown intent の確定と対応する延期情報の退役を原子的に行い、その後に coordinator を join します。失敗時は software 更新成功と扱わず不確定性を保持します。同 ticket の join は元の purpose と target の両方の一致が必要です。closed terminal がゼロの `draining` receipt でも、OS 終了・更新の適用・旧 session 排他の証明ではありません。通常の confirmed shutdown は登録済みの最後の応答書き込みを有界に待ち、accept/attach loop は待ちません。通信喪失は引き続き unknown であり、再送許可ではありません。
+
+## 明示的な update CLI
+
+```sh
+traceary daemon update status --runtime-dir /absolute/private/runtime --epoch <epoch>
+traceary daemon update attempt --runtime-dir /absolute/private/runtime --epoch <epoch> \
+  --target-version <version> --target-protocol <canonical-number>
+```
+
+status は通知を消費しません。attempt は notice と現在 owner の metadata を出力し、更新成功とは扱いません。active/pending/uncertain work があれば `deferred`、quiescent なら `quiescent_snapshot_not_permission` と正確な空 `preview` を返します。対応済みの拒否でも notice を出力して error を返す場合があります。永続化の可能性がある応答喪失・不正・mixed/queued・不一致は `unknown` とし、自動再試行しません。再送せず status を確認してください。正常な poll や notice は native 入力・承認・session resume の権限ではありません。
+
+空 handoff は `daemon update handoff` に両 target flags、shutdown 節の**元 preview の 8 flags すべて**、**`--acknowledge-daemon-exit`** を指定します。ゼロ/pending count と digest の完全一致が必要です。`--acknowledge-work-loss` は update handoff の代用ではなく、非空 preview は必ず拒否します。CLI は `current_owner_metadata_only_not_installation` を表示し、updater 実行、core store 作成、daemon/agent の起動、launchd の導入、不確定 effect の自動再送を行いません。接続可能な間は元 shutdown receipt、終了後は既存 root の history を確認します。指定 version/protocol の適用成功は主張しません。
 
 ## 残る検証
 

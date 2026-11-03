@@ -69,9 +69,21 @@ This is an adapter contract, not host certification. A causal receiver must vali
 
 The owner API now records continuous update deferral without stopping children or freezing ordinary launches/controls. Status includes the full pending/run/control/reconciliation/lifecycle/uncertainty blockers, not just a process count. Retargeting and epoch initialization preserve the original UTC start and prior notice publication. Status reads are non-consuming; every supported explicit attempt returns an attempt notice, including busy/persistence failures. A successful idle attempt returns only an exact empty shutdown preview, not permission to race an installer.
 
-A separate foreground scheduler durably publishes the private metadata notice after 24 hours; it does not delay native power polling. `notified_24h` is publication deduplication, **not proof of human display or OS notification delivery**. Overdue status remains readable even after a lost response. Lifecycle metadata coordinators participate in actual owner joins and invalidate earlier shutdown previews; ambiguous commits freeze new effects and forbid a clean marker. No binary updater is executed. Public update SDK/CLI and opt-in autostart descriptors are still pending in this draft.
+A separate foreground scheduler durably publishes the private metadata notice after 24 hours; it does not delay native power polling. `notified_24h` is publication deduplication, **not proof of human display or OS notification delivery**. Overdue status remains readable even after a lost response. Lifecycle metadata coordinators participate in actual owner joins and invalidate earlier shutdown previews; ambiguous commits freeze new effects and forbid a clean marker. No binary updater is executed. Opt-in autostart descriptors and final qualification remain pending in this draft.
 
 The owner-side update handoff reuses the shutdown coordinator but structurally requires an exact **empty** digest/roster, zero pending counters, the matching target and explicit daemon-exit acknowledgment. New work makes its preview stale; it cannot close a live PTY. The existing private envelope atomically finalizes the prior shutdown intent and retires the matching deferral before the coordinator joins. An error preserves uncertainty instead of claiming installed software. Same-ticket joins must match both original purpose and target. A successful `draining` receipt with zero closed terminals still does not prove OS exit, update installation or old-session exclusivity. Normal confirmed shutdown waits a bounded interval for already-registered final response writes, not for accept/attach loops; transport loss still means unknown, never permission to replay.
+
+## Explicit update CLI
+
+```sh
+traceary daemon update status --runtime-dir /absolute/private/runtime --epoch <epoch>
+traceary daemon update attempt --runtime-dir /absolute/private/runtime --epoch <epoch> \
+  --target-version <version> --target-protocol <canonical-number>
+```
+
+Status is non-consuming; an attempt prints a notice and current-owner metadata, not installation success. Active/pending/uncertain work returns `deferred`; a quiescent attempt returns `quiescent_snapshot_not_permission` plus an exact empty `preview`. A supported refusal can still print its notice and return an error. A possibly persisted/lost/malformed/mixed/queued/mismatched attempt response is `unknown`, with no automatic retry. Inspect status rather than replaying it. A healthy poll or notice does not authorize native input, approval or session resume.
+
+For explicit empty handoff, use `daemon update handoff`, both target flags, **all eight** original preview flags listed in the shutdown section, and **`--acknowledge-daemon-exit`**. Zero/pending counts and the digest must remain exact. `--acknowledge-work-loss` is not an update-handoff substitute; a nonempty preview is always refused. The CLI prints `current_owner_metadata_only_not_installation` and never starts an updater, creates a core store, starts a daemon/agent, installs launchd, or retries an uncertain effect. After handoff, inspect the original shutdown receipt while reachable or existing-root history after exit. No requested version/protocol is claimed installed.
 
 ## Remaining qualification
 

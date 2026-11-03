@@ -176,6 +176,8 @@ func (v observationRecord) metadata() app.ObservationMetadata {
 }
 func responseError(code string) error {
 	switch code {
+	case "update_unknown":
+		return app.ErrUpdateUnknown
 	case "shutdown_unknown":
 		return app.ErrShutdownUnknown
 	case "control_unknown":
