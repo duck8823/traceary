@@ -44,6 +44,7 @@ automatic Memory acceptance, Desktop implementation, signing and distribution.
 | Binding | Descriptor plus independently verified native witness | Environment hints and possession of a descriptor path are not authorization |
 | Observation | Adapter evidence, source identity, monotonic receipt time | Unknown causality or version stays unknown |
 | Projection | Pure reducer of accepted observations | Display state cannot create approval/input authority |
+| Recovery record | Durable native session identity and target; exclusive resume intent | Same conversation, fresh run; never infer old-owner absence or replay input |
 | Input receipt | Request identity and bounded delivery outcome | Partial or interrupted delivery is unknown, never automatically retried |
 
 Process, interaction, capture health, client connection and committed history
@@ -72,7 +73,7 @@ no dependency on runtime infrastructure; composition stays at the entry point.
 ## Operator surface and compatibility
 
 The additive command groups are `traceary daemon` (serve/status/shutdown planning)
-and `traceary runtime` (registry, profiles, launch/list/attach/input/resize/stop).
+and `traceary runtime` (registry, profiles, launch/list/attach/input/resize/stop/resume).
 Exact subcommand flags and JSON output are fixed with their owning implementation
 issue before shipping. `traceary runtime observe` is the narrow hook intake; it
 is not a generic command runner or approval endpoint. Existing public hook

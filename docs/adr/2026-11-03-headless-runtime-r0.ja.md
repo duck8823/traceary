@@ -38,6 +38,7 @@ R0の設計・文書・隔離probeは今すぐ進められる。
 | Binding | descriptorと独立検証したnative witness | 環境変数hintやdescriptor pathの所持は認可ではない |
 | Observation | adapter証拠、source identity、単調受信時刻 | 因果関係や版が不明ならunknown |
 | Projection | 受理した観測のpure reducer | 表示状態から承認・入力の権限を生成しない |
+| Recovery record | durableなnative session/targetと排他resume intent | 同会話・新run。旧owner非稼働を推測せずinput再送なし |
 | Input receipt | request identityと有界な配送結果 | 部分配送・中断はunknown、自動再送しない |
 
 Process、interaction、capture health、client connection、commit済みhistoryを別軸とする。
@@ -64,7 +65,7 @@ core domain/usecaseからruntime infrastructureへ依存させず、entry point�
 
 ## Operator surfaceと互換性
 
-追加command groupは`traceary daemon`（serve/status/shutdown計画）と`traceary runtime`（registry、profile、launch/list/attach/input/resize/stop）とする。
+追加command groupは`traceary daemon`（serve/status/shutdown計画）と`traceary runtime`（registry、profile、launch/list/attach/input/resize/stop/resume）とする。
 個々のflagとJSON出力は担当実装Issueで出荷前に固定する。
 `traceary runtime observe`は狭いhook受付であり、汎用command runnerや承認endpointではない。
 既存hookのstdout/判断、exit、redaction、receipt/spool contractは不変とする。
