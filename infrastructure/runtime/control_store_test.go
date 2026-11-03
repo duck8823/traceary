@@ -80,6 +80,46 @@ func TestControlJournalPrivateMetadataOnlyTerminalAndImmutableEvidence(t *testin
 		t.Fatal("foreign binding admitted")
 	}
 }
+
+func TestControlJournalDiscriminatesUnknownVersionBeforeV1Shape(t *testing.T) {
+	_, descriptor, _ := ptyFixture(t)
+	snapshot := descriptor.Snapshot()
+	selection := app.OutputSelection{Identity: snapshot.Identity, Worktree: snapshot.Target.Worktree().ID(), Profile: snapshot.Profile.ID()}
+	for _, test := range []struct {
+		name, document string
+		want           error
+	}{
+		{"future-new-field", `{"version":2,"new_field":"new"}`, domain.ErrUnsupported},
+		{"future-null-field", `{"version":2,"new_field":null}`, domain.ErrUnsupported},
+		{"future-no-v1-shape", `{"version":2}`, domain.ErrUnsupported},
+		{"known-unknown-field", `{"version":1,"revision":0,"runs":[],"new_field":true}`, domain.ErrInvalid},
+		{"known-null", `{"version":1,"revision":0,"runs":null}`, domain.ErrInvalid},
+		{"missing-version", `{"revision":0,"runs":[]}`, domain.ErrInvalid},
+		{"null-version", `{"version":null}`, domain.ErrInvalid},
+		{"wrong-version-type", `{"version":"2"}`, domain.ErrInvalid},
+		{"duplicate-version", `{"version":2,"version":2}`, domain.ErrInvalid},
+		{"invalid-json", `{"version":2} trailing`, domain.ErrInvalid},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := daemonRoot(t)
+			store, err := infra.NewExecutionStore(root, infra.MaxRegistryBytes)
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(root, "receipts.json")
+			if err = os.WriteFile(path, []byte(test.document), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err = store.ListControlReceipts(context.Background(), selection); !errors.Is(err, test.want) {
+				t.Fatalf("version/shape distinction lost: got %v want %v", err, test.want)
+			}
+			after, err := os.ReadFile(path)
+			if err != nil || string(after) != test.document {
+				t.Fatal("schema refusal mutated receipt evidence", err)
+			}
+		})
+	}
+}
 func TestControlJournalRejectsNullAndUnknownSchemaBeforeMutation(t *testing.T) {
 	_, descriptor, _ := ptyFixture(t)
 	snapshot := descriptor.Snapshot()
