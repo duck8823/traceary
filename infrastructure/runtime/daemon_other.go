@@ -30,3 +30,8 @@ func (d *LocalDaemon) Launch(context.Context, string, app.LaunchRequest) (domain
 func (d *LocalDaemon) ListRuns(context.Context, string, app.RunPageRequest) (app.RunPage, error) {
 	return app.RunPage{}, app.ErrRuntimeUnsupported
 }
+
+// Attach has no unchecked streaming fallback.
+func (d *LocalDaemon) Attach(context.Context, string, app.OutputSelection, domain.ByteOffset) (app.OutputStream, error) {
+	return nil, app.ErrRuntimeUnsupported
+}

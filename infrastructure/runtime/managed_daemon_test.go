@@ -88,6 +88,78 @@ func TestManagedDaemonLaunchListAndCancelPreserveActualPTYOwner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	readyDeadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, e := os.Stat(result + ".output-ready"); e == nil {
+			break
+		}
+		if time.Now().After(readyDeadline) {
+			t.Fatal("native output not ready")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	selection := app.OutputSelection{Identity: run.Identity, Worktree: worktree.ID(), Profile: run.Profile.ID()}
+	stream, err := d.Attach(ctx, root, selection, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := stream.Next(ctx)
+	if err != nil || first.Kind != "snapshot" {
+		t.Fatal("missing attach snapshot")
+	}
+	var outputCursor domain.ByteOffset
+	for outputCursor < 2*1024*1024 {
+		frame, e := stream.Next(ctx)
+		if e != nil || frame.Kind != "data" || frame.Start != outputCursor {
+			t.Fatalf("output replay: %v", e)
+		}
+		outputCursor = frame.End
+	}
+	time.Sleep(1100 * time.Millisecond)
+	idle, idleCancel := context.WithTimeout(ctx, 20*time.Millisecond)
+	_, idleErr := stream.Next(idle)
+	idleCancel()
+	if !errors.Is(idleErr, context.DeadlineExceeded) {
+		t.Fatalf("idle stream retained handshake deadline: %v", idleErr)
+	}
+	_ = stream.Close()
+	resumed, err := d.Attach(ctx, root, selection, outputCursor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resumedFrame, err := resumed.Next(ctx)
+	if err != nil || resumedFrame.Info.Selection != selection {
+		t.Fatal("reader reconnected to a different launch")
+	}
+	_ = resumed.Close()
+	foreign := selection
+	foreign.Identity.Generation = strings.Repeat("a", 32)
+	if _, err = d.Attach(ctx, root, foreign, outputCursor); !errors.Is(err, domain.ErrChanged) {
+		t.Fatalf("foreign attach admitted: %v", err)
+	}
+	if _, e := d.Attach(ctx, root, selection, outputCursor+1); !errors.Is(e, domain.ErrOutputCursor) {
+		t.Fatalf("future cursor guessed compatible: %v", e)
+	}
+	oldEpoch := selection
+	oldEpoch.Identity.Epoch = strings.Repeat("4", 32)
+	if _, e := d.Attach(ctx, root, oldEpoch, outputCursor); !errors.Is(e, domain.ErrChanged) {
+		t.Fatalf("old epoch attached: %v", e)
+	}
+	// More than the per-run cap sequential idle closes prove EOF releases server slots.
+	for i := 0; i < 8; i++ {
+		limit := time.Now().Add(time.Second)
+		for {
+			reader, e := d.Attach(ctx, root, selection, outputCursor)
+			if e == nil {
+				_ = reader.Close()
+				break
+			}
+			if !errors.Is(e, domain.ErrLimit) || time.Now().After(limit) {
+				t.Fatalf("idle disconnect leaked subscriber slot: %v", e)
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
 	page, err := d.ListRuns(ctx, root, app.RunPageRequest{Epoch: status.Epoch})
 	if err != nil || len(page.Runs) != 1 || page.Runs[0].Identity != run.Identity {
 		t.Fatalf("typed list: %v", err)

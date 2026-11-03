@@ -38,6 +38,7 @@ var pillarInventory = []pillarInventoryEntry{
 	{Path: "runtime profile register", Pillar: pillarKeep, Reason: "explicit owner-scoped runtime operation; no core Session lifecycle or approval authority"},
 	{Path: "runtime profile list", Pillar: pillarKeep, Reason: "explicit owner-scoped runtime operation; no core Session lifecycle or approval authority"},
 	{Path: "runtime launch", Pillar: pillarKeep, Reason: "explicit owner-scoped runtime operation; no core Session lifecycle or approval authority"},
+	{Path: "runtime attach", Pillar: pillarKeep, Reason: "bounded owned PTY output only; no child lifecycle or terminal escape interpretation"},
 	{Path: "runtime list", Pillar: pillarKeep, Reason: "explicit owner-scoped runtime operation; no core Session lifecycle or approval authority"},
 	{Path: "daemon serve", Pillar: pillarKeep, Reason: "explicit local runtime transport; not a history or permission authority"},
 	{Path: "daemon status", Pillar: pillarKeep, Reason: "bounded local transport readiness; does not query the core store"},

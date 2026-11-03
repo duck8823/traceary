@@ -380,7 +380,7 @@ func (s *daemonServer) handle(conn *net.UnixConn, endpoint *daemonSocket) {
 		seen[request.ID] = struct{}{}
 		reply := runtimeResponse{Version: RuntimeProtocolVersion, ID: request.ID}
 		if hello {
-			if request.Operation != "hello" || request.Role != endpoint.role || request.Observation != nil || request.Launch != nil || request.Page != nil {
+			if request.Operation != "hello" || request.Role != endpoint.role || request.Observation != nil || request.Launch != nil || request.Page != nil || request.Attach != nil {
 				reply.Code = "invalid"
 				_ = writeRuntimeFrame(conn, reply)
 				return
@@ -392,7 +392,10 @@ func (s *daemonServer) handle(conn *net.UnixConn, endpoint *daemonSocket) {
 			reply.Code = "invalid"
 		} else {
 			switch {
-			case endpoint.role == "management" && request.Operation == "status" && request.Observation == nil && request.Launch == nil && request.Page == nil:
+			case endpoint.role == "management" && request.Operation == "attach" && request.Attach != nil && request.Page == nil && request.Launch == nil && request.Observation == nil:
+				s.attach(conn, request)
+				return
+			case endpoint.role == "management" && request.Attach == nil && request.Operation == "status" && request.Observation == nil && request.Launch == nil && request.Page == nil:
 				delivery := "unavailable"
 				capabilities := []string{"status"}
 				if s.daemon.receiver != nil {
@@ -404,7 +407,7 @@ func (s *daemonServer) handle(conn *net.UnixConn, endpoint *daemonSocket) {
 				}
 				state := "listening"
 				if s.runtime != nil {
-					capabilities = append(capabilities, "list_runs")
+					capabilities = append(capabilities, "list_runs", "attach")
 					if s.runtime.Disabled() {
 						state = "draining"
 					} else {
@@ -413,7 +416,7 @@ func (s *daemonServer) handle(conn *net.UnixConn, endpoint *daemonSocket) {
 				}
 				reply.Code = "ok"
 				reply.Status = &runtimeStatusRecord{RuntimeProtocolVersion, s.epoch, state, capabilities, delivery}
-			case endpoint.role == "observations" && request.Operation == "observe" && request.Observation != nil && request.Launch == nil && request.Page == nil:
+			case endpoint.role == "observations" && request.Attach == nil && request.Operation == "observe" && request.Observation != nil && request.Launch == nil && request.Page == nil:
 				metadata := request.Observation.metadata()
 				if !validObservation(metadata) {
 					reply.Code = "invalid"
@@ -424,9 +427,9 @@ func (s *daemonServer) handle(conn *net.UnixConn, endpoint *daemonSocket) {
 				} else {
 					reply.Code = "queued"
 				}
-			case endpoint.role == "management" && request.Operation == "launch" && request.Launch != nil && request.Page == nil && request.Observation == nil:
+			case endpoint.role == "management" && request.Attach == nil && request.Operation == "launch" && request.Launch != nil && request.Page == nil && request.Observation == nil:
 				s.launchReply(&reply, request.Launch)
-			case endpoint.role == "management" && request.Operation == "list_runs" && request.Page != nil && request.Launch == nil && request.Observation == nil:
+			case endpoint.role == "management" && request.Attach == nil && request.Operation == "list_runs" && request.Page != nil && request.Launch == nil && request.Observation == nil:
 				s.pageReply(&reply, request.Page)
 			default:
 				reply.Code = "unsupported"
@@ -502,7 +505,7 @@ func (d *LocalDaemon) Status(ctx context.Context, root string) (app.DaemonStatus
 	if err != nil {
 		return app.DaemonStatus{}, err
 	}
-	if reply.Code != "ok" || reply.Status == nil || reply.Role != "" || reply.Run != nil || reply.Page != nil {
+	if reply.Output != nil || reply.Code != "ok" || reply.Status == nil || reply.Role != "" || reply.Run != nil || reply.Page != nil {
 		return app.DaemonStatus{}, app.ErrRuntimeProtocol
 	}
 	return decodeRuntimeStatus(reply)
@@ -519,7 +522,7 @@ func (d *LocalDaemon) Observe(ctx context.Context, root string, metadata app.Obs
 	if err != nil {
 		return err
 	}
-	if reply.Code != "queued" || reply.Status != nil || reply.Role != "" || reply.Run != nil || reply.Page != nil {
+	if reply.Output != nil || reply.Code != "queued" || reply.Status != nil || reply.Role != "" || reply.Run != nil || reply.Page != nil {
 		return app.ErrRuntimeProtocol
 	}
 	return nil
@@ -550,72 +553,88 @@ func (d *LocalDaemon) exchange(parent context.Context, root string, request runt
 		return value.reply, phase.Load() == 1, value.err
 	}
 }
-func (d *LocalDaemon) performExchange(ctx context.Context, root string, request runtimeRequest, phase *atomic.Int32) (runtimeResponse, error) {
+func (d *LocalDaemon) openRuntime(ctx context.Context, root, operation string) (*net.UnixConn, string, error) {
 	if !validRuntimeRoot(root) {
-		return runtimeResponse{}, app.ErrUnsafeRuntime
+		return nil, "", app.ErrUnsafeRuntime
 	}
 	if _, err := os.Lstat(root); errors.Is(err, os.ErrNotExist) {
-		return runtimeResponse{}, app.ErrDaemonUnavailable
+		return nil, "", app.ErrDaemonUnavailable
 	}
 	rootFD, err := privateRuntimeDir(root, false)
 	if err != nil {
-		return runtimeResponse{}, app.ErrUnsafeRuntime
+		return nil, "", app.ErrUnsafeRuntime
 	}
 	defer func() { _ = unix.Close(rootFD) }()
 	witness, err := directoryWitness(rootFD)
 	if err != nil {
-		return runtimeResponse{}, app.ErrUnsafeRuntime
+		return nil, "", app.ErrUnsafeRuntime
 	}
 	name, role := "daemon.sock", "management"
-	if request.Operation == "observe" {
+	if operation == "observe" {
 		name, role = "observations.sock", "observations"
 	}
 	var before unix.Stat_t
 	err = unix.Fstatat(rootFD, name, &before, unix.AT_SYMLINK_NOFOLLOW)
 	if errors.Is(err, unix.ENOENT) {
-		return runtimeResponse{}, app.ErrDaemonUnavailable
+		return nil, "", app.ErrDaemonUnavailable
 	}
 	if err != nil || !runtimeSocketStat(before) {
-		return runtimeResponse{}, app.ErrUnsafeRuntime
+		return nil, "", app.ErrUnsafeRuntime
 	}
 	if err = ctx.Err(); err != nil {
-		return runtimeResponse{}, xerrors.Errorf("inspect local endpoint: %w", err)
+		return nil, "", xerrors.Errorf("inspect local endpoint: %w", err)
 	}
 	connection, err := (&net.Dialer{}).DialContext(ctx, "unix", filepath.Join(root, name))
 	if err != nil {
-		return runtimeResponse{}, app.ErrDaemonUnavailable
+		return nil, "", app.ErrDaemonUnavailable
 	}
 	conn, ok := connection.(*net.UnixConn)
 	if !ok {
 		_ = connection.Close()
-		return runtimeResponse{}, app.ErrUnsafeRuntime
+		return nil, "", app.ErrUnsafeRuntime
 	}
-	defer func() { _ = conn.Close() }()
+	success := false
+	defer func() {
+		if !success {
+			_ = conn.Close()
+		}
+	}()
 	deadline, ok := ctx.Deadline()
 	if !ok || conn.SetDeadline(deadline) != nil {
-		return runtimeResponse{}, app.ErrDaemonUnavailable
+		return nil, "", app.ErrDaemonUnavailable
 	}
 	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	defer stop()
 	var after unix.Stat_t
 	if verifyRuntimePeer(conn) != nil || verifyRuntimeRoot(root, witness, rootFD) != nil || unix.Fstatat(rootFD, name, &after, unix.AT_SYMLINK_NOFOLLOW) != nil || !sameSocket(before, after) {
-		return runtimeResponse{}, app.ErrUnsafeRuntime
+		return nil, "", app.ErrUnsafeRuntime
 	}
 	random := make([]byte, 16)
 	if _, err = rand.Read(random); err != nil {
-		return runtimeResponse{}, app.ErrDaemonUnavailable
+		return nil, "", app.ErrDaemonUnavailable
 	}
 	id := hex.EncodeToString(random)
 	if err = writeRuntimeFrame(conn, runtimeRequest{Version: RuntimeProtocolVersion, ID: id, Operation: "hello", Role: role}); err != nil {
-		return runtimeResponse{}, app.ErrDaemonUnavailable
+		return nil, "", app.ErrDaemonUnavailable
 	}
 	hello, err := readRuntimeResponse(conn, id)
 	if err != nil {
+		return nil, "", err
+	}
+	if hello.Output != nil || hello.Code != "ok" || hello.Role != role || hello.Status != nil || hello.Run != nil || hello.Page != nil {
+		return nil, "", app.ErrRuntimeProtocol
+	}
+	success = true
+	return conn, id, nil
+}
+func (d *LocalDaemon) performExchange(ctx context.Context, root string, request runtimeRequest, phase *atomic.Int32) (runtimeResponse, error) {
+	conn, id, err := d.openRuntime(ctx, root, request.Operation)
+	if err != nil {
 		return runtimeResponse{}, err
 	}
-	if hello.Code != "ok" || hello.Role != role || hello.Status != nil || hello.Run != nil || hello.Page != nil {
-		return runtimeResponse{}, app.ErrRuntimeProtocol
-	}
+	defer func() { _ = conn.Close() }()
+	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stop()
 	id += "-request"
 	request.Version = RuntimeProtocolVersion
 	request.ID = id
