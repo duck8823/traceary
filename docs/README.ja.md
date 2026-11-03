@@ -17,6 +17,8 @@
 - [環境変数リファレンス](./environment/README.ja.md): 環境変数、実行時の前提、対応プラットフォーム
 - [ストレージモデル](./storage/README.ja.md): SQLite の構造、マイグレーション、GC、保存しないもの
 
+- [Headless runtime R0（提案）](./adr/2026-11-03-headless-runtime-r0.ja.md)：UI非依存Daemonの設計・安全境界・受入gate
+
 ## 連携まわり
 
 - [ネイティブ連携ガイド](./integrations/README.ja.md): Claude / Codex / Gemini（レガシー）向けパッケージ、導入手順、smoke test

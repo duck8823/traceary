@@ -34,6 +34,8 @@ This page is the detailed docs index for Traceary. Start here when the top-level
 - [Memory command surface plan](./operations/memory-command-surface.md): v0.14 plan for `memory inbox`, `memory store`, and `memory admin` plus the hidden deprecated aliases retained until v0.15
 - [Release guide](./release/README.md): release packaging, GitHub Actions, and local snapshot builds
 
+- [Headless runtime R0 (proposed)](./adr/2026-11-03-headless-runtime-r0.md): UI-independent daemon design, safety boundaries and acceptance gate
+
 ## Project docs
 
 - [Repository README](../README.md): install, quick start, and core commands
