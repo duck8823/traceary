@@ -14,7 +14,8 @@ import (
 
 func outputFixture(t *testing.T, limits app.OutputLimits) (*app.Output, app.OutputSelection) {
 	t.Helper()
-	owner, req, _, _ := runtimeFixture(t, false)
+	owner, req, factory, _ := runtimeFixture(t, false)
+	t.Cleanup(factory.child.finish)
 	run, err := owner.Launch(context.Background(), req)
 	if err != nil {
 		t.Fatal(err)
@@ -199,5 +200,15 @@ func TestOutputLazyHistoryWrapIsNotSlowLiveBacklog(t *testing.T) {
 	end, err := sub.Next(context.Background())
 	if err != nil || end.Kind != "end" {
 		t.Fatal("missing capture end")
+	}
+}
+
+func TestOutputRejectsMalformedWorktreeIdentity(t *testing.T) {
+	_, selection := outputFixture(t, app.OutputLimits{})
+	for _, worktree := range []string{strings.Repeat("a", 66), "w_" + strings.Repeat("G", 64), "w_" + strings.Repeat("A", 64)} {
+		selection.Worktree = domain.WorktreeID(worktree)
+		if _, err := app.NewOutput(selection, app.OutputLimits{}); !errors.Is(err, domain.ErrInvalid) {
+			t.Fatal("malformed worktree accepted")
+		}
 	}
 }

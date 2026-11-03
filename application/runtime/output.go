@@ -4,6 +4,7 @@ import (
 	"context"
 	"golang.org/x/xerrors"
 	"io"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -78,8 +79,13 @@ type Output struct {
 
 // NewOutput creates a bounded volatile capture owner.
 func NewOutput(selection OutputSelection, limits OutputLimits) (*Output, error) {
-	if !selection.Identity.Valid() || len(selection.Worktree) != 66 {
+	if !selection.Identity.Valid() || len(selection.Worktree) != 66 || !strings.HasPrefix(string(selection.Worktree), "w_") {
 		return nil, domain.ErrInvalid
+	}
+	for _, c := range selection.Worktree[2:] {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return nil, domain.ErrInvalid
+		}
 	}
 	if _, err := domain.ProfileIDFrom(string(selection.Profile)); err != nil {
 		return nil, xerrors.Errorf("initialize runtime output: %w", err)

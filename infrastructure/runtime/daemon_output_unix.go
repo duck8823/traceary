@@ -69,7 +69,7 @@ type outputStream struct {
 	selection  app.OutputSelection
 	cursor     domain.ByteOffset
 	base, head domain.ByteOffset
-	resize     uint64
+	resize     app.ResizeEvidence
 	started    bool
 	cached     *app.OutputFrame
 	reading    atomic.Bool
@@ -124,7 +124,7 @@ func (s *outputStream) Next(ctx context.Context) (app.OutputFrame, error) {
 		return app.OutputFrame{}, app.ErrRuntimeProtocol
 	}
 	f, err := reply.Output.frame()
-	if err != nil || f.Info.Selection != s.selection || f.Info.Base < s.base || f.Info.Head < s.head || f.Info.Resize.Sequence < s.resize || (!s.started && (f.Kind != "snapshot" || s.cursor > f.Info.Head)) || (s.started && f.Kind == "snapshot") {
+	if err != nil || f.Info.Selection != s.selection || f.Info.Base < s.base || f.Info.Head < s.head || f.Info.Resize.Sequence < s.resize.Sequence || s.started && f.Info.Resize.Sequence == s.resize.Sequence && f.Info.Resize != s.resize || (!s.started && (f.Kind != "snapshot" || s.cursor > f.Info.Head)) || (s.started && f.Kind == "snapshot") {
 		_ = s.Close()
 		return app.OutputFrame{}, app.ErrRuntimeProtocol
 	}
@@ -150,7 +150,7 @@ func (s *outputStream) Next(ctx context.Context) (app.OutputFrame, error) {
 	s.started = true
 	s.base = f.Info.Base
 	s.head = f.Info.Head
-	s.resize = f.Info.Resize.Sequence
+	s.resize = f.Info.Resize
 	if f.Kind == "end" || f.Gap != nil && f.Gap.Reason == "slow_consumer" {
 		_ = s.Close()
 	}
