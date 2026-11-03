@@ -70,6 +70,28 @@ func TestMain(m *testing.M) {
 		if os.WriteFile(os.Getenv("FIXTURE_RESULT"), data, 0600) != nil {
 			os.Exit(90)
 		}
+		if os.Getenv("FIXTURE_OUTPUT_MODE") == "maintenance" {
+			if _, e := io.WriteString(os.Stdout, "BEFORE\n"); e != nil {
+				os.Exit(91)
+			}
+			if os.WriteFile(os.Getenv("FIXTURE_RESULT")+".maintenance-ready", []byte("ready"), 0600) != nil {
+				os.Exit(90)
+			}
+			deadline := time.Now().Add(45 * time.Second)
+			for {
+				if _, e := os.Stat(os.Getenv("FIXTURE_RELEASE")); e == nil {
+					break
+				}
+				if time.Now().After(deadline) {
+					os.Exit(92)
+				}
+				time.Sleep(5 * time.Millisecond)
+			}
+			if _, e := io.WriteString(os.Stdout, "AFTER\n"); e != nil {
+				os.Exit(91)
+			}
+			os.Exit(7)
+		}
 		if os.Getenv("FIXTURE_OUTPUT_MODE") == "control_descendants" {
 			executable, e := os.Executable()
 			if e != nil {

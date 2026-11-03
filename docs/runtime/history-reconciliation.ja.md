@@ -20,7 +20,7 @@
 公開 daemon transport と CLI は、履歴 core を厳密な要求照合、有界 frame、正しい prefix と継続位置の制御を伴って公開しています。
 commit 後の hint は capture 結果、標準出力、spool 所有権、receipt 冪等性を変更してはいけません。
 明示 runtime metadata export/forget では範囲、version、上限、同意、部分変更の不確定性を定義し、Registry、core 履歴、Git data、native 会話を削除してはいけません。
-実際の upgrade/compaction、spool replay、生存 PTY との同時実行の検証、最終レビューと delivery gate も残っています。
+残る prepared upgrade と実 filesystem spool replay の検証、lifecycle metadata の統合、最終レビューと delivery gate が必要です。
 これらは未完了の delivery 作業であり、現在の daemon が提供済みの capability ではありません。
 
 ## commit 済み page と登録済みの読取 source
@@ -133,3 +133,20 @@ export と新たな preview で確認してから、別の明示判断が必要�
 この中間 guard は最終受け入れではありません。
 Issue 完了前に、通常の対応済み lifecycle root でも動作し、監査の保持と復旧記録の消去範囲を明示する必要があります。
 sidecar の一括削除や orphan の自動 cleanup は提供しません。
+
+## 実 compaction と所有 PTY の検証
+
+別の統合 test で、実際の StoreCompactionUsecase、SQLiteCompactionBuilder、StoreReplacementFiles、StoreLeaseCoordinator を使い、移行済みの生成 store に対して履歴 page を連続要求しながら compaction を実行します。
+有界な test gate は本物の排他 lease を取得した後だけ待機します。
+その間の同期 page 要求 3 回は busy を明示する必要があります。
+実 replica compaction が別の物理 store を公開し、要求 view 全件を保持し、新しい履歴読取に成功することを検証します。
+古い source の継続要求と native Registry 再検証は changed で拒否し、native 権限を更新しません。
+
+実 Runtime が、登録した有限 PTY fixture を maintenance の前後も所有します。
+PID の検査・signal、自動 native 入力は行いません。
+同じ identity が交換の前・中・後に live のまま維持され、前後の BEFORE/AFTER 出力を保持し、明示的な fixture 解放後だけ所有 Wait の exit7 に収束します。
+交換前の core hook delivery は、交換後の exact redelivery でも正規 ID と inserted=false を維持します。
+交換後に要求範囲内の深い過去へ commit した行も、hint なしで回復し、既存 CLI metadata query と件数・ID が一致します。
+
+これは inode の copy fixture だけではなく、実 compaction と合成の所有 PTY/core receipt の検証です。
+実 host/native 会話の復旧、物理 sleep/wake、prepared upgrade、実 filesystem spool replay の認定ではなく、それらの残る gate を置き換えません。
