@@ -2,7 +2,7 @@
 
 [日本語](./daemon-lifecycle.ja.md)
 
-This document describes the shutdown SDK/CLI and continuity fencing implemented in the lifecycle workstream. The workstream remains draft: update handoff/autostart descriptors, native host binding and final qualification are not yet complete. Do not treat these commands as release or real-host recovery certification.
+This document describes the shutdown SDK/CLI, update handoff, local opt-in descriptors and continuity fencing implemented in the lifecycle workstream. The workstream remains draft pending physical qualification and final delivery gates. Native host binding and safe same-session recovery are separate, not yet certified workstreams. Do not treat these commands as release or real-host recovery certification.
 
 ## Detach is not shutdown
 
@@ -69,7 +69,7 @@ This is an adapter contract, not host certification. A causal receiver must vali
 
 The owner API now records continuous update deferral without stopping children or freezing ordinary launches/controls. Status includes the full pending/run/control/reconciliation/lifecycle/uncertainty blockers, not just a process count. Retargeting and epoch initialization preserve the original UTC start and prior notice publication. Status reads are non-consuming; every supported explicit attempt returns an attempt notice, including busy/persistence failures. A successful idle attempt returns only an exact empty shutdown preview, not permission to race an installer.
 
-A separate foreground scheduler durably publishes the private metadata notice after 24 hours; it does not delay native power polling. `notified_24h` is publication deduplication, **not proof of human display or OS notification delivery**. Overdue status remains readable even after a lost response. Lifecycle metadata coordinators participate in actual owner joins and invalidate earlier shutdown previews; ambiguous commits freeze new effects and forbid a clean marker. No binary updater is executed. Opt-in autostart descriptors and final qualification remain pending in this draft.
+A separate foreground scheduler durably publishes the private metadata notice after 24 hours; it does not delay native power polling. `notified_24h` is publication deduplication, **not proof of human display or OS notification delivery**. Overdue status remains readable even after a lost response. Lifecycle metadata coordinators participate in actual owner joins and invalidate earlier shutdown previews; ambiguous commits freeze new effects and forbid a clean marker. No binary updater is executed. Local opt-in descriptors are described below; physical qualification and final delivery gates remain pending in this draft.
 
 The owner-side update handoff reuses the shutdown coordinator but structurally requires an exact **empty** digest/roster, zero pending counters, the matching target and explicit daemon-exit acknowledgment. New work makes its preview stale; it cannot close a live PTY. The existing private envelope atomically finalizes the prior shutdown intent and retires the matching deferral before the coordinator joins. An error preserves uncertainty instead of claiming installed software. Same-ticket joins must match both original purpose and target. A successful `draining` receipt with zero closed terminals still does not prove OS exit, update installation or old-session exclusivity. Normal confirmed shutdown waits a bounded interval for already-registered final response writes, not for accept/attach loops; transport loss still means unknown, never permission to replay.
 
