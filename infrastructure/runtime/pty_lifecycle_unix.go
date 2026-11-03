@@ -24,6 +24,8 @@ func (c *ptyChild) ValidateTerminalClose(ctx context.Context) error {
 		return domain.ErrUnsupported
 	}
 	if closed {
+		// No descriptor remains to affect: unlike live Stop admission, this
+		// idempotent no-op needs no renewed executable/target authority.
 		return nil
 	}
 	if err := c.validateTargetExecutable(ctx); err != nil {

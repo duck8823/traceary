@@ -135,6 +135,12 @@ func (r outputRecord) frame() (app.OutputFrame, error) {
 			if g.DeliveryUnknown || from == to || to > base {
 				return app.OutputFrame{}, invalid
 			}
+		case string(app.CaptureTerminalClosed):
+			// This is a zero-width unknowable tail at the ended capture head,
+			// not a claimed byte loss interval or proof of native process exit.
+			if !g.DeliveryUnknown || !r.Info.Ended || f.Info.Reason != app.CaptureTerminalClosed || from != to || to != head {
+				return app.OutputFrame{}, invalid
+			}
 		case "slow_consumer", "tail_unknown", "read_error":
 			if !g.DeliveryUnknown {
 				return app.OutputFrame{}, invalid

@@ -158,6 +158,37 @@ func TestManagedConfirmedMasterCloseKeepsLeaseAndManagementUntilActualExit(t *te
 	if err != nil || closed.Outcome != domain.ShutdownDraining || closed.ClosedTerminals != 1 {
 		t.Fatal("managed terminal closure failed", err)
 	}
+	// Reconnect via the actual IPC decoder after capture closure; an in-memory
+	// subscription alone would miss a wire gap-reason allowlist regression.
+	ended, err := d.Attach(ctx, root, selection, 0)
+	if err != nil {
+		t.Fatal("closed capture reconnect failed", err)
+	}
+	defer func() { _ = ended.Close() }()
+	readCtx, readCancel := context.WithTimeout(ctx, 2*time.Second)
+	defer readCancel()
+	sawGap, sawEnd := false, false
+	for frames := 0; frames < 8 && !sawEnd; frames++ {
+		frame, e := ended.Next(readCtx)
+		if e != nil {
+			t.Fatal("master-close IPC stream failed before gap/end", e)
+		}
+		if frame.Kind == "gap" {
+			if frame.Gap == nil || frame.Gap.Reason != string(app.CaptureTerminalClosed) || !frame.Gap.DeliveryUnknown || frame.Gap.From != frame.Gap.To {
+				t.Fatal("master-close IPC loss evidence changed")
+			}
+			sawGap = true
+		}
+		if frame.Kind == "end" {
+			if !sawGap {
+				t.Fatal("master-close IPC end hid delivery uncertainty")
+			}
+			sawEnd = true
+		}
+	}
+	if !sawGap || !sawEnd {
+		t.Fatal("master-close IPC capture never reached explicit gap and end")
+	}
 	status, err = d.Status(ctx, root)
 	if err != nil || status.State != "draining" || slices.Contains(status.Capabilities, "input") || slices.Contains(status.Capabilities, "resize") || !slices.Contains(status.Capabilities, "stop") {
 		t.Fatal("draining management/capability contract lost", err)
