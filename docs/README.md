@@ -17,6 +17,8 @@ This page is the detailed docs index for Traceary. Start here when the top-level
 - [Environment reference](./environment/README.md): environment variables, runtime assumptions, and platform support
 - [Storage model](./storage/README.md): SQLite layout, migrations, GC behavior, and what Traceary does not store
 
+- [Headless registry backend](./runtime/registry.md): shared registry API, immutable targets, private metadata and deletion safety
+
 ## Integrations
 
 - [Native integrations](./integrations/README.md): packaged Claude / Codex / Gemini (legacy) integration bundles, install flows, and smoke tests
