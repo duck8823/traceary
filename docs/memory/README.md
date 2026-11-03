@@ -394,3 +394,5 @@ That means:
 - [Event lifecycle](../lifecycle.md)
 
 See [Reusable lesson evaluation](lesson-evaluation.md) and the [review worksheet](lesson-review-template.md) before proposing reusable lessons.
+
+See [Memory provenance boundaries](provenance-boundaries.md) for the source/trust matrix, regression coverage and limits of review/export.

@@ -170,7 +170,7 @@ func TestLoad_MuseColumn(t *testing.T) {
 	want := map[string]hostcoverage.Status{
 		"session_started":       hostcoverage.StatusWired,
 		"prompt":                hostcoverage.StatusWired,
-		"transcript":            hostcoverage.StatusWired,
+		"transcript":            hostcoverage.StatusAvailable,
 		"command_executed":      hostcoverage.StatusAvailable,
 		"compact_summary":       hostcoverage.StatusAvailable,
 		"session_ended":         hostcoverage.StatusAvailable,
@@ -193,10 +193,17 @@ func TestLoad_MuseColumn(t *testing.T) {
 	for _, id := range wired {
 		wiredSet[id] = true
 	}
-	for _, id := range []string{"session_started", "prompt", "transcript"} {
+	for _, id := range []string{"session_started", "prompt"} {
 		if !wiredSet[id] {
 			t.Fatalf("WiredLifecycleEvents(muse) missing %s: %v", id, wired)
 		}
+	}
+	if wiredSet["transcript"] {
+		t.Fatal("Muse Stop must not advertise transcript capture")
+	}
+	cell := host.Events["transcript"]
+	if !strings.Contains(cell.Summary.EN, "no transcript") || !strings.Contains(cell.Summary.JA, "transcript は記録しない") {
+		t.Fatalf("missing bilingual capture caveat: %+v", cell.Summary)
 	}
 	if m.ExpectsSessionEnrichment("muse") {
 		t.Fatal("muse must not expect session enrichment until a live corpus exists")
