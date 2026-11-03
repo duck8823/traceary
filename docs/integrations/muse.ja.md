@@ -49,7 +49,7 @@ packaged hook 8 件（#2352 runtime、`integrations/muse-plugin/hooks/hooks.json
 | `PreToolUse` | `traceary hook muse pre-tool-use` | 検証のみ |
 | `PostToolUse` | `traceary hook muse post-tool-use` | `command_executed` **available**（宣言済み。live の tool-dispatch capture probe なし） |
 | `PostToolUseFailure` | `traceary hook muse post-tool-use-failure` | `command_executed` **available**（同上） |
-| `Stop` | `traceary hook muse stop` | `transcript` **wired**（turn 境界であり session 終了ではない） |
+| `Stop` | `traceary hook muse stop` | turn 境界のみ。`transcript` イベントは記録しない。transcript capture は **available** であり wired ではない（#2426） |
 | `PreCompact` | `traceary hook muse pre-compact` | `compact_summary` **available**（宣言済み。exec/TUI/resume での dispatch は未観測） |
 | `PostCompact` | `traceary hook muse post-compact` | `compact_summary` **available**（同上） |
 
