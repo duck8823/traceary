@@ -51,8 +51,18 @@ type ShutdownResult struct {
 	Outcome         domain.ShutdownOutcome
 	ClosedTerminals int
 }
+
+type shutdownPurpose uint8
+
+const (
+	shutdownManual shutdownPurpose = iota
+	shutdownUpdate
+)
+
 type shutdownTicket struct {
 	confirmation ShutdownConfirmation
+	purpose      shutdownPurpose
+	target       domain.UpdateTarget
 	result       ShutdownResult
 	err          error
 	done         chan struct{}
@@ -147,6 +157,10 @@ func (s *Runtime) CancelShutdown(binding domain.ShutdownBindingState) error {
 // ConfirmShutdown single-flights one exact explicitly acknowledged plan. Caller
 // cancellation cannot abandon ownership or automatically replay master closure.
 func (s *Runtime) ConfirmShutdown(ctx context.Context, request ShutdownConfirmation) (ShutdownResult, error) {
+	return s.confirmShutdown(ctx, request, shutdownManual, domain.UpdateTarget{})
+}
+
+func (s *Runtime) confirmShutdown(ctx context.Context, request ShutdownConfirmation, purpose shutdownPurpose, target domain.UpdateTarget) (ShutdownResult, error) {
 	if err := ctx.Err(); err != nil {
 		return ShutdownResult{}, xerrors.Errorf("confirm daemon shutdown: %w", err)
 	}
@@ -157,9 +171,12 @@ func (s *Runtime) ConfirmShutdown(ctx context.Context, request ShutdownConfirmat
 	if !request.WorkLossAcknowledged {
 		return ShutdownResult{}, domain.ErrInvalid
 	}
+	if purpose == shutdownUpdate && (!target.Valid() || !emptyUpdateBinding(request.Binding)) || purpose != shutdownManual && purpose != shutdownUpdate {
+		return ShutdownResult{}, domain.ErrInvalid
+	}
 	s.mu.Lock()
 	if ticket := s.shutdownTickets[request.Binding.PreviewID]; ticket != nil {
-		if ticket.confirmation != request {
+		if ticket.confirmation != request || ticket.purpose != purpose || ticket.target != target {
 			s.mu.Unlock()
 			return ShutdownResult{}, domain.ErrChanged
 		}
@@ -181,6 +198,24 @@ func (s *Runtime) ConfirmShutdown(ctx context.Context, request ShutdownConfirmat
 	if s.shutdownPreparing || s.shutdownCommitted || s.lifecycleStarting || s.lifecyclePending > 0 || s.hasUncertainLocked() {
 		s.mu.Unlock()
 		return ShutdownResult{}, ErrRuntimeBusy
+	}
+	if purpose == shutdownUpdate {
+		if _, err = s.updateRepositoryLocked(); err != nil {
+			s.mu.Unlock()
+			return ShutdownResult{}, err
+		}
+		if _, capable := s.journal.(UpdateHandoffJournal); !capable {
+			s.mu.Unlock()
+			return ShutdownResult{}, domain.ErrUnsupported
+		}
+		if s.disabled {
+			s.mu.Unlock()
+			return ShutdownResult{}, ErrRuntimeBusy
+		}
+		if s.updateDeferral != nil && s.updateDeferral.Snapshot().Target != target {
+			s.mu.Unlock()
+			return ShutdownResult{}, domain.ErrChanged
+		}
 	}
 	journal, ok := s.journal.(ShutdownJournal)
 	if !ok {
@@ -209,7 +244,7 @@ func (s *Runtime) ConfirmShutdown(ctx context.Context, request ShutdownConfirmat
 	if s.shutdownTickets == nil {
 		s.shutdownTickets = make(map[string]*shutdownTicket)
 	}
-	ticket := &shutdownTicket{confirmation: request, result: ShutdownResult{Binding: request.Binding, Outcome: domain.ShutdownPending}, done: make(chan struct{})}
+	ticket := &shutdownTicket{confirmation: request, purpose: purpose, target: target, result: ShutdownResult{Binding: request.Binding, Outcome: domain.ShutdownPending}, done: make(chan struct{})}
 	s.shutdownTickets[request.Binding.PreviewID] = ticket
 	s.shutdownPreparing = true
 	s.lifecyclePending++
@@ -272,6 +307,11 @@ func (s *Runtime) finishShutdown(ticket *shutdownTicket, result ShutdownResult, 
 	if committed {
 		s.shutdownCommitted = true
 		s.disabled = true
+	}
+	if ticket.purpose == shutdownUpdate && err == nil && result.Outcome == domain.ShutdownDraining {
+		// The journal completed outcome+retirement atomically. Cache retirement
+		// must precede lifecyclePending-- so clean cannot overtake it.
+		s.updateDeferral = nil
 	}
 	s.lifecyclePending--
 	s.changedLocked()
@@ -351,7 +391,16 @@ func (s *Runtime) performShutdown(parent context.Context, ticket *shutdownTicket
 		result.Outcome = domain.ShutdownDraining
 	}
 	saveCtx, saveCancel := context.WithTimeout(parent, 2*time.Second)
-	err := journal.SaveShutdown(saveCtx, result)
+	var err error
+	if ticket.purpose == shutdownUpdate {
+		if atomicJournal, ok := journal.(UpdateHandoffJournal); ok {
+			err = atomicJournal.SaveUpdateHandoff(saveCtx, result, ticket.target)
+		} else {
+			err = domain.ErrUnsupported // Guarded at admission; no unchecked assertion.
+		}
+	} else {
+		err = journal.SaveShutdown(saveCtx, result)
+	}
 	saveCancel()
 	if err != nil || result.Outcome == domain.ShutdownUnknown {
 		result.Outcome = domain.ShutdownUnknown

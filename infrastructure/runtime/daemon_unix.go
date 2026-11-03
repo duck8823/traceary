@@ -61,35 +61,38 @@ type pendingObservation struct {
 	stamp    app.ObservationStamp
 }
 type daemonServer struct {
-	endpointMetadata     *RegistryStore
-	previousEndpoints    *endpointReceipt
-	staleEndpoints       map[string]unix.Stat_t
-	daemon               *LocalDaemon
-	ctx                  context.Context
-	cancel               context.CancelFunc
-	root, witness, epoch string
-	rootFD, leaseFD      int
-	releaseClaim         func()
-	leaseStamp           unix.Stat_t
-	endpoints            []*daemonSocket
-	connections          map[*net.UnixConn]struct{}
-	connectionMu         sync.Mutex
-	network              sync.WaitGroup
-	failure              chan error
-	queueMu              sync.Mutex
-	queue                []pendingObservation
-	queueBytes           int
-	notify               chan struct{}
-	workerDone           chan struct{}
-	workerStarted        bool
-	gate                 *app.ObservationGate
-	powerDone            chan struct{}
-	powerStarted         bool
-	updateDone           chan struct{}
-	updateStarted        bool
-	degraded             atomic.Bool
-	releaseOnce          sync.Once
-	runtime              *app.Runtime
+	endpointMetadata      *RegistryStore
+	previousEndpoints     *endpointReceipt
+	staleEndpoints        map[string]unix.Stat_t
+	daemon                *LocalDaemon
+	ctx                   context.Context
+	cancel                context.CancelFunc
+	root, witness, epoch  string
+	rootFD, leaseFD       int
+	releaseClaim          func()
+	leaseStamp            unix.Stat_t
+	endpoints             []*daemonSocket
+	connections           map[*net.UnixConn]struct{}
+	connectionMu          sync.Mutex
+	replyMu               sync.Mutex
+	effectReplies         map[*net.UnixConn]chan struct{}
+	effectAdmissionClosed bool
+	network               sync.WaitGroup
+	failure               chan error
+	queueMu               sync.Mutex
+	queue                 []pendingObservation
+	queueBytes            int
+	notify                chan struct{}
+	workerDone            chan struct{}
+	workerStarted         bool
+	gate                  *app.ObservationGate
+	powerDone             chan struct{}
+	powerStarted          bool
+	updateDone            chan struct{}
+	updateStarted         bool
+	degraded              atomic.Bool
+	releaseOnce           sync.Once
+	runtime               *app.Runtime
 }
 
 // Serve owns the two local endpoints. It starts no agent and performs no core-store I/O.
@@ -127,10 +130,12 @@ func (d *LocalDaemon) Serve(ctx context.Context, root string) error {
 			}
 		}()
 	}
+	normalConfirmation := false
 	select {
 	case <-ctx.Done():
 	case <-s.ctx.Done():
 	case <-confirmed:
+		normalConfirmation = true
 	}
 	if s.runtime != nil {
 		s.runtime.DisableLaunches()
@@ -145,6 +150,11 @@ func (d *LocalDaemon) Serve(ctx context.Context, root string) error {
 		if publishErr != nil && !errors.Is(publishErr, domain.ErrUnsupported) {
 			return xerrors.Errorf("finish daemon lifecycle publication: %w", publishErr)
 		}
+	}
+	if normalConfirmation {
+		replyCtx, replyCancel := context.WithTimeout(context.Background(), s.daemon.options.IOTimeout)
+		_ = s.awaitEffectReplies(replyCtx) // Best effort only; EOF/timeout remains unknown.
+		replyCancel()
 	}
 	select {
 	case err := <-s.failure:
@@ -406,6 +416,7 @@ func (s *daemonServer) endpointCurrent(endpoint *daemonSocket) bool {
 func (s *daemonServer) handle(conn *net.UnixConn, endpoint *daemonSocket) {
 	stop := context.AfterFunc(s.ctx, func() { _ = conn.Close() })
 	defer stop()
+	defer s.endEffectReply(conn)
 	if verifyRuntimePeer(conn) != nil || !s.endpointCurrent(endpoint) {
 		return
 	}
@@ -453,7 +464,15 @@ func (s *daemonServer) handle(conn *net.UnixConn, endpoint *daemonSocket) {
 		} else if request.Lifecycle != nil {
 			clean := endpoint.role == "management" && request.Control == nil && request.Receipt == nil && request.Attach == nil && request.Observation == nil && request.Launch == nil && request.Page == nil
 			if clean {
-				s.lifecycleReply(&reply, request.Lifecycle, request.Operation)
+				admitted := true
+				if request.Operation == "shutdown_confirm" || request.Operation == "update_handoff" {
+					admitted = s.beginEffectReply(conn)
+				}
+				if admitted {
+					s.lifecycleReply(&reply, request.Lifecycle, request.Operation)
+				} else {
+					reply.Code = "busy"
+				}
 			} else {
 				reply.Code = "unsupported"
 			}
@@ -462,7 +481,11 @@ func (s *daemonServer) handle(conn *net.UnixConn, endpoint *daemonSocket) {
 			clean := request.Attach == nil && request.Observation == nil && request.Launch == nil && request.Page == nil && endpoint.role == "management"
 			switch {
 			case clean && request.Control != nil && request.Receipt == nil && (request.Operation == "input" || request.Operation == "resize" || request.Operation == "stop"):
-				s.controlReply(&reply, request.Control, request.Operation)
+				if request.Operation != "stop" || s.beginEffectReply(conn) {
+					s.controlReply(&reply, request.Control, request.Operation)
+				} else {
+					reply.Code = "busy"
+				}
 			case clean && request.Receipt != nil && request.Control == nil && request.Operation == "receipt":
 				s.receiptReply(&reply, request.Receipt)
 			default:
@@ -524,6 +547,7 @@ func (s *daemonServer) handle(conn *net.UnixConn, endpoint *daemonSocket) {
 		if writeRuntimeFrame(conn, reply) != nil {
 			return
 		}
+		s.endEffectReply(conn)
 		if reply.Code != "ok" && reply.Code != "queued" {
 			return
 		}

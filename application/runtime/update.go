@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"math"
 	"time"
 
 	domain "github.com/duck8823/traceary/domain/runtime"
@@ -55,6 +56,26 @@ type UpdateAttemptResult struct {
 	Preview types.Optional[domain.ShutdownBindingState]
 }
 
+// UpdateHandoffRequest consents only to this exact EMPTY daemon's exit, never
+// live work loss or binary installation. Target is bounded request metadata.
+type UpdateHandoffRequest struct {
+	Target                 domain.UpdateTarget
+	Binding                domain.ShutdownBindingState
+	DaemonExitAcknowledged bool
+}
+
+func emptyUpdateBinding(binding domain.ShutdownBindingState) bool {
+	digest, err := ShutdownRosterDigest(nil)
+	return err == nil && binding.RosterDigest == digest && binding.TotalRuns == 0 && binding.PendingLaunches == 0 && binding.PendingControls == 0 && binding.PendingReconciliations == 0
+}
+
+// HandoffUpdate reuses the existing exact-roster shutdown coordinator and
+// requires its atomic retirement journal. A successful draining0 receipt does
+// NOT certify OS process exit, installed software, or old-session exclusivity.
+func (s *Runtime) HandoffUpdate(ctx context.Context, request UpdateHandoffRequest) (ShutdownResult, error) {
+	return s.confirmShutdown(ctx, ShutdownConfirmation{Binding: request.Binding, WorkLossAcknowledged: request.DaemonExitAcknowledged}, shutdownUpdate, request.Target)
+}
+
 func (s *Runtime) updateStatusLocked(now time.Time) UpdateStatus {
 	binding := s.shutdownBindingLocked("")
 	blockers := make([]string, 0, 8)
@@ -78,6 +99,9 @@ func (s *Runtime) updateStatusLocked(now time.Time) UpdateStatus {
 	}
 	if s.disabled || s.shutdownPreparing || s.shutdownCommitted {
 		blockers = append(blockers, "admission_closed")
+	}
+	if s.revisionExhausted || s.revision == math.MaxUint64 {
+		blockers = append(blockers, "revision_exhausted")
 	}
 	status := UpdateStatus{Epoch: s.epoch, Quiescent: len(blockers) == 0, Blockers: blockers}
 	if s.updateDeferral != nil {
@@ -145,6 +169,10 @@ func (s *Runtime) AttemptUpdate(ctx context.Context, target domain.UpdateTarget)
 		return UpdateAttemptResult{}, err
 	}
 	result := UpdateAttemptResult{Target: target, Status: s.updateStatusLocked(now), Notice: candidate.Notice(now, domain.UpdateAttempt)}
+	if s.revisionExhausted || s.revision == math.MaxUint64 {
+		s.mu.Unlock()
+		return result, domain.ErrLimit
+	}
 	if s.updateMetadataBusyLocked() {
 		s.mu.Unlock()
 		return result, ErrRuntimeBusy
@@ -231,6 +259,10 @@ func (s *Runtime) PublishDueUpdateNotice(ctx context.Context) error {
 	if s.updateDeferral == nil || s.updateDeferral.Snapshot().Notified24h || !s.updateDeferral.Overdue24h(now) {
 		s.mu.Unlock()
 		return nil
+	}
+	if s.revisionExhausted || s.revision == math.MaxUint64 {
+		s.mu.Unlock()
+		return domain.ErrLimit
 	}
 	if s.updateMetadataBusyLocked() {
 		s.mu.Unlock()

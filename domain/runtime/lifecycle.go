@@ -175,6 +175,9 @@ type UpdateTarget struct {
 	Protocol int
 }
 
+// Valid checks bounded metadata only, not updater compatibility or permission.
+func (t UpdateTarget) Valid() bool { return t.valid() }
+
 func (t UpdateTarget) valid() bool {
 	if len(t.Version) == 0 || len(t.Version) > 128 || t.Protocol < 1 || t.Protocol > math.MaxUint16 {
 		return false

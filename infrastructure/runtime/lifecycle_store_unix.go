@@ -299,26 +299,59 @@ func (s *ExecutionStore) SaveShutdown(ctx context.Context, result app.ShutdownRe
 		return domain.ErrInvalid
 	}
 	return s.updateLifecycle(ctx, func(doc *lifecycleEnvelope) error {
-		if doc.Epoch != result.Binding.Epoch || doc.Clean {
+		return completeShutdownRecord(doc, record)
+	})
+}
+
+func completeShutdownRecord(doc *lifecycleEnvelope, record shutdownRecord) error {
+	if doc.Epoch != record.Binding.Epoch || doc.Clean {
+		return domain.ErrChanged
+	}
+	for i, old := range doc.Shutdowns {
+		if old.Binding.Epoch != record.Binding.Epoch || old.Binding.PreviewID != record.Binding.PreviewID {
+			continue
+		}
+		if old.Binding != record.Binding {
 			return domain.ErrChanged
 		}
-		for i, old := range doc.Shutdowns {
-			if old.Binding.Epoch != record.Binding.Epoch || old.Binding.PreviewID != record.Binding.PreviewID {
-				continue
+		if old.Outcome != string(domain.ShutdownPending) {
+			if old == record {
+				return nil
 			}
-			if old.Binding != record.Binding {
-				return domain.ErrChanged
-			}
-			if old.Outcome != string(domain.ShutdownPending) {
-				if old == record {
-					return nil
-				}
-				return domain.ErrChanged
-			}
-			doc.Shutdowns[i] = record
-			return nil
+			return domain.ErrChanged
 		}
-		return domain.ErrNotFound
+		doc.Shutdowns[i] = record
+		return nil
+	}
+	return domain.ErrNotFound
+}
+
+// SaveUpdateHandoff atomically finalizes only an exact empty intent AND retires
+// the matching deferral. No schema extension, post-final clear race, process
+// effect, or claim that a requested binary/protocol was installed is involved.
+func (s *ExecutionStore) SaveUpdateHandoff(ctx context.Context, result app.ShutdownResult, target domain.UpdateTarget) error {
+	record := recordShutdown(result)
+	digest, digestErr := app.ShutdownRosterDigest(nil)
+	if _, err := record.result(); err != nil || digestErr != nil || !target.Valid() || result.Outcome != domain.ShutdownDraining ||
+		result.ClosedTerminals != 0 || result.Binding.RosterDigest != digest || result.Binding.TotalRuns != 0 ||
+		result.Binding.PendingLaunches != 0 || result.Binding.PendingControls != 0 || result.Binding.PendingReconciliations != 0 {
+		return domain.ErrInvalid
+	}
+	return s.updateLifecycle(ctx, func(doc *lifecycleEnvelope) error {
+		if doc.Update != nil {
+			state, err := doc.Update.deferral()
+			if err != nil {
+				return err
+			}
+			if state.Target != target {
+				return domain.ErrChanged
+			}
+		}
+		if err := completeShutdownRecord(doc, record); err != nil {
+			return err
+		}
+		doc.Update = nil
+		return nil
 	})
 }
 

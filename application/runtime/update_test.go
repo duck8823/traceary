@@ -25,12 +25,15 @@ func (c *updateClock) set(at time.Time) { c.mu.Lock(); c.at = at; c.mu.Unlock() 
 // as ExecutionStore. It models metadata only, never a binary updater or native AI.
 type updateJournal struct {
 	*lifecycleTestJournal
-	mu               sync.Mutex
-	state            types.Optional[domain.UpdateDeferralState]
-	saves            int
-	err              error
-	entered, release chan struct{}
-	enterOnce        sync.Once
+	mu                             sync.Mutex
+	state                          types.Optional[domain.UpdateDeferralState]
+	saves                          int
+	err                            error
+	entered, release               chan struct{}
+	enterOnce                      sync.Once
+	handoffEntered, handoffRelease chan struct{}
+	handoffErr                     error
+	handoffs                       int
 }
 
 func (j *updateJournal) RecordEpochStart(_ context.Context, epoch string) (app.LifecycleSnapshot, error) {

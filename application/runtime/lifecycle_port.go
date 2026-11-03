@@ -36,3 +36,10 @@ type LifecycleRepository interface {
 type LifecycleReader interface {
 	ReadLifecycle(context.Context) (LifecycleSnapshot, error)
 }
+
+// UpdateHandoffJournal completes the existing empty shutdown AND retires its
+// matching deferral in one atomic envelope write, before ownership joins. It
+// never installs software and cannot retire another target's deferral.
+type UpdateHandoffJournal interface {
+	SaveUpdateHandoff(context.Context, ShutdownResult, domain.UpdateTarget) error
+}
