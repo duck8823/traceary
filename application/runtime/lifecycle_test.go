@@ -407,3 +407,140 @@ func TestShutdownCannotSkipExitJournalReconciliationWithAnEmptyRoster(t *testing
 		t.Fatal(err)
 	}
 }
+
+// This fake exposes explicit startup/clean publication, not persisted OS proofs.
+type lifecycleTestJournal struct {
+	*shutdownJournal
+	startErr                   error
+	startEntered, startRelease chan struct{}
+	starts, cleans             atomic.Int32
+}
+
+func (j *lifecycleTestJournal) RecordEpochStart(ctx context.Context, epoch string) (app.LifecycleSnapshot, error) {
+	j.starts.Add(1)
+	if j.startEntered != nil {
+		close(j.startEntered)
+		select {
+		case <-j.startRelease:
+		case <-ctx.Done():
+			return app.LifecycleSnapshot{}, fmt.Errorf("synthetic startup: %w", ctx.Err())
+		}
+	}
+	return app.LifecycleSnapshot{Epoch: epoch}, j.startErr
+}
+func (j *lifecycleTestJournal) ReadLifecycle(context.Context) (app.LifecycleSnapshot, error) {
+	return app.LifecycleSnapshot{}, nil
+}
+func (j *lifecycleTestJournal) RecordCleanShutdown(context.Context, string) error {
+	j.cleans.Add(1)
+	return nil
+}
+func (j *lifecycleTestJournal) SaveUpdateDeferral(context.Context, string, domain.UpdateDeferralState) error {
+	return domain.ErrUnsupported
+}
+func (j *lifecycleTestJournal) ClearUpdateDeferral(context.Context, string) error {
+	return domain.ErrUnsupported
+}
+func (j *lifecycleTestJournal) SetAutoStartOptIn(context.Context, bool) error {
+	return domain.ErrUnsupported
+}
+func lifecycleFixture(t *testing.T) (*app.Runtime, app.LaunchRequest, *shutdownChild, *lifecycleTestJournal) {
+	t.Helper()
+	_, launch, base, registry := runtimeFixture(t, false)
+	profile, err := domain.HostProfileFrom(domain.HostProfileState{ID: "codex-fixture", Host: "codex", Executable: "/owned/agent", ExecutableWitness: "fixture", Version: "fixture 1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	child := &shutdownChild{controlChild: &controlChild{fakeChild: base.child, result: app.ControlEffect{Outcome: domain.ControlDelivered, WrittenBytes: 3}}}
+	journal := &lifecycleTestJournal{shutdownJournal: &shutdownJournal{controlJournal: &controlJournal{launchJournal: base.journal}}}
+	owner, err := app.NewRuntime(registry, launchProfiles{profile}, shutdownFactory{child}, journal, launch.Epoch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return owner, launch, child, journal
+}
+func TestLifecycleStartupFailureRefusesNewLaunchesAndCannotEnrollAnExistingRun(t *testing.T) {
+	for _, startErr := range []error{domain.ErrLimit, app.ErrLifecycleCommitUncertain} {
+		owner, launch, child, journal := lifecycleFixture(t)
+		journal.startErr = startErr
+		if _, err := owner.InitializeLifecycle(context.Background()); !errors.Is(err, startErr) {
+			t.Fatal("startup failure hidden", err)
+		}
+		if !owner.Disabled() {
+			t.Fatal("failed/unknown epoch commit left launch admission open")
+		}
+		if _, err := owner.Launch(context.Background(), launch); !errors.Is(err, app.ErrRuntimeBusy) {
+			t.Fatal("launch after failed startup", err)
+		}
+		if _, err := owner.InitializeLifecycle(context.Background()); !errors.Is(err, app.ErrRuntimeBusy) || journal.starts.Load() != 1 {
+			t.Fatal("unknown startup automatically repeated")
+		}
+		if child.closes.Load() != 0 {
+			t.Fatal("failed startup closed terminal")
+		}
+	}
+	owner, launch, _, journal := lifecycleFixture(t)
+	if _, err := owner.Launch(context.Background(), launch); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := owner.InitializeLifecycle(context.Background()); !errors.Is(err, app.ErrRuntimeBusy) || journal.starts.Load() != 0 {
+		t.Fatal("lifecycle enrolled an already admitted run")
+	}
+}
+func TestLifecycleStartupAdmissionBarrierAndCleanPublicationRequireActualIdle(t *testing.T) {
+	owner, launch, child, journal := lifecycleFixture(t)
+	journal.startEntered = make(chan struct{})
+	journal.startRelease = make(chan struct{})
+	initialized := make(chan error, 1)
+	go func() { _, e := owner.InitializeLifecycle(context.Background()); initialized <- e }()
+	<-journal.startEntered
+	if _, err := owner.Launch(context.Background(), launch); !errors.Is(err, app.ErrRuntimeBusy) {
+		t.Fatal("launch raced startup marker", err)
+	}
+	if _, err := owner.PreviewShutdown(context.Background()); !errors.Is(err, app.ErrRuntimeBusy) {
+		t.Fatal("shutdown preview raced startup", err)
+	}
+	close(journal.startRelease)
+	if err := <-initialized; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := owner.Launch(context.Background(), launch); err != nil {
+		t.Fatal(err)
+	}
+	owner.DisableLaunches()
+	if err := owner.PublishCleanShutdown(context.Background()); !errors.Is(err, app.ErrRuntimeBusy) || journal.cleans.Load() != 0 {
+		t.Fatal("live child was published as joined")
+	}
+	child.finish()
+	if err := owner.AwaitIdle(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := owner.PublishCleanShutdown(context.Background()); err != nil || journal.cleans.Load() != 1 {
+		t.Fatal("actual idle clean publication missing", err)
+	}
+}
+
+func TestLifecycleExitPublicationFailureRemainsUnknownAfterActualWait(t *testing.T) {
+	owner, launch, child, journal := lifecycleFixture(t)
+	if _, err := owner.InitializeLifecycle(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := owner.Launch(context.Background(), launch); err != nil {
+		t.Fatal(err)
+	}
+	journal.launchJournal.mu.Lock()
+	journal.fail = true
+	journal.launchJournal.mu.Unlock()
+	owner.DisableLaunches()
+	child.finish()
+	if err := owner.AwaitIdle(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := owner.PublishCleanShutdown(context.Background()); !errors.Is(err, app.ErrShutdownUnknown) || journal.cleans.Load() != 0 {
+		t.Fatal("failed exit journal fabricated clean marker", err)
+	}
+	views := owner.List()
+	if len(views) != 1 || views[0].State != domain.RunExited || !views[0].PublicationUncertain {
+		t.Fatal("actual exit and metadata uncertainty were conflated")
+	}
+}

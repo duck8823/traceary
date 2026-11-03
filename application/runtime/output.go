@@ -57,9 +57,10 @@ type CaptureReason string
 
 // Capture completion reasons do not assert owned process exit.
 const (
-	CaptureClosed      CaptureReason = "closed"
-	CaptureTailUnknown CaptureReason = "tail_unknown"
-	CaptureReadError   CaptureReason = "read_error"
+	CaptureClosed         CaptureReason = "closed"
+	CaptureTerminalClosed CaptureReason = "terminal_closed"
+	CaptureTailUnknown    CaptureReason = "tail_unknown"
+	CaptureReadError      CaptureReason = "read_error"
 )
 
 // Output owns bounded volatile scrollback and constant-size subscriber cursors.

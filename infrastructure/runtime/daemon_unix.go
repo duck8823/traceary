@@ -19,6 +19,7 @@ import (
 	"golang.org/x/xerrors"
 
 	app "github.com/duck8823/traceary/application/runtime"
+	domain "github.com/duck8823/traceary/domain/runtime"
 )
 
 // Roots are lifetime claims, bounded to 32 even if an injected consumer ignores
@@ -101,15 +102,34 @@ func (d *LocalDaemon) Serve(ctx context.Context, root string) error {
 		s.network.Add(1)
 		go s.accept(endpoint)
 	}
+	var confirmed <-chan struct{}
+	if s.runtime != nil {
+		accepted := make(chan struct{})
+		confirmed = accepted
+		go func() {
+			if s.runtime.AwaitShutdownConfirmation(s.ctx) == nil {
+				close(accepted)
+			}
+		}()
+	}
 	select {
 	case <-ctx.Done():
 	case <-s.ctx.Done():
+	case <-confirmed:
 	}
 	if s.runtime != nil {
 		s.runtime.DisableLaunches()
 		// A caller/transport interruption is not permission to close active PTYs.
 		// Keep owner/lease and surviving management endpoints until owned reconciliation.
 		_ = s.runtime.AwaitIdle(context.Background())
+		// OS logout/shutdown can interrupt this bounded best-effort publication.
+		// Endpoints/lease remain until actual ownership has already joined.
+		publishCtx, publishCancel := context.WithTimeout(context.Background(), 2*time.Second)
+		publishErr := s.runtime.PublishCleanShutdown(publishCtx)
+		publishCancel()
+		if publishErr != nil && !errors.Is(publishErr, domain.ErrUnsupported) {
+			return xerrors.Errorf("finish daemon lifecycle publication: %w", publishErr)
+		}
 	}
 	select {
 	case err := <-s.failure:
@@ -418,7 +438,10 @@ func (s *daemonServer) handle(conn *net.UnixConn, endpoint *daemonSocket) {
 				}
 				state := "listening"
 				if s.runtime != nil {
-					capabilities = append(capabilities, "list_runs", "attach", "input", "resize", "stop", "receipt")
+					capabilities = append(capabilities, "list_runs", "attach", "stop", "receipt")
+					if !s.runtime.ShutdownInProgress() {
+						capabilities = append(capabilities, "input", "resize")
+					}
 					if s.runtime.Disabled() {
 						state = "draining"
 					} else {

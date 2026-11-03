@@ -117,7 +117,7 @@ func (s *Runtime) PreviewShutdown(ctx context.Context) (ShutdownPreview, error) 
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.shutdownPreparing || s.shutdownCommitted {
+	if s.shutdownPreparing || s.shutdownCommitted || s.lifecycleStarting {
 		return ShutdownPreview{}, ErrRuntimeBusy
 	}
 	if s.revisionExhausted || s.revision == math.MaxUint64 {
@@ -321,6 +321,7 @@ func (s *Runtime) performShutdown(parent context.Context, ticket *shutdownTicket
 	s.mu.Lock()
 	s.shutdownCommitted = true
 	s.disabled = true
+	s.changedLocked()
 	s.mu.Unlock()
 	var mu sync.Mutex
 	var joined sync.WaitGroup
@@ -369,4 +370,92 @@ func (s *Runtime) ShutdownReceipt(binding domain.ShutdownBindingState) (Shutdown
 		return ShutdownResult{}, domain.ErrChanged
 	}
 	return ticket.result, nil
+}
+
+// AwaitShutdownConfirmation waits for a durable or uncertain accepted work-loss
+// decision. It never initiates shutdown or equates closure with process exit.
+func (s *Runtime) AwaitShutdownConfirmation(ctx context.Context) error {
+	for {
+		s.mu.Lock()
+		committed := s.shutdownCommitted
+		changed := s.changed
+		s.mu.Unlock()
+		if committed {
+			return nil
+		}
+		select {
+		case <-changed:
+		case <-ctx.Done():
+			return xerrors.Errorf("await daemon shutdown decision: %w", ctx.Err())
+		}
+	}
+}
+
+// ShutdownInProgress is admission/capability metadata only.
+func (s *Runtime) ShutdownInProgress() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.shutdownPreparing || s.shutdownCommitted
+}
+
+// PublishCleanShutdown requires permanently frozen launch admission and actual
+// owned-handle/coordinator joins. Historical marker publication is never resume
+// permission, nor proof of escaped descendant death or input delivery certainty.
+func (s *Runtime) PublishCleanShutdown(ctx context.Context) error {
+	s.mu.Lock()
+	if !s.lifecycleBound {
+		s.mu.Unlock()
+		return domain.ErrUnsupported
+	}
+	if !s.disabled || s.pending+s.active+s.controlsPending+s.lifecyclePending != 0 {
+		s.mu.Unlock()
+		return ErrRuntimeBusy
+	}
+	if s.hasUncertainLocked() {
+		s.mu.Unlock()
+		return ErrShutdownUnknown
+	}
+	repository, ok := s.journal.(LifecycleRepository)
+	s.mu.Unlock()
+	if !ok {
+		return domain.ErrUnsupported
+	}
+	if err := repository.RecordCleanShutdown(ctx, s.epoch); err != nil {
+		return xerrors.Errorf("publish clean daemon shutdown: %w", err)
+	}
+	return nil
+}
+
+// InitializeLifecycle is trusted composition before ANY launch admission. Its
+// durable new-epoch marker is opt-in; legacy/custom owners are not silently
+// enrolled merely because their journal also implements LifecycleRepository.
+// A failed/ambiguous startup permanently refuses new launch admission.
+func (s *Runtime) InitializeLifecycle(ctx context.Context) (LifecycleSnapshot, error) {
+	s.mu.Lock()
+	if s.lifecycleStarting || s.lifecycleBound || s.disabled || len(s.tickets) != 0 || s.shutdownPreparing || s.shutdownCommitted {
+		s.mu.Unlock()
+		return LifecycleSnapshot{}, ErrRuntimeBusy
+	}
+	repository, ok := s.journal.(LifecycleRepository)
+	if !ok {
+		s.mu.Unlock()
+		return LifecycleSnapshot{}, domain.ErrUnsupported
+	}
+	s.lifecycleStarting = true
+	s.changedLocked()
+	s.mu.Unlock()
+	snapshot, err := repository.RecordEpochStart(ctx, s.epoch)
+	s.mu.Lock()
+	s.lifecycleStarting = false
+	if err != nil {
+		s.disabled = true
+	} else {
+		s.lifecycleBound = true
+	}
+	s.changedLocked()
+	s.mu.Unlock()
+	if err != nil {
+		return LifecycleSnapshot{}, xerrors.Errorf("initialize daemon lifecycle: %w", err)
+	}
+	return snapshot, nil
 }

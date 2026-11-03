@@ -68,5 +68,8 @@ func NewManagedRuntime(ctx context.Context, root, epoch string) (*app.Runtime, e
 	if err != nil {
 		return nil, xerrors.Errorf("compose managed runtime: %w", err)
 	}
+	if _, err = owner.InitializeLifecycle(ctx); err != nil {
+		return nil, xerrors.Errorf("publish managed runtime epoch: %w", err)
+	}
 	return owner, nil
 }

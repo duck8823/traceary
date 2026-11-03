@@ -90,7 +90,7 @@ func (r outputRecord) frame() (app.OutputFrame, error) {
 	}
 	if r.Info.Ended {
 		switch app.CaptureReason(r.Info.Reason) {
-		case app.CaptureClosed, app.CaptureReadError, app.CaptureTailUnknown:
+		case app.CaptureClosed, app.CaptureReadError, app.CaptureTailUnknown, app.CaptureTerminalClosed:
 		default:
 			return app.OutputFrame{}, invalid
 		}

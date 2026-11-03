@@ -67,6 +67,12 @@ func TestMain(m *testing.M) {
 		if os.WriteFile(os.Getenv("FIXTURE_RESULT"), data, 0600) != nil {
 			os.Exit(90)
 		}
+		if os.Getenv("FIXTURE_OUTPUT_MODE") == "ignore_hup" {
+			signal.Ignore(syscall.SIGHUP)
+			_ = os.WriteFile(os.Getenv("FIXTURE_RESULT")+".ready", []byte("ready"), 0600)
+			time.Sleep(15 * time.Second)
+			os.Exit(92)
+		}
 		if os.Getenv("FIXTURE_OUTPUT_MODE") == "control_descendants" {
 			executable, e := os.Executable()
 			if e != nil {
@@ -667,4 +673,15 @@ func TestPTYControlChangedExecutableWitnessRefusesBeforeEffect(t *testing.T) {
 	if _, err = os.Stat(result + ".input"); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("refused executable witness still wrote input")
 	}
+	closer := child.(app.ClosingPTYChild)
+	if err = closer.ValidateTerminalClose(context.Background()); !errors.Is(err, domain.ErrChanged) {
+		t.Fatal("changed executable accepted for terminal closure", err)
+	}
+	if err = closer.CloseTerminal(context.Background()); !errors.Is(err, domain.ErrChanged) {
+		t.Fatal("changed executable caused terminal closure", err)
+	}
+	if _, open := infra.PTYMasterForTest(child); !open {
+		t.Fatal("refused executable witness lost master")
+	}
+
 }

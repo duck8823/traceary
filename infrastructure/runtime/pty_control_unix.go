@@ -12,7 +12,7 @@ import (
 )
 
 func (c *ptyChild) controlOpenLocked() error {
-	if c.controlsClosed || c.exitObserved.Load() || c.fd < 0 {
+	if c.controlsClosed || c.exitObserved.Load() {
 		if c.controlErr != nil {
 			return c.controlErr
 		}
@@ -28,6 +28,9 @@ func (c *ptyChild) validateShapeLocked(intent domain.ControlIntent) error {
 		return xerrors.Errorf("validate owned terminal intent: %w", err)
 	}
 	state := intent.Snapshot()
+	if state.Kind != domain.ControlStop && (c.terminalClosing || c.fd < 0) {
+		return domain.ErrChanged
+	}
 	if state.Kind == domain.ControlResize {
 		if err := c.output.ValidateResize(c.selection, state.ResizeSequence, state.Rows, state.Cols); err != nil {
 			return xerrors.Errorf("validate owned resize evidence: %w", err)
@@ -47,15 +50,8 @@ func (c *ptyChild) ValidateControl(ctx context.Context, intent domain.ControlInt
 	if err = checkReapPolicy(ctx); err != nil {
 		return err
 	}
-	if err = c.launcher.registry.Revalidate(ctx, c.target, string(c.profile.ID())); err != nil {
-		return xerrors.Errorf("revalidate owned control target: %w", err)
-	}
-	witness, err := executableWitness(ctx, c.profile.Snapshot().Executable)
-	if err != nil {
-		return xerrors.Errorf("revalidate owned executable: %w", err)
-	}
-	if witness != c.profile.Snapshot().ExecutableWitness {
-		return domain.ErrChanged
+	if err = c.validateTargetExecutable(ctx); err != nil {
+		return err
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -124,4 +120,20 @@ func writeControlOnce(write func([]byte) (int, error), data []byte) (app.Control
 	}
 	effect.Outcome = domain.ControlDelivered
 	return effect, nil
+}
+
+// validateTargetExecutable reads current registered witnesses without executing
+// a version probe or accepting client-supplied paths/environment.
+func (c *ptyChild) validateTargetExecutable(ctx context.Context) error {
+	if err := c.launcher.registry.Revalidate(ctx, c.target, string(c.profile.ID())); err != nil {
+		return xerrors.Errorf("revalidate owned control target: %w", err)
+	}
+	witness, err := executableWitness(ctx, c.profile.Snapshot().Executable)
+	if err != nil {
+		return xerrors.Errorf("revalidate owned executable: %w", err)
+	}
+	if witness != c.profile.Snapshot().ExecutableWitness {
+		return domain.ErrChanged
+	}
+	return nil
 }

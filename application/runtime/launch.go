@@ -76,6 +76,7 @@ type ownedRun struct {
 // Runtime owns bounded launch reservations, immutable outcomes and live child handles.
 // It has no core Session lifecycle or authority over externally started processes.
 type Runtime struct {
+	lifecycleBound, lifecycleStarting    bool
 	shutdownPreview                      *ShutdownPreview
 	shutdownTickets                      map[string]*shutdownTicket
 	shutdownPreparing, shutdownCommitted bool
@@ -142,7 +143,7 @@ func (s *Runtime) Launch(ctx context.Context, request LaunchRequest) (domain.Run
 				s.mu.Unlock()
 				return domain.RunSnapshot{}, domain.ErrLimit
 			}
-			if s.disabled || s.shutdownPreparing || s.shutdownCommitted {
+			if s.disabled || s.shutdownPreparing || s.shutdownCommitted || s.lifecycleStarting {
 				s.mu.Unlock()
 				return domain.RunSnapshot{}, ErrRuntimeBusy
 			}
@@ -382,7 +383,7 @@ func (s *Runtime) DisableLaunches() {
 func (s *Runtime) Disabled() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.disabled || s.shutdownPreparing || s.shutdownCommitted
+	return s.disabled || s.shutdownPreparing || s.shutdownCommitted || s.lifecycleStarting
 }
 func (s *Runtime) changedLocked() {
 	if s.revision == math.MaxUint64 {

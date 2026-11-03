@@ -232,7 +232,7 @@ func (s *RegistryStore) metadataBudget(dir int, target string, size int64) error
 		return domain.ErrLimit
 	}
 	total := size
-	for _, name := range []string{"registry.json", "execution.json", "recovery.json", "receipts.json", "history.json"} {
+	for _, name := range []string{"registry.json", "execution.json", "recovery.json", "receipts.json", "history.json", "lifecycle.json"} {
 		if name == target {
 			continue
 		}

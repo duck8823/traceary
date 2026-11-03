@@ -215,3 +215,25 @@ func TestUpdateDeferralReadOnlyOverdueAndRetargetPreserveContinuousStart(t *test
 		t.Fatal("published notice hid overdue state")
 	}
 }
+
+func TestInterruptionIsHistoricalUnknownNotExitOrResumePermission(t *testing.T) {
+	id := domain.LaunchIdentity{Epoch: strings.Repeat("1", 32), Run: strings.Repeat("2", 32), Generation: strings.Repeat("3", 32)}
+	state := domain.InterruptionState{Binding: freshnessBinding(id), ProcessUnknown: true, PendingControls: 1}
+	record, err := domain.InterruptionFrom(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Status() != "orphaned" || record.Snapshot() != state {
+		t.Fatal("historical process evidence misclassified")
+	}
+	state.ProcessUnknown = false
+	record, err = domain.InterruptionFrom(state)
+	if err != nil || record.Status() != "historical_unknown" {
+		t.Fatal("pending-only interruption not unknown")
+	}
+	for _, invalid := range []domain.InterruptionState{{}, {Binding: state.Binding}, {Binding: state.Binding, ProcessUnknown: true, PendingControls: -1}, {Binding: state.Binding, ProcessUnknown: true, PendingControls: domain.MaxControlReceipts + 1}} {
+		if _, err = domain.InterruptionFrom(invalid); err == nil {
+			t.Fatal("invalid/empty interruption accepted")
+		}
+	}
+}
