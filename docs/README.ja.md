@@ -21,6 +21,8 @@
 
 - [Headless registry backend](./runtime/registry.ja.md)：共有registry API、固定target、private metadataと安全な削除
 
+- [ローカルDaemon IPC](./runtime/daemon-ipc.ja.md)：明示foreground transport、private Unix endpoint、protocolと失敗境界
+
 ## 連携まわり
 
 - [ネイティブ連携ガイド](./integrations/README.ja.md): Claude / Codex / Gemini（レガシー）向けパッケージ、導入手順、smoke test

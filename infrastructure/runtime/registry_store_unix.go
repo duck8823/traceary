@@ -9,12 +9,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"hash/fnv"
 	"io"
 	"os"
-	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -48,7 +45,7 @@ func NewRegistryStore(root string, budget int64) (*RegistryStore, error) {
 	if budget <= 0 || budget > MaxRegistryBytes {
 		return nil, domain.ErrLimit
 	}
-	fd, err := registryDir(root, true)
+	fd, err := privateRuntimeDir(root, true)
 	if err != nil {
 		return nil, xerrors.Errorf("load runtime registry: %w", err)
 	}
@@ -128,7 +125,7 @@ func (s *RegistryStore) locked(ctx context.Context, fn func(int) error) error {
 	if err := ctx.Err(); err != nil {
 		return xerrors.Errorf("runtime registry canceled: %w", err)
 	}
-	fd, err := registryDir(s.root, false)
+	fd, err := privateRuntimeDir(s.root, false)
 	if err != nil {
 		return err
 	}
@@ -179,46 +176,6 @@ func privateRegular(s unix.Stat_t) bool {
 	return s.Uid == uint32(os.Geteuid()) && s.Mode&unix.S_IFMT == unix.S_IFREG && s.Mode&0777 == 0600 && s.Nlink == 1
 }
 
-// registryDir never follows symlinks, and never repairs permissions on pre-existing paths.
-func registryDir(root string, create bool) (int, error) {
-	if !filepath.IsAbs(root) || filepath.Clean(root) != root || root == "/" {
-		return -1, domain.ErrInvalid
-	}
-	fd, err := unix.Open("/", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
-	if err != nil {
-		return -1, domain.ErrUnsafe
-	}
-	parts := strings.Split(strings.TrimPrefix(root, "/"), "/")
-	for i, part := range parts {
-		next, e := unix.Openat(fd, part, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
-		if errors.Is(e, unix.ENOENT) && create {
-			if e = unix.Mkdirat(fd, part, 0700); e != nil && !errors.Is(e, unix.EEXIST) {
-				_ = unix.Close(fd)
-				return -1, domain.ErrUnsafe
-			}
-			next, e = unix.Openat(fd, part, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
-		}
-		_ = unix.Close(fd)
-		if e != nil {
-			return -1, domain.ErrUnsafe
-		}
-		fd = next
-		var stat unix.Stat_t
-		if e = unix.Fstat(fd, &stat); e != nil {
-			_ = unix.Close(fd)
-			return -1, domain.ErrUnsafe
-		}
-		uid := uint32(os.Geteuid())
-		trusted := stat.Uid == uid || stat.Uid == 0
-		writable := stat.Mode&0022 != 0
-		trustedSticky := stat.Uid == 0 && stat.Mode&unix.S_ISVTX != 0
-		if !trusted || writable && !trustedSticky || i == len(parts)-1 && (stat.Uid != uid || stat.Mode&0777 != 0700) {
-			_ = unix.Close(fd)
-			return -1, domain.ErrUnsafe
-		}
-	}
-	return fd, nil
-}
 func (s *RegistryStore) read(dir int) (*domain.Registry, *unix.Stat_t, error) {
 	fd, err := unix.Openat(dir, "registry.json", unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC|unix.O_NONBLOCK, 0)
 	if errors.Is(err, unix.ENOENT) {
@@ -408,93 +365,4 @@ func decodeRegistry(data []byte) (*domain.Registry, error) {
 	return registry, nil
 }
 
-// uniqueJSONValue rejects duplicate object keys before decoding into a Go struct,
-// whose normal JSON semantics would silently accept the last occurrence.
-func uniqueJSONValue(d *json.Decoder, depth int) error {
-	if depth > 8 {
-		return domain.ErrInvalid
-	}
-	token, err := d.Token()
-	if err != nil {
-		return domain.ErrInvalid
-	}
-	delimiter, ok := token.(json.Delim)
-	if !ok {
-		return nil
-	}
-	switch delimiter {
-	case '{':
-		keys := make(map[string]struct{})
-		for d.More() {
-			key, err := d.Token()
-			if err != nil {
-				return domain.ErrInvalid
-			}
-			name, ok := key.(string)
-			if !ok || name != strings.ToLower(name) {
-				return domain.ErrInvalid
-			}
-			if _, exists := keys[name]; exists {
-				return domain.ErrInvalid
-			}
-			keys[name] = struct{}{}
-			if len(keys) > 16 {
-				return domain.ErrInvalid
-			}
-			if err = uniqueJSONValue(d, depth+1); err != nil {
-				return err
-			}
-		}
-		end, err := d.Token()
-		if err != nil || end != json.Delim('}') {
-			return domain.ErrInvalid
-		}
-	case '[':
-		count := 0
-		for d.More() {
-			count++
-			if count > domain.MaxWorktrees+domain.MaxProjects {
-				return domain.ErrLimit
-			}
-			if err = uniqueJSONValue(d, depth+1); err != nil {
-				return err
-			}
-		}
-		end, err := d.Token()
-		if err != nil || end != json.Delim(']') {
-			return domain.ErrInvalid
-		}
-	default:
-		return domain.ErrInvalid
-	}
-	return nil
-}
-
-// directoryWitness derives identity from the no-follow-walked descriptor, never
-// from a separate path lookup that could name a replacement directory.
-func directoryWitness(fd int) (string, error) {
-	var stat unix.Stat_t
-	if unix.Fstat(fd, &stat) != nil || stat.Uid != uint32(os.Geteuid()) || stat.Mode&unix.S_IFMT != unix.S_IFDIR || stat.Mode&0777 != 0700 {
-		return "", domain.ErrUnsafe
-	}
-	return fmt.Sprintf("%d:%d:%d", stat.Uid, stat.Dev, stat.Ino), nil
-}
-func (s *RegistryStore) verifyRoot(dir int) error {
-	current, err := registryDir(s.root, false)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = unix.Close(current) }()
-	opened, err := directoryWitness(dir)
-	if err != nil {
-		return err
-	}
-	named, err := directoryWitness(current)
-	if err != nil {
-		return err
-	}
-	if opened != s.witness || named != s.witness {
-		return domain.ErrChanged
-	}
-	return nil
-}
+func (s *RegistryStore) verifyRoot(dir int) error { return verifyRuntimeRoot(s.root, s.witness, dir) }

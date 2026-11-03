@@ -19,6 +19,8 @@ This page is the detailed docs index for Traceary. Start here when the top-level
 
 - [Headless registry backend](./runtime/registry.md): shared registry API, immutable targets, private metadata and deletion safety
 
+- [Local daemon IPC](./runtime/daemon-ipc.md): explicit foreground transport, private Unix endpoints, protocol and failure boundaries
+
 ## Integrations
 
 - [Native integrations](./integrations/README.md): packaged Claude / Codex / Gemini (legacy) integration bundles, install flows, and smoke tests
