@@ -133,7 +133,7 @@ func run() error {
 		return err
 	}
 
-	runtimeDaemon, err := runtimeinfra.NewLocalDaemon(nil, runtimeinfra.DaemonOptions{RuntimeFactory: runtimeinfra.NewManagedRuntime})
+	runtimeDaemon, err := runtimeinfra.NewLocalDaemon(nil, runtimeinfra.DaemonOptions{RuntimeFactory: runtimeinfra.NewManagedRuntime, HistoryFactory: runtimeinfra.NewHistoryService})
 	if err != nil {
 		return xerrors.Errorf("configure local runtime: %w", err)
 	}

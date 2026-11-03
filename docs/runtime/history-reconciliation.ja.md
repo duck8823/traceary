@@ -2,7 +2,8 @@
 
 [English](./history-reconciliation.md)
 
-実装途中です。maintenance に譲る SQLite 読取 capability、domain/application の履歴 page、実 SQLite reader/source adapter は実装しましたが、公開 daemon SDK/CLI transport、commit 後の hint、metadata export/forget、それらの統合検証は未完了です。リリース可能・native host/session の復旧認定済みとは扱いません。
+実装途中です。maintenance に譲る SQLite 読取 capability、domain/application の履歴 page、実 SQLite reader/source adapter、公開 daemon SDK/CLI transport、coarse hint transport は実装済みです。
+commit 後の自動 hint 生成と配送先の設定、metadata export/forget、統合検証は未完了です。リリース可能・native host/session の復旧認定済みとは扱いません。
 
 ## store の正本と reader の寿命
 
@@ -16,7 +17,7 @@
 
 ## 残っている delivery 契約
 
-公開 daemon transport と CLI には、実装済みの履歴 core を厳密な要求照合、有界 frame、正しい prefix と継続位置の制御を伴って公開する実装が必要です。
+公開 daemon transport と CLI は、履歴 core を厳密な要求照合、有界 frame、正しい prefix と継続位置の制御を伴って公開しています。
 commit 後の hint は capture 結果、標準出力、spool 所有権、receipt 冪等性を変更してはいけません。
 明示 runtime metadata export/forget では範囲、version、上限、同意、部分変更の不確定性を定義し、Registry、core 履歴、Git data、native 会話を削除してはいけません。
 実際の upgrade/compaction、spool replay、生存 PTY との同時実行の検証、最終レビューと delivery gate も残っています。
@@ -43,3 +44,32 @@ hint 欠落、再接続、定期更新の後は先頭 page に戻り、`More` �
 日時を永続 watermark に進めても commit 順序は保証できません。
 実 SQLite の test では、走査完了後に過去時刻と同時刻で commit し、hint がなくても全件を回復すること、未 commit 行の不可視性、既存 CLI の件数との一致、busy 後の再試行と実 lease の解放、不正 metadata の拒否、inode 交換後の新たな走査を検証しています。
 inode 交換 fixture は、実際の upgrade/compaction 全体や native host の認定を完了した証明ではありません。
+
+## 公開 daemon SDK と CLI
+
+`daemon serve` は起動時に core store を開かず、履歴 metadata service を構成します。
+HistoryFactory がない custom daemon は履歴要求を明示的に拒否します。
+独立した HistoryClient は既存の所有者専用 Unix endpoint を読み、daemon を起動したり任意 SQL、実行ファイル、profile、store path を選択したりしません。
+
+```sh
+traceary runtime history page --runtime-dir /absolute/private/runtime --epoch ORIGINAL_EPOCH --worktree REGISTERED_WORKTREE_ID --from 2026-11-04T00:00:00Z --to 2026-11-05T00:00:00Z --limit 64
+```
+
+時刻は正規形の UTC RFC3339Nano、limit は 1..64 が必要です。
+継続要求では、直前の最後に保持した行と source から得た `--before-at`、`--before-id`、`--source-witness` をすべて指定します。
+全 page で同じ epoch、worktree、時刻範囲、source witness を保持します。
+hint、gap、再接続、定期更新の後は先頭から要求 view 全体を走査し直します。
+cursor は永続 commit 順序ではありません。
+
+JSON は body-free event、more/next、物理 source witness、store_identity_changed、参考値の hint_revision/hint_overflow、authority=`committed_page_not_commit_cursor`、consistency=`single_page_only`、native_target_revalidated=false を返します。
+応答は元の要求と source identity の一致を検証します。
+エスケープ後の実 frame byte 数を 64 KiB に制限し、末尾の行は正確な次の anchor で継続取得できるようにします。
+行を黙って破棄することはありません。
+一行または header だけでも上限を超える場合は明示的な limit error を返します。
+欠落、不正、混合、null、別操作の応答を、有効な履歴や古い launch/control の成功として扱いません。
+
+独立した空の `history_hint` arm は observations.sock を使い、飽和する in-memory generation だけを進めます。
+native ObservationReceiver、架空の native ID、queue admission は不要で、SQL や native 操作も行いません。
+ACK は commit や表示の証明ではありません。
+SDK は任意 producer 向けの HintHistory を提供しますが、EventUsecase の commit 後自動通知と managed-root への配送設定は未実装です。
+この transport の追加では capture、receipt、spool 所有権、native 権限は変更しません。

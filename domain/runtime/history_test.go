@@ -126,3 +126,23 @@ func TestHistoryUTCNormalizationCannotCrossSupportedYearBoundary(t *testing.T) {
 		t.Fatal("noncanonical event ID accepted")
 	}
 }
+
+func TestHistoryPageTransportReconstructionNeverInventsLookaheadRows(t *testing.T) {
+	s, v, base := historyDomainFixture(t)
+	e := historyDomainEvent(t, "b", base)
+	state := domain.HistoryPageState{Source: s, Selection: v, Events: []domain.HistoryEvent{e}, More: true, Next: domain.HistoryAnchor{At: base, ID: "b"}}
+	p, err := domain.HistoryPageFrom(state)
+	if err != nil || !p.More() || len(p.Events()) != 1 {
+		t.Fatal(err)
+	}
+	for _, bad := range []domain.HistoryPageState{
+		{Source: s, Selection: v, Events: []domain.HistoryEvent{}, More: true, Next: state.Next},
+		{Source: s, Selection: v, Events: state.Events, More: false, Next: state.Next},
+		{Source: s, Selection: v, Events: state.Events, More: true, Next: domain.HistoryAnchor{At: base, ID: "a"}},
+		{Source: s, Selection: v, Events: nil},
+	} {
+		if _, err = domain.HistoryPageFrom(bad); err == nil {
+			t.Fatal("invalid peer page reconstructed")
+		}
+	}
+}

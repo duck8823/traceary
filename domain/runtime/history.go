@@ -143,6 +143,36 @@ type HistoryPage struct {
 	next      HistoryAnchor
 }
 
+// HistoryPageState is an explicit body-free transport snapshot, never a commit proof.
+type HistoryPageState struct {
+	Source    HistorySource
+	Selection HistorySelection
+	Events    []HistoryEvent
+	More      bool
+	Next      HistoryAnchor
+}
+
+// HistoryPageFrom validates a peer snapshot without manufacturing a look-ahead row.
+func HistoryPageFrom(s HistoryPageState) (HistoryPage, error) {
+	if s.Events == nil || len(s.Events) > s.Selection.Limit() {
+		return HistoryPage{}, ErrInvalid
+	}
+	p, err := HistoryPageOf(s.Source, s.Selection, s.Events)
+	if err != nil {
+		return HistoryPage{}, err
+	}
+	if s.More {
+		if len(p.events) == 0 || !s.Next.At.Equal(p.events[len(p.events)-1].state.CreatedAt) || s.Next.ID != p.events[len(p.events)-1].state.ID {
+			return HistoryPage{}, ErrInvalid
+		}
+		p.more = true
+		p.next = p.events[len(p.events)-1].anchor()
+	} else if !s.Next.IsZero() {
+		return HistoryPage{}, ErrInvalid
+	}
+	return p, nil
+}
+
 // HistoryPageOf checks every fetched row (including the look-ahead) before trimming.
 func HistoryPageOf(source HistorySource, selection HistorySelection, rows []HistoryEvent) (HistoryPage, error) {
 	if !source.Valid() || !selection.Valid() {

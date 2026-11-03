@@ -32,6 +32,7 @@ type pillarInventoryEntry struct {
 // Usage counts are not grounds. memory store remember was removed in
 // v0.36.0 (#1870) after the v0.35 notice.
 var pillarInventory = []pillarInventoryEntry{
+	{Path: "runtime history page", Pillar: pillarKeep, Reason: "explicit bounded committed history page; no core bootstrap, native authority or durable commit cursor"},
 	{Path: "runtime project register", Pillar: pillarKeep, Reason: "explicit owner-scoped runtime operation; no core Session lifecycle or approval authority"},
 	{Path: "runtime worktree register", Pillar: pillarKeep, Reason: "explicit owner-scoped runtime operation; no core Session lifecycle or approval authority"},
 	{Path: "runtime registry list", Pillar: pillarKeep, Reason: "explicit owner-scoped runtime operation; no core Session lifecycle or approval authority"},

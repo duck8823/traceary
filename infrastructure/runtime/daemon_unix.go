@@ -59,6 +59,8 @@ type pendingObservation struct {
 	bytes    int
 }
 type daemonServer struct {
+	history              *app.History
+	historyHints         atomic.Uint64
 	daemon               *LocalDaemon
 	ctx                  context.Context
 	cancel               context.CancelFunc
@@ -173,6 +175,15 @@ func prepareDaemon(parent context.Context, d *LocalDaemon, root string) (*daemon
 			return nil, err
 		}
 		if s.runtime == nil {
+			return nil, app.ErrRuntimeUnsupported
+		}
+	}
+	if d.options.HistoryFactory != nil {
+		s.history, err = d.options.HistoryFactory(parent, root)
+		if err != nil {
+			return nil, err
+		}
+		if s.history == nil {
 			return nil, app.ErrRuntimeUnsupported
 		}
 	}
@@ -379,6 +390,14 @@ func (s *daemonServer) handle(conn *net.UnixConn, endpoint *daemonSocket) {
 		}
 		seen[request.ID] = struct{}{}
 		reply := runtimeResponse{Version: RuntimeProtocolVersion, ID: request.ID}
+		if request.Control != nil {
+			clear(data)
+		}
+		if !request.singleArm() {
+			reply.Code = "invalid"
+			_ = writeRuntimeFrame(conn, reply)
+			return
+		}
 		if hello {
 			if request.Operation != "hello" || request.Role != endpoint.role || request.Observation != nil || request.Launch != nil || request.Page != nil || request.Attach != nil || request.Control != nil || request.Receipt != nil {
 				reply.Code = "invalid"
@@ -390,6 +409,18 @@ func (s *daemonServer) handle(conn *net.UnixConn, endpoint *daemonSocket) {
 			hello = false
 		} else if request.Role != "" {
 			reply.Code = "invalid"
+		} else if request.History != nil {
+			if endpoint.role != "management" {
+				reply.Code = "unsupported"
+			} else {
+				s.historyReply(&reply, request.History)
+			}
+		} else if request.HistoryHint != nil {
+			if endpoint.role != "observations" {
+				reply.Code = "unsupported"
+			} else {
+				s.historyHintReply(&reply)
+			}
 		} else if request.Control != nil || request.Receipt != nil {
 			clear(data)
 			clean := request.Attach == nil && request.Observation == nil && request.Launch == nil && request.Page == nil && endpoint.role == "management"
@@ -415,6 +446,9 @@ func (s *daemonServer) handle(conn *net.UnixConn, endpoint *daemonSocket) {
 					if s.degraded.Load() {
 						delivery = "degraded"
 					}
+				}
+				if s.history != nil {
+					capabilities = append(capabilities, "history_page", "history_hint")
 				}
 				state := "listening"
 				if s.runtime != nil {
@@ -516,7 +550,7 @@ func (d *LocalDaemon) Status(ctx context.Context, root string) (app.DaemonStatus
 	if err != nil {
 		return app.DaemonStatus{}, err
 	}
-	if reply.Control != nil || reply.Output != nil || reply.Code != "ok" || reply.Status == nil || reply.Role != "" || reply.Run != nil || reply.Page != nil {
+	if reply.History != nil || reply.HistoryHint != nil || reply.Control != nil || reply.Output != nil || reply.Code != "ok" || reply.Status == nil || reply.Role != "" || reply.Run != nil || reply.Page != nil {
 		return app.DaemonStatus{}, app.ErrRuntimeProtocol
 	}
 	return decodeRuntimeStatus(reply)
@@ -533,7 +567,7 @@ func (d *LocalDaemon) Observe(ctx context.Context, root string, metadata app.Obs
 	if err != nil {
 		return err
 	}
-	if reply.Control != nil || reply.Output != nil || reply.Code != "queued" || reply.Status != nil || reply.Role != "" || reply.Run != nil || reply.Page != nil {
+	if reply.History != nil || reply.HistoryHint != nil || reply.Control != nil || reply.Output != nil || reply.Code != "queued" || reply.Status != nil || reply.Role != "" || reply.Run != nil || reply.Page != nil {
 		return app.ErrRuntimeProtocol
 	}
 	return nil
@@ -581,7 +615,7 @@ func (d *LocalDaemon) openRuntime(ctx context.Context, root, operation string) (
 		return nil, "", app.ErrUnsafeRuntime
 	}
 	name, role := "daemon.sock", "management"
-	if operation == "observe" {
+	if operation == "observe" || operation == "history_hint" {
 		name, role = "observations.sock", "observations"
 	}
 	var before unix.Stat_t
@@ -632,7 +666,7 @@ func (d *LocalDaemon) openRuntime(ctx context.Context, root, operation string) (
 	if err != nil {
 		return nil, "", err
 	}
-	if hello.Control != nil || hello.Output != nil || hello.Code != "ok" || hello.Role != role || hello.Status != nil || hello.Run != nil || hello.Page != nil {
+	if hello.History != nil || hello.HistoryHint != nil || hello.Control != nil || hello.Output != nil || hello.Code != "ok" || hello.Role != role || hello.Status != nil || hello.Run != nil || hello.Page != nil {
 		return nil, "", app.ErrRuntimeProtocol
 	}
 	success = true
