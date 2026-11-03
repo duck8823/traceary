@@ -54,7 +54,7 @@ sync. A post-rename directory-sync failure returns `ErrCommitUncertain`: reload
 and reconcile rather than assuming nothing changed. No silent retry is performed.
 
 Strict decoding rejects unknown fields, duplicate object keys, noncanonical field case, invalid UTF-8,
-trailing JSON, forged identity, invalid membership, oversized data and unsupported
+missing/null required fields, trailing JSON, forged identity, invalid membership, oversized data and unsupported
 versions without overwriting them. Limits are 100 projects, 1,000 worktrees and
 at most 128 MiB of registry metadata. A constructor budget may tighten, never
 raise that ceiling. When additional runtime envelopes are introduced, the daemon

@@ -171,6 +171,9 @@ func TestRegistryStoreRejectsUnsafeVersionAndCorruptionWithoutOverwrite(t *testi
 		want       error
 	}{
 		{"new schema", `{"version":2,"revision":0,"projects":[],"worktrees":[]}`, domain.ErrUnsupported},
+		{"missing arrays", `{"version":1,"revision":0}`, domain.ErrInvalid},
+		{"null arrays", `{"version":1,"revision":0,"projects":null,"worktrees":null}`, domain.ErrInvalid},
+		{"null revision", `{"version":1,"revision":null,"projects":[],"worktrees":[]}`, domain.ErrInvalid},
 		{"unknown field", `{"version":1,"revision":0,"extra":true}`, domain.ErrInvalid},
 		{"trailing object", `{"version":1,"revision":0} {}`, domain.ErrInvalid},
 		{"duplicate version", `{"version":2,"version":1,"revision":0}`, domain.ErrInvalid},

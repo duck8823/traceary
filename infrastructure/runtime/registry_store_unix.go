@@ -319,14 +319,14 @@ type worktreeRecord struct {
 }
 type registryEnvelope struct {
 	Version   int              `json:"version"`
-	Revision  uint64           `json:"revision"`
+	Revision  *uint64          `json:"revision"`
 	Projects  []projectRecord  `json:"projects"`
 	Worktrees []worktreeRecord `json:"worktrees"`
 }
 
 func encodeRegistry(r *domain.Registry) ([]byte, error) {
 	state := r.Snapshot()
-	doc := registryEnvelope{Version: 1, Revision: state.Revision, Projects: make([]projectRecord, 0, len(state.Projects)), Worktrees: make([]worktreeRecord, 0, len(state.Worktrees))}
+	doc := registryEnvelope{Version: 1, Revision: &state.Revision, Projects: make([]projectRecord, 0, len(state.Projects)), Worktrees: make([]worktreeRecord, 0, len(state.Worktrees))}
 	for _, p := range state.Projects {
 		doc.Projects = append(doc.Projects, projectRecord{string(p.ID()), p.Root(), p.CommonDir(), p.Witness()})
 	}
@@ -360,10 +360,13 @@ func decodeRegistry(data []byte) (*domain.Registry, error) {
 	if doc.Version != 1 {
 		return nil, domain.ErrUnsupported
 	}
+	if doc.Revision == nil || doc.Projects == nil || doc.Worktrees == nil {
+		return nil, domain.ErrInvalid
+	}
 	if len(doc.Projects) > domain.MaxProjects || len(doc.Worktrees) > domain.MaxWorktrees {
 		return nil, domain.ErrLimit
 	}
-	state := domain.RegistryState{Revision: doc.Revision, Projects: make([]domain.Project, 0, len(doc.Projects)), Worktrees: make([]domain.Worktree, 0, len(doc.Worktrees))}
+	state := domain.RegistryState{Revision: *doc.Revision, Projects: make([]domain.Project, 0, len(doc.Projects)), Worktrees: make([]domain.Worktree, 0, len(doc.Worktrees))}
 	for _, v := range doc.Projects {
 		p, err := domain.ProjectOf(v.Root, v.Common, v.Witness)
 		if err != nil {
@@ -427,6 +430,9 @@ func uniqueJSONValue(d *json.Decoder, depth int) error {
 			if err = uniqueJSONValue(d, depth+1); err != nil {
 				return err
 			}
+		}
+		if depth == 0 && len(keys) != 4 {
+			return domain.ErrInvalid
 		}
 		end, err := d.Token()
 		if err != nil || end != json.Delim('}') {

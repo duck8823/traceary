@@ -44,7 +44,7 @@ rename前の失敗/cancelでは前のenvelopeを残す。
 rename後のdirectory-sync失敗は`ErrCommitUncertain`で返し、未変更と決め付けずreload/照合する。
 黙ってretryしない。
 
-strict decodeで未知field、重複key、非canonicalなfield大小文字、不正UTF-8、余剰JSON、偽identity、不正所属、サイズ超過、未知versionを拒否し、上書きしない。
+strict decodeで未知field、重複key、非canonicalなfield大小文字、不正UTF-8、必須fieldの欠落/null、余剰JSON、偽identity、不正所属、サイズ超過、未知versionを拒否し、上書きしない。
 上限はproject 100、worktree 1,000、registry metadata最大128 MiBである。
 constructorのbudgetは厳しくするだけで、上限を拡大できない。
 他runtime envelope導入時はDaemon compositionでR0の合計metadata予算も強制する。
