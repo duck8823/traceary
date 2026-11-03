@@ -164,7 +164,13 @@ func (l *PTYLauncher) Start(ctx context.Context, descriptor domain.LaunchDescrip
 		_ = slave.Close()
 		return nil, domain.ErrUnsafe
 	}
-	master = os.NewFile(uintptr(fd), "managed PTY")
+	// Keep this native nonblocking FD owned exclusively by the drain loop.
+	// No os.File.Fd conversion may silently restore blocking mode.
+	if err = pty.Setsize(slave, &pty.Winsize{Rows: 24, Cols: 80}); err != nil {
+		_ = unix.Close(fd)
+		_ = slave.Close()
+		return nil, domain.ErrUnsafe
+	}
 	command := exec.Command(snapshot.Profile.Snapshot().Executable)
 	command.Dir = snapshot.Target.Worktree().Path()
 	command.Env = launchEnvironment(l.environment, snapshot.Target.Worktree().Store(), snapshot.Identity)
@@ -174,23 +180,25 @@ func (l *PTYLauncher) Start(ctx context.Context, descriptor domain.LaunchDescrip
 	command.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0}
 	if err = ctx.Err(); err != nil {
 		_ = slave.Close()
-		_ = master.Close()
+		_ = unix.Close(fd)
 		return nil, xerrors.Errorf("validate launch budget before start: %w", err)
 	}
 	err = command.Start()
 	_ = slave.Close()
 	if err != nil {
-		_ = master.Close()
+		_ = unix.Close(fd)
 		return nil, domain.ErrUnsafe
 	}
 	child := &ptyChild{pid: command.Process.Pid, done: make(chan struct{})}
 	drained := make(chan struct{})
+	stopDrain := make(chan struct{})
 	// No terminal data is persisted; cursor retention/subscribers are #2462.
-	go func() { _, _ = io.Copy(io.Discard, master); close(drained) }()
+	go func() { drainPTY(fd, stopDrain); close(drained) }()
 	go func() {
 		waitErr := command.Wait()
-		_ = master.Close()
+		close(stopDrain)
 		<-drained
+		_ = unix.Close(fd)
 		if command.ProcessState != nil {
 			child.code = command.ProcessState.ExitCode()
 		}
@@ -201,6 +209,36 @@ func (l *PTYLauncher) Start(ctx context.Context, descriptor domain.LaunchDescrip
 		close(child.done)
 	}()
 	return child, nil
+}
+
+// drainPTY never shares a live descriptor with Close/reuse. Native reads are
+// nonblocking and poll is bounded, so owned Wait cannot hang on a Go TTY poller.
+func drainPTY(fd int, stop <-chan struct{}) {
+	buffer := make([]byte, 32*1024)
+	for {
+		select {
+		case <-stop:
+			return
+		default:
+		}
+		n, err := unix.Read(fd, buffer)
+		if n > 0 {
+			continue
+		}
+		if err == nil {
+			return
+		}
+		if errors.Is(err, unix.EINTR) {
+			continue
+		}
+		if !errors.Is(err, unix.EAGAIN) && !errors.Is(err, unix.EWOULDBLOCK) {
+			return
+		}
+		polls := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}}
+		if _, err = unix.Poll(polls, 25); err != nil && !errors.Is(err, unix.EINTR) {
+			return
+		}
+	}
 }
 
 type ptyChild struct {

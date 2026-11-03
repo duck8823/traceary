@@ -25,6 +25,9 @@ import (
 func TestMain(m *testing.M) {
 	if os.Getenv("TRACEARY_PTY_FIXTURE") == "1" {
 		if len(os.Args) == 2 && os.Args[1] == "--version" {
+			if delay, err := time.ParseDuration(os.Getenv("FIXTURE_VERSION_DELAY")); err == nil && delay > 0 && delay < 2*time.Second {
+				time.Sleep(delay)
+			}
 			switch os.Getenv("FIXTURE_VERSION_MODE") {
 			case "huge":
 				_, _ = os.Stdout.Write(bytes.Repeat([]byte("x"), 5000))
@@ -51,6 +54,18 @@ func TestMain(m *testing.M) {
 		// A missing continuous drain would deadlock the child on this >PTY capacity write.
 		if _, err = os.Stdout.Write(bytes.Repeat([]byte("x"), 2*1024*1024)); err != nil {
 			os.Exit(91)
+		}
+		if release := os.Getenv("FIXTURE_RELEASE"); release != "" {
+			deadline := time.Now().Add(15 * time.Second)
+			for {
+				if _, err := os.Stat(release); err == nil {
+					break
+				}
+				if time.Now().After(deadline) {
+					os.Exit(92)
+				}
+				time.Sleep(5 * time.Millisecond)
+			}
 		}
 		os.Exit(7)
 	}

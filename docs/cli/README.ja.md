@@ -953,3 +953,7 @@ sessions、events、commands、usage は、1つの読み取り専用トランザ
 `--db-path`はDaemon optionではない。
 listeningはagent生存ではなく、native観測/PTY/resume統合は別作業とする。
 [IPC contract](../runtime/daemon-ipc.ja.md)を参照。
+
+## Runtime operator コマンド
+
+[明示的な managed PTY 起動](../runtime/managed-launch.ja.md) に registry/profile 登録、typed launch/list、有界 receipt、所有権を保持する foreground drain を記載しています。

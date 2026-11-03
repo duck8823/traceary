@@ -56,3 +56,5 @@
 - 言語切り替えリンクは各文書の冒頭付近に置く
 
 CI では `go run ./cmd/repo-tooling docs verify-i18n` を実行し、文書ペアと言語切り替えリンクの整合を確認しています。
+
+- [明示的な managed PTY 起動](runtime/managed-launch.ja.md)

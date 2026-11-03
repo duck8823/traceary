@@ -7,6 +7,7 @@ import (
 
 // Transport failures never include raw frames, credentials or native payloads.
 var (
+	ErrRuntimeRejected    = errors.New("local runtime operation rejected")
 	ErrDaemonUnavailable  = errors.New("local daemon unavailable")
 	ErrUnsafeRuntime      = errors.New("unsafe local runtime endpoint")
 	ErrRuntimeProtocol    = errors.New("invalid local runtime protocol")

@@ -16,7 +16,7 @@ traceary daemon serve --runtime-dir /absolute/private/runtime
 traceary daemon status --runtime-dir /absolute/private/runtime --json
 ```
 
-`serve` runs in the foreground until interruption; it is not login auto-start or
+`serve` runs in the foreground; with managed children, interruption enters an ownership-preserving drain (see [managed launch](managed-launch.md)); it is not login auto-start or
 an implicit background launcher. Status never starts a daemon. If omitted, the
 root is `$XDG_STATE_HOME/traceary/desktop/runtime`, defaulting to
 `~/.local/state/traceary/desktop/runtime`. The root must be absolute, safe and short
@@ -27,10 +27,10 @@ path/config bootstrap, so explicit roots work with HOME unset. Core reclaim
 inspection is excluded from these commands.
 
 A status object reports `protocol_version`, a fresh 32-hex `epoch`,
-`state: listening`, `capabilities` and `observation_delivery`. **Listening is
+`state: listening` (or `draining` when new launch admission is disabled), `capabilities` and `observation_delivery`. **Listening is
 transport readiness, not running/working/waiting/approval or input authority.**
-The default CLI has no native observation receiver yet, so it advertises only
-`status` and returns `unsupported` to observations; it never falsely reports
+The CLI has no native observation receiver yet and returns `unsupported` to observations;
+managed `launch`/`list_runs` capabilities are described in [managed launch](managed-launch.md). It never falsely reports
 accepted native state. Applications may inject the typed receiver port. `queued`
 then means only transport queuing, not persistence, causal binding or interpretation.
 
@@ -45,7 +45,7 @@ cannot start, the first owned endpoint is cleaned up without touching the confli
 
 Two 0600 sockets have immutable roles:
 
-- `daemon.sock`: named management methods (currently `status`). No generic exec,
+- `daemon.sock`: named management methods (`status` and the separate typed managed-launch/list slice). No generic exec,
   file access, reflection, arbitrary shell or implicit process control.
 - `observations.sock`: fixed derived-metadata `observe` only. Never input/stop,
   approval, Memory mutation, management status or role switching.

@@ -42,10 +42,18 @@ type RegistryStore struct {
 
 // NewRegistryStore creates an owner-private root and pins it. Budget may only tighten R0.
 func NewRegistryStore(root string, budget int64) (*RegistryStore, error) {
+	return newRegistryStore(root, budget, true)
+}
+
+// OpenRegistryStore opens an existing private root without creating any directory.
+func OpenRegistryStore(root string, budget int64) (*RegistryStore, error) {
+	return newRegistryStore(root, budget, false)
+}
+func newRegistryStore(root string, budget int64, create bool) (*RegistryStore, error) {
 	if budget <= 0 || budget > MaxRegistryBytes {
 		return nil, domain.ErrLimit
 	}
-	fd, err := privateRuntimeDir(root, true)
+	fd, err := privateRuntimeDir(root, create)
 	if err != nil {
 		return nil, xerrors.Errorf("load runtime registry: %w", err)
 	}
@@ -304,20 +312,6 @@ func (s *RegistryStore) writeMetadata(ctx context.Context, dir int, target strin
 	return nil
 }
 
-type projectRecord struct {
-	ID      string `json:"id"`
-	Root    string `json:"root"`
-	Common  string `json:"common"`
-	Witness string `json:"witness"`
-}
-type worktreeRecord struct {
-	ID      string `json:"id"`
-	Project string `json:"project"`
-	Path    string `json:"path"`
-	Common  string `json:"common"`
-	Store   string `json:"store"`
-	Witness string `json:"witness"`
-}
 type registryEnvelope struct {
 	Version   int              `json:"version"`
 	Revision  *uint64          `json:"revision"`

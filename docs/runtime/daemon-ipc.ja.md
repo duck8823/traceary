@@ -23,9 +23,9 @@ symlinkやprivate-root mode不適合は黙って修復せず拒否する。
 core store path/config bootstrapより前にDaemon専用compositionを選ぶため、明示rootはHOMEなしでも動作する。
 core reclaim検査も除外する。
 
-statusは`protocol_version`、新しい32桁hex `epoch`、`state: listening`、`capabilities`、`observation_delivery`を返す。
+statusは`protocol_version`、新しい32桁hex `epoch`、`state: listening`（新規起動受付停止中は`draining`）、`capabilities`、`observation_delivery`を返す。
 **listeningはtransportの準備状態であり、agentのrunning/working/waiting/approvalや入力権限ではない。**
-既定CLIはnative receiver未接続なのでstatusだけをadvertiseし、観測にはunsupportedを返す。
+既定CLIはnative receiver未接続なので観測にはunsupportedを返す。Managed runtime構成ではtyped launch/listのcapabilityをadvertiseするが、native状態の認定ではない。
 native状態を受け入れたと偽装しない。
 applicationはtyped receiver portを注入できるが、queuedはtransport queueだけを意味し、永続化/因果binding/解釈の成功ではない。
 
@@ -39,7 +39,7 @@ stale socketを自動unlinkせず、既存pathは起動拒否とする。
 
 0600 socketのroleを固定する。
 
-- `daemon.sock`：名前付き管理method（現時点はstatus）。汎用exec/file/reflection/任意shell/暗黙process操作は提供しない。
+- `daemon.sock`：名前付き管理method（statusおよびtyped managed launch/list）。汎用exec/file/reflection/任意shell/暗黙process操作は提供しない。
 - `observations.sock`：固定derived metadataのobserveだけ。input/stop/approval/Memory mutation/管理status/role変更を許可しない。
 
 client/server双方がnative peer UIDを検証する。
@@ -98,3 +98,8 @@ Windows cross-buildは既存CLI互換性でありWindows Daemon認定ではな�
 rollbackはadmission/connectionを停止し、確認済み所有socketだけを削除する。
 registry/core/history/Memoryと競合artifactを保持する。
 transport停止はagent停止の許可ではなく、active run lifecycleの別所有者が統合runtime認定前に実装する。
+
+## Managed 起動との接続
+
+CLI の typed `launch` / `list_runs`、8 秒の明示管理予算、active child の所有権を保持する Serve の `draining` は [managed 起動](managed-launch.ja.md) を参照してください。
+Default CLI の観測 consumer は未接続のままで、`observe` は `unsupported` です。起動 capability は native interaction/recovery 認定を意味しません。

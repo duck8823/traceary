@@ -133,22 +133,23 @@ func run() error {
 		return err
 	}
 
-	runtimeDaemon, err := runtimeinfra.NewLocalDaemon(nil, runtimeinfra.DaemonOptions{})
+	runtimeDaemon, err := runtimeinfra.NewLocalDaemon(nil, runtimeinfra.DaemonOptions{RuntimeFactory: runtimeinfra.NewManagedRuntime})
 	if err != nil {
 		return xerrors.Errorf("configure local runtime: %w", err)
 	}
 	// Resolve the typed namespace before any core-store path/config bootstrap.
 	// This also keeps explicit --runtime-dir commands usable with HOME unset.
 	for _, argument := range os.Args[1:] {
-		if argument != "daemon" {
+		if argument != "daemon" && argument != "runtime" {
 			continue
 		}
 		// Avoid constructing a second command tree for ordinary capture hooks.
 		// Cobra still decides whether the token is a namespace or a flag value.
-		runtimeRoot := cli.NewRootCLI(cli.WithRuntimeDaemon(runtimeDaemon)).Command()
+		runtimeRoot := cli.NewRootCLI(cli.WithRuntimeDaemon(runtimeDaemon),
+			cli.WithRuntimeClient(runtimeDaemon), cli.WithRuntimeOperators(runtimeinfra.LocalOperatorFactory{})).Command()
 		command, _, _ := runtimeRoot.Find(os.Args[1:])
 		for current := command; current != nil && current != runtimeRoot; current = current.Parent() {
-			if current.Name() == "daemon" && current.Parent() == runtimeRoot {
+			if (current.Name() == "daemon" || current.Name() == "runtime") && current.Parent() == runtimeRoot {
 				return executeRootCommand(runtimeRoot)
 			}
 		}
@@ -238,6 +239,7 @@ func run() error {
 
 	rootCmd := cli.NewRootCLI(
 		cli.WithRuntimeDaemon(runtimeDaemon),
+		cli.WithRuntimeClient(runtimeDaemon), cli.WithRuntimeOperators(runtimeinfra.LocalOperatorFactory{}),
 		cli.WithEvent(eventUsecase),
 		cli.WithEventMetadata(eventMetadataUsecase),
 		cli.WithTwoTierSearch(eventDatasource),

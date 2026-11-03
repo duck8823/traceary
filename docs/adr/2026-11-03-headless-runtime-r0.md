@@ -2,7 +2,7 @@
 
 [日本語](2026-11-03-headless-runtime-r0.ja.md)
 
-- Status: **Proposed; requires independent review and explicit human acceptance**.
+- Status: **Accepted by the maintainer** when merging [#2473](https://github.com/duck8823/traceary/pull/2473) on 2026-11-03; implementation/certification gates remain per leaf.
 - Design issue: [#2471](https://github.com/duck8823/traceary/issues/2471).
 - Parent: [#2414](https://github.com/duck8823/traceary/issues/2414).
 - Baseline: `dc6055f6545749c449708f621217a60bc4a105f7`.

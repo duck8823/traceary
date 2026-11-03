@@ -84,6 +84,8 @@ type Runtime struct {
 	runs            map[string]*ownedRun
 	pending, active int
 	disabled        bool
+	revision        uint64
+	changed         chan struct{}
 }
 
 // NewRuntime constructs an epoch-scoped launch owner with explicit ports.
@@ -91,7 +93,7 @@ func NewRuntime(registry TargetRegistry, profiles ProfileCatalog, launcher Proce
 	if registry == nil || profiles == nil || launcher == nil || journal == nil || !(domain.LaunchIdentity{Run: epoch, Generation: epoch, Epoch: epoch}).Valid() {
 		return nil, domain.ErrInvalid
 	}
-	return &Runtime{registry: registry, profiles: profiles, launcher: launcher, journal: journal, epoch: epoch, tickets: make(map[string]*launchTicket), runs: make(map[string]*ownedRun)}, nil
+	return &Runtime{registry: registry, profiles: profiles, launcher: launcher, journal: journal, epoch: epoch, tickets: make(map[string]*launchTicket), runs: make(map[string]*ownedRun), changed: make(chan struct{})}, nil
 }
 func validLaunchRequest(r LaunchRequest) bool {
 	if len(r.RequestID) == 0 || len(r.RequestID) > 128 {
@@ -138,6 +140,7 @@ func (s *Runtime) Launch(ctx context.Context, request LaunchRequest) (domain.Run
 			ticket = &launchTicket{request: request, ctx: coordinator, cancel: cancel, done: make(chan struct{})}
 			s.tickets[request.RequestID] = ticket
 			s.pending++
+			s.changedLocked()
 		}
 		ticket.waiters++
 		s.mu.Unlock()
@@ -214,6 +217,7 @@ func (s *Runtime) launch(t *launchTicket) {
 	}
 	t.starting = true
 	t.descriptor = descriptor
+	s.changedLocked()
 	s.mu.Unlock()
 	// Durable intent begins only after validated target and the non-abandonable
 	// commit boundary. A late caller cancellation cannot erase/recreate it.
@@ -241,6 +245,7 @@ func (s *Runtime) launch(t *launchTicket) {
 	s.pending--
 	s.active++
 	s.runs[id.Run] = run
+	s.changedLocked()
 	t.descriptor = descriptor
 	s.mu.Unlock()
 	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(t.ctx), 2*time.Second)
@@ -253,6 +258,7 @@ func (s *Runtime) launch(t *launchTicket) {
 	}
 	t.result = run.descriptor.Snapshot()
 	t.complete = true
+	s.changedLocked()
 	close(t.done)
 	s.mu.Unlock()
 	go s.reconcile(run)
@@ -284,6 +290,7 @@ func (s *Runtime) fail(t *launchTicket, err error) {
 		s.mu.Lock()
 	}
 	t.complete = true
+	s.changedLocked()
 	close(t.done)
 	s.mu.Unlock()
 }
@@ -292,15 +299,14 @@ func (s *Runtime) reconcile(run *ownedRun) {
 	s.mu.Lock()
 	if err == nil {
 		err = run.descriptor.Exit(code)
-		if err == nil {
-			s.active--
-		}
 	}
 	if err != nil {
 		_ = run.descriptor.MarkUncertain()
 		run.waitErr = ErrLaunchUnknown
 	}
 	snapshot := run.descriptor.Snapshot()
+	exitKnown := err == nil
+	s.changedLocked()
 	s.mu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	journalErr := s.journal.SaveLaunch(ctx, snapshot)
@@ -309,6 +315,10 @@ func (s *Runtime) reconcile(run *ownedRun) {
 	if journalErr != nil {
 		_ = run.descriptor.MarkUncertain()
 	}
+	if exitKnown {
+		s.active--
+	}
+	s.changedLocked()
 	close(run.done)
 	s.mu.Unlock()
 }
@@ -317,6 +327,9 @@ func (s *Runtime) reconcile(run *ownedRun) {
 func (s *Runtime) List() []domain.RunSnapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.listLocked()
+}
+func (s *Runtime) listLocked() []domain.RunSnapshot {
 	result := make([]domain.RunSnapshot, 0, len(s.runs))
 	for _, run := range s.runs {
 		result = append(result, run.descriptor.Snapshot())
@@ -342,7 +355,66 @@ func (s *Runtime) List() []domain.RunSnapshot {
 func (s *Runtime) HasActive() bool { s.mu.Lock(); defer s.mu.Unlock(); return s.pending+s.active > 0 }
 
 // DisableLaunches stops NEW admissions without killing children or evicting receipts.
-func (s *Runtime) DisableLaunches() { s.mu.Lock(); s.disabled = true; s.mu.Unlock() }
+func (s *Runtime) DisableLaunches() {
+	s.mu.Lock()
+	if !s.disabled {
+		s.disabled = true
+		s.changedLocked()
+	}
+	s.mu.Unlock()
+}
+
+// Disabled reports launch admission, not native interaction state.
+func (s *Runtime) Disabled() bool { s.mu.Lock(); defer s.mu.Unlock(); return s.disabled }
+func (s *Runtime) changedLocked() { s.revision++; close(s.changed); s.changed = make(chan struct{}) }
+
+// AwaitIdle retains ownership through actual Wait and journal reconciliation; it never signals a child.
+func (s *Runtime) AwaitIdle(ctx context.Context) error {
+	for {
+		s.mu.Lock()
+		if s.pending+s.active == 0 {
+			s.mu.Unlock()
+			return nil
+		}
+		changed := s.changed
+		s.mu.Unlock()
+		select {
+		case <-changed:
+		case <-ctx.Done():
+			return xerrors.Errorf("await owned runtime reconciliation: %w", ctx.Err())
+		}
+	}
+}
+
+// Page rejects mixed-revision continuations and bounds metadata to two runs.
+func (s *Runtime) Page(request RunPageRequest) (RunPage, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if request.Epoch != s.epoch {
+		return RunPage{}, domain.ErrChanged
+	}
+	if request.Revision != 0 && request.Revision != s.revision {
+		return RunPage{}, domain.ErrChanged
+	}
+	runs := s.listLocked()
+	start := 0
+	if request.Cursor != "" {
+		if request.Revision == 0 {
+			return RunPage{}, domain.ErrInvalid
+		}
+		index := sort.Search(len(runs), func(i int) bool { return runs[i].Identity.Run >= request.Cursor })
+		if index == len(runs) || runs[index].Identity.Run != request.Cursor {
+			return RunPage{}, domain.ErrChanged
+		}
+		start = index + 1
+	}
+	end := min(start+2, len(runs))
+	page := RunPage{Epoch: s.epoch, Revision: s.revision, Runs: append([]domain.RunSnapshot{}, runs[start:end]...)}
+	if end < len(runs) {
+		page.Next = runs[end-1].Identity.Run
+	}
+	return page, nil
+}
 
 // AwaitExit validates the immutable generation; no PID lookup or control occurs.
 func (s *Runtime) AwaitExit(ctx context.Context, id domain.LaunchIdentity) (domain.RunSnapshot, error) {
