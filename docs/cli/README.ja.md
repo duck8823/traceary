@@ -945,3 +945,11 @@ sessions、events、commands、usage は、1つの読み取り専用トランザ
 - 環境変数と runtime 前提: [`../environment/README.ja.md`](../environment/README.ja.md)
 - Hooks ガイド: [`../hooks/README.ja.md`](../hooks/README.ja.md)
 - バックアップガイド: [`../backup/README.ja.md`](../backup/README.ja.md)
+
+## ローカルDaemon transport
+
+`traceary daemon serve [--runtime-dir ABSOLUTE_ROOT]`でforeground Unix transportを明示起動する。
+`traceary daemon status --json`はDaemon起動やcore store操作をせずreadinessを確認する。
+`--db-path`はDaemon optionではない。
+listeningはagent生存ではなく、native観測/PTY/resume統合は別作業とする。
+[IPC contract](../runtime/daemon-ipc.ja.md)を参照。

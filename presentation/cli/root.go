@@ -7,6 +7,7 @@ import (
 	"github.com/duck8823/traceary/application"
 	"github.com/duck8823/traceary/application/queryservice"
 	"github.com/duck8823/traceary/application/redaction"
+	appruntime "github.com/duck8823/traceary/application/runtime"
 	"github.com/duck8823/traceary/application/usecase"
 	"github.com/duck8823/traceary/domain/model"
 	"github.com/duck8823/traceary/presentation"
@@ -14,6 +15,7 @@ import (
 
 // RootCLI provides the Traceary root command.
 type RootCLI struct {
+	runtimeDaemon               appruntime.Daemon
 	event                       usecase.EventUsecase
 	eventMetadata               usecase.EventMetadataUsecase
 	twoTierSearch               queryservice.TwoTierSearch
@@ -419,6 +421,7 @@ func (c *RootCLI) Command() *cobra.Command {
 	rootCmd.AddCommand(c.newCompletionCommand(rootCmd))
 	rootCmd.AddCommand(c.newHooksCommand())
 	rootCmd.AddCommand(c.newDoctorCommand())
+	rootCmd.AddCommand(c.newDaemonCommand())
 	rootCmd.AddCommand(c.newReportCommand())
 	rootCmd.AddCommand(c.newBundleCommand())
 
@@ -475,4 +478,9 @@ func (c *RootCLI) runRootDefault(cmd *cobra.Command) error {
 		return xerrors.Errorf("%s: %w", Localize("failed to render help", "help の表示に失敗しました"), helpErr)
 	}
 	return nil
+}
+
+// WithRuntimeDaemon injects the local-only transport without core-store access.
+func WithRuntimeDaemon(daemon appruntime.Daemon) RootCLIOption {
+	return func(c *RootCLI) { c.runtimeDaemon = daemon }
 }

@@ -32,6 +32,8 @@ type pillarInventoryEntry struct {
 // Usage counts are not grounds. memory store remember was removed in
 // v0.36.0 (#1870) after the v0.35 notice.
 var pillarInventory = []pillarInventoryEntry{
+	{Path: "daemon serve", Pillar: pillarKeep, Reason: "explicit local runtime transport; not a history or permission authority"},
+	{Path: "daemon status", Pillar: pillarKeep, Reason: "bounded local transport readiness; does not query the core store"},
 	{Path: "audit", Pillar: pillarRecord, Reason: "persist command-audit records"},
 	{Path: "log", Pillar: pillarRecord, Reason: "persist a manual event"},
 	{Path: "list", Pillar: pillarRecord, Reason: "read recorded events; --follow absorbs tail; --blocks absorbs timeline"},

@@ -119,7 +119,7 @@ func shouldSkipCompactReclaimWarning(cmd *cobra.Command) bool {
 			return true
 		}
 		switch current.Name() {
-		case "hook", "compact", "doctor":
+		case "hook", "compact", "doctor", "daemon":
 			return true
 		}
 	}

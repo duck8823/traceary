@@ -1,0 +1,627 @@
+//go:build darwin || linux
+
+package runtime
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
+	"net"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"golang.org/x/sys/unix"
+	"golang.org/x/xerrors"
+
+	app "github.com/duck8823/traceary/application/runtime"
+)
+
+// Roots are lifetime claims, bounded to 32 even if an injected consumer ignores
+// cancellation. The OS lock separately excludes other processes.
+var daemonRoots = struct {
+	sync.Mutex
+	owned map[string]bool
+}{owned: make(map[string]bool)}
+var runtimeClientSlots = make(chan struct{}, MaxRuntimeConnections)
+
+func claimDaemonRoot(witness string) (func(), error) {
+	daemonRoots.Lock()
+	defer daemonRoots.Unlock()
+	if daemonRoots.owned[witness] || len(daemonRoots.owned) >= MaxRuntimeConnections {
+		return nil, app.ErrRuntimeBusy
+	}
+	daemonRoots.owned[witness] = true
+	return func() { daemonRoots.Lock(); delete(daemonRoots.owned, witness); daemonRoots.Unlock() }, nil
+}
+func validRuntimeRoot(root string) bool {
+	return filepath.IsAbs(root) && filepath.Clean(root) == root && !strings.ContainsAny(root, "\x00\r\n") && len(filepath.Join(root, "observations.sock")) <= runtimeSocketPathLimit
+}
+func runtimeSocketStat(s unix.Stat_t) bool {
+	return s.Uid == uint32(os.Geteuid()) && s.Mode&unix.S_IFMT == unix.S_IFSOCK && s.Mode&0777 == 0600 && s.Nlink == 1
+}
+func sameSocket(a, b unix.Stat_t) bool {
+	return runtimeSocketStat(a) && runtimeSocketStat(b) && a.Dev == b.Dev && a.Ino == b.Ino
+}
+
+type daemonSocket struct {
+	name, role string
+	listener   *net.UnixListener
+	stamp      unix.Stat_t
+	slots      chan struct{}
+}
+type pendingObservation struct {
+	metadata app.ObservationMetadata
+	bytes    int
+}
+type daemonServer struct {
+	daemon               *LocalDaemon
+	ctx                  context.Context
+	cancel               context.CancelFunc
+	root, witness, epoch string
+	rootFD, leaseFD      int
+	releaseClaim         func()
+	leaseStamp           unix.Stat_t
+	endpoints            []*daemonSocket
+	connections          map[*net.UnixConn]struct{}
+	connectionMu         sync.Mutex
+	network              sync.WaitGroup
+	failure              chan error
+	queueMu              sync.Mutex
+	queue                []pendingObservation
+	queueBytes           int
+	notify               chan struct{}
+	workerDone           chan struct{}
+	workerStarted        bool
+	degraded             atomic.Bool
+	releaseOnce          sync.Once
+}
+
+// Serve owns the two local endpoints. It starts no agent and performs no core-store I/O.
+func (d *LocalDaemon) Serve(ctx context.Context, root string) error {
+	if err := ctx.Err(); err != nil {
+		return xerrors.Errorf("start local daemon: %w", err)
+	}
+	if !d.serving.CompareAndSwap(false, true) {
+		return app.ErrRuntimeBusy
+	}
+	s, err := prepareDaemon(ctx, d, root)
+	if err != nil {
+		d.serving.Store(false)
+		return err
+	}
+	defer s.shutdown()
+	s.workerStarted = true
+	go s.consume()
+	for _, endpoint := range s.endpoints {
+		s.network.Add(1)
+		go s.accept(endpoint)
+	}
+	<-s.ctx.Done()
+	select {
+	case err := <-s.failure:
+		return err
+	default:
+		return nil
+	}
+}
+func prepareDaemon(parent context.Context, d *LocalDaemon, root string) (*daemonServer, error) {
+	ctx, cancel := context.WithCancel(parent)
+	s := &daemonServer{daemon: d, ctx: ctx, cancel: cancel, root: root, rootFD: -1, leaseFD: -1, connections: make(map[*net.UnixConn]struct{}), failure: make(chan error, 1), notify: make(chan struct{}, 1), workerDone: make(chan struct{})}
+	complete := false
+	defer func() {
+		if !complete {
+			s.shutdown()
+		}
+	}()
+	if !validRuntimeRoot(root) {
+		return nil, app.ErrUnsafeRuntime
+	}
+	fd, err := privateRuntimeDir(root, true)
+	if err != nil {
+		return nil, app.ErrUnsafeRuntime
+	}
+	s.rootFD = fd
+	s.witness, err = directoryWitness(fd)
+	if err != nil {
+		return nil, app.ErrUnsafeRuntime
+	}
+	s.releaseClaim, err = claimDaemonRoot(s.witness)
+	if err != nil {
+		return nil, err
+	}
+	lock, err := unix.Openat(fd, "daemon.lock", unix.O_RDWR|unix.O_CREAT|unix.O_NOFOLLOW|unix.O_CLOEXEC|unix.O_NONBLOCK, 0600)
+	if err != nil {
+		return nil, app.ErrUnsafeRuntime
+	}
+	s.leaseFD = lock
+	var stat unix.Stat_t
+	if unix.Fstat(lock, &stat) != nil || !privateRegular(stat) {
+		return nil, app.ErrUnsafeRuntime
+	}
+	s.leaseStamp = stat
+	if err = unix.Flock(lock, unix.LOCK_EX|unix.LOCK_NB); err != nil {
+		if errors.Is(err, unix.EWOULDBLOCK) || errors.Is(err, unix.EAGAIN) {
+			return nil, app.ErrRuntimeBusy
+		}
+		return nil, app.ErrUnsafeRuntime
+	}
+	if !s.leaseCurrent() {
+		return nil, app.ErrUnsafeRuntime
+	}
+	random := make([]byte, 16)
+	if _, err = rand.Read(random); err != nil {
+		return nil, app.ErrDaemonUnavailable
+	}
+	s.epoch = hex.EncodeToString(random)
+	for _, endpoint := range []struct {
+		name, role string
+		limit      int
+	}{{"daemon.sock", "management", d.options.ManagementConnections}, {"observations.sock", "observations", d.options.ObservationConnections}} {
+		if err = ctx.Err(); err != nil {
+			return nil, xerrors.Errorf("start local endpoints: %w", err)
+		}
+		owned, err := s.listen(endpoint.name, endpoint.role, endpoint.limit)
+		if err != nil {
+			return nil, err
+		}
+		s.endpoints = append(s.endpoints, owned)
+	}
+	complete = true
+	return s, nil
+}
+func (s *daemonServer) listen(name, role string, limit int) (*daemonSocket, error) {
+	if err := verifyRuntimeRoot(s.root, s.witness, s.rootFD); err != nil {
+		return nil, app.ErrUnsafeRuntime
+	}
+	var existing unix.Stat_t
+	err := unix.Fstatat(s.rootFD, name, &existing, unix.AT_SYMLINK_NOFOLLOW)
+	if err == nil {
+		if existing.Mode&unix.S_IFMT == unix.S_IFSOCK {
+			return nil, app.ErrRuntimeBusy
+		}
+		return nil, app.ErrUnsafeRuntime
+	}
+	if !errors.Is(err, unix.ENOENT) {
+		return nil, app.ErrUnsafeRuntime
+	}
+	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: filepath.Join(s.root, name), Net: "unix"})
+	if err != nil {
+		if errors.Is(err, unix.EADDRINUSE) || errors.Is(err, unix.EEXIST) {
+			return nil, app.ErrRuntimeBusy
+		}
+		return nil, app.ErrDaemonUnavailable
+	}
+	listener.SetUnlinkOnClose(false)
+	endpoint := &daemonSocket{name: name, role: role, listener: listener, slots: make(chan struct{}, limit)}
+	// Only a successfully observed socket in the pinned directory becomes owned.
+	if unix.Fstatat(s.rootFD, name, &endpoint.stamp, unix.AT_SYMLINK_NOFOLLOW) != nil || endpoint.stamp.Mode&unix.S_IFMT != unix.S_IFSOCK || endpoint.stamp.Uid != uint32(os.Geteuid()) {
+		_ = listener.Close()
+		return nil, app.ErrUnsafeRuntime
+	}
+	if err = unix.Fchmodat(s.rootFD, name, 0600, unix.AT_SYMLINK_NOFOLLOW); err != nil {
+		_ = listener.Close()
+		s.cleanupSocket(endpoint)
+		return nil, app.ErrUnsafeRuntime
+	}
+	var current unix.Stat_t
+	if unix.Fstatat(s.rootFD, name, &current, unix.AT_SYMLINK_NOFOLLOW) != nil || current.Dev != endpoint.stamp.Dev || current.Ino != endpoint.stamp.Ino || !runtimeSocketStat(current) || verifyRuntimeRoot(s.root, s.witness, s.rootFD) != nil {
+		_ = listener.Close()
+		s.cleanupSocket(endpoint)
+		return nil, app.ErrUnsafeRuntime
+	}
+	endpoint.stamp = current
+	return endpoint, nil
+}
+func (s *daemonServer) cleanupSocket(endpoint *daemonSocket) {
+	if s.rootFD < 0 || verifyRuntimeRoot(s.root, s.witness, s.rootFD) != nil {
+		return
+	}
+	var current unix.Stat_t
+	if unix.Fstatat(s.rootFD, endpoint.name, &current, unix.AT_SYMLINK_NOFOLLOW) == nil && current.Uid == uint32(os.Geteuid()) && current.Mode&unix.S_IFMT == unix.S_IFSOCK && current.Dev == endpoint.stamp.Dev && current.Ino == endpoint.stamp.Ino {
+		_ = unix.Unlinkat(s.rootFD, endpoint.name, 0)
+	}
+}
+func (s *daemonServer) release() {
+	s.releaseOnce.Do(func() {
+		if s.leaseFD >= 0 {
+			_ = unix.Flock(s.leaseFD, unix.LOCK_UN)
+			_ = unix.Close(s.leaseFD)
+		}
+		if s.rootFD >= 0 {
+			_ = unix.Close(s.rootFD)
+		}
+		if s.releaseClaim != nil {
+			s.releaseClaim()
+		}
+		s.daemon.serving.Store(false)
+	})
+}
+func (s *daemonServer) shutdown() {
+	s.cancel()
+	for _, endpoint := range s.endpoints {
+		_ = endpoint.listener.Close()
+	}
+	s.connectionMu.Lock()
+	for conn := range s.connections {
+		_ = conn.Close()
+	}
+	s.connectionMu.Unlock()
+	s.network.Wait()
+	for _, endpoint := range s.endpoints {
+		s.cleanupSocket(endpoint)
+	}
+	if !s.workerStarted {
+		close(s.workerDone)
+	}
+	select {
+	case <-s.workerDone:
+		s.release()
+	case <-time.After(OptionalRuntimeBudget):
+		go func() { <-s.workerDone; s.release() }()
+	}
+}
+func (s *daemonServer) accept(endpoint *daemonSocket) {
+	defer s.network.Done()
+	for {
+		conn, err := endpoint.listener.AcceptUnix()
+		if err != nil {
+			if s.ctx.Err() == nil {
+				select {
+				case s.failure <- app.ErrDaemonUnavailable:
+				default:
+				}
+				s.cancel()
+			}
+			return
+		}
+		// Authenticate before even an admission-error reply; a busy endpoint
+		// must not become an unchecked peer path.
+		if verifyRuntimePeer(conn) != nil {
+			_ = conn.Close()
+			continue
+		}
+		select {
+		case endpoint.slots <- struct{}{}:
+		default:
+			_ = conn.SetWriteDeadline(time.Now().Add(s.daemon.options.IOTimeout))
+			_ = writeRuntimeFrame(conn, runtimeResponse{Version: RuntimeProtocolVersion, Code: "busy", Role: endpoint.role})
+			_ = conn.Close()
+			continue
+		}
+		s.connectionMu.Lock()
+		s.connections[conn] = struct{}{}
+		s.connectionMu.Unlock()
+		s.network.Add(1)
+		go func() {
+			defer s.network.Done()
+			defer func() {
+				<-endpoint.slots
+				s.connectionMu.Lock()
+				delete(s.connections, conn)
+				s.connectionMu.Unlock()
+				_ = conn.Close()
+			}()
+			s.handle(conn, endpoint)
+		}()
+	}
+}
+func (s *daemonServer) leaseCurrent() bool {
+	var current unix.Stat_t
+	return s.leaseFD >= 0 && unix.Fstatat(s.rootFD, "daemon.lock", &current, unix.AT_SYMLINK_NOFOLLOW) == nil && privateRegular(current) && current.Dev == s.leaseStamp.Dev && current.Ino == s.leaseStamp.Ino
+}
+
+func (s *daemonServer) endpointCurrent(endpoint *daemonSocket) bool {
+	if !s.leaseCurrent() {
+		return false
+	}
+	if verifyRuntimeRoot(s.root, s.witness, s.rootFD) != nil {
+		return false
+	}
+	var current unix.Stat_t
+	return unix.Fstatat(s.rootFD, endpoint.name, &current, unix.AT_SYMLINK_NOFOLLOW) == nil && sameSocket(current, endpoint.stamp)
+}
+func (s *daemonServer) handle(conn *net.UnixConn, endpoint *daemonSocket) {
+	stop := context.AfterFunc(s.ctx, func() { _ = conn.Close() })
+	defer stop()
+	if verifyRuntimePeer(conn) != nil || !s.endpointCurrent(endpoint) {
+		return
+	}
+	seen := make(map[string]struct{})
+	hello := true
+	for {
+		if conn.SetDeadline(time.Now().Add(s.daemon.options.IOTimeout)) != nil {
+			return
+		}
+		data, err := readRuntimeFrame(conn)
+		if err != nil {
+			return
+		}
+		var request runtimeRequest
+		err = decodeRuntimeJSON(data, &request)
+		if err != nil {
+			code := "invalid"
+			if errors.Is(err, app.ErrRuntimeUnsupported) {
+				code = "unsupported"
+			}
+			_ = writeRuntimeFrame(conn, runtimeResponse{Version: RuntimeProtocolVersion, Code: code})
+			return
+		}
+		if !boundedRuntimeID(request.ID, false) || !boundedRuntimeID(request.Operation, false) || len(request.Operation) > 64 || !s.endpointCurrent(endpoint) {
+			_ = writeRuntimeFrame(conn, runtimeResponse{Version: RuntimeProtocolVersion, Code: "invalid"})
+			return
+		}
+		if _, duplicate := seen[request.ID]; duplicate || len(seen) >= 1024 {
+			_ = writeRuntimeFrame(conn, runtimeResponse{Version: RuntimeProtocolVersion, ID: request.ID, Code: "invalid"})
+			return
+		}
+		seen[request.ID] = struct{}{}
+		reply := runtimeResponse{Version: RuntimeProtocolVersion, ID: request.ID}
+		if hello {
+			if request.Operation != "hello" || request.Role != endpoint.role || request.Observation != nil {
+				reply.Code = "invalid"
+				_ = writeRuntimeFrame(conn, reply)
+				return
+			}
+			reply.Code = "ok"
+			reply.Role = endpoint.role
+			hello = false
+		} else if request.Role != "" {
+			reply.Code = "invalid"
+		} else {
+			switch {
+			case endpoint.role == "management" && request.Operation == "status" && request.Observation == nil:
+				delivery := "unavailable"
+				capabilities := []string{"status"}
+				if s.daemon.receiver != nil {
+					delivery = "configured"
+					capabilities = append(capabilities, "observe_metadata")
+					if s.degraded.Load() {
+						delivery = "degraded"
+					}
+				}
+				reply.Code = "ok"
+				reply.Status = &runtimeStatusRecord{RuntimeProtocolVersion, s.epoch, "listening", capabilities, delivery}
+			case endpoint.role == "observations" && request.Operation == "observe" && request.Observation != nil:
+				metadata := request.Observation.metadata()
+				if !validObservation(metadata) {
+					reply.Code = "invalid"
+				} else if s.daemon.receiver == nil {
+					reply.Code = "unsupported"
+				} else if !s.enqueue(metadata, len(data)) {
+					reply.Code = "busy"
+				} else {
+					reply.Code = "queued"
+				}
+			default:
+				reply.Code = "unsupported"
+			}
+		}
+		if writeRuntimeFrame(conn, reply) != nil {
+			return
+		}
+		if reply.Code != "ok" && reply.Code != "queued" {
+			return
+		}
+	}
+}
+func (s *daemonServer) enqueue(metadata app.ObservationMetadata, size int) bool {
+	s.queueMu.Lock()
+	defer s.queueMu.Unlock()
+	if s.ctx.Err() != nil || len(s.queue) >= s.daemon.options.ObservationFrames || size > s.daemon.options.ObservationBytes-s.queueBytes {
+		s.degraded.Store(true)
+		return false
+	}
+	s.queue = append(s.queue, pendingObservation{metadata, size})
+	s.queueBytes += size
+	select {
+	case s.notify <- struct{}{}:
+	default:
+	}
+	return true
+}
+func (s *daemonServer) consume() {
+	defer close(s.workerDone)
+	defer func() { s.queueMu.Lock(); clear(s.queue); s.queue = nil; s.queueBytes = 0; s.queueMu.Unlock() }()
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		case <-s.notify:
+		}
+		for {
+			s.queueMu.Lock()
+			if len(s.queue) == 0 {
+				s.queueMu.Unlock()
+				break
+			}
+			item := s.queue[0]
+			copy(s.queue, s.queue[1:])
+			s.queue[len(s.queue)-1] = pendingObservation{}
+			s.queue = s.queue[:len(s.queue)-1]
+			s.queueBytes -= item.bytes
+			s.queueMu.Unlock()
+			if s.ctx.Err() != nil {
+				return
+			}
+			if s.daemon.receiver != nil {
+				if s.daemon.receiver.ConsumeObservation(s.ctx, item.metadata) != nil {
+					s.degraded.Store(true)
+				}
+			}
+		}
+	}
+}
+
+type runtimeCallResult struct {
+	status app.DaemonStatus
+	err    error
+}
+
+// Status queries readiness only. It never creates a directory or starts a daemon.
+func (d *LocalDaemon) Status(ctx context.Context, root string) (app.DaemonStatus, error) {
+	return d.call(ctx, root, "status", nil)
+}
+
+// Observe returns transport queuing only, never semantic/native-state acceptance.
+func (d *LocalDaemon) Observe(ctx context.Context, root string, metadata app.ObservationMetadata) error {
+	bounded, cancel := context.WithTimeout(ctx, OptionalRuntimeBudget)
+	defer cancel()
+	if !validObservation(metadata) {
+		return app.ErrRuntimeProtocol
+	}
+	_, err := d.call(bounded, root, "observe", recordObservation(metadata))
+	return err
+}
+func (d *LocalDaemon) call(parent context.Context, root, operation string, observation *observationRecord) (app.DaemonStatus, error) {
+	ctx, cancel := context.WithTimeout(parent, OptionalRuntimeBudget)
+	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return app.DaemonStatus{}, xerrors.Errorf("local runtime call: %w", err)
+	}
+	select {
+	case runtimeClientSlots <- struct{}{}:
+	default:
+		return app.DaemonStatus{}, app.ErrRuntimeBusy
+	}
+	result := make(chan runtimeCallResult, 1)
+	// A stalled filesystem check cannot hold the caller past the optional budget.
+	// The worker retains its global slot until actual completion, bounding leaks.
+	go func() {
+		defer func() { <-runtimeClientSlots }()
+		status, err := d.performCall(ctx, root, operation, observation)
+		result <- runtimeCallResult{status, err}
+	}()
+	select {
+	case <-ctx.Done():
+		return app.DaemonStatus{}, xerrors.Errorf("local runtime call: %w", ctx.Err())
+	case value := <-result:
+		return value.status, value.err
+	}
+}
+func (d *LocalDaemon) performCall(ctx context.Context, root, operation string, observation *observationRecord) (app.DaemonStatus, error) {
+	if !validRuntimeRoot(root) {
+		return app.DaemonStatus{}, app.ErrUnsafeRuntime
+	}
+	if _, err := os.Lstat(root); errors.Is(err, os.ErrNotExist) {
+		return app.DaemonStatus{}, app.ErrDaemonUnavailable
+	}
+	rootFD, err := privateRuntimeDir(root, false)
+	if err != nil {
+		return app.DaemonStatus{}, app.ErrUnsafeRuntime
+	}
+	defer func() { _ = unix.Close(rootFD) }()
+	witness, err := directoryWitness(rootFD)
+	if err != nil {
+		return app.DaemonStatus{}, app.ErrUnsafeRuntime
+	}
+	name, role := "daemon.sock", "management"
+	if operation == "observe" {
+		name, role = "observations.sock", "observations"
+	}
+	var before unix.Stat_t
+	err = unix.Fstatat(rootFD, name, &before, unix.AT_SYMLINK_NOFOLLOW)
+	if errors.Is(err, unix.ENOENT) {
+		return app.DaemonStatus{}, app.ErrDaemonUnavailable
+	}
+	if err != nil || !runtimeSocketStat(before) {
+		return app.DaemonStatus{}, app.ErrUnsafeRuntime
+	}
+	if err = ctx.Err(); err != nil {
+		return app.DaemonStatus{}, xerrors.Errorf("inspect local endpoint: %w", err)
+	}
+	connection, err := (&net.Dialer{}).DialContext(ctx, "unix", filepath.Join(root, name))
+	if err != nil {
+		return app.DaemonStatus{}, app.ErrDaemonUnavailable
+	}
+	conn, ok := connection.(*net.UnixConn)
+	if !ok {
+		_ = connection.Close()
+		return app.DaemonStatus{}, app.ErrUnsafeRuntime
+	}
+	defer func() { _ = conn.Close() }()
+	deadline, ok := ctx.Deadline()
+	if !ok || conn.SetDeadline(deadline) != nil {
+		return app.DaemonStatus{}, app.ErrDaemonUnavailable
+	}
+	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stop()
+	var after unix.Stat_t
+	if verifyRuntimePeer(conn) != nil || verifyRuntimeRoot(root, witness, rootFD) != nil || unix.Fstatat(rootFD, name, &after, unix.AT_SYMLINK_NOFOLLOW) != nil || !sameSocket(before, after) {
+		return app.DaemonStatus{}, app.ErrUnsafeRuntime
+	}
+	random := make([]byte, 16)
+	if _, err = rand.Read(random); err != nil {
+		return app.DaemonStatus{}, app.ErrDaemonUnavailable
+	}
+	id := hex.EncodeToString(random)
+	if err = writeRuntimeFrame(conn, runtimeRequest{Version: RuntimeProtocolVersion, ID: id, Operation: "hello", Role: role}); err != nil {
+		return app.DaemonStatus{}, app.ErrDaemonUnavailable
+	}
+	hello, err := readRuntimeResponse(conn, id)
+	if err != nil {
+		return app.DaemonStatus{}, err
+	}
+	if hello.Code != "ok" || hello.Role != role || hello.Status != nil {
+		return app.DaemonStatus{}, app.ErrRuntimeProtocol
+	}
+	id += "-request"
+	if err = writeRuntimeFrame(conn, runtimeRequest{Version: RuntimeProtocolVersion, ID: id, Operation: operation, Observation: observation}); err != nil {
+		return app.DaemonStatus{}, app.ErrDaemonUnavailable
+	}
+	reply, err := readRuntimeResponse(conn, id)
+	if err != nil {
+		return app.DaemonStatus{}, err
+	}
+	if operation == "observe" {
+		if reply.Code != "queued" || reply.Status != nil || reply.Role != "" {
+			return app.DaemonStatus{}, app.ErrRuntimeProtocol
+		}
+		return app.DaemonStatus{}, nil
+	}
+	if reply.Code != "ok" || reply.Status == nil || reply.Role != "" {
+		return app.DaemonStatus{}, app.ErrRuntimeProtocol
+	}
+	v := reply.Status
+	if v.Version != RuntimeProtocolVersion || len(v.Epoch) != 32 || v.State != "listening" || len(v.Capabilities) < 1 || len(v.Capabilities) > 16 {
+		return app.DaemonStatus{}, app.ErrRuntimeProtocol
+	}
+	if _, err = hex.DecodeString(v.Epoch); err != nil {
+		return app.DaemonStatus{}, app.ErrRuntimeProtocol
+	}
+	for _, capability := range v.Capabilities {
+		if !boundedRuntimeID(capability, false) {
+			return app.DaemonStatus{}, app.ErrRuntimeProtocol
+		}
+	}
+	switch v.ObservationDelivery {
+	case "unavailable", "configured", "degraded":
+	default:
+		return app.DaemonStatus{}, app.ErrRuntimeProtocol
+	}
+	return app.DaemonStatus{ProtocolVersion: v.Version, Epoch: v.Epoch, State: v.State, Capabilities: append([]string(nil), v.Capabilities...), ObservationDelivery: v.ObservationDelivery}, nil
+}
+func readRuntimeResponse(conn *net.UnixConn, id string) (runtimeResponse, error) {
+	data, err := readRuntimeFrame(conn)
+	if err != nil {
+		return runtimeResponse{}, app.ErrDaemonUnavailable
+	}
+	var reply runtimeResponse
+	if err = decodeRuntimeJSON(data, &reply); err != nil {
+		return runtimeResponse{}, err
+	}
+	if reply.Code == "busy" && reply.ID == "" {
+		return runtimeResponse{}, app.ErrRuntimeBusy
+	}
+	if reply.ID != id {
+		return runtimeResponse{}, app.ErrRuntimeProtocol
+	}
+	if reply.Code != "ok" && reply.Code != "queued" {
+		return runtimeResponse{}, responseError(reply.Code)
+	}
+	return reply, nil
+}

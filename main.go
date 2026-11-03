@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
 
 	"github.com/duck8823/traceary/application"
@@ -26,6 +27,7 @@ import (
 	"github.com/duck8823/traceary/domain"
 	"github.com/duck8823/traceary/domain/types"
 	"github.com/duck8823/traceary/infrastructure/filesystem"
+	runtimeinfra "github.com/duck8823/traceary/infrastructure/runtime"
 	"github.com/duck8823/traceary/infrastructure/sqlite"
 	"github.com/duck8823/traceary/presentation"
 	"github.com/duck8823/traceary/presentation/cli"
@@ -131,6 +133,28 @@ func run() error {
 		return err
 	}
 
+	runtimeDaemon, err := runtimeinfra.NewLocalDaemon(nil, runtimeinfra.DaemonOptions{})
+	if err != nil {
+		return xerrors.Errorf("configure local runtime: %w", err)
+	}
+	// Resolve the typed namespace before any core-store path/config bootstrap.
+	// This also keeps explicit --runtime-dir commands usable with HOME unset.
+	for _, argument := range os.Args[1:] {
+		if argument != "daemon" {
+			continue
+		}
+		// Avoid constructing a second command tree for ordinary capture hooks.
+		// Cobra still decides whether the token is a namespace or a flag value.
+		runtimeRoot := cli.NewRootCLI(cli.WithRuntimeDaemon(runtimeDaemon)).Command()
+		command, _, _ := runtimeRoot.Find(os.Args[1:])
+		for current := command; current != nil && current != runtimeRoot; current = current.Parent() {
+			if current.Name() == "daemon" && current.Parent() == runtimeRoot {
+				return executeRootCommand(runtimeRoot)
+			}
+		}
+		break
+	}
+
 	migrationsSubFS, err := sqliteschema.Migrations()
 	if err != nil {
 		return xerrors.Errorf("%s: %w", cli.Localize("failed to read migration files", "マイグレーションファイルの読み込みに失敗しました"), err)
@@ -213,6 +237,7 @@ func run() error {
 	pluginDetector := filesystem.NewClaudePluginDetectorAdapter()
 
 	rootCmd := cli.NewRootCLI(
+		cli.WithRuntimeDaemon(runtimeDaemon),
 		cli.WithEvent(eventUsecase),
 		cli.WithEventMetadata(eventMetadataUsecase),
 		cli.WithTwoTierSearch(eventDatasource),
@@ -279,6 +304,10 @@ func run() error {
 		cli.WithDefaultReadColor(defaultReadColor),
 		cli.WithDatabasePathSetter(db.SetPath),
 	).Command()
+	return executeRootCommand(rootCmd)
+}
+
+func executeRootCommand(rootCmd *cobra.Command) error {
 	rootCmd.Version = versionString()
 	rootCmd.SetVersionTemplate("{{.Name}} {{.Version}}\n")
 	commandCtx, stopSignals := commandContext(os.Args)

@@ -948,3 +948,11 @@ Manage operator-reviewed session/workspace aliases used by the current diagnosti
 - environment variables and runtime assumptions: [`../environment/README.md`](../environment/README.md)
 - hooks integration: [`../hooks/README.md`](../hooks/README.md)
 - backup flow: [`../backup/README.md`](../backup/README.md)
+
+## Local daemon transport
+
+`traceary daemon serve [--runtime-dir ABSOLUTE_ROOT]` explicitly serves the
+foreground local Unix transport. `traceary daemon status --json` queries readiness
+without starting a daemon or touching the core store. `--db-path` is not a daemon
+option. Listening is not agent liveness; native observation/PTY/resume integration
+remains separate work. See [the IPC contract](../runtime/daemon-ipc.md).
