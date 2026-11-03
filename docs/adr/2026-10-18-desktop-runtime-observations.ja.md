@@ -2,11 +2,22 @@
 
 [English](2026-10-18-desktop-runtime-observations.md)
 
-- 状態：**提案。D0 未完了。人間の判断が必要なアーキテクチャ変更**
+- 状態：**提案。UI D0 未完了。人間の判断が必要なアーキテクチャ変更**
 - 対象：[計画 #2424](https://github.com/duck8823/traceary/issues/2424)
 - 親：[計画 #2414](https://github.com/duck8823/traceary/issues/2414)。開いたまま維持する。
 - 基準：`c6c4d2dbb8790be33a4d6903a9b9e833cbdb2af5`。v0.53.0 は公開済み。
 - 範囲：macOS、Codex、Claude Code、Antigravity CLI、Muse Code、Grok Build。
+
+## 2026-11-03に承認された依存の分離
+
+ユーザーはheadless runtimeとUI採用の独立化を明示承認した。
+[UI非依存R0](2026-11-03-headless-runtime-r0.ja.md)、#2471が、**headless scopeだけ**旧D0一括前提を置換する。
+R0の設計・文書はUI D0を待たずに進められるが、製品runtimeは独立レビューと人間によるR0受入を要する。
+共有registry backend #2472はUI #2431を待たない。
+D3/D4基盤にElectron/Wailsやnative UI/hardwareの前提を置かない。
+本ADRにはUI/統合Desktop gateと過去の不合格・未実施を残す。
+両framework未採用、#2424/#2414 open、Muse native保留を維持する。
+依存の分離でnative試験や安全性検証を免除しない。
 
 ## 要求と非対象
 
@@ -214,8 +225,9 @@ WebKit helper を含む process tree を記録する。
 renderer event-loop delay を native 入力遅延の代用にしない。
 package size は同等の package 同士で比較し、単独 executable と runtime 全体を比較しない。
 
-**実装の判定は no-go であり、両 framework とも未採用とする。**
-未完了の native gate を解消し、新しい採用判断が受理されるまで D1–D10 の実装を止める。
+**UI実装の判定は no-go であり、両 framework とも未採用とする。**
+UI/統合Desktop実装は未完了native gateと明示採用判断を要する。
+headlessはこのframework checkpointではなく独立R0 #2471に従う。
 この否定的 checkpoint は D0 完了ではない。
 日本語 IME の確定と取消、TUI/Unicode、clipboard、VoiceOver、複数 monitor、close/reopen と menus、sleep/wake、障害試験は必須である。
 build、画面、合成 throughput だけで合格にしない。
@@ -443,7 +455,8 @@ docs-only 検証で native QA の合格を主張しない。
 
 ## 実装 Issue の分割と rollback
 
-計画用 sub-issue は #2414 配下に作成したが、D0 の受入と framework 採否が確定するまで実装禁止とする。
+計画用sub-issueは#2414配下にあり、UIはD0/framework gateを維持する。
+headless runtimeはR0 #2471と共有registry #2472に独立して従う。
 起票は製品実装や native 認定の承認ではなく、要件を黙って免除しない。
 各 Issue は単独 writer、専用 branch/draft PR、positive/negative AC、検証 command、rollback を持つ。
 既存の受入条件を黙って緩めない。
@@ -451,9 +464,9 @@ docs-only 検証で native QA の合格を主張しない。
 | Package | 依存 | 受入条件と rollback |
 |---|---|---|
 | [D1](https://github.com/duck8823/traceary/issues/2430) Native read-only shell | D0 | 承認済み pane と有界 Audit/History/Memory。UI だけ無効化可能 |
-| [D2](https://github.com/duck8823/traceary/issues/2431) Registry | [D1](https://github.com/duck8823/traceary/issues/2430) | canonical path、重複、消失。既存 worktree を保持 |
-| [D3](https://github.com/duck8823/traceary/issues/2432) Managed daemon/PTY | D0,D2 | 起動と再接続を分割。実 CLI、detach、出力上限、明示停止。強制 cleanup なし |
-| [D4](https://github.com/duck8823/traceary/issues/2433) Observations/Attention | [D3](https://github.com/duck8823/traceary/issues/2432) | reducer と adapter を分割。五ホスト版別、unknown、順序/binding/障害。観測だけ無効化 |
+| [D2](https://github.com/duck8823/traceary/issues/2431) Registry | UI D0、[D1](https://github.com/duck8823/traceary/issues/2430)、backend #2472 | 共有registryのUI。canonical path、重複、消失。既存 worktree を保持 |
+| [D3](https://github.com/duck8823/traceary/issues/2432) Managed daemon/PTY | R0 #2471、backend #2472 | 起動と再接続を分割。実 CLI、detach、出力上限、明示停止。強制 cleanup なし |
+| [D4](https://github.com/duck8823/traceary/issues/2433) Observations/Attention | R0 #2471、launch #2461 | reducer と adapter を分割。版別認定（Muse native保留）、unknown、順序/binding/障害。観測だけ無効化 |
 | [D5](https://github.com/duck8823/traceary/issues/2434) Worktree 作成 | D2,D3 | branch/path 競合、部分失敗。force delete なし |
 | [D6](https://github.com/duck8823/traceary/issues/2435) Immutable diff | [D2](https://github.com/duck8823/traceary/issues/2431) | staged/unstaged/untracked、rename/delete/binary/large。snapshot/draft 保持 |
 | [D7](https://github.com/duck8823/traceary/issues/2436) Review と safe Submit | D4,D6 | stale、対象再検証、手動 fallback、不明 receipt。送信無効化 |
@@ -570,7 +583,7 @@ auto-start は opt-in のままとする。
 - [x] 2026-10-18 に `5b0b41d6` の最終差分を独立した Anthropic/Claude がレビュー。文言・台帳の条件修正は主担当が別に確認する。
 - [ ] ユーザーによる architecture/framework の採用判断。
 - [ ] D0 全体の受入と Status の Accepted への変更。
-- [x] ownership、依存、正負の受入条件、検証、rollback 付き D1–D10 計画 sub-issue を作成。D0 受入までは実装禁止。
+- [x] ownership、依存、正負の受入条件、検証、rollback 付き D1–D10 計画 sub-issue を作成。UIはUI D0受入まで実装禁止。headless runtimeは人間が受け入れたR0 #2471に従う。
 提案文書の delivery：2026-10-18 に、ユーザーは今回の PR に限り、主担当による復元・検証・独立レビューの手配・修正・merge・後片付けを明示承認し、従前の本人 UI 限定経路を置き換えた。
 ユーザーはさらに、#2424/#2414 を開いたまま提案成果を統合する今回限定の closing 規則例外も明示承認した。
 有界な文書 checkpoint は別途 #2440 で管理し、native 受入や architecture 採用とは扱わない。

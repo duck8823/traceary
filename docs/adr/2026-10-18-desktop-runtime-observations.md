@@ -2,11 +2,23 @@
 
 [日本語](2026-10-18-desktop-runtime-observations.ja.md)
 
-- Status: **Proposed; D0 incomplete; human-gated architecture decision**
+- Status: **Proposed; UI D0 incomplete; human-gated architecture decision**
 - Issue: [#2424](https://github.com/duck8823/traceary/issues/2424)
 - Parent: [#2414](https://github.com/duck8823/traceary/issues/2414), which stays open
 - Baseline: `c6c4d2dbb8790be33a4d6903a9b9e833cbdb2af5`, v0.53.0 already released
 - Scope: macOS; Codex, Claude Code, Antigravity CLI, Muse Code, Grok Build
+
+## 2026-11-03 approved scheduling split
+
+The maintainer explicitly separated headless runtime from UI adoption. The
+[UI-independent R0](2026-11-03-headless-runtime-r0.md), issue #2471, replaces
+the former blanket D0 prerequisite **for headless scope only**. R0 design/docs
+may proceed without UI D0; product runtime still requires independently reviewed,
+human-accepted R0. Shared registry backend #2472 is not blocked by UI #2431.
+D3/D4 foundations have no Electron/Wails or native UI/hardware predecessor.
+This ADR retains UI/integrated Desktop gates and every historical failed/unrun
+result. Neither framework is adopted; #2424 and #2414 remain open. Muse native
+work stays deferred. No native or security test is waived by the scheduling split.
 
 ## Requirement summary
 
@@ -248,9 +260,10 @@ trials, the initial launch), not proof of a cold filesystem cache. Record proces
 event-loop delay is not a substitute for native input latency. Package size must
 compare equivalent packaged builds, not one executable against an entire runtime.
 
-**Implementation decision: no-go; neither framework is adopted.** D1–D10
-remain blocked until the missing native gates are resolved and a new explicit
-adoption decision is accepted. This negative checkpoint is not completed D0. Native Japanese IME commit/cancel, TUI/Unicode,
+**UI implementation decision: no-go; neither framework is adopted.** UI and
+integrated Desktop implementation remain gated by missing native evidence and an
+explicit adoption decision. Headless work follows independent R0 #2471, not this
+framework checkpoint. This negative checkpoint is not completed D0. Native Japanese IME commit/cancel, TUI/Unicode,
 clipboard, VoiceOver, multiple monitors, close/reopen and menus, sleep/wake and fault tests
 are mandatory. A successful build, renderer screenshot or synthetic throughput
 does not pass them. Spike code stays outside production packages and is not
@@ -404,18 +417,18 @@ not cover the real daemon, native causality, peer identity, sockets or store lea
 
 ## Implementation issue plan and rollout
 
-Planning sub-issues exist under #2414 but remain explicitly blocked on D0
-acceptance and a framework decision. Their creation is not implementation
-approval or native certification; no requirement is silently waived.
+Planning sub-issues exist under #2414. UI issues retain D0/framework gates;
+headless runtime follows R0 #2471 and shared registry #2472 independently.
+Their creation is not acceptance or native certification; no test is silently waived.
 Every issue has one owning writer, a dedicated branch/draft PR, positive/negative
 acceptance, exact validation commands and a rollback section.
 
 | Package | Dependencies | Acceptance focus / rollback |
 |---|---|---|
 | [D1](https://github.com/duck8823/traceary/issues/2430) Native read-only shell | D0 | Approved panes; bounded Audit/History/Memory; disable UI only |
-| [D2](https://github.com/duck8823/traceary/issues/2431) Project/worktree registry | [D1](https://github.com/duck8823/traceary/issues/2430) | Canonical paths, missing/duplicate targets; retain existing worktrees |
-| [D3](https://github.com/duck8823/traceary/issues/2432) Managed daemon/PTY (split launch and reconnect) | D0,D2 | Real CLI, detach/reattach, bounded output, explicit stop; no forced cleanup |
-| [D4](https://github.com/duck8823/traceary/issues/2433) Host observations/Attention (split reducer and adapters) | [D3](https://github.com/duck8823/traceary/issues/2432) | Five versioned hosts, unknown, ordering/binding/fault tests; disable observation |
+| [D2](https://github.com/duck8823/traceary/issues/2431) Project/worktree registry | UI D0, [D1](https://github.com/duck8823/traceary/issues/2430), backend #2472 | Shared registry UI; canonical paths, missing/duplicate targets; retain existing worktrees |
+| [D3](https://github.com/duck8823/traceary/issues/2432) Managed daemon/PTY (split launch and reconnect) | R0 #2471, backend #2472 | Real CLI, detach/reattach, bounded output, explicit stop; no forced cleanup |
+| [D4](https://github.com/duck8823/traceary/issues/2433) Host observations/Attention (split reducer and adapters) | R0 #2471, launch #2461 | Versioned hosts (Muse native deferred), unknown, ordering/binding/fault tests; disable observation |
 | [D5](https://github.com/duck8823/traceary/issues/2434) New worktree flow | D2,D3 | Branch/path collision and partial failure; no force delete |
 | [D6](https://github.com/duck8823/traceary/issues/2435) Immutable diff | [D2](https://github.com/duck8823/traceary/issues/2431) | Staged/unstaged/untracked, rename/delete/binary/large files; retain snapshots/drafts |
 | [D7](https://github.com/duck8823/traceary/issues/2436) Review and safe Submit | D4,D6 | Stale anchors, target revalidation, manual fallback, uncertain receipts; disable sending |
@@ -558,7 +571,7 @@ final-head CI still apply; native gates cannot be replaced by documentation chec
 - [x] Final-delta Anthropic/Claude review of `5b0b41d6` on 2026-10-18; its lexical/ledger conditions are verified separately by the main session.
 - [ ] Maintainer architecture/framework adoption decision.
 - [ ] Full D0 acceptance and Status change to Accepted.
-- [x] D1–D10 planning child issues created with ownership, dependencies, positive/negative acceptance, validation and rollback; implementation remains blocked on D0 acceptance.
+- [x] D1–D10 planning child issues created with ownership, dependencies, positive/negative acceptance, validation and rollback; UI implementation remains blocked on UI D0; headless runtime follows human-accepted R0 #2471.
 Proposed-document delivery: on 2026-10-18 the maintainer explicitly authorized
 this main session to restore, validate, arrange independent review, fix, merge
 and clean up this PR, replacing the earlier human-UI-only delivery restriction.
