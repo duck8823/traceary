@@ -392,3 +392,5 @@ That means:
 - [Hook contract](../hooks/contract.md)
 - [Lifecycle events](../hooks/lifecycle-events.md)
 - [Event lifecycle](../lifecycle.md)
+
+See [Reusable lesson evaluation](lesson-evaluation.md) and the [review worksheet](lesson-review-template.md) before proposing reusable lessons.

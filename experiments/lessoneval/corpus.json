@@ -1,0 +1,136 @@
+{
+  "schema": "traceary-lesson-eval/v1",
+  "version": 1,
+  "context_budget_bytes": 8192,
+  "output_budget_words": 100,
+  "attempts": [
+    {
+      "id": "geometry-failure",
+      "family": "geometry",
+      "time": "2026-01-01",
+      "request": {
+        "id": "resize-1",
+        "generation": 1
+      },
+      "ack": {
+        "id": "resize-0",
+        "generation": 1
+      },
+      "claimed_success": true,
+      "outcome_check": "matching request and generation required",
+      "expected_success": false
+    },
+    {
+      "id": "geometry-success",
+      "family": "geometry",
+      "time": "2026-01-02",
+      "request": {
+        "id": "resize-1",
+        "generation": 2
+      },
+      "ack": {
+        "id": "resize-1",
+        "generation": 2
+      },
+      "claimed_success": true,
+      "outcome_check": "matching request and generation required",
+      "expected_success": true
+    }
+  ],
+  "candidate": {
+    "id": "synthetic-lesson-ack-v1",
+    "version": 1,
+    "status": "candidate",
+    "scope": "github.com/example/synthetic-a",
+    "fact": "For asynchronous requests, accept completion only from an acknowledgement matching both request ID and generation. Ignore stale/foreign acknowledgements. Do not impose asynchronous acknowledgement requirements on synchronous pure operations.",
+    "prerequisites": [
+      "asynchronous request",
+      "known request ID and generation"
+    ],
+    "evidence": [
+      "geometry-failure",
+      "geometry-success"
+    ],
+    "failure_modes": [
+      "stale generation",
+      "different request"
+    ],
+    "counterexamples": [
+      "synchronous pure read has no acknowledgement protocol"
+    ],
+    "source": "operator-authored synthetic contrast, not an automatically learned rule",
+    "valid_from": "2026-01-03"
+  },
+  "current_summary": "A synthetic resize attempt failed, then another attempt succeeded. Review any candidate before explicit distillation.",
+  "tasks": [
+    {
+      "id": "network-ack",
+      "family": "network",
+      "time": "2026-02-01",
+      "split": "held-out",
+      "workspace": "github.com/example/synthetic-a",
+      "operation": "async",
+      "request": {
+        "id": "req-a",
+        "generation": 3
+      },
+      "ack": {
+        "id": "req-a",
+        "generation": 3
+      },
+      "expected": "ACCEPT"
+    },
+    {
+      "id": "queue-stale",
+      "family": "queue",
+      "time": "2026-02-02",
+      "split": "held-out",
+      "workspace": "github.com/example/synthetic-a",
+      "operation": "async",
+      "request": {
+        "id": "req-b",
+        "generation": 4
+      },
+      "ack": {
+        "id": "req-b",
+        "generation": 3
+      },
+      "expected": "WAIT"
+    },
+    {
+      "id": "storage-foreign",
+      "family": "storage",
+      "time": "2026-02-03",
+      "split": "held-out",
+      "workspace": "github.com/example/synthetic-a",
+      "operation": "async",
+      "request": {
+        "id": "req-c",
+        "generation": 5
+      },
+      "ack": {
+        "id": "another-request",
+        "generation": 5
+      },
+      "expected": "WAIT"
+    },
+    {
+      "id": "pure-counterexample",
+      "family": "pure-function",
+      "time": "2026-02-04",
+      "split": "held-out",
+      "workspace": "github.com/example/synthetic-a",
+      "operation": "sync",
+      "expected": "DIRECT_RESULT"
+    },
+    {
+      "id": "scope-counterexample",
+      "family": "foreign-workspace",
+      "time": "2026-02-05",
+      "split": "held-out",
+      "workspace": "github.com/example/synthetic-b",
+      "operation": "unknown",
+      "expected": "UNKNOWN"
+    }
+  ]
+}
