@@ -230,3 +230,36 @@ func TestDoctorCheckDetails_UnreadableSpoolIsPartial(t *testing.T) {
 		t.Fatalf("details leaked spool path: %s", raw)
 	}
 }
+
+// The matrix-to-doctor consumer must not turn Stop registration into capture.
+func TestDoctorCheckDetails_MuseTranscriptNotWired(t *testing.T) {
+	t.Setenv("TRACEARY_LANG", "en")
+	checks := inspectHostCapabilityGaps("muse", "/tmp/hooks.json")
+	if len(checks) != 1 || checks[0].Details == nil || checks[0].Details.HostCapabilities == nil {
+		t.Fatalf("missing Muse capability details: %+v", checks)
+	}
+	raw, err := json.Marshal(checks[0].Details)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var details struct {
+		HostCapabilities struct {
+			Events []struct {
+				ID     string `json:"id"`
+				Status string `json:"status"`
+			} `json:"events"`
+		} `json:"host_capabilities"`
+	}
+	if err := json.Unmarshal(raw, &details); err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range details.HostCapabilities.Events {
+		if event.ID == "transcript" {
+			if event.Status != "available" {
+				t.Fatalf("transcript status = %q, want available", event.Status)
+			}
+			return
+		}
+	}
+	t.Fatalf("transcript status missing: %s", raw)
+}
