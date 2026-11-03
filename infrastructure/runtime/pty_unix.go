@@ -50,20 +50,21 @@ func (l *PTYLauncher) InspectProfile(ctx context.Context, id, host, path, versio
 	if !filepath.IsAbs(path) {
 		return domain.HostProfile{}, domain.ErrInvalid
 	}
+	// Static invalid profiles must not even inspect a supplied filesystem path.
+	candidate, err := domain.HostProfileFrom(domain.HostProfileState{ID: id, Host: host, Executable: filepath.Clean(path), ExecutableWitness: "pending", Version: version})
+	if err != nil {
+		return domain.HostProfile{}, xerrors.Errorf("validate registered host profile: %w", err)
+	}
 	canonical, err := filepath.EvalSymlinks(path)
 	if err != nil {
 		return domain.HostProfile{}, domain.ErrUnsafe
-	}
-	// Validate operator metadata BEFORE any subprocess, not by probing an arbitrary invalid profile.
-	candidate, err := domain.HostProfileFrom(domain.HostProfileState{ID: id, Host: host, Executable: canonical, ExecutableWitness: "pending", Version: version})
-	if err != nil {
-		return domain.HostProfile{}, xerrors.Errorf("inspect registered host profile: %w", err)
 	}
 	witness, err := executableWitness(ctx, canonical)
 	if err != nil {
 		return domain.HostProfile{}, xerrors.Errorf("inspect registered host profile: %w", err)
 	}
 	state := candidate.Snapshot()
+	state.Executable = canonical
 	state.ExecutableWitness = witness
 	profile, err := domain.HostProfileFrom(state)
 	if err != nil {

@@ -134,7 +134,7 @@ func prepareDaemon(parent context.Context, d *LocalDaemon, root string) (*daemon
 	if err != nil {
 		return nil, err
 	}
-	lock, err := unix.Openat(fd, "daemon.lock", unix.O_RDWR|unix.O_CREAT|unix.O_NOFOLLOW|unix.O_CLOEXEC|unix.O_NONBLOCK, 0600)
+	lock, err := openPrivateLock(fd, "daemon.lock")
 	if err != nil {
 		return nil, app.ErrUnsafeRuntime
 	}

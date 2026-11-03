@@ -212,3 +212,16 @@ func TestPTYProfileProbeRefusesUnsafeModeUnknownHostVersionAndOversize(t *testin
 }
 
 var _ app.ProcessLauncher = (*infra.PTYLauncher)(nil)
+
+func TestPTYInvalidStaticProfileRefusedBeforeMissingPathInspection(t *testing.T) {
+	root, _, _ := fixture(t)
+	registry, _ := service(t, root)
+	launcher, err := infra.NewPTYLauncher(registry, []string{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = launcher.InspectProfile(context.Background(), "../bad", "shell", filepath.Join(root, "nonexistent"), "")
+	if !errors.Is(err, domain.ErrInvalid) {
+		t.Fatalf("invalid profile unnecessarily inspected path: %v", err)
+	}
+}

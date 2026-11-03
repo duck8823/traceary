@@ -170,15 +170,17 @@ func (s *ExecutionStore) read(fd int) (executionEnvelope, *unix.Stat_t, error) {
 		profiles[p.ID()] = p
 	}
 	runs := make(map[string]bool, len(doc.Launches))
+	generations := make(map[string]bool, len(doc.Launches))
 	for _, r := range doc.Launches {
 		snapshot, e := r.domainSnapshot()
 		if e != nil {
 			return executionEnvelope{}, nil, e
 		}
-		if runs[snapshot.Identity.Run] || profiles[snapshot.Profile.ID()] != snapshot.Profile {
+		if runs[snapshot.Identity.Run] || generations[snapshot.Identity.Generation] || profiles[snapshot.Profile.ID()] != snapshot.Profile {
 			return executionEnvelope{}, nil, domain.ErrInvalid
 		}
 		runs[snapshot.Identity.Run] = true
+		generations[snapshot.Identity.Generation] = true
 	}
 	if err = s.metadata.metadataBudget(fd, "execution.json", int64(len(data))); err != nil {
 		return executionEnvelope{}, nil, err
@@ -280,7 +282,7 @@ func (s *ExecutionStore) ReserveLaunch(ctx context.Context, snapshot domain.RunS
 	}
 	return s.update(ctx, func(doc *executionEnvelope) error {
 		for _, r := range doc.Launches {
-			if r.Identity.Run == snapshot.Identity.Run {
+			if r.Identity.Run == snapshot.Identity.Run || r.Identity.Generation == snapshot.Identity.Generation {
 				return domain.ErrDuplicate
 			}
 		}

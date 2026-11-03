@@ -180,3 +180,59 @@ func TestPTYRuntimeDurableReservationLaunchAndOwnedExit(t *testing.T) {
 		t.Fatal("exited child retained active capacity")
 	}
 }
+
+type rejectedLaunchTarget struct{ target domain.Target }
+
+func (r rejectedLaunchTarget) Resolve(context.Context, domain.WorktreeID, string) (domain.Target, error) {
+	return r.target, nil
+}
+func (r rejectedLaunchTarget) Revalidate(context.Context, domain.Target, string) error {
+	return domain.ErrChanged
+}
+func TestRejectedPreSpawnTargetDoesNotConsumeDurableReservation(t *testing.T) {
+	launcher, descriptor, _ := ptyFixture(t)
+	root := daemonRoot(t)
+	journal, err := infra.NewExecutionStore(root, infra.MaxRegistryBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if err = journal.RegisterProfile(ctx, descriptor.Snapshot().Profile); err != nil {
+		t.Fatal(err)
+	}
+	owner, err := app.NewRuntime(rejectedLaunchTarget{descriptor.Target()}, journal, launcher, journal, descriptor.Identity().Epoch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = owner.Launch(ctx, app.LaunchRequest{Epoch: descriptor.Identity().Epoch, Worktree: descriptor.Target().Worktree().ID(), Profile: descriptor.Target().Profile(), RequestID: "rejected-before-spawn"})
+	if !errors.Is(err, domain.ErrChanged) {
+		t.Fatalf("changed target: %v", err)
+	}
+	records, err := journal.ListLaunches(ctx)
+	if err != nil || len(records) != 0 {
+		t.Fatal("rejected pre-spawn target consumed journal capacity")
+	}
+}
+func TestExecutionJournalRejectsDuplicateGeneration(t *testing.T) {
+	_, descriptor, _ := ptyFixture(t)
+	store, err := infra.NewExecutionStore(daemonRoot(t), infra.MaxRegistryBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if err = store.RegisterProfile(ctx, descriptor.Snapshot().Profile); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.ReserveLaunch(ctx, descriptor.Snapshot()); err != nil {
+		t.Fatal(err)
+	}
+	id := descriptor.Identity()
+	id.Run = strings.Repeat("9", 32)
+	other, err := domain.LaunchDescriptorOf(id, descriptor.Target(), descriptor.Snapshot().Profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = store.ReserveLaunch(ctx, other.Snapshot()); !errors.Is(err, domain.ErrDuplicate) {
+		t.Fatalf("duplicate generation admitted: %v", err)
+	}
+}

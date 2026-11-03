@@ -157,7 +157,7 @@ func (s *Runtime) Launch(ctx context.Context, request LaunchRequest) (domain.Run
 		case <-ctx.Done():
 			s.mu.Lock()
 			ticket.waiters--
-			if ticket.complete {
+			if ticket.complete && !ticket.aborted {
 				result, err := ticket.result, ticket.err
 				s.mu.Unlock()
 				return result, err
@@ -202,10 +202,6 @@ func (s *Runtime) launch(t *launchTicket) {
 		s.fail(t, err)
 		return
 	}
-	if err = s.journal.ReserveLaunch(t.ctx, descriptor.Snapshot()); err != nil {
-		s.fail(t, err)
-		return
-	}
 	if err = s.registry.Revalidate(t.ctx, target, string(t.request.Profile)); err != nil {
 		s.fail(t, err)
 		return
@@ -219,6 +215,12 @@ func (s *Runtime) launch(t *launchTicket) {
 	t.starting = true
 	t.descriptor = descriptor
 	s.mu.Unlock()
+	// Durable intent begins only after validated target and the non-abandonable
+	// commit boundary. A late caller cancellation cannot erase/recreate it.
+	if err = s.journal.ReserveLaunch(t.ctx, descriptor.Snapshot()); err != nil {
+		s.fail(t, err)
+		return
+	}
 	child, err := s.launcher.Start(t.ctx, descriptor)
 	if err != nil {
 		s.fail(t, err)
@@ -257,10 +259,11 @@ func (s *Runtime) launch(t *launchTicket) {
 }
 func (s *Runtime) fail(t *launchTicket, err error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	// An adapter that cannot prove no child started must retain its bounded
-	// ownership reservation. Never turn a broken adapter into an idle daemon.
-	if t.starting && errors.Is(err, ErrLaunchUnknown) {
+	uncertain := t.starting && errors.Is(err, ErrLaunchUnknown)
+	if t.starting {
+		t.result = t.descriptor.Snapshot()
+	}
+	if uncertain {
 		_ = t.descriptor.MarkUncertain()
 		t.result = t.descriptor.Snapshot()
 	} else {
@@ -272,8 +275,17 @@ func (s *Runtime) fail(t *launchTicket, err error) {
 	} else {
 		t.err = err
 	}
+	if uncertain {
+		snapshot := t.result
+		s.mu.Unlock()
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		_ = s.journal.SaveLaunch(ctx, snapshot)
+		cancel()
+		s.mu.Lock()
+	}
 	t.complete = true
 	close(t.done)
+	s.mu.Unlock()
 }
 func (s *Runtime) reconcile(run *ownedRun) {
 	code, err := run.child.Wait()
@@ -313,7 +325,10 @@ func (s *Runtime) List() []domain.RunSnapshot {
 	// broken adapter could not transfer a usable child handle.
 	for _, ticket := range s.tickets {
 		snapshot := ticket.result
-		if snapshot.Identity.Run != "" && snapshot.PublicationUncertain {
+		if ticket.starting && !ticket.complete {
+			snapshot = ticket.descriptor.Snapshot()
+		}
+		if snapshot.Identity.Run != "" && (snapshot.PublicationUncertain || ticket.starting && !ticket.complete) {
 			if _, exists := s.runs[snapshot.Identity.Run]; !exists {
 				result = append(result, snapshot)
 			}
@@ -331,21 +346,51 @@ func (s *Runtime) DisableLaunches() { s.mu.Lock(); s.disabled = true; s.mu.Unloc
 
 // AwaitExit validates the immutable generation; no PID lookup or control occurs.
 func (s *Runtime) AwaitExit(ctx context.Context, id domain.LaunchIdentity) (domain.RunSnapshot, error) {
-	s.mu.Lock()
-	run, ok := s.runs[id.Run]
-	if !ok || run.descriptor.Identity() != id {
-		s.mu.Unlock()
-		return domain.RunSnapshot{}, domain.ErrChanged
-	}
-	done := run.done
-	s.mu.Unlock()
-	select {
-	case <-ctx.Done():
-		return domain.RunSnapshot{}, xerrors.Errorf("wait for owned runtime launch: %w", ctx.Err())
-	case <-done:
+	for {
 		s.mu.Lock()
-		defer s.mu.Unlock()
-		return run.descriptor.Snapshot(), run.waitErr
+		run, ok := s.runs[id.Run]
+		if ok {
+			if run.descriptor.Identity() != id {
+				s.mu.Unlock()
+				return domain.RunSnapshot{}, domain.ErrChanged
+			}
+			done := run.done
+			s.mu.Unlock()
+			select {
+			case <-ctx.Done():
+				return domain.RunSnapshot{}, xerrors.Errorf("wait for owned runtime exit: %w", ctx.Err())
+			case <-done:
+				s.mu.Lock()
+				defer s.mu.Unlock()
+				return run.descriptor.Snapshot(), run.waitErr
+			}
+		}
+		var pending *launchTicket
+		for _, ticket := range s.tickets {
+			if ticket.starting && ticket.descriptor.Identity() == id {
+				pending = ticket
+				break
+			}
+		}
+		if pending == nil {
+			s.mu.Unlock()
+			return domain.RunSnapshot{}, domain.ErrChanged
+		}
+		if pending.complete {
+			result, err := pending.result, pending.err
+			s.mu.Unlock()
+			if err == nil {
+				err = ErrLaunchUnknown
+			}
+			return result, err
+		}
+		done := pending.done
+		s.mu.Unlock()
+		select {
+		case <-ctx.Done():
+			return domain.RunSnapshot{}, xerrors.Errorf("wait for committed runtime launch: %w", ctx.Err())
+		case <-done:
+		}
 	}
 }
 func newLaunchIdentity(epoch string) (domain.LaunchIdentity, error) {

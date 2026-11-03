@@ -134,14 +134,14 @@ func (s *RegistryStore) locked(ctx context.Context, fn func(int) error) error {
 	if err != nil || witness != s.witness {
 		return domain.ErrChanged
 	}
-	lock, err := unix.Openat(fd, "registry.lock", unix.O_RDWR|unix.O_CREAT|unix.O_NOFOLLOW|unix.O_CLOEXEC|unix.O_NONBLOCK, 0600)
+	lock, err := openPrivateLock(fd, "registry.lock")
 	if err != nil {
-		return domain.ErrUnsafe
+		return xerrors.Errorf("open runtime metadata lock (%v): %w", err, domain.ErrUnsafe)
 	}
 	defer func() { _ = unix.Close(lock) }()
 	var initial unix.Stat_t
 	if err = unix.Fstat(lock, &initial); err != nil || !privateRegular(initial) {
-		return domain.ErrUnsafe
+		return xerrors.Errorf("verify runtime metadata lock attributes: %w", domain.ErrUnsafe)
 	}
 	for {
 		err = unix.Flock(lock, unix.LOCK_EX|unix.LOCK_NB)
@@ -149,7 +149,7 @@ func (s *RegistryStore) locked(ctx context.Context, fn func(int) error) error {
 			break
 		}
 		if !errors.Is(err, unix.EWOULDBLOCK) && !errors.Is(err, unix.EAGAIN) {
-			return domain.ErrUnsafe
+			return xerrors.Errorf("acquire runtime metadata lock: %w", domain.ErrUnsafe)
 		}
 		timer := time.NewTimer(10 * time.Millisecond)
 		select {
@@ -193,13 +193,13 @@ func (s *RegistryStore) readMetadata(dir int, name string, budget int64) ([]byte
 		return nil, nil, nil
 	}
 	if err != nil {
-		return nil, nil, domain.ErrUnsafe
+		return nil, nil, xerrors.Errorf("open runtime metadata file: %w", domain.ErrUnsafe)
 	}
 	f := os.NewFile(uintptr(fd), "runtime registry")
 	defer func() { _ = f.Close() }()
 	var stat unix.Stat_t
 	if err = unix.Fstat(fd, &stat); err != nil || !privateRegular(stat) {
-		return nil, nil, domain.ErrUnsafe
+		return nil, nil, xerrors.Errorf("verify runtime metadata file attributes: %w", domain.ErrUnsafe)
 	}
 	if stat.Size > budget {
 		return nil, nil, domain.ErrLimit
@@ -234,7 +234,7 @@ func (s *RegistryStore) metadataBudget(dir int, target string, size int64) error
 			continue
 		}
 		if err != nil || !privateRegular(stamp) {
-			return domain.ErrUnsafe
+			return xerrors.Errorf("verify sibling runtime metadata attributes: %w", domain.ErrUnsafe)
 		}
 		if stamp.Size < 0 || stamp.Size > s.budget-total {
 			return domain.ErrLimit
@@ -249,12 +249,12 @@ func (s *RegistryStore) writeMetadata(ctx context.Context, dir int, target strin
 	}
 	random := make([]byte, 16)
 	if _, err := rand.Read(random); err != nil {
-		return domain.ErrUnsafe
+		return xerrors.Errorf("generate runtime metadata temporary identity: %w", domain.ErrUnsafe)
 	}
 	name := ".registry-" + hex.EncodeToString(random)
 	fd, err := unix.Openat(dir, name, unix.O_WRONLY|unix.O_CREAT|unix.O_EXCL|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0600)
 	if err != nil {
-		return domain.ErrUnsafe
+		return xerrors.Errorf("create runtime metadata temporary: %w", domain.ErrUnsafe)
 	}
 	f := os.NewFile(uintptr(fd), "runtime registry temporary")
 	present := true
@@ -265,7 +265,7 @@ func (s *RegistryStore) writeMetadata(ctx context.Context, dir int, target strin
 		}
 	}()
 	if err = f.Chmod(0600); err != nil {
-		return domain.ErrUnsafe
+		return xerrors.Errorf("set runtime metadata temporary permissions: %w", domain.ErrUnsafe)
 	}
 	if _, err = f.Write(data); err != nil {
 		return xerrors.Errorf("write runtime registry: %w", err)

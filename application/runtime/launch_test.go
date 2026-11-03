@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -15,11 +16,13 @@ import (
 )
 
 type launchRegistry struct {
-	target  domain.Target
-	changed atomic.Bool
-	gate    chan struct{}
-	entered chan struct{}
-	once    sync.Once
+	target        domain.Target
+	changed       atomic.Bool
+	gate          chan struct{}
+	entered       chan struct{}
+	once          sync.Once
+	cancelEntered chan struct{}
+	cancelRelease chan struct{}
 }
 
 func (r *launchRegistry) Resolve(ctx context.Context, _ domain.WorktreeID, _ string) (domain.Target, error) {
@@ -28,6 +31,10 @@ func (r *launchRegistry) Resolve(ctx context.Context, _ domain.WorktreeID, _ str
 		select {
 		case <-r.gate:
 		case <-ctx.Done():
+			if r.cancelEntered != nil {
+				close(r.cancelEntered)
+				<-r.cancelRelease
+			}
 			return domain.Target{}, fmt.Errorf("fixture resolve: %w", ctx.Err())
 		}
 	}
@@ -72,10 +79,13 @@ func (c *fakeChild) PID() int           { return 321 }
 func (c *fakeChild) Wait() (int, error) { <-c.exited; return 7, nil }
 
 type launchFactory struct {
-	calls atomic.Int32
-	child *fakeChild
-	fail  bool
-	start func()
+	journal  *launchJournal
+	unknown  bool
+	nilChild bool
+	calls    atomic.Int32
+	child    *fakeChild
+	fail     bool
+	start    func()
 }
 
 func (f *launchFactory) Start(ctx context.Context, _ domain.LaunchDescriptor) (app.OwnedChild, error) {
@@ -85,6 +95,12 @@ func (f *launchFactory) Start(ctx context.Context, _ domain.LaunchDescriptor) (a
 	f.calls.Add(1)
 	if f.start != nil {
 		f.start()
+	}
+	if f.unknown {
+		return nil, app.ErrLaunchUnknown
+	}
+	if f.nilChild {
+		return nil, nil
 	}
 	if f.fail {
 		return nil, domain.ErrUnsafe
@@ -114,7 +130,8 @@ func runtimeFixture(t *testing.T, journalFailure bool) (*app.Runtime, app.Launch
 	}
 	factory := &launchFactory{child: &fakeChild{exited: make(chan struct{})}}
 	r := &launchRegistry{target: target}
-	service, err := app.NewRuntime(r, launchProfiles{profile}, factory, &launchJournal{fail: journalFailure}, strings.Repeat("e", 32))
+	factory.journal = &launchJournal{fail: journalFailure}
+	service, err := app.NewRuntime(r, launchProfiles{profile}, factory, factory.journal, strings.Repeat("e", 32))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -337,5 +354,108 @@ func TestRuntimeAllPreSpawnWaitersMayCancelWithoutPoisoningFutureRequest(t *test
 	}
 	if factory.calls.Load() != 1 {
 		t.Fatal("canceled reservation started a second child")
+	}
+}
+
+func TestRuntimeInProgressUnknownReservationVisibleAndAwaitable(t *testing.T) {
+	service, req, factory, _ := runtimeFixture(t, false)
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	factory.nilChild = true
+	factory.start = func() { close(entered); <-release }
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct {
+		snapshot domain.RunSnapshot
+		err      error
+	}, 1)
+	go func() {
+		snapshot, err := service.Launch(ctx, req)
+		done <- struct {
+			snapshot domain.RunSnapshot
+			err      error
+		}{snapshot, err}
+	}()
+	<-entered
+	cancel()
+	outcome := <-done
+	if !errors.Is(outcome.err, app.ErrLaunchUnknown) || outcome.snapshot.Identity.Run == "" {
+		close(release)
+		t.Fatalf("missing in-progress identity: %v", outcome.err)
+	}
+	listed := service.List()
+	timeout, stop := context.WithTimeout(context.Background(), time.Millisecond)
+	defer stop()
+	_, waitErr := service.AwaitExit(timeout, outcome.snapshot.Identity)
+	close(release)
+	if len(listed) != 1 || listed[0].Identity != outcome.snapshot.Identity {
+		t.Fatal("in-progress owned intent is invisible")
+	}
+	if !errors.Is(waitErr, context.DeadlineExceeded) {
+		t.Fatalf("current in-progress generation treated as stale: %v", waitErr)
+	}
+	result, err := service.Launch(context.Background(), req)
+	if !errors.Is(err, app.ErrLaunchUnknown) || !result.PublicationUncertain || !service.HasActive() {
+		t.Fatal("nil transferred child lost uncertainty reservation")
+	}
+	factory.journal.mu.Lock()
+	defer factory.journal.mu.Unlock()
+	found := false
+	for _, snapshot := range factory.journal.saved {
+		if snapshot.Identity == result.Identity && snapshot.PublicationUncertain {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("unknown Start outcome not persisted")
+	}
+}
+
+type delayedCanceledContext struct {
+	context.Context
+	entered, release, done chan struct{}
+	canceled               atomic.Bool
+}
+
+func (c *delayedCanceledContext) Err() error {
+	if c.canceled.Load() {
+		return context.Canceled
+	}
+	return nil
+}
+func (c *delayedCanceledContext) Done() <-chan struct{} { close(c.entered); <-c.release; return c.done }
+func TestRuntimeAbortedReservationNeverReturnsEmptySuccessToCanceledWaiter(t *testing.T) {
+	// Both select arms are ready after the observed abort. Repetition exercises
+	// either arm without assuming the scheduler selects one specific ready arm.
+	for range 64 {
+		service, req, _, registry := runtimeFixture(t, false)
+		registry.gate = make(chan struct{})
+		registry.entered = make(chan struct{})
+		registry.cancelEntered = make(chan struct{})
+		registry.cancelRelease = make(chan struct{})
+		first, cancel := context.WithCancel(context.Background())
+		firstDone := make(chan error, 1)
+		go func() { _, err := service.Launch(first, req); firstDone <- err }()
+		<-registry.entered
+		cancel()
+		<-firstDone
+		<-registry.cancelEntered
+		second := &delayedCanceledContext{Context: context.Background(), entered: make(chan struct{}), release: make(chan struct{}), done: make(chan struct{})}
+		result := make(chan error, 1)
+		go func() { _, err := service.Launch(second, req); result <- err }()
+		<-second.entered
+		close(registry.cancelRelease)
+		deadline := time.Now().Add(time.Second)
+		for service.HasActive() {
+			if time.Now().After(deadline) {
+				t.Fatal("abandoned transaction did not reconcile")
+			}
+			runtime.Gosched()
+		}
+		second.canceled.Store(true)
+		close(second.done)
+		close(second.release)
+		if err := <-result; !errors.Is(err, context.Canceled) {
+			t.Fatalf("aborted launch falsely succeeded: %v", err)
+		}
 	}
 }
