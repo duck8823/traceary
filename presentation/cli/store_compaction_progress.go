@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/duck8823/traceary/domain"
@@ -48,8 +49,13 @@ func (p cliCompactionProgress) WatchBuild(ctx context.Context, candidatePath str
 		return func() {}
 	}
 	done := make(chan struct{})
+	finished := make(chan struct{})
+	// Snapshot configuration before starting the worker; the caller may
+	// restore a test/composition setting once stop has joined actual exit.
+	interval := compactBuildProgressInterval
 	go func() {
-		ticker := time.NewTicker(compactBuildProgressInterval)
+		defer close(finished)
+		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		p.emitBuildProgress(candidatePath, destinationBytes)
 		for {
@@ -63,7 +69,13 @@ func (p cliCompactionProgress) WatchBuild(ctx context.Context, candidatePath str
 			}
 		}
 	}()
-	return func() { close(done) }
+	var stopOnce sync.Once
+	return func() {
+		stopOnce.Do(func() { close(done) })
+		// Phase transitions and output consumers must not race a final
+		// emission. Cancellation alone is not worker completion.
+		<-finished
+	}
 }
 
 func (p cliCompactionProgress) emitBuildProgress(candidatePath string, destinationBytes uint64) {

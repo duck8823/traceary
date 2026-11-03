@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"io/fs"
 	"os"
 	"reflect"
 	"sort"
@@ -34,16 +35,23 @@ type historySQLiteFixture struct {
 
 func historySQLite(t *testing.T) historySQLiteFixture {
 	t.Helper()
-	root, repo, path := fixture(t)
-	if err := os.Remove(path); err != nil {
-		t.Fatal(err)
-	}
 	migrations, err := schema.Migrations()
 	if err != nil {
 		t.Fatal(err)
 	}
+	return historySQLiteWithMigrations(t, migrations)
+}
+
+// The subset fixture executes actual checked-in SQL; it never fabricates a
+// legacy version row or modifies a current store to masquerade as legacy.
+func historySQLiteWithMigrations(t *testing.T, migrations fs.FS) historySQLiteFixture {
+	t.Helper()
+	root, repo, path := fixture(t)
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
 	database := db.NewDatabase(path, migrations)
-	if err = db.NewStoreManagementDatasource(database).Initialize(context.Background()); err != nil {
+	if err := db.NewStoreManagementDatasource(database).Initialize(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	registry, metadata := service(t, root)

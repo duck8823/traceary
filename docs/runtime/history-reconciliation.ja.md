@@ -20,7 +20,7 @@
 公開 daemon transport と CLI は、履歴 core を厳密な要求照合、有界 frame、正しい prefix と継続位置の制御を伴って公開しています。
 commit 後の hint は capture 結果、標準出力、spool 所有権、receipt 冪等性を変更してはいけません。
 明示 runtime metadata export/forget では範囲、version、上限、同意、部分変更の不確定性を定義し、Registry、core 履歴、Git data、native 会話を削除してはいけません。
-残る prepared upgrade と実 filesystem spool replay の検証、lifecycle metadata の統合、最終レビューと delivery gate が必要です。
+lifecycle metadata の統合、最終レビューと delivery gate が残っています。別の実 prepared upgrade と filesystem spool fixture の検証を後述しますが、実 host の認定ではありません。
 これらは未完了の delivery 作業であり、現在の daemon が提供済みの capability ではありません。
 
 ## commit 済み page と登録済みの読取 source
@@ -149,4 +149,34 @@ PID の検査・signal、自動 native 入力は行いません。
 交換後に要求範囲内の深い過去へ commit した行も、hint なしで回復し、既存 CLI metadata query と件数・ID が一致します。
 
 これは inode の copy fixture だけではなく、実 compaction と合成の所有 PTY/core receipt の検証です。
-実 host/native 会話の復旧、物理 sleep/wake、prepared upgrade、実 filesystem spool replay の認定ではなく、それらの残る gate を置き換えません。
+実 host/native 会話の復旧や物理 sleep/wake の認定ではありません。
+prepared upgrade と filesystem spool は後述の別 matrix で検証し、この compaction fixture 単独の証跡では代用しません。
+
+## 実 prepared upgrade と filesystem spool の matrix
+
+schema86 の fixture は、現在の version 行を書き換えず、チェックイン済みの SQL1..86 を実行して初期化します。
+実 PreparedUpgradeMigrationRecipe/PreparedMigrationVerifier、PreparedStoreUpgradeFiles、NewPreparedStoreUpgradeUsecase が、本物の StoreLeaseCoordinator の下で offline migration87 を適用します。
+小規模 fixture 用の明示 budget で wall time、公開 lock、所有/WAL/一時 byte を制限します。
+独立した履歴 consumer は連続要求を続け、個別の有界読取の timeout で workload を黙って停止しません。
+実排他 lease の保持中、同期 page 要求 3 回は busy を返し、同じ所有有限 PTY は閉じません。
+元の rollback inode の保持、別の source inode の公開、journal の committed 状態と receipt の正確な migration digest、migration87 の column の実作成を検証します。
+全履歴、古い witness の拒否、native Registry の changed 維持、upgrade 後の hint なし deep late commit、既存 CLI との件数・ID 一致を確認します。
+同じ PTY の BEFORE/AFTER 出力と所有 Wait の exit7 も維持します。
+
+別の CLI matrix は、偽 repository や直接 Save を spool と呼ばず、実 filesystem spool の persist/claim/requeue/drain を使います。
+親が本物の maintenance 排他 lease を保持する間、有限の別 process が既存 drainer を実行します。
+同一 process の正当な connection 借用で失敗が隠れない構成です。
+本物の typed maintenance error で一件だけ再 queue し、receipt/payload/取得済み workspace を保持し、core に先行 capture がないことを確認します。
+実 replica compaction と物理 source 交換後、既存 drain が prompt 一件を保存し、record/claim を削除します。
+同じ元の永続 spool byte を戻して file acknowledgement の欠落を再現し、新たな process の再配送でも同じ正規 event ID・件数を維持し、pending/claim が残らないことを検証します。
+runtime 履歴全件と既存 CLI metadata query の結果も一致させます。
+daemon の別 drainer、native 入力、実 AI は追加しません。
+
+これらは生成 SQLite/filesystem と所有有限 PTY の検証であり、性能 benchmark、fresh-store bootstrap の採用、実 host/会話の復旧認定ではありません。
+対応済み lifecycle/endpoints/recovery metadata の統合、最終独立レビュー、新しい CI/security、merge/wave gate は引き続き必要です。
+
+compaction の診断用 build-progress worker は、停止時に実際の終了まで join します。
+停止の反復・同時呼出しも扱い、cancel だけを完了とは扱いません。
+phase の移行や出力 consumer が最後の emit と競合せず、設定は worker 起動前に取り込みます。
+他の所有 I/O と同様、任意の writer/filesystem が停止したままなら、その I/O が戻るまで join できません。
+見せかけの完了 timeout は提供しません。
