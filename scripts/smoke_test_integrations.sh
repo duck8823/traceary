@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TARGET="${1:-all}"
 
-run_claude() {
+run_claude() (
   command -v claude >/dev/null 2>&1 || {
     echo "skip: claude not found" >&2
     return 0
@@ -13,12 +13,14 @@ run_claude() {
 
   local tmp_home
   tmp_home="$(mktemp -d)"
-  HOME="${tmp_home}" claude plugins validate "${ROOT_DIR}/.claude-plugin/marketplace.json"
-  HOME="${tmp_home}" claude plugins validate "${ROOT_DIR}/integrations/claude-plugin"
-  rm -rf "${tmp_home}"
+  trap 'rm -rf "${tmp_home}"' EXIT
+  # Preserve HOME for HOME-relative launchers; isolate only Claude settings.
+  CLAUDE_CONFIG_DIR="${tmp_home}/.claude" claude plugins validate "${ROOT_DIR}/.claude-plugin/marketplace.json"
+  CLAUDE_CONFIG_DIR="${tmp_home}/.claude" claude plugins validate "${ROOT_DIR}/integrations/claude-plugin"
+
   echo 'ok: claude package validation passed'
   echo 'manual runtime probe: in a clean Claude Code profile, run /plugin marketplace add duck8823/traceary, then /plugin install traceary, then traceary doctor --client claude --json'
-}
+)
 
 run_gemini() {
   if [[ "${TRACEARY_ENABLE_GEMINI_RUNTIME_SMOKE:-0}" != "1" ]]; then
