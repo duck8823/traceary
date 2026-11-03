@@ -31,3 +31,8 @@ type LifecycleRepository interface {
 	ClearUpdateDeferral(context.Context, string) error
 	SetAutoStartOptIn(context.Context, bool) error
 }
+
+// LifecycleReader exposes history only, without epoch/admission mutation rights.
+type LifecycleReader interface {
+	ReadLifecycle(context.Context) (LifecycleSnapshot, error)
+}

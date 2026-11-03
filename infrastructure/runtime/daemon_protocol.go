@@ -12,6 +12,7 @@ import (
 )
 
 type runtimeRequest struct {
+	Lifecycle   *lifecycleRequestRecord      `json:"lifecycle,omitempty"`
 	Control     *controlRequestRecord        `json:"control,omitempty"`
 	Receipt     *controlReceiptRequestRecord `json:"receipt,omitempty"`
 	Attach      *outputAttachRecord          `json:"attach,omitempty"`
@@ -36,15 +37,16 @@ type observationRecord struct {
 	Kind            string `json:"kind"`
 }
 type runtimeResponse struct {
-	Control *controlResultRecord `json:"control,omitempty"`
-	Output  *outputRecord        `json:"output,omitempty"`
-	Version int                  `json:"protocol_version"`
-	ID      string               `json:"request_id"`
-	Code    string               `json:"code"`
-	Role    string               `json:"role,omitempty"`
-	Status  *runtimeStatusRecord `json:"status,omitempty"`
-	Run     *launchRecord        `json:"run,omitempty"`
-	Page    *runPageRecord       `json:"page,omitempty"`
+	Lifecycle *lifecycleResponseRecord `json:"lifecycle,omitempty"`
+	Control   *controlResultRecord     `json:"control,omitempty"`
+	Output    *outputRecord            `json:"output,omitempty"`
+	Version   int                      `json:"protocol_version"`
+	ID        string                   `json:"request_id"`
+	Code      string                   `json:"code"`
+	Role      string                   `json:"role,omitempty"`
+	Status    *runtimeStatusRecord     `json:"status,omitempty"`
+	Run       *launchRecord            `json:"run,omitempty"`
+	Page      *runPageRecord           `json:"page,omitempty"`
 }
 type launchRequestRecord struct {
 	Epoch     string `json:"epoch"`
@@ -174,6 +176,8 @@ func (v observationRecord) metadata() app.ObservationMetadata {
 }
 func responseError(code string) error {
 	switch code {
+	case "shutdown_unknown":
+		return app.ErrShutdownUnknown
 	case "control_unknown":
 		return app.ErrControlUnknown
 	case "output_cursor":

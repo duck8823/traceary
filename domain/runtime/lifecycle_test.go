@@ -237,3 +237,17 @@ func TestInterruptionIsHistoricalUnknownNotExitOrResumePermission(t *testing.T) 
 		}
 	}
 }
+
+func TestShutdownPreviewMetadataBoundDoesNotExpandPhysicalRunLimit(t *testing.T) {
+	state := domain.ShutdownBindingState{Epoch: strings.Repeat("a", 32), PreviewID: strings.Repeat("b", 32), RosterDigest: strings.Repeat("c", 64), TotalRuns: domain.MaxActiveRuns + 1}
+	if _, err := domain.ShutdownBindingFrom(state); err != nil {
+		t.Fatal("historical uncertain metadata cannot be displayed", err)
+	}
+	state.TotalRuns = domain.MaxShutdownPreviewRuns + 1
+	if _, err := domain.ShutdownBindingFrom(state); err == nil {
+		t.Fatal("unbounded preview metadata accepted")
+	}
+	if domain.MaxActiveRuns != 256 {
+		t.Fatal("preview metadata changed physical ownership cap")
+	}
+}

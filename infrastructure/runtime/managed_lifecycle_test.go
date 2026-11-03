@@ -60,9 +60,8 @@ func TestManagedDaemonPublishesNewEpochBeforeReadinessAndCleanMarkerAfterIdle(t 
 	}
 }
 
-// The real daemon/socket/native PTY chain is exercised here. Plan/confirm calls
-// the trusted Runtime directly because lifecycle RPC/CLI are still pending;
-// this is not a claim of public-command or real-AI qualification.
+// The real daemon/socket/typed lifecycle SDK/native PTY chain is exercised here.
+// Actual CLI process qualification and real-AI acceptance remain separate.
 func TestManagedConfirmedMasterCloseKeepsLeaseAndManagementUntilActualExit(t *testing.T) {
 	_, descriptor, resultPath := ptyFixture(t)
 	ctx := context.Background()
@@ -142,21 +141,25 @@ func TestManagedConfirmedMasterCloseKeepsLeaseAndManagementUntilActualExit(t *te
 		t.Fatal(err)
 	}
 	_ = stream.Close() // ordinary detach is not full shutdown
-	preview, err := owner.PreviewShutdown(ctx)
+	preview, err := app.ReadShutdownPlan(ctx, d, root, status.Epoch)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = owner.CancelShutdown(preview.Binding); err != nil {
+	if err = d.CancelShutdown(ctx, root, preview.Binding); err != nil {
 		t.Fatal(err)
 	}
-	preview, err = owner.PreviewShutdown(ctx)
+	preview, err = app.ReadShutdownPlan(ctx, d, root, status.Epoch)
 	if err != nil {
 		t.Fatal(err)
 	}
 	request := app.ShutdownConfirmation{Binding: preview.Binding, WorkLossAcknowledged: true}
-	closed, err := owner.ConfirmShutdown(ctx, request)
+	closed, err := d.ConfirmShutdown(ctx, root, request)
 	if err != nil || closed.Outcome != domain.ShutdownDraining || closed.ClosedTerminals != 1 {
 		t.Fatal("managed terminal closure failed", err)
+	}
+	receipt, receiptErr := d.ShutdownReceipt(ctx, root, preview.Binding)
+	if receiptErr != nil || receipt != closed {
+		t.Fatal("read-only shutdown receipt mismatch", receiptErr)
 	}
 	// Reconnect via the actual IPC decoder after capture closure; an in-memory
 	// subscription alone would miss a wire gap-reason allowlist regression.

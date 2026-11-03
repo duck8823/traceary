@@ -3,9 +3,7 @@ package runtime
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	domain "github.com/duck8823/traceary/domain/runtime"
 	"golang.org/x/xerrors"
@@ -71,21 +69,13 @@ func (s *Runtime) shutdownRosterLocked() []domain.RunSnapshot {
 	return result
 }
 func (s *Runtime) shutdownBindingLocked(id string) domain.ShutdownBindingState {
-	// Only canonical selections/states are hashed; no terminal, path, PID or input.
-	type entry struct {
-		Identity  domain.LaunchIdentity
-		Worktree  domain.WorktreeID
-		Profile   domain.ProfileID
-		State     domain.RunState
-		Uncertain bool
-	}
 	runs := s.shutdownRosterLocked()
-	roster := make([]entry, 0, len(runs))
-	for _, r := range runs {
-		roster = append(roster, entry{r.Identity, r.Target.Worktree().ID(), r.Profile.ID(), r.State, r.PublicationUncertain})
+	rows := make([]ShutdownPreviewRun, 0, len(runs))
+	for _, run := range runs {
+		rows = append(rows, ShutdownPreviewRunFrom(run))
 	}
-	data, _ := json.Marshal(roster) // closed, primitive-only local type cannot fail encoding
-	digest := sha256.Sum256(data)
+	digest, _ := ShutdownRosterDigest(rows) // owned snapshots already satisfy these invariants
+
 	publishing, reconciling := 0, 0
 	for _, ticket := range s.tickets {
 		if ticket.starting && !ticket.complete {
@@ -103,7 +93,7 @@ func (s *Runtime) shutdownBindingLocked(id string) domain.ShutdownBindingState {
 			}
 		}
 	}
-	return domain.ShutdownBindingState{Epoch: s.epoch, PreviewID: id, Revision: s.revision, RosterDigest: hex.EncodeToString(digest[:]), TotalRuns: len(runs), PendingLaunches: s.pending + publishing, PendingControls: s.controlsPending, PendingReconciliations: reconciling}
+	return domain.ShutdownBindingState{Epoch: s.epoch, PreviewID: id, Revision: s.revision, RosterDigest: digest, TotalRuns: len(runs), PendingLaunches: s.pending + publishing, PendingControls: s.controlsPending, PendingReconciliations: reconciling}
 }
 
 // PreviewShutdown has no native effect and does not freeze admissions.

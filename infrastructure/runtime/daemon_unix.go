@@ -46,7 +46,7 @@ func runtimeSocketStat(s unix.Stat_t) bool {
 	return s.Uid == uint32(os.Geteuid()) && s.Mode&unix.S_IFMT == unix.S_IFSOCK && s.Mode&0777 == 0600 && s.Nlink == 1
 }
 func sameSocket(a, b unix.Stat_t) bool {
-	return runtimeSocketStat(a) && runtimeSocketStat(b) && a.Dev == b.Dev && a.Ino == b.Ino
+	return runtimeSocketStat(a) && runtimeSocketStat(b) && sameSocketIdentity(a, b)
 }
 
 type daemonSocket struct {
@@ -60,6 +60,9 @@ type pendingObservation struct {
 	bytes    int
 }
 type daemonServer struct {
+	endpointMetadata     *RegistryStore
+	previousEndpoints    *endpointReceipt
+	staleEndpoints       map[string]unix.Stat_t
 	daemon               *LocalDaemon
 	ctx                  context.Context
 	cancel               context.CancelFunc
@@ -187,6 +190,26 @@ func prepareDaemon(parent context.Context, d *LocalDaemon, root string) (*daemon
 		return nil, app.ErrDaemonUnavailable
 	}
 	s.epoch = hex.EncodeToString(random)
+	if err = s.preflightEndpoints(parent); err != nil {
+		return nil, err
+	}
+
+	for _, endpoint := range []struct {
+		name, role string
+		limit      int
+	}{{"daemon.sock", "management", d.options.ManagementConnections}, {"observations.sock", "observations", d.options.ObservationConnections}} {
+		if err = parent.Err(); err != nil {
+			return nil, xerrors.Errorf("start local endpoints: %w", err)
+		}
+		owned, err := s.listen(parent, endpoint.name, endpoint.role, endpoint.limit)
+		if err != nil {
+			return nil, err
+		}
+		s.endpoints = append(s.endpoints, owned)
+	}
+	if err = s.publishEndpointReceipt(parent); err != nil {
+		return nil, err
+	}
 	if d.options.RuntimeFactory != nil {
 		s.runtime, err = d.options.RuntimeFactory(parent, root, s.epoch)
 		if err != nil {
@@ -196,35 +219,25 @@ func prepareDaemon(parent context.Context, d *LocalDaemon, root string) (*daemon
 			return nil, app.ErrRuntimeUnsupported
 		}
 	}
-	for _, endpoint := range []struct {
-		name, role string
-		limit      int
-	}{{"daemon.sock", "management", d.options.ManagementConnections}, {"observations.sock", "observations", d.options.ObservationConnections}} {
-		if err = parent.Err(); err != nil {
-			return nil, xerrors.Errorf("start local endpoints: %w", err)
-		}
-		owned, err := s.listen(endpoint.name, endpoint.role, endpoint.limit)
-		if err != nil {
-			return nil, err
-		}
-		s.endpoints = append(s.endpoints, owned)
-	}
 	complete = true
 	return s, nil
 }
-func (s *daemonServer) listen(name, role string, limit int) (*daemonSocket, error) {
+func (s *daemonServer) listen(ctx context.Context, name, role string, limit int) (*daemonSocket, error) {
 	if err := verifyRuntimeRoot(s.root, s.witness, s.rootFD); err != nil {
 		return nil, app.ErrUnsafeRuntime
 	}
 	var existing unix.Stat_t
 	err := unix.Fstatat(s.rootFD, name, &existing, unix.AT_SYMLINK_NOFOLLOW)
 	if err == nil {
-		if existing.Mode&unix.S_IFMT == unix.S_IFSOCK {
-			return nil, app.ErrRuntimeBusy
+		if !runtimeSocketStat(existing) {
+			return nil, app.ErrUnsafeRuntime
 		}
+		if err = s.reclaimEndpoint(ctx, name, existing); err != nil {
+			return nil, err
+		}
+	} else if !errors.Is(err, unix.ENOENT) {
 		return nil, app.ErrUnsafeRuntime
-	}
-	if !errors.Is(err, unix.ENOENT) {
+	} else if _, wasPresent := s.staleEndpoints[name]; wasPresent {
 		return nil, app.ErrUnsafeRuntime
 	}
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: filepath.Join(s.root, name), Net: "unix"})
@@ -260,7 +273,7 @@ func (s *daemonServer) cleanupSocket(endpoint *daemonSocket) {
 		return
 	}
 	var current unix.Stat_t
-	if unix.Fstatat(s.rootFD, endpoint.name, &current, unix.AT_SYMLINK_NOFOLLOW) == nil && current.Uid == uint32(os.Geteuid()) && current.Mode&unix.S_IFMT == unix.S_IFSOCK && current.Dev == endpoint.stamp.Dev && current.Ino == endpoint.stamp.Ino {
+	if unix.Fstatat(s.rootFD, endpoint.name, &current, unix.AT_SYMLINK_NOFOLLOW) == nil && current.Uid == uint32(os.Geteuid()) && current.Mode&unix.S_IFMT == unix.S_IFSOCK && sameSocketIdentity(current, endpoint.stamp) {
 		_ = unix.Unlinkat(s.rootFD, endpoint.name, 0)
 	}
 }
@@ -400,7 +413,7 @@ func (s *daemonServer) handle(conn *net.UnixConn, endpoint *daemonSocket) {
 		seen[request.ID] = struct{}{}
 		reply := runtimeResponse{Version: RuntimeProtocolVersion, ID: request.ID}
 		if hello {
-			if request.Operation != "hello" || request.Role != endpoint.role || request.Observation != nil || request.Launch != nil || request.Page != nil || request.Attach != nil || request.Control != nil || request.Receipt != nil {
+			if request.Operation != "hello" || request.Lifecycle != nil || request.Role != endpoint.role || request.Observation != nil || request.Launch != nil || request.Page != nil || request.Attach != nil || request.Control != nil || request.Receipt != nil {
 				reply.Code = "invalid"
 				_ = writeRuntimeFrame(conn, reply)
 				return
@@ -410,6 +423,13 @@ func (s *daemonServer) handle(conn *net.UnixConn, endpoint *daemonSocket) {
 			hello = false
 		} else if request.Role != "" {
 			reply.Code = "invalid"
+		} else if request.Lifecycle != nil {
+			clean := endpoint.role == "management" && request.Control == nil && request.Receipt == nil && request.Attach == nil && request.Observation == nil && request.Launch == nil && request.Page == nil
+			if clean {
+				s.lifecycleReply(&reply, request.Lifecycle, request.Operation)
+			} else {
+				reply.Code = "unsupported"
+			}
 		} else if request.Control != nil || request.Receipt != nil {
 			clear(data)
 			clean := request.Attach == nil && request.Observation == nil && request.Launch == nil && request.Page == nil && endpoint.role == "management"
@@ -438,7 +458,7 @@ func (s *daemonServer) handle(conn *net.UnixConn, endpoint *daemonSocket) {
 				}
 				state := "listening"
 				if s.runtime != nil {
-					capabilities = append(capabilities, "list_runs", "attach", "stop", "receipt")
+					capabilities = append(capabilities, "list_runs", "attach", "stop", "receipt", "shutdown_plan")
 					if !s.runtime.ShutdownInProgress() {
 						capabilities = append(capabilities, "input", "resize")
 					}
@@ -539,7 +559,7 @@ func (d *LocalDaemon) Status(ctx context.Context, root string) (app.DaemonStatus
 	if err != nil {
 		return app.DaemonStatus{}, err
 	}
-	if reply.Control != nil || reply.Output != nil || reply.Code != "ok" || reply.Status == nil || reply.Role != "" || reply.Run != nil || reply.Page != nil {
+	if reply.Lifecycle != nil || reply.Control != nil || reply.Output != nil || reply.Code != "ok" || reply.Status == nil || reply.Role != "" || reply.Run != nil || reply.Page != nil {
 		return app.DaemonStatus{}, app.ErrRuntimeProtocol
 	}
 	return decodeRuntimeStatus(reply)
@@ -556,7 +576,7 @@ func (d *LocalDaemon) Observe(ctx context.Context, root string, metadata app.Obs
 	if err != nil {
 		return err
 	}
-	if reply.Control != nil || reply.Output != nil || reply.Code != "queued" || reply.Status != nil || reply.Role != "" || reply.Run != nil || reply.Page != nil {
+	if reply.Lifecycle != nil || reply.Control != nil || reply.Output != nil || reply.Code != "queued" || reply.Status != nil || reply.Role != "" || reply.Run != nil || reply.Page != nil {
 		return app.ErrRuntimeProtocol
 	}
 	return nil
@@ -655,7 +675,7 @@ func (d *LocalDaemon) openRuntime(ctx context.Context, root, operation string) (
 	if err != nil {
 		return nil, "", err
 	}
-	if hello.Control != nil || hello.Output != nil || hello.Code != "ok" || hello.Role != role || hello.Status != nil || hello.Run != nil || hello.Page != nil {
+	if hello.Lifecycle != nil || hello.Control != nil || hello.Output != nil || hello.Code != "ok" || hello.Role != role || hello.Status != nil || hello.Run != nil || hello.Page != nil {
 		return nil, "", app.ErrRuntimeProtocol
 	}
 	success = true

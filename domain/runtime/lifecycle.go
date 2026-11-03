@@ -7,6 +7,10 @@ import (
 	"time"
 )
 
+// MaxShutdownPreviewRuns includes historical publication-uncertain exits as well
+// as active runs. Physical active ownership remains capped at MaxActiveRuns.
+const MaxShutdownPreviewRuns = MaxLaunchRequests
+
 // ShutdownBindingState identifies the entire preview, not one roster page.
 // Public identifiers/digests correlate a plan; none attest human authorization.
 type ShutdownBindingState struct {
@@ -22,7 +26,7 @@ type ShutdownBinding struct{ state ShutdownBindingState }
 // ShutdownBindingFrom validates a complete bounded preview binding.
 func ShutdownBindingFrom(s ShutdownBindingState) (ShutdownBinding, error) {
 	if !validLaunchID(s.Epoch) || !validLaunchID(s.PreviewID) || !canonicalHex(s.RosterDigest, 64) ||
-		s.TotalRuns < 0 || s.TotalRuns > MaxActiveRuns || s.PendingLaunches < 0 || s.PendingLaunches > MaxActiveRuns ||
+		s.TotalRuns < 0 || s.TotalRuns > MaxShutdownPreviewRuns || s.PendingLaunches < 0 || s.PendingLaunches > MaxActiveRuns ||
 		s.PendingControls < 0 || s.PendingControls > MaxControlCoordinators || s.PendingReconciliations < 0 || s.PendingReconciliations > MaxActiveRuns {
 		return ShutdownBinding{}, ErrInvalid
 	}
@@ -62,6 +66,9 @@ type FreshnessBinding struct {
 	Worktree WorktreeID
 	Profile  ProfileID
 }
+
+// Valid checks selection syntax without granting native observation authority.
+func (b FreshnessBinding) Valid() bool { return b.valid() }
 
 func (b FreshnessBinding) valid() bool {
 	if !b.Identity.Valid() || !strings.HasPrefix(string(b.Worktree), "w_") || !canonicalHex(strings.TrimPrefix(string(b.Worktree), "w_"), 64) {

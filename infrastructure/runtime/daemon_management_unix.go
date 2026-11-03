@@ -14,6 +14,8 @@ func operationCode(err error) string {
 	switch {
 	case err == nil:
 		return "ok"
+	case errors.Is(err, app.ErrShutdownUnknown):
+		return "shutdown_unknown"
 	case errors.Is(err, app.ErrControlUnknown):
 		return "control_unknown"
 	case errors.Is(err, app.ErrLaunchUnknown):
@@ -89,7 +91,10 @@ func (d *LocalDaemon) Launch(ctx context.Context, root string, request app.Launc
 	if sent && (errors.Is(err, app.ErrDaemonUnavailable) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || reply.ID == "" && (errors.Is(err, app.ErrRuntimeProtocol) || errors.Is(err, app.ErrRuntimeUnsupported))) {
 		return domain.RunSnapshot{}, app.ErrLaunchUnknown
 	}
-	if reply.Control != nil || reply.Output != nil || reply.Status != nil || reply.Page != nil || reply.Role != "" {
+	if reply.ID != "" && reply.Code != "ok" && reply.Code != "launch_unknown" && !knownManagementRejection(reply.Code) {
+		return domain.RunSnapshot{}, errors.Join(app.ErrLaunchUnknown, app.ErrRuntimeProtocol)
+	}
+	if reply.Lifecycle != nil || reply.Control != nil || reply.Output != nil || reply.Status != nil || reply.Page != nil || reply.Role != "" {
 		return domain.RunSnapshot{}, errors.Join(app.ErrLaunchUnknown, app.ErrRuntimeProtocol)
 	}
 	if reply.Run == nil {
@@ -105,6 +110,12 @@ func (d *LocalDaemon) Launch(ctx context.Context, root string, request app.Launc
 	if snapshot.Identity.Epoch != request.Epoch || snapshot.Target.Worktree().ID() != request.Worktree || snapshot.Profile.ID() != request.Profile {
 		return domain.RunSnapshot{}, errors.Join(app.ErrLaunchUnknown, app.ErrRuntimeProtocol)
 	}
+	if reply.Code == "ok" && (err != nil || snapshot.State != domain.RunLive || snapshot.PublicationUncertain || snapshot.PID <= 0) {
+		return domain.RunSnapshot{}, errors.Join(app.ErrLaunchUnknown, app.ErrRuntimeProtocol)
+	}
+	if knownManagementRejection(reply.Code) && (err == nil || snapshot.State != domain.RunReserved || snapshot.PID != 0 || snapshot.PublicationUncertain) {
+		return domain.RunSnapshot{}, errors.Join(app.ErrLaunchUnknown, app.ErrRuntimeProtocol)
+	}
 	return snapshot, err
 }
 
@@ -114,7 +125,7 @@ func (d *LocalDaemon) ListRuns(ctx context.Context, root string, request app.Run
 	if err != nil {
 		return app.RunPage{}, err
 	}
-	if reply.Control != nil || reply.Output != nil || reply.Page == nil || reply.Status != nil || reply.Run != nil || reply.Role != "" || reply.Page.Epoch != request.Epoch || len(reply.Page.Runs) > 2 || reply.Page.Runs == nil {
+	if reply.Lifecycle != nil || reply.Control != nil || reply.Output != nil || reply.Page == nil || reply.Status != nil || reply.Run != nil || reply.Role != "" || reply.Page.Epoch != request.Epoch || len(reply.Page.Runs) > 2 || reply.Page.Runs == nil {
 		return app.RunPage{}, app.ErrRuntimeProtocol
 	}
 	result := app.RunPage{Epoch: reply.Page.Epoch, Revision: reply.Page.Revision, Next: reply.Page.Next, Runs: []domain.RunSnapshot{}}

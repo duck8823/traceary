@@ -45,3 +45,28 @@ func (d *LocalDaemon) Control(context.Context, string, app.ControlRequest) (app.
 func (d *LocalDaemon) Receipt(context.Context, string, app.OutputSelection, string) (app.ControlResult, error) {
 	return app.ControlResult{}, app.ErrRuntimeUnsupported
 }
+
+// PreviewShutdown has no unchecked non-Unix transport fallback.
+func (d *LocalDaemon) PreviewShutdown(context.Context, string, string) (app.ShutdownPreviewPage, error) {
+	return app.ShutdownPreviewPage{}, app.ErrRuntimeUnsupported
+}
+
+// ShutdownPage has no unchecked non-Unix transport fallback.
+func (d *LocalDaemon) ShutdownPage(context.Context, string, app.ShutdownPageRequest) (app.ShutdownPreviewPage, error) {
+	return app.ShutdownPreviewPage{}, app.ErrRuntimeUnsupported
+}
+
+// CancelShutdown never creates a fallback lifecycle authority.
+func (d *LocalDaemon) CancelShutdown(context.Context, string, domain.ShutdownBindingState) error {
+	return app.ErrRuntimeUnsupported
+}
+
+// ConfirmShutdown has no unchecked process fallback.
+func (d *LocalDaemon) ConfirmShutdown(context.Context, string, app.ShutdownConfirmation) (app.ShutdownResult, error) {
+	return app.ShutdownResult{}, app.ErrRuntimeUnsupported
+}
+
+// ShutdownReceipt never reconstructs process ownership.
+func (d *LocalDaemon) ShutdownReceipt(context.Context, string, domain.ShutdownBindingState) (app.ShutdownResult, error) {
+	return app.ShutdownResult{}, app.ErrRuntimeUnsupported
+}

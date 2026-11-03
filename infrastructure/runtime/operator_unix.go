@@ -47,7 +47,7 @@ func openOperator(ctx context.Context, root string, create bool) (app.OperatorSe
 	if err != nil {
 		return app.OperatorServices{}, xerrors.Errorf("compose runtime profiles: %w", err)
 	}
-	return app.OperatorServices{Registry: registry, Profiles: profiles}, nil
+	return app.OperatorServices{Registry: registry, Profiles: profiles, Lifecycle: execution}, nil
 }
 
 // NewManagedRuntime creates an empty owner for this daemon epoch, never adopting persisted PIDs.

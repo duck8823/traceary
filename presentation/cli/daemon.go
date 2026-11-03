@@ -61,7 +61,7 @@ func (c *RootCLI) newDaemonCommand() *cobra.Command {
 		return nil
 	}}
 	status.Flags().BoolVar(&asJSON, "json", false, "Print structured transport readiness (not agent liveness)")
-	group.AddCommand(serve, status)
+	group.AddCommand(serve, status, c.newDaemonShutdownCommand(&root))
 	return group
 }
 func resolveRuntimeDir(value string) (string, error) {
