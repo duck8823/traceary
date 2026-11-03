@@ -53,7 +53,7 @@ random temporary file, file sync, same-directory atomic rename and directory
 sync. A post-rename directory-sync failure returns `ErrCommitUncertain`: reload
 and reconcile rather than assuming nothing changed. No silent retry is performed.
 
-Strict decoding rejects unknown fields, duplicate object keys, invalid UTF-8,
+Strict decoding rejects unknown fields, duplicate object keys, noncanonical field case, invalid UTF-8,
 trailing JSON, forged identity, invalid membership, oversized data and unsupported
 versions without overwriting them. Limits are 100 projects, 1,000 worktrees and
 at most 128 MiB of registry metadata. A constructor budget may tighten, never

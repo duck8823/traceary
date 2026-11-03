@@ -414,7 +414,7 @@ func uniqueJSONValue(d *json.Decoder, depth int) error {
 				return domain.ErrInvalid
 			}
 			name, ok := key.(string)
-			if !ok {
+			if !ok || name != strings.ToLower(name) {
 				return domain.ErrInvalid
 			}
 			if _, exists := keys[name]; exists {

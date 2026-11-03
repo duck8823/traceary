@@ -174,6 +174,9 @@ func TestRegistryStoreRejectsUnsafeVersionAndCorruptionWithoutOverwrite(t *testi
 		{"unknown field", `{"version":1,"revision":0,"extra":true}`, domain.ErrInvalid},
 		{"trailing object", `{"version":1,"revision":0} {}`, domain.ErrInvalid},
 		{"duplicate version", `{"version":2,"version":1,"revision":0}`, domain.ErrInvalid},
+		{"case variant version", `{"version":2,"Version":1,"revision":0}`, domain.ErrInvalid},
+		{"noncanonical field case", `{"Version":1,"revision":0}`, domain.ErrInvalid},
+		{"invalid UTF8", "{\"version\":1,\"projects\":[\"\xff\"]}", domain.ErrInvalid},
 		{"bad identity", `{"version":1,"revision":1,"projects":[{"id":"forged","root":"/repo","common":"/git","witness":"identity"}]}`, domain.ErrInvalid},
 	} {
 		t.Run(test.name, func(t *testing.T) {
