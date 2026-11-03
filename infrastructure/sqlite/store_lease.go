@@ -191,6 +191,11 @@ func openCoordinatedReadOnlyDB(path, dsn string) *sql.DB {
 	return openCoordinatedDBMode(path, dsn, false)
 }
 
+func openCoordinatedYieldingReadOnlyDB(path, dsn string) *sql.DB {
+	lockPath, lockPathErr := canonicalLeasePath(path)
+	return sql.OpenDB(&storeLeaseConnector{driver: coordinatedDriver(), dsn: dsn, storePath: path, lockPath: lockPath, lockPathErr: lockPathErr, yieldMaintenance: true})
+}
+
 func openCoordinatedDBMode(path, dsn string, readWrite bool) *sql.DB {
 	lockPath, lockPathErr := canonicalLeasePath(path)
 	return sql.OpenDB(&storeLeaseConnector{driver: coordinatedDriver(), dsn: dsn, storePath: path, lockPath: lockPath, lockPathErr: lockPathErr, readWrite: readWrite})
@@ -208,6 +213,8 @@ type storeLeaseConnector struct {
 	lockPath    string
 	lockPathErr error
 	readWrite   bool
+	// Only daemon history readers opt in; existing CLI readers remain unchanged.
+	yieldMaintenance bool
 }
 
 func (c *storeLeaseConnector) Driver() driver.Driver { return c.driver }
@@ -220,28 +227,35 @@ func (c *storeLeaseConnector) Connect(ctx context.Context) (driver.Conn, error) 
 		return nil, err
 	}
 	if processHoldsExclusiveLease(c.lockPath) {
+		if c.yieldMaintenance {
+			return nil, selfDeadlockError(c.lockPath)
+		}
 		// flock is per open file description. A second LOCK_SH on another
 		// fd can never succeed while this process holds LOCK_EX (#2149).
 		// Compact still needs SQLite connections for projection complete
 		// (#2163). The exclusive fd already excludes cooperating processes.
 		return c.openHeldExclusive(ctx)
 	}
-	if c.readWrite {
-		if err := consultMaintenanceMarker(c.storePath); err != nil {
+	consultMaintenance := consultMaintenanceMarker
+	if c.yieldMaintenance {
+		consultMaintenance = consultHistoryMaintenanceMarker
+	}
+	if c.readWrite || c.yieldMaintenance {
+		if err := consultMaintenance(c.storePath); err != nil {
 			return nil, err
 		}
 		if afterMaintenanceMarkerConsult != nil {
 			afterMaintenanceMarkerConsult()
 		}
-		if err := consultMaintenanceMarker(c.storePath); err != nil {
+		if err := consultMaintenance(c.storePath); err != nil {
 			return nil, err
 		}
 	}
 	ctx, cancel := bindSharedLeaseDeadline(ctx)
 	defer cancel()
 	var consult func() error
-	if c.readWrite {
-		consult = func() error { return consultMaintenanceMarker(c.storePath) }
+	if c.readWrite || c.yieldMaintenance {
+		consult = func() error { return consultMaintenance(c.storePath) }
 	}
 	lease, err := acquireAdvisoryLeaseConsulting(ctx, c.lockPath, false, consult)
 	if err != nil {

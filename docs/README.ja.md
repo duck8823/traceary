@@ -22,6 +22,7 @@
 - [Headless registry backend](./runtime/registry.ja.md)：共有registry API、固定target、private metadataと安全な削除
 
 - [ローカルDaemon IPC](./runtime/daemon-ipc.ja.md)：明示foreground transport、private Unix endpoint、protocolと失敗境界
+- [履歴再照合と maintenance](./runtime/history-reconciliation.ja.md)：maintenance に譲る読取 capability と残っている再照合契約
 
 ## 連携まわり
 
