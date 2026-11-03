@@ -2,7 +2,7 @@
 
 [日本語](./history-reconciliation.ja.md)
 
-Implementation is in progress. The maintenance-yielding SQLite read capability is implemented; public runtime history paging, post-commit hints, metadata export/forget and their integrated qualification are not yet complete. This document does not claim release readiness or native-host/session recovery certification.
+Implementation is in progress. The maintenance-yielding SQLite read capability, domain/application history paging and real SQLite reader/source adapters are implemented; public daemon SDK/CLI transport, post-commit hints, metadata export/forget and their integrated qualification are not yet complete. This document does not claim release readiness or native-host/session recovery certification.
 
 ## Store authority and reader lifetime
 
@@ -16,4 +16,12 @@ New daemon history readers yield to pending upgrade/compaction. A marker appeari
 
 ## Remaining delivery contracts
 
-History paging must reuse existing body-free keyset queries, explicitly bound each page and re-walk the requested view after lost hints or late insertions. Cross-page reads cannot claim a frozen transaction or durable commit order. Store replacement during compaction must be visible without renewing native execution/control/resume authority. Post-commit hints must not change capture results, stdout, spool ownership or receipt idempotency. Explicit runtime metadata export/forget must define scope, versions, bounds, consent and partial-uncertainty semantics without deleting Registry, core history, Git data or native conversations. These are required remaining implementation and qualification work, not features provided by the current reader capability.
+Public daemon transport and CLI must expose the implemented history core with strict correlation, bounded frames and correct adaptive prefix/continuation handling. Post-commit hints must not change capture results, stdout, spool ownership or receipt idempotency. Explicit runtime metadata export/forget must define scope, versions, bounds, consent and partial-uncertainty semantics without deleting Registry, core history, Git data or native conversations. Full upgrade/compaction, spool replay and simultaneous live-PTY qualification, final review and delivery gates remain required. These are incomplete delivery work, not capabilities advertised by the current daemon.
+
+## Committed pages and registered read-only sources
+
+The `History` application service resolves a registered source, reads one bounded body-free page, closes the actual SQLite lease and then revalidates the source. It never retries a busy read, initializes a store or updates Registry. `RegisteredHistorySources` reads the same RegistryRepository; it is not a second registry. A read source verifies unchanged project/worktree/common-directory physical witnesses and the current owned canonical regular single-link store. Store-only inode replacement is visible as `StoreIdentityChanged`, allowing a new history scan after maintenance; it never renews native execution, control or resume authority. Continuations bind the current store witness and fail if it changes.
+
+A requested view is one explicit inclusive-from/exclusive-to window within the registered canonical workspace. Each request returns at most 64 events using the existing descending `(created_at_norm, event_id)` keyset and a limit+1 look-ahead. A page is committed history for one read, not a retained cross-page transaction or durable commit sequence. Invalid/oversized metadata is rejected, never silently skipped. Bodies and command contents are not hydrated. A frame-sized prefix preserves continuation from its last retained row.
+
+After a dropped hint, reconnect or periodic refresh, consumers must restart from the first page and walk the entire requested view while `More` is true, deduplicating event IDs. Re-reading only the first page or moving a durable datetime watermark can miss deep late inserts and timestamp ties. Real SQLite tests cover an initial complete scan followed by earlier/tied commits with no hints, uncommitted-versus-committed visibility, unchanged existing CLI membership, busy/retry and actual lease release, malformed metadata refusal and fresh scans after inode replacement. The inode-replacement fixture is not a claim that full upgrade/compaction or native-host qualification has completed.
