@@ -1,0 +1,115 @@
+{
+  "schema": "traceary-lesson-evaluation-report/v1",
+  "date": "2026-11-03",
+  "corpus_sha256": "df4f021924558fa42d60f09583b47e4921ba44ff3d9dc3192057308543c86dee",
+  "candidate_sha256": "5e579c810540cb16881281b9986f25b0b3312e3bc1facd3db8dd1b0d3ae7795e",
+  "host": "codex-cli 0.166.0",
+  "requested_model": "gpt-6.1-sol",
+  "provider_response_model": "unavailable in native JSONL",
+  "effort": "medium",
+  "paired_source_attempts": 2,
+  "held_out_families": 5,
+  "replicates_per_task_arm": 1,
+  "measured_responses": 15,
+  "arms": {
+    "no-lesson": {
+      "protocol_correct": 2,
+      "decision_correct": 4,
+      "denominator": 5,
+      "invalid_schema": 3,
+      "unsupported_citations": 0,
+      "repeated_source_mistakes": 0,
+      "inappropriate_lesson_use_proxy": 0,
+      "context_bytes": 0,
+      "input_tokens": 98191,
+      "output_tokens": 325,
+      "cached_input_tokens": 11520,
+      "host_latency_ms": 54455.9
+    },
+    "current-summary": {
+      "protocol_correct": 2,
+      "decision_correct": 4,
+      "denominator": 5,
+      "invalid_schema": 1,
+      "unsupported_citations": 2,
+      "repeated_source_mistakes": 0,
+      "inappropriate_lesson_use_proxy": 0,
+      "context_bytes": 585,
+      "input_tokens": 96976,
+      "output_tokens": 408,
+      "cached_input_tokens": 7680,
+      "host_latency_ms": 53805.982
+    },
+    "lesson-candidate": {
+      "protocol_correct": 2,
+      "decision_correct": 5,
+      "denominator": 5,
+      "invalid_schema": 0,
+      "unsupported_citations": 3,
+      "repeated_source_mistakes": 0,
+      "inappropriate_lesson_use_proxy": 0,
+      "context_bytes": 3745,
+      "input_tokens": 97721,
+      "output_tokens": 327,
+      "cached_input_tokens": 30848,
+      "host_latency_ms": 54262.369
+    }
+  },
+  "paired_protocol_outcomes": [
+    {
+      "task": "network-ack",
+      "outcomes": {
+        "no-lesson": false,
+        "current-summary": false,
+        "lesson-candidate": false
+      }
+    },
+    {
+      "task": "queue-stale",
+      "outcomes": {
+        "no-lesson": false,
+        "current-summary": false,
+        "lesson-candidate": false
+      }
+    },
+    {
+      "task": "storage-foreign",
+      "outcomes": {
+        "no-lesson": false,
+        "current-summary": false,
+        "lesson-candidate": false
+      }
+    },
+    {
+      "task": "pure-counterexample",
+      "outcomes": {
+        "no-lesson": true,
+        "current-summary": true,
+        "lesson-candidate": true
+      }
+    },
+    {
+      "task": "scope-counterexample",
+      "outcomes": {
+        "no-lesson": true,
+        "current-summary": true,
+        "lesson-candidate": true
+      }
+    }
+  ],
+  "generation_review_cost": null,
+  "priced_api_cost_usd": null,
+  "subscription_charge": null,
+  "decision": "defer production changes and automatic lesson promotion; weak fixture, schema confounding and unknown review costs do not justify adoption",
+  "local_artifacts": {
+    "/private/tmp/traceary-2449-inputs-final.json": {
+      "sha256": "474b6f57d675ecd8d3683fa7b2bca74b71f1d4ee1db8e6fa3c0dfc7a74666749"
+    },
+    "/private/tmp/traceary-2449-receipts.json": {
+      "sha256": "1f52df9b3dbbde0c4120205adc2d0dac6e899611e985ff724acf1a687ea7f184"
+    },
+    "/private/tmp/traceary-2449-scores.json": {
+      "sha256": "24bd084e885d3d8ec18eba20416d8de91112f3af5d300c51149755ebee242415"
+    }
+  }
+}
