@@ -65,6 +65,7 @@ type launchTicket struct {
 	err                                    error
 }
 type ownedRun struct {
+	controls   *runControls
 	descriptor domain.LaunchDescriptor
 	child      OwnedChild
 	done       chan struct{}
@@ -74,6 +75,9 @@ type ownedRun struct {
 // Runtime owns bounded launch reservations, immutable outcomes and live child handles.
 // It has no core Session lifecycle or authority over externally started processes.
 type Runtime struct {
+	controlKey      [32]byte
+	controlKeySet   bool
+	controlsPending int
 	registry        TargetRegistry
 	profiles        ProfileCatalog
 	launcher        ProcessLauncher
@@ -372,7 +376,7 @@ func (s *Runtime) changedLocked() { s.revision++; close(s.changed); s.changed = 
 func (s *Runtime) AwaitIdle(ctx context.Context) error {
 	for {
 		s.mu.Lock()
-		if s.pending+s.active == 0 {
+		if s.pending+s.active+s.controlsPending == 0 {
 			s.mu.Unlock()
 			return nil
 		}

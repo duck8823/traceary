@@ -168,8 +168,8 @@ func (o *Output) AcknowledgeResize(selection OutputSelection, sequence uint64, r
 		if next == o.resize {
 			return nil
 		}
-		if sequence <= o.resize.Sequence {
-			return domain.ErrChanged
+		if err := domain.ValidateResizeSequence(o.resize.Sequence, sequence); err != nil {
+			return xerrors.Errorf("validate owner resize acknowledgment: %w", err)
 		}
 	} else if sequence != 0 || rows != 24 || cols != 80 {
 		return domain.ErrChanged
@@ -325,4 +325,21 @@ type OutputStream interface {
 // OutputClient adds optional streaming without widening launch-only clients.
 type OutputClient interface {
 	Attach(context.Context, string, OutputSelection, domain.ByteOffset) (OutputStream, error)
+}
+
+// ValidateResize checks a NEW explicit control before receipt reservation; an
+// existing identical acknowledgment remains idempotent only via AcknowledgeResize.
+func (o *Output) ValidateResize(selection OutputSelection, sequence uint64, rows, cols uint16) error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if selection != o.selection || !o.resizeSet {
+		return domain.ErrChanged
+	}
+	if rows == 0 || cols == 0 {
+		return domain.ErrInvalid
+	}
+	if err := domain.ValidateResizeSequence(o.resize.Sequence, sequence); err != nil {
+		return xerrors.Errorf("validate explicit resize sequence: %w", err)
+	}
+	return nil
 }
