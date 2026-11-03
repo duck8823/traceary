@@ -12,14 +12,16 @@ import (
 )
 
 type runtimeRequest struct {
-	Attach      *outputAttachRecord   `json:"attach,omitempty"`
-	Version     int                   `json:"protocol_version"`
-	ID          string                `json:"request_id"`
-	Operation   string                `json:"operation"`
-	Role        string                `json:"role,omitempty"`
-	Observation *observationRecord    `json:"observation,omitempty"`
-	Launch      *launchRequestRecord  `json:"launch,omitempty"`
-	Page        *runPageRequestRecord `json:"page,omitempty"`
+	Control     *controlRequestRecord        `json:"control,omitempty"`
+	Receipt     *controlReceiptRequestRecord `json:"receipt,omitempty"`
+	Attach      *outputAttachRecord          `json:"attach,omitempty"`
+	Version     int                          `json:"protocol_version"`
+	ID          string                       `json:"request_id"`
+	Operation   string                       `json:"operation"`
+	Role        string                       `json:"role,omitempty"`
+	Observation *observationRecord           `json:"observation,omitempty"`
+	Launch      *launchRequestRecord         `json:"launch,omitempty"`
+	Page        *runPageRequestRecord        `json:"page,omitempty"`
 }
 type observationRecord struct {
 	Host            string `json:"host"`
@@ -34,6 +36,7 @@ type observationRecord struct {
 	Kind            string `json:"kind"`
 }
 type runtimeResponse struct {
+	Control *controlResultRecord `json:"control,omitempty"`
 	Output  *outputRecord        `json:"output,omitempty"`
 	Version int                  `json:"protocol_version"`
 	ID      string               `json:"request_id"`
@@ -171,6 +174,8 @@ func (v observationRecord) metadata() app.ObservationMetadata {
 }
 func responseError(code string) error {
 	switch code {
+	case "control_unknown":
+		return app.ErrControlUnknown
 	case "output_cursor":
 		return domain.ErrOutputCursor
 	case "launch_unknown":

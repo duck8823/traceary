@@ -163,6 +163,9 @@ func (s *Runtime) awaitControl(ctx context.Context, ticket *controlTicket) (Cont
 // Receipt inspects current-epoch safe evidence even after child exit or changed
 // disk witnesses. It never creates a control coordinator or restores authority.
 func (s *Runtime) Receipt(selection OutputSelection, id string) (ControlResult, error) {
+	if _, err := domain.ControlRequestIDFrom(id); err != nil {
+		return ControlResult{}, xerrors.Errorf("validate receipt reference: %w", err)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	run, err := s.controlRunLocked(selection)

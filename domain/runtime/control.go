@@ -242,3 +242,14 @@ func ValidateResizeSequence(current, next uint64) error {
 	}
 	return nil
 }
+
+// ControlRequestID is a bounded non-secret operator correlation reference.
+type ControlRequestID string
+
+// ControlRequestIDFrom checks read-side receipt references without creating intent.
+func ControlRequestIDFrom(value string) (ControlRequestID, error) {
+	if !validControlRequestID(value) {
+		return "", ErrInvalid
+	}
+	return ControlRequestID(value), nil
+}

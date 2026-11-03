@@ -22,6 +22,16 @@ import (
 )
 
 func TestRuntimeCLIEndToEndRegistrationLaunchAndListWithoutHomeOrCoreBootstrap(t *testing.T) {
+	for _, control := range []bool{false, true} {
+		name := "output"
+		if control {
+			name = "controls"
+		}
+		t.Run(name, func(t *testing.T) { runtimeCLIProcessFixture(t, control) })
+	}
+}
+func runtimeCLIProcessFixture(t *testing.T, control bool) {
+	t.Helper()
 	base := os.TempDir()
 	if runtime.GOOS == "darwin" {
 		base = "/private/tmp"
@@ -54,14 +64,30 @@ func TestRuntimeCLIEndToEndRegistrationLaunchAndListWithoutHomeOrCoreBootstrap(t
 	agentSource := filepath.Join(root, "fixture-agent.go")
 	agentBinary := filepath.Join(root, "fixture-agent")
 	program := `package main
-import("os";"encoding/json";"bytes")
-func main(){if len(os.Args)==2&&os.Args[1]=="--version"{os.Stdout.WriteString("fixture-runtime 1\n");return};if len(os.Args)!=1{os.Exit(93)};cwd,_:=os.Getwd();data,_:=json.Marshal(map[string]string{"cwd":cwd,"store":os.Getenv("TRACEARY_DB_PATH"),"run":os.Getenv("TRACEARY_RUNTIME_RUN_ID")});if os.WriteFile(os.Getenv("TRACEARY_TEST_RUNTIME_RESULT"),data,0600)!=nil{os.Exit(90)};os.Stdout.Write(bytes.Repeat([]byte("x"),2*1024*1024));os.Exit(7)}
+import("os";"encoding/json";"bytes";"io";"time";"golang.org/x/term";"golang.org/x/sys/unix")
+func main(){
+ if len(os.Args)==2&&os.Args[1]=="--version"{os.Stdout.WriteString("fixture-runtime 1\n");return}
+ if len(os.Args)!=1{os.Exit(93)}
+ cwd,_:=os.Getwd();data,_:=json.Marshal(map[string]string{"cwd":cwd,"store":os.Getenv("TRACEARY_DB_PATH"),"run":os.Getenv("TRACEARY_RUNTIME_RUN_ID")})
+ result:=os.Getenv("TRACEARY_TEST_RUNTIME_RESULT")
+ if os.WriteFile(result,data,0600)!=nil{os.Exit(90)}
+ control:=os.Getenv("TRACEARY_TEST_RUNTIME_CONTROL")=="1"
+ if control {if _,e:=term.MakeRaw(0);e!=nil{os.Exit(94)};os.WriteFile(result+".ready",[]byte("ready"),0600)}
+ os.Stdout.Write(bytes.Repeat([]byte("x"),2*1024*1024))
+ if control {
+  raw:=make([]byte,5);if _,e:=io.ReadFull(os.Stdin,raw);e!=nil{os.Exit(95)};os.WriteFile(result+".input",raw,0600)
+  marker:=make([]byte,1);if _,e:=io.ReadFull(os.Stdin,marker);e!=nil{os.Exit(95)}
+  size,e:=unix.IoctlGetWinsize(0,unix.TIOCGWINSZ);if e!=nil{os.Exit(96)};geometry,_:=json.Marshal([]uint16{size.Row,size.Col});os.WriteFile(result+".geometry",geometry,0600)
+  time.Sleep(15*time.Second);os.Exit(92)
+ }
+ os.Exit(7)
+}
 `
 	if err = os.WriteFile(agentSource, []byte(program), 0600); err != nil {
 		t.Fatal(err)
 	}
-	build := exec.Command("go", "build", "-o", agentBinary, agentSource)
-	build.Env = append(os.Environ(), "GOENV=off", "GOWORK=off", "GO111MODULE=off", "GOPROXY=off")
+	build := exec.Command("go", "build", "-mod=readonly", "-o", agentBinary, agentSource)
+	build.Env = append(os.Environ(), "GOENV=off", "GOWORK=off", "GO111MODULE=on", "GOPROXY=off")
 	if out, e := build.CombinedOutput(); e != nil {
 		t.Fatalf("build owned synthetic native agent: %v %.1000s", e, out)
 	}
@@ -77,6 +103,9 @@ func main(){if len(os.Args)==2&&os.Args[1]=="--version"{os.Stdout.WriteString("f
 		data, _ := json.Marshal(args)
 		cmd := exec.CommandContext(ctx, binary, "-test.run=^TestDaemonCommandProcessHelper$")
 		cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "TRACEARY_LANG=en", "LOG_LEVEL=error", "TRACEARY_TEST_DAEMON_HELPER=1", "TRACEARY_TEST_DAEMON_ARGS=" + string(data), "TRACEARY_TEST_RUNTIME_RESULT=" + resultFile, "TRACEARY_DB_PATH=" + poisonCore, "GORACE=atexit_sleep_ms=0"}
+		if control {
+			cmd.Env = append(cmd.Env, "TRACEARY_TEST_RUNTIME_CONTROL=1")
+		}
 		return cmd
 	}
 	jsonCommand := func(args ...string) map[string]any {
@@ -157,11 +186,66 @@ func main(){if len(os.Args)==2&&os.Args[1]=="--version"{os.Stdout.WriteString("f
 	if launched["request_id"] != "explicit-fixture-request" {
 		t.Fatal("launch receipt lost request")
 	}
+	expectedExit := 7
+	if control {
+		expectedExit = -1
+		target := launched["run"].(map[string]any)
+		flags := []string{"--runtime-dir", metadata, "--epoch", status.Epoch, "--run", target["run"].(string), "--generation", target["generation"].(string), "--worktree", w["id"].(string), "--profile", "codex-fixture"}
+		args := func(kind, id string, extra ...string) []string {
+			v := append([]string{"runtime", kind}, flags...)
+			v = append(v, "--request-id", id)
+			return append(v, extra...)
+		}
+		artifact := func(path string) []byte {
+			t.Helper()
+			limit := time.Now().Add(4 * time.Second)
+			for {
+				data, e := os.ReadFile(path)
+				if e == nil {
+					return data
+				}
+				if time.Now().After(limit) {
+					t.Fatal("actual CLI native fixture result missing")
+				}
+				time.Sleep(5 * time.Millisecond)
+			}
+		}
+		_ = artifact(resultFile + ".ready")
+		raw := []byte{0xe6, 0x97, 0xa5, 0x1b, 0xff}
+		input := command(args("input", "cli-input", "--manual-terminal")...)
+		input.Stdin = bytes.NewReader(raw)
+		out, e := input.CombinedOutput()
+		if e != nil || bytes.Contains(out, raw) || !bytes.Contains(out, []byte(`"written_bytes":"5"`)) {
+			t.Fatalf("actual CLI stdin control failed: %v", e)
+		}
+		if !bytes.Equal(artifact(resultFile+".input"), raw) {
+			t.Fatal("actual CLI changed bytes or appended Enter")
+		}
+		duplicate := command(args("input", "cli-input", "--manual-terminal")...)
+		duplicate.Stdin = bytes.NewReader(raw)
+		if _, e = duplicate.CombinedOutput(); e != nil {
+			t.Fatal("actual CLI duplicate receipt inspection failed")
+		}
+		_ = jsonCommand(args("resize", "cli-resize", "--sequence", "1", "--rows", "31", "--cols", "101")...)
+		marker := command(args("input", "cli-marker", "--manual-terminal")...)
+		marker.Stdin = strings.NewReader("r")
+		if _, e = marker.CombinedOutput(); e != nil {
+			t.Fatal("actual CLI marker failed")
+		}
+		if string(artifact(resultFile+".geometry")) != "[31,101]" {
+			t.Fatal("actual CLI resize or no-replay contract failed")
+		}
+		_ = jsonCommand(args("stop", "cli-stop", "--acknowledge-work-loss")...)
+		receipt := jsonCommand(args("receipt", "cli-input")...)
+		if receipt["receipt"].(map[string]any)["written_bytes"] != "5" {
+			t.Fatal("actual CLI lost input receipt after stop")
+		}
+	}
 	deadline = time.Now().Add(4 * time.Second)
 	for {
 		page, e := client.ListRuns(ctx, metadata, app.RunPageRequest{Epoch: status.Epoch})
 		if e == nil && len(page.Runs) == 1 && page.Runs[0].State == domain.RunExited {
-			if page.Runs[0].ExitCode != 7 {
+			if page.Runs[0].ExitCode != expectedExit {
 				t.Fatal("owned child lost")
 			}
 			break

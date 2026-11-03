@@ -35,3 +35,13 @@ func (d *LocalDaemon) ListRuns(context.Context, string, app.RunPageRequest) (app
 func (d *LocalDaemon) Attach(context.Context, string, app.OutputSelection, domain.ByteOffset) (app.OutputStream, error) {
 	return nil, app.ErrRuntimeUnsupported
 }
+
+// Control never falls back to unchecked process or network access.
+func (d *LocalDaemon) Control(context.Context, string, app.ControlRequest) (app.ControlResult, error) {
+	return app.ControlResult{}, app.ErrRuntimeUnsupported
+}
+
+// Receipt never creates control authority from persisted process identifiers.
+func (d *LocalDaemon) Receipt(context.Context, string, app.OutputSelection, string) (app.ControlResult, error) {
+	return app.ControlResult{}, app.ErrRuntimeUnsupported
+}

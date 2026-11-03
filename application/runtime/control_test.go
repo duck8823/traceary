@@ -29,6 +29,11 @@ func (c *controlChild) ValidateControl(context.Context, domain.ControlIntent) er
 	return nil
 }
 func (c *controlChild) ApplyControl(ctx context.Context, _ domain.ControlIntent, _ []byte) (app.ControlEffect, error) {
+	select {
+	case <-c.exited:
+		return app.ControlEffect{Outcome: domain.ControlUnknown}, domain.ErrChanged
+	default:
+	}
 	c.effects.Add(1)
 	if c.entered != nil {
 		c.once.Do(func() { close(c.entered) })
@@ -52,6 +57,7 @@ type controlJournal struct {
 	mu                  sync.Mutex
 	reserved, saved     []domain.ControlSnapshot
 	reserveErr, saveErr error
+	reserveHook         func()
 }
 
 func (j *controlJournal) ReserveControl(_ context.Context, _ app.OutputSelection, r domain.ControlReceipt) error {
@@ -61,6 +67,9 @@ func (j *controlJournal) ReserveControl(_ context.Context, _ app.OutputSelection
 		return j.reserveErr
 	}
 	j.reserved = append(j.reserved, r.Snapshot())
+	if j.reserveHook != nil {
+		j.reserveHook()
+	}
 	return nil
 }
 func (j *controlJournal) SaveControl(_ context.Context, _ app.OutputSelection, r domain.ControlReceipt) error {
@@ -254,5 +263,166 @@ func TestControlRuntimeForeignSelectionRefusesBeforeJournal(t *testing.T) {
 	defer journal.mu.Unlock()
 	if len(journal.reserved) != 0 || child.effects.Load() != 0 {
 		t.Fatal("foreign request reserved or delivered")
+	}
+}
+
+func TestControlRuntimeExitAfterDurableIntentCompletesUnknown(t *testing.T) {
+	owner, request, child, journal, _ := controlFixture(t)
+	journal.reserveHook = child.finish
+	result, err := owner.Control(context.Background(), request)
+	if !errors.Is(err, app.ErrControlUnknown) || result.Receipt.Outcome != domain.ControlUnknown || result.Receipt.WrittenBytes != 0 || child.effects.Load() != 0 {
+		t.Fatalf("intent-to-exit window misreported: %v", err)
+	}
+	journal.mu.Lock()
+	defer journal.mu.Unlock()
+	if len(journal.saved) != 1 || journal.saved[0].Outcome != domain.ControlUnknown {
+		t.Fatal("committed intent stranded pending after exit")
+	}
+}
+
+type burstControlChild struct {
+	*fakeChild
+	entered chan struct{}
+	release <-chan struct{}
+}
+
+func (c burstControlChild) ValidateControl(context.Context, domain.ControlIntent) error { return nil }
+func (c burstControlChild) ApplyControl(ctx context.Context, _ domain.ControlIntent, _ []byte) (app.ControlEffect, error) {
+	c.entered <- struct{}{}
+	select {
+	case <-c.release:
+		return app.ControlEffect{Outcome: domain.ControlDelivered, WrittenBytes: 1}, nil
+	case <-ctx.Done():
+		return app.ControlEffect{Outcome: domain.ControlUnknown}, fmt.Errorf("synthetic control budget: %w", ctx.Err())
+	}
+}
+
+type burstControlFactory struct {
+	mu       sync.Mutex
+	children []*fakeChild
+	entered  chan struct{}
+	release  <-chan struct{}
+}
+
+func (f *burstControlFactory) Start(context.Context, domain.LaunchDescriptor) (app.OwnedChild, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	child := &fakeChild{exited: make(chan struct{})}
+	f.children = append(f.children, child)
+	return burstControlChild{fakeChild: child, entered: f.entered, release: f.release}, nil
+}
+func TestControlRuntimeGlobalAdmissionBoundAndPerRunIsolation(t *testing.T) {
+	_, launch, base, registry := runtimeFixture(t, false)
+	profile, err := domain.HostProfileFrom(domain.HostProfileState{ID: "codex-fixture", Host: "codex", Executable: "/owned/agent", ExecutableWitness: "fixture", Version: "fixture 1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	entered := make(chan struct{}, domain.MaxControlCoordinators)
+	release := make(chan struct{})
+	var closeOnce sync.Once
+	t.Cleanup(func() { closeOnce.Do(func() { close(release) }) })
+	factory := &burstControlFactory{entered: entered, release: release}
+	journal := &controlJournal{launchJournal: base.journal}
+	owner, err := app.NewRuntime(registry, launchProfiles{profile}, factory, journal, launch.Epoch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		factory.mu.Lock()
+		defer factory.mu.Unlock()
+		for _, child := range factory.children {
+			child.finish()
+		}
+	})
+	intent, _ := domain.ControlIntentFrom(domain.ControlIntentState{RequestID: "manual", Kind: domain.ControlInput, ManualTerminal: true, InputBytes: 1})
+	requests := make([]app.ControlRequest, domain.MaxControlCoordinators+1)
+	for i := range requests {
+		candidate := launch
+		candidate.RequestID = fmt.Sprintf("launch-%d", i)
+		run, e := owner.Launch(context.Background(), candidate)
+		if e != nil {
+			t.Fatal(e)
+		}
+		requests[i] = app.ControlRequest{Selection: app.OutputSelection{Identity: run.Identity, Worktree: run.Target.Worktree().ID(), Profile: run.Profile.ID()}, Intent: intent, Data: []byte("x")}
+	}
+	results := make(chan error, domain.MaxControlCoordinators)
+	for i := 0; i < domain.MaxControlCoordinators; i++ {
+		go func(request app.ControlRequest) { _, e := owner.Control(context.Background(), request); results <- e }(requests[i])
+	}
+	deadline := time.After(3 * time.Second)
+	for i := 0; i < domain.MaxControlCoordinators; i++ {
+		select {
+		case <-entered:
+		case <-deadline:
+			t.Fatal("bounded coordinators did not enter")
+		}
+	}
+	overflowCtx, overflowCancel := context.WithTimeout(context.Background(), time.Second)
+	defer overflowCancel()
+	if _, err = owner.Control(overflowCtx, requests[domain.MaxControlCoordinators]); !errors.Is(err, app.ErrRuntimeBusy) {
+		t.Fatal("coordinator limit expanded or queued unboundedly")
+	}
+	closeOnce.Do(func() { close(release) })
+	for i := 0; i < domain.MaxControlCoordinators; i++ {
+		select {
+		case e := <-results:
+			if e != nil {
+				t.Fatal(e)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatal("coordinator failed to reconcile")
+		}
+	}
+	journal.mu.Lock()
+	defer journal.mu.Unlock()
+	if len(journal.reserved) != domain.MaxControlCoordinators {
+		t.Fatal("busy overflow consumed a durable receipt")
+	}
+}
+
+type changingControlProfiles struct {
+	profile domain.HostProfile
+	changed atomic.Bool
+}
+
+func (c *changingControlProfiles) LookupProfile(context.Context, domain.ProfileID) (domain.HostProfile, error) {
+	if !c.changed.Load() {
+		return c.profile, nil
+	}
+	state := c.profile.Snapshot()
+	state.ExecutableWitness = "changed"
+	profile, err := domain.HostProfileFrom(state)
+	if err != nil {
+		return domain.HostProfile{}, fmt.Errorf("synthetic profile: %w", err)
+	}
+	return profile, nil
+}
+func TestControlRuntimeStoredProfileChangeRefusesBeforeReservation(t *testing.T) {
+	_, launch, base, registry := runtimeFixture(t, false)
+	profile, err := domain.HostProfileFrom(domain.HostProfileState{ID: "codex-fixture", Host: "codex", Executable: "/owned/agent", ExecutableWitness: "fixture", Version: "fixture 1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog := &changingControlProfiles{profile: profile}
+	child := &controlChild{fakeChild: base.child, result: app.ControlEffect{Outcome: domain.ControlDelivered, WrittenBytes: 1}}
+	journal := &controlJournal{launchJournal: base.journal}
+	owner, err := app.NewRuntime(registry, catalog, controlFactory{child}, journal, launch.Epoch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := owner.Launch(context.Background(), launch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog.changed.Store(true)
+	intent, _ := domain.ControlIntentFrom(domain.ControlIntentState{RequestID: "refused", Kind: domain.ControlInput, ManualTerminal: true, InputBytes: 1})
+	request := app.ControlRequest{Selection: app.OutputSelection{Identity: run.Identity, Worktree: run.Target.Worktree().ID(), Profile: run.Profile.ID()}, Intent: intent, Data: []byte("x")}
+	if _, err = owner.Control(context.Background(), request); !errors.Is(err, domain.ErrChanged) {
+		t.Fatal("changed stored profile allowed control")
+	}
+	journal.mu.Lock()
+	defer journal.mu.Unlock()
+	if len(journal.reserved) != 0 || child.effects.Load() != 0 {
+		t.Fatal("changed profile consumed intent or effect")
 	}
 }
