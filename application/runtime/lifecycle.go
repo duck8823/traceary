@@ -352,3 +352,21 @@ func (s *Runtime) performShutdown(parent context.Context, ticket *shutdownTicket
 	}
 	s.finishShutdown(ticket, result, nil, true)
 }
+
+// ShutdownReceipt inspects the original decision without submitting confirmation
+// again. Pending/unknown are not proof of closure, exit, or permission to replay.
+func (s *Runtime) ShutdownReceipt(binding domain.ShutdownBindingState) (ShutdownResult, error) {
+	if _, err := domain.ShutdownBindingFrom(binding); err != nil {
+		return ShutdownResult{}, xerrors.Errorf("validate shutdown receipt binding: %w", err)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ticket := s.shutdownTickets[binding.PreviewID]
+	if ticket == nil {
+		return ShutdownResult{}, domain.ErrNotFound
+	}
+	if ticket.confirmation.Binding != binding {
+		return ShutdownResult{}, domain.ErrChanged
+	}
+	return ticket.result, nil
+}

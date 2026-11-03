@@ -165,6 +165,10 @@ func TestConfirmedShutdownClosesOnceButRetainsOwnershipAndExplicitStop(t *testin
 	if err != nil || first.Outcome != domain.ShutdownDraining || first.ClosedTerminals != 1 {
 		t.Fatalf("confirmed closure: %+v %v", first, err)
 	}
+	receipt, receiptErr := owner.ShutdownReceipt(preview.Binding)
+	if receiptErr != nil || receipt != first || child.closes.Load() != 1 {
+		t.Fatal("read-only shutdown receipt changed effects", receiptErr)
+	}
 	again, err := owner.ConfirmShutdown(context.Background(), confirmation)
 	if err != nil || again != first || child.closes.Load() != 1 {
 		t.Fatal("duplicate shutdown repeated closure")
@@ -293,6 +297,10 @@ func TestCallerCancellationCannotAbandonAcceptedShutdown(t *testing.T) {
 	cancel()
 	if err = <-done; !errors.Is(err, app.ErrShutdownUnknown) {
 		t.Fatal("cancelled caller claimed known outcome", err)
+	}
+	receipt, receiptErr := owner.ShutdownReceipt(preview.Binding)
+	if receiptErr != nil || receipt.Outcome != domain.ShutdownPending {
+		t.Fatal("accepted pending decision not inspectable", receiptErr)
 	}
 	if !owner.Disabled() || child.closes.Load() != 0 {
 		t.Fatal("accepted intent lost admission or closed before commit")
