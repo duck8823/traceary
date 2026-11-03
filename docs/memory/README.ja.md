@@ -304,5 +304,6 @@ Durable memory は長く残る文脈なので、抽出または保存する前�
 - [ライフサイクルイベント](../hooks/lifecycle-events.ja.md)
 - [イベントライフサイクル](../lifecycle.ja.md)
 
+合成比較と保留判断は [Memory 有用性の評価](usefulness-evaluation.ja.md) を参照してください。
 
 入力の信頼行列、回帰テスト、レビュー・export の限界は [Memory の来歴と信頼境界](provenance-boundaries.ja.md) を参照してください。

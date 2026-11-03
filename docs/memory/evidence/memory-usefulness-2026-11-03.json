@@ -1,0 +1,115 @@
+{
+  "schema": "traceary-memory-evaluation-report/v1",
+  "date": "2026-11-03",
+  "corpus_sha256": "042a9c1a3e2cffb43ef25ae1687f0205e57f9b8875404b6749346c586112bca5",
+  "traceary_version": "traceary dev (commit=none, date=unknown, go=go1.26.7)",
+  "host": "codex-cli 0.166.0",
+  "requested_model": "gpt-6.1-sol",
+  "provider_response_model": "unavailable in native JSONL",
+  "effort": "medium",
+  "replicates_per_task_arm": 1,
+  "held_out_tasks": 4,
+  "calibration_tasks": 1,
+  "expected_responses": 15,
+  "measured_responses": 15,
+  "setup_and_synthetic_consolidation_ms": 1311.301665904466,
+  "consolidation_generation_review_cost": null,
+  "priced_api_cost_usd": null,
+  "subscription_charge": null,
+  "optional_raw_history_reranking": "unmeasured",
+  "claude_preflight": "routing parser rejected unreviewed argument before provider; corrected invocation returned credit balance too low, no task response",
+  "primary_arms": {
+    "no-history": {
+      "correct": 0,
+      "denominator": 4,
+      "evidence_coverage": 0,
+      "unsupported_citations": 0,
+      "retrieval_calls": 0,
+      "retrieval_bytes": 0,
+      "delivered_context_bytes": 0,
+      "retrieval_ms": 0.0,
+      "input_tokens": 77577,
+      "output_tokens": 92,
+      "cached_input_tokens": 11904,
+      "host_latency_ms": 41270.868
+    },
+    "staged": {
+      "correct": 4,
+      "denominator": 4,
+      "evidence_coverage": 4,
+      "unsupported_citations": 0,
+      "retrieval_calls": 16,
+      "retrieval_bytes": 7082,
+      "delivered_context_bytes": 7286,
+      "retrieval_ms": 186.151,
+      "input_tokens": 81674,
+      "output_tokens": 161,
+      "cached_input_tokens": 16768,
+      "host_latency_ms": 35305.154
+    },
+    "handoff-memory": {
+      "correct": 3,
+      "denominator": 4,
+      "evidence_coverage": 4,
+      "unsupported_citations": 0,
+      "retrieval_calls": 4,
+      "retrieval_bytes": 2068,
+      "delivered_context_bytes": 2292,
+      "retrieval_ms": 70.051,
+      "input_tokens": 76876,
+      "output_tokens": 176,
+      "cached_input_tokens": 3840,
+      "host_latency_ms": 42808.873
+    }
+  },
+  "paired_held_out": [
+    {
+      "task": "compact-resume",
+      "split": "held-out",
+      "outcomes": {
+        "no-history": false,
+        "staged": true,
+        "handoff-memory": true
+      }
+    },
+    {
+      "task": "cross-session",
+      "split": "held-out",
+      "outcomes": {
+        "no-history": false,
+        "staged": true,
+        "handoff-memory": false
+      }
+    },
+    {
+      "task": "workspace-preference",
+      "split": "held-out",
+      "outcomes": {
+        "no-history": false,
+        "staged": true,
+        "handoff-memory": true
+      }
+    },
+    {
+      "task": "superseded-constraint",
+      "split": "held-out",
+      "outcomes": {
+        "no-history": false,
+        "staged": true,
+        "handoff-memory": true
+      }
+    }
+  ],
+  "decision": "defer retrieval changes; no established advantage over staged reads; retain existing operational gates",
+  "local_artifacts": {
+    "/private/tmp/traceary-2447-inputs-final.json": {
+      "sha256": "e9cee45bdee3ff8aca2665d963194cbe0325700918af830c705a731df8980134"
+    },
+    "/private/tmp/traceary-2447-receipts.json": {
+      "sha256": "d08bf59d173d1adbfb33fb7749e61347110bc3ddca731e3fa0c889f9ab76cba3"
+    },
+    "/private/tmp/traceary-2447-scores.json": {
+      "sha256": "c4bb4e1ded789124f2e12c4605b980dd5a4604bfa5d9f3a1a4c524ceb6d2157d"
+    }
+  }
+}
