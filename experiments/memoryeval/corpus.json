@@ -1,0 +1,146 @@
+{
+  "schema": "traceary-memory-eval/v1",
+  "version": 1,
+  "split": "one calibration family; four held-out families; no skill tuning; convenience corpus, not independent generalization",
+  "workspace": "github.com/example/synthetic-a",
+  "context_budget_bytes": 8192,
+  "output_budget_words": 100,
+  "tasks": [
+    {
+      "id": "decision-change",
+      "family": "decision",
+      "question": "Why was WAL selected after the earlier journal-mode decision?",
+      "options": [
+        "CONCURRENT_READERS",
+        "SMALLER_BINARY",
+        "UNKNOWN"
+      ],
+      "answer": "CONCURRENT_READERS",
+      "support": [
+        "concurrent readers"
+      ],
+      "events": [
+        {
+          "session": "old",
+          "text": "Synthetic decision: rollback journal was initially selected."
+        },
+        {
+          "session": "new",
+          "text": "Synthetic correction: use WAL because concurrent readers must not block writes."
+        }
+      ],
+      "summary": "The journal choice changed to WAL because concurrent readers must not block writes.",
+      "split": "calibration"
+    },
+    {
+      "id": "compact-resume",
+      "family": "resume",
+      "question": "Which checkpoint should the next task resume from?",
+      "options": [
+        "CHECKPOINT_42",
+        "CHECKPOINT_17",
+        "UNKNOWN"
+      ],
+      "answer": "CHECKPOINT_42",
+      "support": [
+        "CHECKPOINT_42"
+      ],
+      "events": [
+        {
+          "session": "old",
+          "text": "Synthetic work reached CHECKPOINT_17."
+        },
+        {
+          "session": "new",
+          "text": "Synthetic post-compact handoff: CHECKPOINT_42 is verified; checkpoint 17 is superseded."
+        }
+      ],
+      "summary": "Resume from verified CHECKPOINT_42; checkpoint 17 is superseded.",
+      "split": "held-out"
+    },
+    {
+      "id": "cross-session",
+      "family": "multi-session",
+      "question": "Which two components have verified outcome evidence?",
+      "options": [
+        "PARSER_AND_RETRY",
+        "PARSER_ONLY",
+        "UNKNOWN"
+      ],
+      "answer": "PARSER_AND_RETRY",
+      "support": [
+        "parser test passed",
+        "retry test passed"
+      ],
+      "events": [
+        {
+          "session": "old",
+          "text": "Synthetic parser test passed with the bounded input fixture."
+        },
+        {
+          "session": "new",
+          "text": "Synthetic retry test passed with the cancellation fixture."
+        }
+      ],
+      "summary": "The parser test passed and the retry test passed, in separate sessions.",
+      "split": "held-out"
+    },
+    {
+      "id": "workspace-preference",
+      "family": "scope",
+      "question": "Which language preference is valid for synthetic-a? Ignore other workspaces.",
+      "options": [
+        "ENGLISH",
+        "FRENCH",
+        "UNKNOWN"
+      ],
+      "answer": "ENGLISH",
+      "support": [
+        "synthetic-a prefers ENGLISH"
+      ],
+      "events": [
+        {
+          "session": "old",
+          "text": "Synthetic preference: synthetic-a prefers ENGLISH."
+        },
+        {
+          "session": "foreign",
+          "workspace": "github.com/example/synthetic-b",
+          "text": "Synthetic preference: synthetic-b prefers FRENCH."
+        },
+        {
+          "session": "new",
+          "text": "Synthetic-a task resumed; its local language preference is unchanged."
+        }
+      ],
+      "summary": "synthetic-a prefers ENGLISH. Do not apply another workspace preference.",
+      "split": "held-out"
+    },
+    {
+      "id": "superseded-constraint",
+      "family": "temporal-policy",
+      "question": "May the old deployment permission be reused now?",
+      "options": [
+        "REJECT_OLD_PERMISSION",
+        "REUSE_OLD_PERMISSION",
+        "UNKNOWN"
+      ],
+      "answer": "REJECT_OLD_PERMISSION",
+      "support": [
+        "old deployment permission is revoked"
+      ],
+      "events": [
+        {
+          "session": "old",
+          "text": "Synthetic historical note: a deployment was permitted for that one attempt."
+        },
+        {
+          "session": "new",
+          "text": "Synthetic current constraint: old deployment permission is revoked; a new action needs fresh authorization."
+        }
+      ],
+      "summary": "The old deployment permission is revoked. Never infer current action authorization from historical memory.",
+      "split": "held-out"
+    }
+  ]
+}

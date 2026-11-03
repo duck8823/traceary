@@ -303,3 +303,5 @@ Durable memory は長く残る文脈なので、抽出または保存する前�
 - [Hook contract](../hooks/contract.ja.md)
 - [ライフサイクルイベント](../hooks/lifecycle-events.ja.md)
 - [イベントライフサイクル](../lifecycle.ja.md)
+
+合成比較と保留判断は [Memory 有用性の評価](usefulness-evaluation.ja.md) を参照してください。

@@ -392,3 +392,5 @@ That means:
 - [Hook contract](../hooks/contract.md)
 - [Lifecycle events](../hooks/lifecycle-events.md)
 - [Event lifecycle](../lifecycle.md)
+
+See [Memory usefulness evaluation](usefulness-evaluation.md) for the synthetic comparison and defer decision.
