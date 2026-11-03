@@ -78,6 +78,8 @@ type ownedRun struct {
 type Runtime struct {
 	lifecycleBound, lifecycleStarting    bool
 	lifecycleUncertain                   bool
+	updateDeferral                       *domain.UpdateDeferral
+	clock                                LifecycleClock
 	shutdownPreview                      *ShutdownPreview
 	shutdownTickets                      map[string]*shutdownTicket
 	shutdownPreparing, shutdownCommitted bool
@@ -105,7 +107,7 @@ func NewRuntime(registry TargetRegistry, profiles ProfileCatalog, launcher Proce
 	if registry == nil || profiles == nil || launcher == nil || journal == nil || !(domain.LaunchIdentity{Run: epoch, Generation: epoch, Epoch: epoch}).Valid() {
 		return nil, domain.ErrInvalid
 	}
-	return &Runtime{registry: registry, profiles: profiles, launcher: launcher, journal: journal, epoch: epoch, tickets: make(map[string]*launchTicket), runs: make(map[string]*ownedRun), changed: make(chan struct{})}, nil
+	return &Runtime{registry: registry, profiles: profiles, launcher: launcher, journal: journal, epoch: epoch, clock: runtimeWallClock{}, tickets: make(map[string]*launchTicket), runs: make(map[string]*ownedRun), changed: make(chan struct{})}, nil
 }
 func validLaunchRequest(r LaunchRequest) bool {
 	if len(r.RequestID) == 0 || len(r.RequestID) > 128 {

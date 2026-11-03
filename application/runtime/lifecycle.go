@@ -453,6 +453,10 @@ func (s *Runtime) InitializeLifecycle(ctx context.Context) (LifecycleSnapshot, e
 	s.changedLocked()
 	s.mu.Unlock()
 	snapshot, err := repository.RecordEpochStart(ctx, s.epoch)
+	var restored *domain.UpdateDeferral
+	if state, found := snapshot.UpdateDeferral.Value(); err == nil && found {
+		restored, err = domain.UpdateDeferralFrom(state)
+	}
 	s.mu.Lock()
 	s.lifecycleStarting = false
 	if err != nil {
@@ -461,6 +465,7 @@ func (s *Runtime) InitializeLifecycle(ctx context.Context) (LifecycleSnapshot, e
 			s.lifecycleUncertain = true
 		}
 	} else {
+		s.updateDeferral = restored
 		s.lifecycleBound = true
 	}
 	s.changedLocked()

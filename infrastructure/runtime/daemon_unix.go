@@ -85,6 +85,8 @@ type daemonServer struct {
 	gate                 *app.ObservationGate
 	powerDone            chan struct{}
 	powerStarted         bool
+	updateDone           chan struct{}
+	updateStarted        bool
 	degraded             atomic.Bool
 	releaseOnce          sync.Once
 	runtime              *app.Runtime
@@ -107,6 +109,10 @@ func (d *LocalDaemon) Serve(ctx context.Context, root string) error {
 	go s.consume()
 	s.powerStarted = true
 	go s.watchContinuity()
+	if s.runtime != nil {
+		s.updateStarted = true
+		go s.watchUpdateNotices()
+	}
 	for _, endpoint := range s.endpoints {
 		s.network.Add(1)
 		go s.accept(endpoint)
@@ -230,6 +236,7 @@ func prepareDaemon(parent context.Context, d *LocalDaemon, root string) (*daemon
 		return nil, xerrors.Errorf("create daemon observation gate: %w", err)
 	}
 	s.powerDone = make(chan struct{})
+	s.updateDone = make(chan struct{})
 	complete = true
 	return s, nil
 }
@@ -319,6 +326,9 @@ func (s *daemonServer) shutdown() {
 	s.network.Wait()
 	if s.powerStarted {
 		<-s.powerDone // Watcher's gate wait is bounded/cancellable, not the OS call.
+	}
+	if s.updateStarted {
+		<-s.updateDone // Actual lifecycle coordinators were already joined by AwaitIdle.
 	}
 	for _, endpoint := range s.endpoints {
 		s.cleanupSocket(endpoint)
@@ -596,6 +606,24 @@ func (s *daemonServer) watchContinuity() {
 	for {
 		if _, err := s.gate.Stamp(s.ctx); err != nil && s.ctx.Err() == nil && s.daemon.options.CausalReceiver != nil {
 			s.degraded.Store(true)
+		}
+		select {
+		case <-s.ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+// Metadata publication has its OWN loop: even a slow journal cannot stall the
+// native power watcher. This publishes a private notice, not OS/human delivery.
+func (s *daemonServer) watchUpdateNotices() {
+	defer close(s.updateDone)
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		if err := s.runtime.PublishDueUpdateNotice(s.ctx); errors.Is(err, domain.ErrUnsupported) {
+			return // Legacy/custom factories are not silently lifecycle-enrolled.
 		}
 		select {
 		case <-s.ctx.Done():

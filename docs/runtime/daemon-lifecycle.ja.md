@@ -65,6 +65,12 @@ macOS では固定の kernel timestamp `kern.sleeptime`/`kern.waketime` だけ�
 
 これは adapter contract であり host 認定ではありません。causal receiver は descriptor/host/version/worktree/run/generation/epoch/native event の因果関係を検証し、元 stamp で projection commit と現在の read の両方を guard する必要があります。非空 metadata や transport 受付はその検証ではありません。causal receiver を明示構成した場合はそれだけに配送し、power evidence が未対応でも history receiver に fallback しません。他 platform には現在認定済み power witness がありませんが、従来の history-only 配送は native freshness を主張せず維持します。通常の one-shot SDK socket の close は通信 gap と扱いません。入力・承認・停止・再開の権限を追加せず、これらの command から host 固有 native receiver を暗黙に有効化しません。
 
+## 更新ポリシーの実装範囲
+
+owner API は child の停止や通常の launch/control の凍結を行わず、継続的な更新延期を記録します。status は process 件数だけでなく、pending run/control/reconciliation/lifecycle/uncertainty の全阻害条件を含みます。target 変更と epoch 初期化を跨いで元の UTC 起算時刻と通知公開履歴を保持します。status 参照では通知を消費せず、対応済みの明示 attempt は busy・永続化失敗時にも attempt notice を返します。idle attempt の成功が返すのは正確な空 shutdown preview だけで、installer の競合実行許可ではありません。
+
+別の foreground scheduler が 24 時間後の private metadata notice を永続公開し、native power polling を遅延させません。`notified_24h` は公開の重複抑止であり、**人間への表示や OS 通知の配送証明ではありません**。応答喪失後も overdue status を参照できます。lifecycle metadata coordinator は実際の owner join に含め、以前の shutdown preview を失効させます。不確定な commit では新規 effect と clean marker を拒否します。binary updater は実行しません。公開 update SDK/CLI、空 handoff・延期情報の退役、opt-in autostart descriptor は、この Draft ではまだ未実装です。
+
 ## 残る検証
 
 実 CLI の shutdown/cancel/history、有限 agent fixture による crash/restart、read-only native power API 参照、合成した causal queue/wake test は実装検証であり、実 AI/native-session や物理 macOS sleep/wake の認定ではありません。readiness 到達済み daemon は正確な private endpoint receipt から再起動できますが、認識できない・未記録の socket は変更しません。許可済み環境での物理 macOS sleep/wake、host 固有 binding/reduction、更新延期・通知、正確な opt-in host descriptor、最終独立 review/native/full CI/wave gate は引き続き必須です。これらの command は host の login settings、launchd job、workstation sleep、配布を変更しません。
