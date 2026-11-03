@@ -23,6 +23,8 @@
 
 - [ローカルDaemon IPC](./runtime/daemon-ipc.ja.md)：明示foreground transport、private Unix endpoint、protocolと失敗境界
 
+- [Native 観測配送の設計チェックポイント](./runtime/native-observation-delivery.ja.md)：未採用の境界と実装前検証。実装済み CLI ではありません
+
 ## 連携まわり
 
 - [ネイティブ連携ガイド](./integrations/README.ja.md): Claude / Codex / Gemini（レガシー）向けパッケージ、導入手順、smoke test
