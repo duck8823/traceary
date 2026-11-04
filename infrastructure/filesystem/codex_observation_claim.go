@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/duck8823/traceary/application"
 	domain "github.com/duck8823/traceary/domain/runtime"
@@ -26,7 +27,7 @@ func (codexObservationClaimDecoder) Decode(ctx context.Context, in application.C
 	if in.SourceVersion != "codex-cli 0.166.0" {
 		return application.CodexObservationClaims{}, nil
 	}
-	if len(in.Payload) > application.MaxCodexObservationClaimPayloadBytes {
+	if len(in.Payload) > application.MaxCodexObservationClaimPayloadBytes || !utf8.ValidString(in.Payload) {
 		return application.CodexObservationClaims{}, application.ErrInvalidCodexObservationClaim
 	}
 	decoder := json.NewDecoder(strings.NewReader(in.Payload))

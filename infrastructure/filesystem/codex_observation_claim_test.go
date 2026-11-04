@@ -49,6 +49,7 @@ func TestCodexObservationClaimsFailClosedWithoutLeakingPayload(t *testing.T) {
 		{"trailing_value", `{"hook_event_name":"UserPromptSubmit","session_id":"A"} {"private":"PRIVATE_BODY"}`},
 		{"malformed_tail", `{"hook_event_name":"UserPromptSubmit","session_id":"A","private":[}`},
 		{"non_object", `["PRIVATE_BODY"]`},
+		{"invalid_utf8_body", "{\"hook_event_name\":\"UserPromptSubmit\",\"session_id\":\"A\",\"body\":\"\xff\"}"},
 		{"long_identity", `{"hook_event_name":"UserPromptSubmit","session_id":"` + strings.Repeat("A", 257) + `"}`},
 		{"oversize", strings.Repeat(" ", application.MaxCodexObservationClaimPayloadBytes+1)},
 		{"deep_body", `{"hook_event_name":"UserPromptSubmit","session_id":"A","private":` + strings.Repeat("[", 65) + `0` + strings.Repeat("]", 65) + `}`},
@@ -57,6 +58,9 @@ func TestCodexObservationClaimsFailClosedWithoutLeakingPayload(t *testing.T) {
 			got, err := filesystem.NewCodexObservationClaimDecoder().Decode(context.Background(), application.CodexObservationClaimInput{SourceVersion: "codex-cli 0.166.0", ExpectedBoundary: domain.ObservationPromptBoundary, Payload: tt.payload})
 			if got.Available || got.SessionID != "" || got.TurnID != "" {
 				t.Fatal("ambiguous claims escaped", got)
+			}
+			if !errors.Is(err, application.ErrInvalidCodexObservationClaim) {
+				t.Fatal("malformed payload lost fixed invalid-claim error", err)
 			}
 			if err != nil && strings.Contains(err.Error(), "PRIVATE_BODY") {
 				t.Fatal("private body leaked in error")

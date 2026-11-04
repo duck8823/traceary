@@ -45,3 +45,27 @@ Traceary runtime hint を渡さず、同じ canonical cwd で実際の native ap
 Traceary は target／source の変更や未知 UUID を、resume plan の実行前に拒否する必要がある。native CLI の挙動は別に測定し、この拒否を provider に期待しない。friendly name／picker／last／fork／新 chat／model／API 課金の fallback は許可しない。native fixture は #2478 service の完成を待たずに検証し、service 側が durable record、実際の旧 owner 非稼働、session 排他、crash／重複の意味を担当する。
 
 製品の selected metadata は ObserveUnbound にだけ入る。native 現在状態には独立検証済み source／順序／age と、commit／read の両方を guard する同じ元の #2464 ObservationStamp、native 不連続の失効、host event rate／台帳上限の認定が必要である。物理 sleep／wake はユーザーが後回しにした NOT_RUN のままとする。Muse native は保留し、Gemini／Kimi は対象外である。この leaf は UI／framework の採用や配布を許可しない。
+
+## 通常 TUI による完了済み会話の実測
+
+後続の隔離テストは、採用した app-server 実行 profile ではなく、標準 `--no-daemon` option を付けた通常 CLI TUI を使いました。
+現在の[公式 CLI 文書](https://learn.chatgpt.com/docs/cli/reference) と導入済み help で、共有 background server を使わない option と確認しています。
+fixture は read-only sandbox を指定し、global の認証・承認設定は変更していません。
+同じ最小の非機密環境で、CLI 自身の既存 ChatGPT 認証種別を確認し、API credential の環境変数は渡していません。
+
+最初の合成 turn で marker を記憶し、READY と応答しました。
+実所有 owner を停止して Wait が -15 を返した後、元の正規 cwd/capture store で UUID を明示して resume しました。
+**新しい**文脈確認の質問に、元の高エントロピー marker が完全一致で返りました。
+主要件数は session_started1、prompt2、transcript2 です。
+両 owner の実 Wait は後始末の -15 であり、正常終了の成功とは呼びません。
+この完了済み文脈のケースでは、元の prompt や保留操作を再送していません。
+[本文を含まない証拠](evidence/codex-0.166.0.json) に範囲と失敗を記録します。
+
+先行する prompt なし TUI metadata 試行は、観測時間内に元の SessionStart 記録を確認できず、model turn を要求せず実 owner を -15 で Wait しました。
+この FAIL は保持し、原因を推測しません。
+どちらも、中断 input/tool/approval の挙動、端末表示からの実 model/provider、callback field の意味、管理対象 generation の binding は認定しません。
+この会話で一時的な metadata 専用 hook の追加を確認し、回答までは新しい hook/config を作成していません。
+native hook の信頼確認は迂回せず、自動回答しません。
+
+任意 decoder は入力全体の UTF-8 も検証し、不正 byte を含む場合は primary capture を変更せず claim を付与しません。
+Codex と採用済み Claude の両 port を組み立てた public Cobra テストで、host/version/nil の分離と Claude の session-only 契約を維持することを検証します。

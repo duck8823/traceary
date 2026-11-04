@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "issue": 2474,
+  "status": "ordinary_tui_completed_context_pass_native_callback_and_managed_binding_unqualified",
+  "source": {
+    "version": "codex-cli 0.166.0",
+    "sha256": "39acf979729dd290f9a24ee38b2914e036c91b65952872e28ae2a6b88a7db7c1",
+    "compatible_range_inferred": false
+  },
+  "ordinary_tui_completed_context": {
+    "result": "PASS_ORDINARY_TUI_COMPLETED_CONTEXT_RESUME_ONLY",
+    "normal_native_tui": true,
+    "shared_daemon_requested": false,
+    "app_server_execution_profile_added": false,
+    "native_binding_qualified": false,
+    "native_interrupted_recovery_qualified": false,
+    "native_effective_model_provider": "UNQUALIFIED",
+    "global_auth_or_approval_configuration_changed": false,
+    "fixture_sandbox_requested": "read-only",
+    "permission_or_trust_answer_sent": false,
+    "raw_terminal_shared": false,
+    "model_turns_requested": 2,
+    "owned_exit_returncodes": [
+      -15,
+      -15
+    ],
+    "same_native_id": true,
+    "same_canonical_cwd_and_capture_store": true,
+    "original_or_pending_input_replayed": false,
+    "primary_capture_counts": {
+      "prompt": 2,
+      "session_started": 1,
+      "transcript": 2
+    },
+    "normal_exit_claimed": false,
+    "actual_owned_wait_before_resume": true,
+    "auth_class": "CLI-owned cached ChatGPT"
+  },
+  "initial_no_prompt_metadata_attempt": {
+    "result": "FAIL_ORIGINAL_SESSION_CAPTURE_NOT_OBSERVED",
+    "reason": "native_tui_session_capture_not_observed_no_model_requested",
+    "model_turn_requested": false,
+    "actual_owned_cleanup_returncode": -15,
+    "interpretation": "No native SessionStart capture was observed before a prompt; no cause or provider failure is inferred, failure retained"
+  },
+  "proof_digests": {
+    "ordinary_tui_result_sha256": "bc079f07efd10e5f44a88cddbecd1f3a20337fa1664e18e09c623fba6963d26b",
+    "ordinary_tui_driver_sha256": "a98cfb36d9fec9f0bead1abfdfedb740334440f2e8ea72db847ceb7a52957946"
+  },
+  "scope_limits": [
+    "completed-context fixture only, not interrupted tool/input/approval recovery",
+    "requested read-only fixture sandbox; actual native model/provider not qualified from PTY text",
+    "native callback field/type inventory requires separately authorized metadata-only test hook",
+    "no production app-server/broker/profile adoption or wrapper",
+    "existing selected metadata stays unbound; no native-current authority",
+    "Muse native and physical sleep/wake remain user-deferred"
+  ],
+  "native_metadata_hook_question": "Asked in active conversation; no new project hook/config written pending answer",
+  "runtime_recovery_service": "#2478 is merged, but Codex native adapter is not qualified for it"
+}

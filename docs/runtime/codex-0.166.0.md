@@ -2,7 +2,7 @@
 
 [日本語](codex-0.166.0.ja.md)
 
-**Status: implementation in progress; isolated native API context-resume passed, but command-hook / managed-PTY qualification is incomplete. Do not treat the decoder, schemas or synthetic tests as native certification.** This page tracks [#2474](https://github.com/duck8823/traceary/issues/2474), a child of native qualification #2468. Safe runtime recovery remains #2478.
+**Status: optional decoder implemented; ordinary native TUI completed-context resume passed. Command-hook / managed-PTY recovery qualification remains incomplete.** This page tracks [#2474](https://github.com/duck8823/traceary/issues/2474), a child of native qualification #2468. Safe runtime recovery remains #2478.
 
 ## Implemented optional correlation
 
@@ -10,7 +10,7 @@ The normal composition roots inject an application CodexObservationClaimDecoder 
 
 Format selection accepts literal **codex-cli 0.166.0** only. Bare 0.166.0, changed case, other patch versions and absent/nil decoders are unavailable: optional native IDs are omitted, while normal metadata remains unbound/admission_only. Selecting a format is NOT proof of installed source/version, generation, freshness or native readiness.
 
-Candidate command-hook fields are canonical session_id and optional turn_id. The native event name must match the expected invocation boundary. Root identity keys are decoded literally, with size-first 1MiB payload, 128 top-level key and 64-level subtree bounds. Duplicate/conflicting identity fields, case-fold aliases, nonstrings/null, invalid lexical values, malformed/trailing JSON and oversize input fail optional claims closed. Unknown bodies are skipped, never retained in the result. A thread_id-only exec-wire envelope is not a command-hook payload.
+Candidate command-hook fields are canonical session_id and optional turn_id. The native event name must match the expected invocation boundary. Root identity keys are decoded literally, with size-first 1MiB payload, 128 top-level key, complete UTF-8 and 64-level subtree bounds. Duplicate/conflicting identity fields, case-fold aliases, nonstrings/null, invalid lexical values, malformed/trailing JSON and oversize input fail optional claims closed. Unknown bodies are skipped, never retained in the result. A thread_id-only exec-wire envelope is not a command-hook payload.
 
 The result contains only SessionID, TurnID and decode Available. It cannot grant live binding, NativeProjectionEvidence, process control, approval, current working/waiting or recovery authority. EventID remains the original spool receipt; host event claims do not replace it. Other host paths and primary capture/stdout/exit/spool ordering remain unchanged. The original primary helper intentionally retains last-wins JSON handling; a duplicate session_id can therefore retain normal primary capture while the stricter optional decoder omits all native IDs.
 
@@ -23,6 +23,14 @@ Existing cached ChatGPT subscription authentication was confirmed by the CLI its
 An isolated normal-CLI app-server stdio probe observed the effective native cwd, gpt-6.1-sol/openai, on-request approval, auto_review reviewer and readOnly sandbox before model requests. Using the CLI-owned cached ChatGPT subscription and a minimal nonsecret environment, one synthetic marker-only turn completed; the actual owner exited normally. A later explicit thread/resume restored that exact native UUID with the same target/model/provider/policy, and a fresh question recovered the original high-entropy marker (verified against the original input SHA256). The resumed actual owner also exited normally; no tool or approval request occurred. Neither the original input nor a pending input was replayed, and no new-conversation fallback was used.
 
 The first resume harness stopped before its verification turn because it incorrectly required account/updated to be emitted on every process. This was an observation-availability failure, not a provider authentication failure. The corrected check used account/read with refreshToken=false, retained only account type chatgpt and discarded account details. No token or credential was requested or retained. This evidence qualifies only the isolated app-server API context-resume contract, **not** command hooks, exec/TUI resume, managed-PTY generation binding or adoption of a production app-server broker.
+
+## Ordinary TUI completed-context measurement
+
+A later isolated test used the ordinary CLI TUI with the standard `--no-daemon` option, not an adopted app-server execution profile. Current [official CLI documentation](https://learn.chatgpt.com/docs/cli/reference) documents this option as avoiding the shared background server; actual installed help also exposes it. The fixture requested a read-only sandbox without changing global authentication or approval settings. Native CLI-owned cached ChatGPT authentication was checked under the same minimal nonsecret environment; no API credential environment was forwarded.
+
+A synthetic first turn recorded the marker and replied READY. After the exact actual owner was stopped and Wait returned -15, an explicit UUID resume in the original canonical cwd/capture store answered a **new** context question with the exact original high-entropy marker. Primary counts were session_started1, prompt2 and transcript2; both actual owned cleanup returns were -15, not normal-exit success. No old prompt or pending action was replayed in this completed-context case. [Body-free evidence](evidence/codex-0.166.0.json) preserves scope and failures.
+
+The earlier no-prompt TUI metadata attempt observed no original SessionStart capture within its window, requested no model turn and reaped its actual owner -15. That FAIL is retained; no cause is inferred. Neither test establishes interrupted input/tool/approval behavior, actual native model/provider from terminal text, callback field semantics or managed generation binding. A temporary metadata-only hook was requested in the active conversation; no new hook/config was written pending permission, and native hook trust will not be bypassed or automatically answered.
 
 ## Additional native metadata measurements
 
