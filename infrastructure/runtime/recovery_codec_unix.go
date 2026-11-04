@@ -293,7 +293,7 @@ func validateRecovery(doc recoveryEnvelope, execution executionEnvelope) error {
 			}
 			occupiedOrigins[origin] = true
 		}
-		active := s.Phase != domain.ResumeFailedBeforeStart && (s.Phase != domain.ResumeConfirmed || next.State != domain.RunExited)
+		active := recoveryConversationActive(s, next, records[s.Next.Run])
 		key := s.Binding.ConversationKey()
 		if active && occupiedConversations[key] {
 			return domain.ErrInvalid
@@ -306,6 +306,29 @@ func validateRecovery(doc recoveryEnvelope, execution executionEnvelope) error {
 		}
 	}
 	return nil
+}
+
+// An old unknown result is never rearmed or relabeled. A separate explicit
+// request may follow its successor only after BOTH exact durable owned exit
+// and qualified native exit receipts. Loading an ambiguous intent/PID alone
+// never releases a conversation; current native checks still precede Start.
+func recoveryConversationActive(attempt domain.ResumeAttemptState, next domain.RunSnapshot, receipt domain.RecoveryRecordState) bool {
+	if attempt.Phase == domain.ResumeFailedBeforeStart {
+		return false
+	}
+	if next.Identity != attempt.Next || next.State != domain.RunExited {
+		return true
+	}
+	if attempt.Phase == domain.ResumeConfirmed {
+		return false
+	}
+	if !receipt.ExitObserved || receipt.ExitCode != next.ExitCode || !recoveryBindingMatchesRun(receipt.Binding.Snapshot(), next) {
+		return true
+	}
+	expected := attempt.Binding.Snapshot()
+	expected.Identity = attempt.Next
+	expected.PID = next.PID
+	return expected != receipt.Binding.Snapshot()
 }
 
 func recoveryBindingMatchesRun(binding domain.RecoveryBindingState, run domain.RunSnapshot) bool {

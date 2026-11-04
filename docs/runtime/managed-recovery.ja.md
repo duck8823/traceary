@@ -89,6 +89,18 @@ daemon 再起動後に返す保存済みの confirmed 結果から、handle や�
 送信後の通信断、応答の不一致、曖昧な process 作成は unknown とし、未起動が確定した結果として扱いません。
 不確定性を回避するために新しい request key を自動生成したり、入力を再送したりしないでください。
 
+過去の unknown 要求を再起動可能にしたり、成功へ黙って書き換えたりはしません。
+正確な後継AIについて、所有中に観測した execution 終了と、それに一致する検証済み native 終了記録の両方が永続化された場合だけ、**その終了済み後継AIを選ぶ新しい明示要求**で会話を再開できます。
+未確認の先行要求では、model/provider を含む期待した binding 全体が一致する必要があります。
+保存 PID、execution のラベルだけ、native 終了記録の欠落、異なる binding から予約を解放しません。
+元の要求と元の run は確認専用のままで、metadata の読み込みから process を起動することはありません。
+
+再開した run の確認と公開が済んだ後、操作者が対話中に model を変えることは可能です。
+実際の所有AIの終了時に、検証済みの最後の実 model を、まだ終了未確定だった復旧 snapshot に確定し、次の再開で使います。
+会話、履歴、namespace、target、profile、provider は変更できません。
+unknown/未公開の再開は、元の要求 model との一致を引き続き要求します。
+終了確定済みの記録は再変更できず、Traceary が model を選択・代替することもありません。
+
 復旧 metadata は件数制限付きの binding と attempt 結果を保持し、terminal 本文や保留コマンドは保存しません。
 export は revision と件数だけを返します。
 明示確認付きの offline Forget は復旧用の結び付けを放棄する操作であり、process の終了や不確定な会話の再開許可を証明しません。

@@ -88,3 +88,26 @@ func (r *RecoveryRecord) ObserveOwnedExit(id LaunchIdentity, code int) error {
 	r.state.ExitCode = code
 	return nil
 }
+
+// ObserveQualifiedOwnedExit seals the actual final model of the SAME native
+// conversation/process at owned exit. It cannot retarget source, provider,
+// history, native identity or PID, and a sealed receipt never changes again.
+// The application must qualify the native binding and actual Wait separately.
+func (r *RecoveryRecord) ObserveQualifiedOwnedExit(id LaunchIdentity, code int, binding RecoveryBinding) error {
+	if r == nil {
+		return ErrInvalid
+	}
+	if _, err := RecoveryBindingOf(binding.state); err != nil {
+		return err
+	}
+	expected := r.state.Binding.state
+	expected.Model = binding.state.Model
+	if expected != binding.state || r.state.ExitObserved && r.state.Binding != binding {
+		return ErrChanged
+	}
+	if err := r.ObserveOwnedExit(id, code); err != nil {
+		return err
+	}
+	r.state.Binding = binding
+	return nil
+}

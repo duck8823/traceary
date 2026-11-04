@@ -23,6 +23,58 @@ func recoveryBindingFixture(t *testing.T) domain.RecoveryBinding {
 	return value
 }
 
+func TestRecoveryRecordFinalModelCanChangeOnlyWhenSealingSameOwnedExit(t *testing.T) {
+	initial := recoveryBindingFixture(t)
+	record, err := domain.NewRecoveryRecord(initial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := initial.Snapshot()
+	state.Model = "actual-final-model"
+	final, err := domain.RecoveryBindingOf(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range []string{"provider", "native identity", "pid", "history", "namespace"} {
+		changed := state
+		switch kind {
+		case "provider":
+			changed.Provider = "other"
+		case "native identity":
+			changed.NativeSessionID = "other"
+		case "pid":
+			changed.PID++
+		case "history":
+			changed.NativeHistoryPath = "/other/history.jsonl"
+		case "namespace":
+			changed.NativeNamespaceWitness = strings.Repeat("b", 64)
+		}
+		value, err := domain.RecoveryBindingOf(changed)
+		if err != nil {
+			t.Fatal(err)
+		}
+		before := record.Snapshot()
+		if err := record.ObserveQualifiedOwnedExit(state.Identity, 0, value); !errors.Is(err, domain.ErrChanged) {
+			t.Fatalf("%s retargeted: %v", kind, err)
+		}
+		if record.Snapshot() != before {
+			t.Fatal("failed exit mutated native identity")
+		}
+	}
+	if err := record.ObserveQualifiedOwnedExit(state.Identity, 143, final); err != nil {
+		t.Fatal(err)
+	}
+	if got := record.Snapshot(); got.Binding != final || !got.ExitObserved || got.ExitCode != 143 {
+		t.Fatal("actual exit model not sealed")
+	}
+	if err := record.ObserveQualifiedOwnedExit(state.Identity, 143, final); err != nil {
+		t.Fatal(err)
+	}
+	if err := record.ObserveQualifiedOwnedExit(state.Identity, 143, initial); !errors.Is(err, domain.ErrChanged) {
+		t.Fatal("sealed final model replaced")
+	}
+}
+
 func TestRecoveryBindingRejectsIncompleteOrUnsafeBookkeeping(t *testing.T) {
 	binding := recoveryBindingFixture(t)
 	for _, tc := range []struct {

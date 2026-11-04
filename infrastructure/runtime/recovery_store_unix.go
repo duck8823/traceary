@@ -72,7 +72,8 @@ func (s *ExecutionStore) ListRecovery(ctx context.Context) ([]domain.RecoveryRec
 
 // SaveRecovery is an application-owned journal operation. Its caller supplies
 // only a qualified binding and actual owned-Wait receipt, never client flags.
-// The binding is immutable and positive exit bookkeeping cannot regress.
+// Native identity/provider are immutable. Only a qualified final model may
+// change while sealing an unexited record; positive exit never regresses.
 func (s *ExecutionStore) SaveRecovery(ctx context.Context, state domain.RecoveryRecordState) error {
 	if _, err := domain.RecoveryRecordFrom(state); err != nil {
 		return xerrors.Errorf("save recovery bookkeeping: %w", err)
@@ -90,13 +91,13 @@ func (s *ExecutionStore) SaveRecovery(ctx context.Context, state domain.Recovery
 			if previous == state {
 				return false, nil
 			}
-			if previous.Binding != state.Binding || previous.ExitObserved {
+			if previous.ExitObserved {
 				return false, domain.ErrChanged
 			}
 			if !state.ExitObserved {
 				return false, domain.ErrChanged
 			}
-			if err := old.ObserveOwnedExit(state.Binding.Snapshot().Identity, state.ExitCode); err != nil {
+			if err := old.ObserveQualifiedOwnedExit(state.Binding.Snapshot().Identity, state.ExitCode, state.Binding); err != nil {
 				return false, xerrors.Errorf("advance recovery exit receipt: %w", err)
 			}
 			doc.Records[i] = recordRecovery(old.Snapshot())
@@ -157,15 +158,29 @@ func (s *ExecutionStore) ReserveResume(ctx context.Context, proposal domain.Resu
 			if existing.Phase == domain.ResumeFailedBeforeStart {
 				continue
 			}
-			active := existing.Phase != domain.ResumeConfirmed
-			if existing.Phase == domain.ResumeConfirmed {
-				for _, run := range execution.Launches {
-					if run.Identity.Run == existing.Next.Run {
-						active = run.State != string(domain.RunExited)
-						break
+			var next domain.RunSnapshot
+			for _, row := range execution.Launches {
+				if row.Identity.Run == existing.Next.Run {
+					var err error
+					next, err = row.domainSnapshot()
+					if err != nil {
+						return false, err
 					}
+					break
 				}
 			}
+			var receipt domain.RecoveryRecordState
+			for _, row := range doc.Records {
+				if row.Binding.Identity.Run == existing.Next.Run {
+					record, err := row.domainRecord()
+					if err != nil {
+						return false, err
+					}
+					receipt = record.Snapshot()
+					break
+				}
+			}
+			active := recoveryConversationActive(existing, next, receipt)
 			if existing.Binding.Snapshot().Identity.Run == proposal.Binding.Snapshot().Identity.Run || active && existing.Binding.ConversationKey() == proposal.Binding.ConversationKey() {
 				return false, domain.ErrChanged
 			}

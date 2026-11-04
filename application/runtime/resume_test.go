@@ -208,6 +208,61 @@ func TestRuntimeResumeConcurrentDuplicatesCreateOneConfirmedManagedOwner(t *test
 		t.Fatal(err)
 	}
 }
+
+func TestRuntimeResumedExitPreservesActualFinalModelOnlyAfterPublication(t *testing.T) {
+	for _, kind := range []string{"published model change", "unpublished model change", "published provider change", "published conversation change"} {
+		t.Run(kind, func(t *testing.T) {
+			owner, request, factory, journal, _ := resumeFixture(t)
+			if kind == "unpublished model change" {
+				factory.startErr = domain.ErrUnsafe
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			result, err := owner.Resume(ctx, request)
+			if kind == "unpublished model change" {
+				if !errors.Is(err, app.ErrLaunchUnknown) || !result.Owned {
+					t.Fatalf("unknown owned resume lost: %+v %v", result, err)
+				}
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			b := factory.child.binding.Snapshot()
+			switch kind {
+			case "published provider change":
+				b.Provider = "foreign"
+			case "published conversation change":
+				b.NativeSessionID = "foreign"
+			default:
+				b.Model = "actual-final-model"
+			}
+			binding, err := domain.RecoveryBindingOf(b)
+			if err != nil {
+				t.Fatal(err)
+			}
+			factory.child.binding = binding // Before closing the Wait gate; no concurrent source query.
+			factory.child.finish()
+			if err := owner.AwaitIdle(ctx); err != nil {
+				t.Fatal(err)
+			}
+			records, err := journal.ListRecovery(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			found := false
+			for _, record := range records {
+				if record.Binding.Snapshot().Identity == result.Selection.Identity && record.ExitObserved {
+					found = true
+					if record.Binding != binding {
+						t.Fatal("final native binding lost")
+					}
+				}
+			}
+			if found != (kind == "published model change") {
+				t.Fatalf("wrong final-model/identity acceptance: %v", found)
+			}
+		})
+	}
+}
 func TestRuntimeResumeRefusesUnacknowledgedOrUnknownOldExit(t *testing.T) {
 	owner, request, factory, journal, _ := resumeFixture(t)
 	request.WorkLossAcknowledged = false

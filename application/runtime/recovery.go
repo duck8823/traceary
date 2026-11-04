@@ -26,7 +26,7 @@ type RecoveryRecorder interface {
 // exit. Optional native evidence never changes a normal launch/exit outcome.
 // Publication uncertainty is not liveness: a separately observed exact owned
 // exit can still qualify; missing exit proof can never be replaced by a PID.
-func (s *Runtime) persistOwnedRecovery(child OwnedChild, snapshot domain.RunSnapshot, expected domain.RecoveryBinding) {
+func (s *Runtime) persistOwnedRecovery(child OwnedChild, snapshot domain.RunSnapshot, expected domain.RecoveryBinding, published bool) {
 	source, ok := child.(RecoveryBindingSource)
 	if !ok {
 		return
@@ -49,6 +49,13 @@ func (s *Runtime) persistOwnedRecovery(child OwnedChild, snapshot domain.RunSnap
 		wanted := expected.Snapshot()
 		wanted.Identity = snapshot.Identity
 		wanted.PID = snapshot.PID
+		if published {
+			// A published interactive run may explicitly change model after its
+			// original resume was confirmed. Keep every identity/provider field
+			// exact and record the actual final model for the next recovery.
+			// An unknown/unpublished startup still requires the original model.
+			wanted.Model = state.Model
+		}
 		verified, err := domain.RecoveryBindingOf(wanted)
 		if err != nil || verified != binding {
 			return

@@ -19,6 +19,214 @@ import (
 
 var _ app.RecoveryJournal = (*ExecutionStore)(nil)
 
+func TestRecoveryJournalQualifiedExitedSuccessorReleasesOnlyConversationReservation(t *testing.T) {
+	for _, phase := range []string{"reserved", "started", "unknown", "unknown wrong model", "confirmed final model"} {
+		t.Run(phase, func(t *testing.T) {
+			audit, root := recoveryMetadataFixture(t)
+			store := audit.execution
+			ctx := context.Background()
+			records, err := store.ListRecovery(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			origin, err := domain.RecoveryRecordFrom(records[0])
+			if err != nil {
+				t.Fatal(err)
+			}
+			next := domain.LaunchIdentity{Run: strings.Repeat("4", 32), Generation: strings.Repeat("5", 32), Epoch: strings.Repeat("6", 32)}
+			attempt, err := domain.NewResumeAttempt("first", origin, next)
+			if err != nil {
+				t.Fatal(err)
+			}
+			before := attempt.Snapshot()
+			if _, fresh, err := store.ReserveResume(ctx, before); err != nil || !fresh {
+				t.Fatalf("reserve: %v %v", fresh, err)
+			}
+			binding := origin.Snapshot().Binding.Snapshot()
+			child, err := domain.LaunchDescriptorOf(next, binding.Target, binding.Profile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := store.ReserveLaunch(ctx, child.Snapshot()); err != nil {
+				t.Fatal(err)
+			}
+			if err := child.Started(999); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.SaveLaunch(ctx, child.Snapshot()); err != nil {
+				t.Fatal(err)
+			}
+			if phase != "reserved" {
+				if err := attempt.MarkStarted(); err != nil {
+					t.Fatal(err)
+				}
+				if err := store.SaveResume(ctx, before, attempt.Snapshot()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			binding.Identity, binding.PID = next, 999
+			started, err := domain.RecoveryBindingOf(binding)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if phase == "unknown" || phase == "unknown wrong model" {
+				before = attempt.Snapshot()
+				if err := attempt.MarkUnknown(); err != nil {
+					t.Fatal(err)
+				}
+				if err := store.SaveResume(ctx, before, attempt.Snapshot()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if phase == "confirmed final model" {
+				before = attempt.Snapshot()
+				if err := attempt.Confirm(started); err != nil {
+					t.Fatal(err)
+				}
+				if err := store.SaveResume(ctx, before, attempt.Snapshot()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			successor, err := domain.NewRecoveryRecord(started)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := store.SaveRecovery(ctx, successor.Snapshot()); err != nil {
+				t.Fatal(err)
+			}
+			if phase == "unknown wrong model" || phase == "confirmed final model" {
+				binding.Model = "actual-final-model"
+			}
+			final, err := domain.RecoveryBindingOf(binding)
+			if err != nil {
+				t.Fatal(err)
+			}
+			premature, err := domain.NewRecoveryRecord(final)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := store.SaveRecovery(ctx, premature.Snapshot()); (phase == "confirmed final model" || phase == "unknown wrong model") && !errors.Is(err, domain.ErrChanged) {
+				t.Fatal("live model metadata was silently replaced")
+			}
+			if err := child.Exit(143); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.SaveLaunch(ctx, child.Snapshot()); err != nil {
+				t.Fatal(err)
+			}
+			if err := successor.ObserveQualifiedOwnedExit(next, 143, final); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.SaveRecovery(ctx, successor.Snapshot()); err != nil {
+				t.Fatal(err)
+			}
+			reopened, err := OpenExecutionStore(root, MaxRegistryBytes)
+			if err != nil {
+				t.Fatal(err)
+			}
+			laterID := domain.LaunchIdentity{Run: strings.Repeat("7", 32), Generation: strings.Repeat("8", 32), Epoch: next.Epoch}
+			later, err := domain.NewResumeAttempt("new-explicit", successor, laterID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, fresh, err := reopened.ReserveResume(ctx, later.Snapshot())
+			if phase == "unknown wrong model" {
+				if fresh || !errors.Is(err, domain.ErrChanged) {
+					t.Fatalf("foreign unconfirmed binding released reservation: %v %v", fresh, err)
+				}
+			} else if err != nil || !fresh {
+				t.Fatalf("qualified owned exit still locked: %v %v", fresh, err)
+			}
+			saved, fresh, err := reopened.ReserveResume(ctx, domain.ResumeAttemptState{RequestID: "first", Binding: attempt.Snapshot().Binding, PredecessorExitCode: attempt.Snapshot().PredecessorExitCode, Next: next, Phase: domain.ResumeReserved})
+			if err != nil || fresh || saved != attempt.Snapshot() {
+				t.Fatalf("old request rearmed/rewritten: %v %v", fresh, err)
+			}
+		})
+	}
+}
+
+func TestRecoveryConversationActivityNeedsBothExactOwnedExitReceipts(t *testing.T) {
+	doc, _ := recoveryCodecFixture(t)
+	origin, err := doc.Records[0].domainRecord()
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := domain.LaunchIdentity{Run: strings.Repeat("4", 32), Generation: strings.Repeat("5", 32), Epoch: strings.Repeat("6", 32)}
+	attempt, err := domain.NewResumeAttempt("unknown", origin, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := attempt.MarkUnknown(); err != nil {
+		t.Fatal(err)
+	}
+	b := origin.Snapshot().Binding.Snapshot()
+	b.Identity = id
+	b.PID = 999
+	binding, err := domain.RecoveryBindingOf(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, err := domain.LaunchDescriptorOf(id, b.Target, b.Profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := child.Started(999); err != nil {
+		t.Fatal(err)
+	}
+	live := child.Snapshot()
+	if err := child.Exit(143); err != nil {
+		t.Fatal(err)
+	}
+	exited := child.Snapshot()
+	receipt, err := domain.NewRecoveryRecord(binding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unobserved := receipt.Snapshot()
+	if err := receipt.ObserveOwnedExit(id, 143); err != nil {
+		t.Fatal(err)
+	}
+	qualified := receipt.Snapshot()
+	for _, kind := range []string{"missing execution", "live execution", "missing native receipt", "no native exit", "wrong code", "wrong model", "wrong generation", "wrong pid"} {
+		t.Run(kind, func(t *testing.T) {
+			run, record := exited, qualified
+			switch kind {
+			case "missing execution":
+				run = domain.RunSnapshot{}
+			case "live execution":
+				run = live
+			case "missing native receipt":
+				record = domain.RecoveryRecordState{}
+			case "no native exit":
+				record = unobserved
+			case "wrong code":
+				record.ExitCode = 0
+			default:
+				s := record.Binding.Snapshot()
+				switch kind {
+				case "wrong model":
+					s.Model = "foreign"
+				case "wrong generation":
+					s.Identity.Generation = strings.Repeat("9", 32)
+				case "wrong pid":
+					s.PID++
+				}
+				value, err := domain.RecoveryBindingOf(s)
+				if err != nil {
+					t.Fatal(err)
+				}
+				record.Binding = value
+			}
+			if !recoveryConversationActive(attempt.Snapshot(), run, record) {
+				t.Fatal("uncertain/foreign saved metadata unlocked conversation")
+			}
+		})
+	}
+	if recoveryConversationActive(attempt.Snapshot(), exited, qualified) {
+		t.Fatal("exact durable qualified successor exit did not release new explicit recovery")
+	}
+}
+
 func TestRecoveryJournalConcurrentReserveAndReopenNeverRearms(t *testing.T) {
 	audit, root := recoveryMetadataFixture(t)
 	store := audit.execution

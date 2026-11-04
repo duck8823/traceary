@@ -320,6 +320,7 @@ func (s *Runtime) reconcile(run *ownedRun) {
 		run.waitErr = ErrLaunchUnknown
 	}
 	snapshot := run.descriptor.Snapshot()
+	published := run.published
 	exitKnown := err == nil
 	s.changedLocked()
 	s.mu.Unlock()
@@ -327,7 +328,7 @@ func (s *Runtime) reconcile(run *ownedRun) {
 	journalErr := s.journal.SaveLaunch(ctx, snapshot)
 	cancel()
 	if exitKnown && journalErr == nil {
-		s.persistOwnedRecovery(run.child, snapshot, run.recoveryExpected)
+		s.persistOwnedRecovery(run.child, snapshot, run.recoveryExpected, published)
 	}
 	s.mu.Lock()
 	if journalErr != nil {
