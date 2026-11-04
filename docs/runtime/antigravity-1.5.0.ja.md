@@ -12,7 +12,8 @@
 実 CLI help には、会話 ID による resume、session 限定 settings、plan mode、model 選択があります。
 help は同じ会話や再送防止の証拠ではありません。
 互換 version 範囲や upstream revision は推測しません。
-今回の調査では model request、login、install、global 設定、permission、認証の変更を行っていません。
+source だけの調査段階では model request、login、install、global 設定、permission、認証の変更を行っていません。
+別の native 試行は下記に記録します。
 
 ## 実測が必要な native 契約
 
@@ -25,6 +26,16 @@ Traceary は、会話 ID、step/invocation/execution の counter、単独の ful
 文書や CLI flag だけで製品 adapter を有効にしません。
 core Session は log-only のままです。
 live state の認定と、安全な会話復旧の認定は分離します。
+
+## 初回 native 試行：認定ではなく trust gate
+
+通常の Gemini4 Argon Medium foreground fixture を plan mode・sandbox を維持して起動したところ、この専用 worktree の初回信頼確認が表示されました。
+trust/permission の回答や fallback は送っていません。
+実際の所有 process だけを停止し、return code0 で Wait しました。
+この後始末の終了値は **model turn 完了の成功ではありません**。
+隔離 store の Antigravity session/event は0件です。
+実 model、callback、同会話 resume、現在状態の認定は未証明です。
+この会話で、ユーザーにこのフォルダだけを手動確認するよう依頼し、global 設定を変更せず他の Daemon 作業を継続します。
 
 ## 必要な認定 gate
 

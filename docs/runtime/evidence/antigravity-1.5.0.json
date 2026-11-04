@@ -6,7 +6,7 @@
   "help_sha256": "e92946f85cec63eca61f93014ca49f53b1e84277eac7954e7fac7d8d712940fd",
   "installed_vendor_hook_docs_sha256": "31749bcc58053efc852a20110e0a90716d235796a03262ae507a1b5f09177898",
   "official_reference": "https://antigravity.google/docs/hooks",
-  "native_AI_probe": "NOT_RUN",
+  "native_AI_probe": "ATTEMPTED: trust gate not answered; no completed turn proven",
   "native_recovery": "UNQUALIFIED",
   "global_settings_or_auth_changed": false,
   "timestamp": "2026-11-04T18:13:11.388818+00:00",
@@ -14,5 +14,23 @@
   "schema_version": 1,
   "compatible_range_inferred": false,
   "native_current_capability_enabled": false,
-  "raw_payload_or_credentials_shared": false
+  "raw_payload_or_credentials_shared": false,
+  "initial_native_foreground_probe": {
+    "result": "FAIL_UNANSWERED_PROJECT_TRUST_GATE",
+    "requested_model": "gemini-4-argon-medium",
+    "actual_model": "UNQUALIFIED",
+    "mode": "plan",
+    "sandbox": true,
+    "permission_or_trust_answer_sent": false,
+    "actual_owned_cleanup_returncode": 0,
+    "normal_completed_model_turn_proven": false,
+    "own_store_native_session_count": 0,
+    "own_store_native_event_count": 0,
+    "automatic_retry_or_fallback": false,
+    "source_fingerprint_unchanged": true,
+    "driver_sha256": "2960df961336facecb4ecbfb03c6e37a82ecf64cc2a672521bb2424340a55fa5",
+    "private_result_sha256": "057a1f315f4cfa1cb6f3623c386a33f0a40e1d04bf2266ee00456cbf5cb89ea9",
+    "raw_terminal_or_history_shared": false,
+    "required_human_action": "User manually reviews/trusts this exact dedicated worktree; no automated UI/approval/config modification"
+  }
 }

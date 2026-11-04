@@ -6,13 +6,17 @@
 
 ## Measured installed source
 
-The ordinary installed executable reports exactly `1.5.0`, with SHA256 `e61679b8ba54abae9a56534208e21f65e1dede6e4eb0144dbd64535f42d07724`. Actual CLI help exposes conversation-ID resume, per-session settings, plan mode and model selection. Help is not evidence of same-conversation/no-replay behavior. No compatible version range or upstream revision is inferred. No model request, login, installation, global setting, permission or authentication change was performed during this discovery.
+The ordinary installed executable reports exactly `1.5.0`, with SHA256 `e61679b8ba54abae9a56534208e21f65e1dede6e4eb0144dbd64535f42d07724`. Actual CLI help exposes conversation-ID resume, per-session settings, plan mode and model selection. Help is not evidence of same-conversation/no-replay behavior. No compatible version range or upstream revision is inferred. The source-only discovery phase performed no model request, login, installation, global setting, permission or authentication change. The separate native attempt is recorded below.
 
 ## Native contract to measure
 
 Current [official hook documentation](https://antigravity.google/docs/hooks) and the installed vendor hook guide describe camelCase conversation/workspace/transcript metadata and now list SessionStart. Older Traceary observations for 1.1.x must not be treated as evidence for this executable. Native callback payloads and composition still require actual isolated measurement.
 
 For Traceary, conversation IDs, step/invocation/execution counters and a standalone fullyIdle event are correlation or telemetry, not independent managed generation, present waiting/approval or process-exit authority. No product adapter is enabled from documentation or CLI flags. Core Session remains log-only. Live-state qualification and safe conversation recovery are independent decisions.
+
+## First native attempt: trust gate, not qualification
+
+The ordinary Gemini4 Argon Medium foreground fixture, with plan mode and sandbox unchanged, encountered this dedicated worktree's initial trust confirmation. No trust/permission answer or fallback was sent. The exact owned process was stopped and reaped with return code0; that cleanup code is **not** completed-turn success. The isolated store contains no Antigravity session/event. Native model, callback, same-conversation resume and current-state qualification remain unproven. The user was asked here to review/trust only this exact folder manually; other daemon work continues without changing global configuration.
 
 ## Required qualification gates
 
