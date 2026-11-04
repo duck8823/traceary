@@ -128,6 +128,22 @@ transcript の欠落を「保留要求がなかった」証明には使いませ
 
 この導入版では foreground resume／session-start だけで**単一 process の所有を保証しない**ことが分かった。同時 model turn、任意の子孫 process の非稼働、安定した global lease は検証していない。CLI 起動1回、履歴中の PID、Traceary 内の要求直列化だけから排他を推論しない。修正 test collector は実際の RUN_ID hint 名を確認したが、generation や復旧の権限は有効にしない。
 
+## 実際に成功した読み取り専用 tool の telemetry
+
+別の通常 foreground 実行で、native `Read` だけを使って、この repository の公開 `go.mod` の先頭五行を読みました。
+plan mode を使い、他の tool/path を拒否するだけの guard を追加しました。
+guard は allow 判断を返さず、native の承認と既存 Guardian policy を維持しました。
+承認回答は送っていません。
+実際の PreToolUse と PostToolUse が各一回発生し、管理下の session/cwd/Read 対象と一致しました。
+その後 native の turn 完了と、実際の所有 process の終了 0 を確認しました。
+主要 prompt、transcript、command audit も各一回です。
+metadata 専用 observer は field 型・件数・hash だけを保持し、native body や tool 結果は保持しません。
+
+測定した六種類の command hook には、native turn と管理対象の run/generation/epoch field がありませんでした。
+これは通常 hook の完全一致 version に対する証拠であり、すべての native interface の不可能性を示しません。
+任意 decoder は独立 witness を生成せず、Runtime は未束縛 telemetry としてだけ受け付けるため、現在の working/waiting/approval は理由を確認した未対応とします。
+session ID の再利用、古い prompt ID、QA で観測した承認 UI も、この境界を変えません。
+
 ## 任意の相関 decoder
 
 version が完全一致する任意 decoder は、canonical な `session_id` と対応する hook boundary だけを受け付けます。
@@ -145,12 +161,12 @@ native file、process、auth、global 設定、実行方式、generation の権�
 
 | 要求 | 状態 |
 | --- | --- |
-| 正確な source と4種の native hook field／型 | 上記と実保留PreToolUseを実測。後続の実permission dialog・永続化済み保留toolの中断はPASS。成功したPostToolUseはNOT_RUN |
+| 正確な source と4種の native hook field／型 | 上記と実保留PreToolUseを実測。後続の実permission dialog・永続化済み保留toolの中断はPASS。成功した native Read/PostToolUse も PASS（実所有 process の終了 0） |
 | 同じ native 会話の文脈／cwd／store／model／provider | 完了済み文脈と制御した中断文脈の fixture は PASS。同じ UUID の foreground 並行起動2件を実測。保留 PreToolUse callback は検証済み。実Daemonの管理内完了・中断入力resume、および別の永続化済み保留tool・permission dialogのno-replay fixtureもPASS |
 | global／per-run primary handler 合成 | duplicate-primary候補はFAILED・却下。private metadata handlerは実Daemonで主要capture件数を維持。live descriptor拡張は未認定 |
-| 同 cwd 並行、独立 generation、ID 再利用／遅延／hint 不達／重複／逆順／失効 | 未完了。descriptor／env／cwd／native ID 単独では unbound |
-| working／waiting_input／waiting_approval／process | 未認定。permission metadata は可視の待ちや承認判断ではない |
-| 製品 adapter、独立実装 review、final-head CI／security／wave | 未実施。Issue close や製品 capability を推論しない |
+| 同 cwd 並行、独立 generation、ID 再利用／遅延／hint 不達／重複／逆順／失効 | 同 cwd・同 ID の native 並行起動を実測。decoder→Runtime の合成 negative matrix で ID 再利用、遅延・重複・逆順・古い時刻・欠落/foreign selection を検証。descriptor／env／cwd／native ID 単独では unbound。この検証は native turn witness の認定ではない |
+| working／waiting_input／waiting_approval／process | live working/waiting は、この hook surface では理由を確認した未対応。process 終了は実所有 Wait のみを使用。permission metadata は待ちや承認判断ではない |
+| 製品 adapter、独立実装 review、final-head CI／security／wave | core #2478 の独立 review/CI/security/wave は採用済み。本 leaf 自身の最終 review/CI/wave は別途必要。Issue close や全 host capability を推論しない |
 
 安全な runtime 復旧 #2478 は durable な検証済み identity、元 source／target／profile、実際の旧 owner 非稼働、session 排他、crash／重複の意味を担当する。正確な UUID だけで実行を許可しない。特に導入 CLI help は、background resume が実行中会話を copy する場合を説明するため、復旧では background／fork／copy を禁止する。foreground の起動挙動は上記で実測しており、native の global lease ではない。[#2478](https://github.com/duck8823/traceary/issues/2478) についてユーザーが2026-11-04に明示決定した後は、旧Traceary管理AI processとTraceary内の要求排他を保証範囲とする。外部native CLIの調停や全子孫の終了証明は保証対象外である。このnative制約は表示し、追加serverで迂回したり外部sessionの排他要件に戻したりしない。管理内の排他と旧管理AIの終了確認は、引き続き#2478の必須条件である。
 

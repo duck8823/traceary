@@ -130,11 +130,9 @@
   "unqualified": [
     "independent live-turn/generation observation witness; private conversation recovery binding is separate",
     "native current working/waiting_input/waiting_approval",
-    "same-cwd concurrent native foreground runs",
     "late/duplicate/reorder/expiry native matrix",
     "live descriptor enrichment of existing primary capture; private recovery SessionStart composition is separately tested",
-    "final independent review/CI/security/wave",
-    "final adoption of #2478 candidate product Runtime recovery integration"
+    "final independent review/CI/security/wave"
   ],
   "controls": {
     "global_project_auth_permission_settings_changed": true,
@@ -435,5 +433,176 @@
       "TestClaudeOptionalClaimsPreservePrimaryBytesReceiptAndNoTurnAuthority"
     ],
     "native_certification": false
+  },
+  "successful_readonly_tool_telemetry": {
+    "result": "PASS_NATIVE_READ_TOOL_METADATA_AND_SINGLE_PRIMARY_CAPTURE",
+    "actual_owner_exit_code": 0,
+    "actual_model": "claude-opus-5-5",
+    "native_event_counts": {
+      "SessionStart": 1,
+      "Stop": 1,
+      "PostToolUse": 1,
+      "SessionEnd": 1,
+      "PreToolUse": 1,
+      "UserPromptSubmit": 1
+    },
+    "primary_capture_counts": {
+      "command_executed": 1,
+      "prompt": 1,
+      "session_ended": 1,
+      "session_started": 1,
+      "transcript": 1
+    },
+    "root_field_types_by_event": {
+      "SessionStart": {
+        "session_id": "string",
+        "transcript_path": "string",
+        "cwd": "string",
+        "scratchpad_dir": "string",
+        "hook_event_name": "string",
+        "source": "string",
+        "model": "string"
+      },
+      "Stop": {
+        "session_id": "string",
+        "transcript_path": "string",
+        "cwd": "string",
+        "scratchpad_dir": "string",
+        "prompt_id": "string",
+        "permission_mode": "string",
+        "effort": "object",
+        "hook_event_name": "string",
+        "stop_hook_active": "bool",
+        "last_assistant_message": "string",
+        "background_tasks": "array",
+        "session_crons": "array"
+      },
+      "PostToolUse": {
+        "session_id": "string",
+        "transcript_path": "string",
+        "cwd": "string",
+        "scratchpad_dir": "string",
+        "prompt_id": "string",
+        "permission_mode": "string",
+        "effort": "object",
+        "hook_event_name": "string",
+        "tool_name": "string",
+        "tool_input": "object",
+        "tool_response": "object",
+        "tool_use_id": "string",
+        "duration_ms": "number"
+      },
+      "SessionEnd": {
+        "session_id": "string",
+        "transcript_path": "string",
+        "cwd": "string",
+        "scratchpad_dir": "string",
+        "prompt_id": "string",
+        "hook_event_name": "string",
+        "reason": "string"
+      },
+      "PreToolUse": {
+        "session_id": "string",
+        "transcript_path": "string",
+        "cwd": "string",
+        "scratchpad_dir": "string",
+        "prompt_id": "string",
+        "permission_mode": "string",
+        "effort": "object",
+        "hook_event_name": "string",
+        "tool_name": "string",
+        "tool_input": "object",
+        "tool_use_id": "string"
+      },
+      "UserPromptSubmit": {
+        "session_id": "string",
+        "transcript_path": "string",
+        "cwd": "string",
+        "scratchpad_dir": "string",
+        "prompt_id": "string",
+        "permission_mode": "string",
+        "hook_event_name": "string",
+        "prompt": "string"
+      }
+    },
+    "native_generation_fields_by_event": {
+      "SessionStart": [],
+      "Stop": [],
+      "PostToolUse": [],
+      "SessionEnd": [],
+      "PreToolUse": [],
+      "UserPromptSubmit": []
+    },
+    "turn_id_present_by_event": {
+      "SessionStart": false,
+      "Stop": false,
+      "PostToolUse": false,
+      "SessionEnd": false,
+      "PreToolUse": false,
+      "UserPromptSubmit": false
+    },
+    "runtime_hint_names_present_by_event": {
+      "SessionStart": [],
+      "Stop": [],
+      "PostToolUse": [],
+      "SessionEnd": [],
+      "PreToolUse": [],
+      "UserPromptSubmit": []
+    },
+    "tool_side_effects": "only existing public go.mod read; no writes",
+    "permission_policy": "deny unexpected tools/paths only; no allow decision or approval answer",
+    "collector_sha256": "eb7d6a1a427cc6adda30e92493e26c93c62db6511e7b148d1c9e4f7568488f4d",
+    "guard_sha256": "2f5c3421b2cf38e3d5092bfc580a41ef45f828669b6d20a87a58af03ea77f4c1",
+    "settings_sha256": "86f6792b95ccf4ebd91811fca957ccad93919e5c464f742a797a3914ab577fc2",
+    "input_sha256": "cc5a82a0c0b4847762273d339a103dd52fc89c92b1f6f61ca9f1f0eb7e7bf0d0",
+    "driver_sha256": "e4082e2792aeaff6423d74d4a5c7fca17e12b10beb6b9a1bb3f83f9d6b6e4831",
+    "evidence_sha256": "f449de45e92c92af024f59086b07f29fad3cedc7a1583eb4469a0d13006c32d8",
+    "command": "rtk proxy python3 /private/tmp/traceary-2475-native-read-tool.py",
+    "source_pinned_before_after": true,
+    "global_configuration_changed": false,
+    "raw_payload_shared": false,
+    "native_current_qualified": false
+  },
+  "verified_unknown_live_states": {
+    "states": [
+      "working",
+      "waiting_input",
+      "waiting_approval"
+    ],
+    "reason": "Exact measured SessionStart/UserPromptSubmit/PreToolUse/PostToolUse/Stop/SessionEnd inputs contain no independent native turn or managed generation witness. Optional decoder supplies session correlation only. Runtime ObserveUnbound cannot promote these claims; permission UI evidence is QA, not runtime authority.",
+    "native_events_observed": [
+      "SessionStart",
+      "Stop",
+      "PostToolUse",
+      "SessionEnd",
+      "PreToolUse",
+      "UserPromptSubmit"
+    ],
+    "scope": "ordinary pinned Claude 2.1.318 command hooks, not all possible future native APIs",
+    "live_current_capability_enabled": false
+  },
+  "synthetic_delivery_matrix": {
+    "status": "PASS_synthetic_admission_and_public_Cobra_not_native_witness",
+    "cases": [
+      "same-cwd distinct managed runs with reused native session ID",
+      "duplicate and reordered boundary receipts",
+      "ancient native timestamp does not create current state",
+      "foreign/missing generation and epoch refused",
+      "late callback after actual synthetic owned Wait refused",
+      "environment-only hints never create selection in public Cobra",
+      "absent daemon preserves primary output/receipt"
+    ],
+    "native_evidence_substitution": false,
+    "tests": [
+      "TestClaudeDecodedClaimsNeverPromoteReusedSessionToCurrentInteraction",
+      "TestClaudeClaimDecoderRealCobraKeepsPrimaryAndNeverInfersSelectionFromEnvironment"
+    ]
+  },
+  "core_recovery_adoption": {
+    "PR": 2490,
+    "state": "MERGED",
+    "merge_head": "bfcf05e42b7aaec5393bc801178e5c924d05a827",
+    "leaf_independent_review_and_CI_wave_complete": false,
+    "live_state_still_unqualified": true
   }
 }
