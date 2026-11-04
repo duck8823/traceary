@@ -103,4 +103,12 @@ UI/framework/distribution はこの leaf の対象外とし、Muse native 作業
 
 ## Descriptor 表現のレビュー候補
 
-既存の owner-private な `launches.json` の完全な immutable launch snapshot を descriptor 本体として再利用し、明示的な full launch selection から解決する案も比較します。これは未採用の候補です。新しい per-run file や envelope を増やさずに済む可能性がありますが、既存 snapshot が store/worktree/profile host/version と run/generation/epoch の全 witness を保持していること、同じ有界 deadline 内で安全に読み取れることを実 source とテストで確認する必要があります。descriptor の参照や一致だけで native binding を認定することはありません。native hook の per-invocation propagation・因果性・version ごとの証拠は別に必要です。既存 schema の意味を変更する場合は、同じ typed metadata audit/forget/budget と有効な書込 prefix の契約も更新します。
+既存の owner-private な `execution.json` の完全な immutable launch snapshot を descriptor 本体として再利用し、明示的な full launch selection から解決する案も比較します。これは未採用の候補です。新しい per-run file や envelope を増やさずに済む可能性がありますが、既存 snapshot が store/worktree/profile host/version と run/generation/epoch の全 witness を保持していること、同じ有界 deadline 内で安全に読み取れることを実 source とテストで確認する必要があります。descriptor の参照や一致だけで native binding を認定することはありません。native hook の per-invocation propagation・因果性・version ごとの証拠は別に必要です。既存 schema の意味を変更する場合は、同じ typed metadata audit/forget/budget と有効な書込 prefix の契約も更新します。
+
+## 独立実装前レビューの結果
+
+固定 tree `7a94503a` の独立 High/security レビューは **CHANGES_REQUIRED** です。実装や native 認定の承認ではありません。descriptor の比較対象となる実ファイル名は `execution.json`（`executionEnvelope.launches`）です。新しい per-run file を追加する案は採用せず、既存の完全な launch snapshot と明示的な full selection の再利用を具体化します。新ファイル・新 schema を追加しない限り inventory の拡張は不要ですが、既存 metadata audit/forget と有効な書込 prefix が変化しないことは実テストで確認します。
+
+実装前の残件は、wire 上の worktree/profile/full selection の一意な表現、production の有界な observation receiver と後続 reducer の責務境界、closed な event kind、primary hook budget 内の配送位置の確定です。現在の `ObservationMetadata.TargetID` には domain 上の対応を推測せず、旧 daemon が新 schema を明示拒否する互換性も定めます。descriptor と一致しても native binding・入力許可・承認済み状態には昇格させません。レビュー推奨の新規 ring buffer は自動採用せず、後続 projection と重複する状態所有者を作らない設計を確認します。
+
+optional 配送は primary capture の完了後に限定し、既存 packaged hook の残り budget と spool drain の予約時間を侵食する場合は省略します。stdout/exit と receipt/spool の意味は変更しません。正確な command flags・wire schema と receiver 境界の修正版は再度 checkpoint で検証し、それまでは production code を追加しません。host ごとの native hook 引数伝播・合成の認定は各 adapter leaf に残し、ここで universal な対応を宣言しません。
