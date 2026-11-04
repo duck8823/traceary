@@ -105,6 +105,7 @@ func TestSelectedObservationRealSocketReachesOwnedRuntimeWithoutLegacyReceiver(t
 	if err != nil {
 		t.Fatal(err)
 	}
+	sentAt := time.Now()
 	rawFrame(t, conn, string(wire))
 	if code := rawCode(t, conn); code != "queued" {
 		t.Fatalf("valid selected observation ACK=%s, want queued", code)
@@ -126,6 +127,13 @@ func TestSelectedObservationRealSocketReachesOwnedRuntimeWithoutLegacyReceiver(t
 			t.Fatal("queued selected sample not consumed by actual owner")
 		}
 		time.Sleep(5 * time.Millisecond)
+	}
+	view, err := owner.SubscribeObservations(selection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !view.Projection.HasLastEvent || view.Projection.LastEvent.EventID != "spool:selected" || view.Projection.LastEvent.Received.Wall.Before(sentAt) || view.Projection.LastEvent.Boundary != domain.ObservationPromptBoundary || view.Projection.Interaction != domain.ProjectionUnknown || view.Projection.Attention.EventID != "" {
+		t.Fatal("actual selected queue bypassed unbound projection", view)
 	}
 	after, err := metadata.Export(ctx)
 	if err != nil {

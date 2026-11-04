@@ -2,8 +2,6 @@ package runtime
 
 import (
 	"context"
-	"encoding/hex"
-	"strings"
 
 	domain "github.com/duck8823/traceary/domain/runtime"
 	"golang.org/x/xerrors"
@@ -29,18 +27,8 @@ func validateSelectedObservation(o SelectedObservation) error {
 	if _, err := domain.DerivedObservationOf(o.Metadata.Snapshot()); err != nil {
 		return xerrors.Errorf("validate selected observation metadata: %w", err)
 	}
-	if !o.Selection.Identity.Valid() {
+	if !projectionSelection(o.Selection).Valid() {
 		return domain.ErrInvalid
-	}
-	worktree := string(o.Selection.Worktree)
-	if len(worktree) != 66 || !strings.HasPrefix(worktree, "w_") || worktree != strings.ToLower(worktree) {
-		return domain.ErrInvalid
-	}
-	if _, err := hex.DecodeString(worktree[2:]); err != nil {
-		return domain.ErrInvalid
-	}
-	if _, err := domain.ProfileIDFrom(string(o.Selection.Profile)); err != nil {
-		return xerrors.Errorf("validate observation profile: %w", err)
 	}
 	return nil
 }
@@ -84,6 +72,23 @@ func (s *Runtime) CheckObservation(ctx context.Context, o SelectedObservation) e
 // then consumes untrusted telemetry without changing launch, core Session or control state.
 // The existing daemon worker, not a second drainer, supplies its consumption deadline.
 func (s *Runtime) RecordObservation(ctx context.Context, o SelectedObservation) error {
+	receipt, err := s.AdmitObservation(ctx, o)
+	if err != nil {
+		return err
+	}
+	return s.ConsumeObservation(ctx, receipt)
+}
+
+// ConsumeObservation preserves original local intake across queueing and physical
+// validation. A receipt is private to this actual owner, not a native proof.
+func (s *Runtime) ConsumeObservation(ctx context.Context, receipt ObservationReceipt) error {
+	if receipt.owner == nil {
+		return domain.ErrInvalid
+	}
+	if receipt.owner != s {
+		return domain.ErrChanged
+	}
+	o := receipt.selected
 	if err := ctx.Err(); err != nil {
 		return xerrors.Errorf("consume selected observation: %w", err)
 	}
@@ -95,6 +100,10 @@ func (s *Runtime) RecordObservation(ctx context.Context, o SelectedObservation) 
 	if err != nil {
 		s.mu.Unlock()
 		return err
+	}
+	if run != receipt.run {
+		s.mu.Unlock()
+		return domain.ErrChanged
 	}
 	target := run.descriptor.Target()
 	s.mu.Unlock()
@@ -110,6 +119,7 @@ func (s *Runtime) RecordObservation(ctx context.Context, o SelectedObservation) 
 	defer s.mu.Unlock()
 	if err := ctx.Err(); err != nil {
 		run.clearObservation()
+		s.notifyControlLocked()
 		return xerrors.Errorf("consume selected observation: %w", err)
 	}
 	current, err := s.observationRunLocked(o)
@@ -121,11 +131,16 @@ func (s *Runtime) RecordObservation(ctx context.Context, o SelectedObservation) 
 	}
 	run.observation = o.Metadata
 	run.hasObservation = true
+	// Native projection capacity/failure must never turn ordinary metadata
+	// delivery into failure or stop updating the existing live sample.
+	run.recordUnboundProjection(o, receipt.received, s.observationClockLocked())
+	s.notifyControlLocked()
 	return nil
 }
 
 // LastObservation returns an untrusted last-arrival sample, never a fresh causal event.
 // It intentionally exposes cleared state after Wait without inventing interaction freshness.
+// Historical projection metadata is separate and may remain after this live sample clears.
 func (s *Runtime) LastObservation(selection OutputSelection) (domain.DerivedObservation, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -138,6 +153,9 @@ func (s *Runtime) LastObservation(selection OutputSelection) (domain.DerivedObse
 func (r *ownedRun) clearObservation() {
 	r.observation = domain.DerivedObservation{}
 	r.hasObservation = false
+	if r.projection != nil {
+		r.projection.Invalidate(domain.ProjectionGap)
+	}
 }
 func (r *ownedRun) markUncertain() {
 	_ = r.descriptor.MarkUncertain()
@@ -151,5 +169,6 @@ func (s *Runtime) discardObservation(selection OutputSelection, run *ownedRun) {
 	defer s.mu.Unlock()
 	if s.runs[selection.Identity.Run] == run {
 		run.clearObservation()
+		s.notifyControlLocked()
 	}
 }

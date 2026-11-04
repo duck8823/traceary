@@ -69,6 +69,7 @@ type ownedRun struct {
 	published      bool
 	observation    domain.DerivedObservation
 	hasObservation bool
+	projection     *domain.ObservationProjection
 	controls       *runControls
 	descriptor     domain.LaunchDescriptor
 	child          OwnedChild
@@ -79,21 +80,22 @@ type ownedRun struct {
 // Runtime owns bounded launch reservations, immutable outcomes and live child handles.
 // It has no core Session lifecycle or authority over externally started processes.
 type Runtime struct {
-	controlKey      [32]byte
-	controlKeySet   bool
-	controlsPending int
-	registry        TargetRegistry
-	profiles        ProfileCatalog
-	launcher        ProcessLauncher
-	journal         LaunchJournal
-	epoch           string
-	mu              sync.Mutex
-	tickets         map[string]*launchTicket
-	runs            map[string]*ownedRun
-	pending, active int
-	disabled        bool
-	revision        uint64
-	changed         chan struct{}
+	controlKey        [32]byte
+	controlKeySet     bool
+	controlsPending   int
+	registry          TargetRegistry
+	profiles          ProfileCatalog
+	launcher          ProcessLauncher
+	journal           LaunchJournal
+	epoch             string
+	observationOrigin time.Time
+	mu                sync.Mutex
+	tickets           map[string]*launchTicket
+	runs              map[string]*ownedRun
+	pending, active   int
+	disabled          bool
+	revision          uint64
+	changed           chan struct{}
 }
 
 // NewRuntime constructs an epoch-scoped launch owner with explicit ports.
@@ -101,7 +103,7 @@ func NewRuntime(registry TargetRegistry, profiles ProfileCatalog, launcher Proce
 	if registry == nil || profiles == nil || launcher == nil || journal == nil || !(domain.LaunchIdentity{Run: epoch, Generation: epoch, Epoch: epoch}).Valid() {
 		return nil, domain.ErrInvalid
 	}
-	return &Runtime{registry: registry, profiles: profiles, launcher: launcher, journal: journal, epoch: epoch, tickets: make(map[string]*launchTicket), runs: make(map[string]*ownedRun), changed: make(chan struct{})}, nil
+	return &Runtime{registry: registry, profiles: profiles, launcher: launcher, journal: journal, epoch: epoch, observationOrigin: time.Now(), tickets: make(map[string]*launchTicket), runs: make(map[string]*ownedRun), changed: make(chan struct{})}, nil
 }
 func validLaunchRequest(r LaunchRequest) bool {
 	if len(r.RequestID) == 0 || len(r.RequestID) > 128 {

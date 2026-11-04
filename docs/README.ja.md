@@ -24,7 +24,8 @@
 - [ローカルDaemon IPC](./runtime/daemon-ipc.ja.md)：明示foreground transport、private Unix endpoint、protocolと失敗境界
 - [履歴再照合と maintenance](./runtime/history-reconciliation.ja.md)：maintenance に譲る読取 capability と残っている再照合契約
 
-- [Native 観測配送の設計チェックポイント](./runtime/native-observation-delivery.ja.md)：未採用の境界と実装前検証。実装済み CLI ではありません
+- [Native 観測配送](./runtime/native-observation-delivery.ja.md)：実装済みの定量上限付き CLI／hook metadata 配送。native 認定は別途必要
+- [Runtime 観測の投影](./runtime/observation-projection.ja.md)：因果 reducer、有効期限、最新 snapshot。製品の metadata は未束縛のまま
 
 ## 連携まわり
 
