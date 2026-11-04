@@ -24,12 +24,20 @@ format の選択は **codex-cli 0.166.0** の完全一致のみとする。bare 
 
 最初の再開 harness は account/updated が毎回発行されると誤って要求し、検証 turn の前に停止した。これは観測の可用性に関する失敗であり、provider の認証失敗ではない。修正後は refreshToken=false の account/read で account type の chatgpt だけを保持し、account 詳細を破棄した。token／credential は要求も保持もしていない。この証拠が認定するのは隔離した app-server API の文脈再開契約だけであり、**command hook、exec／TUI 再開、managed-PTY の generation binding、製品 app-server broker の採用を証明しない**。
 
+## 追加した native metadata 測定
+
+Traceary runtime hint を渡さず、同じ canonical cwd で実際の native app-server process を2つ同時に稼働させた。それぞれの thread/start は異なる native ID と一致する model／provider／policy を返した。model turn は要求していない。これは同 cwd の曖昧さを示すが、managed generation の witness ではない。
+
+上記の完了済み合成会話を使った別の metadata-only 測定では、owner A が同じ UUID の再開に成功し、同時に稼働している owner B の同一 resume は native error code -32600 で拒否された。その後、両実 owner は正常終了した。拒否理由は hash 以外を保持せず、provider の安定した排他契約とは証明していない。Traceary は引き続き明示的な session 排他と旧 owner の非稼働を検証する必要があり、UUID やこの一度の否定検証では置き換えない。model／入力の再送は行っていない。
+
+最初の複合 matrix は別 ID の確認後に hooks/list が拒否されて停止し、FAIL を保持している。次の初期 harness は resume 拒否時の成功 owner index を残しておらず、その不十分な証拠も別に保持した。計測を修正した測定が示すのは A の成功と B の拒否であり、2つの resume 成功ではない。hook inventory、command-hook payload、per-run 合成、generic-PTY binding は未認定のままである。
+
 ## leaf 完了前に必要な native 証拠
 
 | 要求 | 現在の証拠 |
 | --- | --- |
 | 正確な native hook payload と core capture／redaction／stdout／receipt の同値性 | 0.166 では NOT_RUN。合成 decoder／Cobra test のみ |
-| 同 cwd 並行、独立 generation witness、resume ID 再利用、遅延 callback、hint 不達、重複／逆順／失効 | NOT_RUN。descriptor／env／cwd／native ID だけでは binding しない |
+| 同 cwd 並行、独立 generation witness、resume ID 再利用、遅延 callback、hint 不達、重複／逆順／失効 | Native API metadata では同 cwd の2実 owner に別 ID。同一 ID の resume は A が成功、B は拒否。runtime hint は不使用。command-hook／managed generation、遅延／逆順／失効 matrix は NOT_RUN。ID 単独で binding しない |
 | working／waiting_input／waiting_approval／turn／process／unknown の coverage | 未認定。Stop は process 終了／readiness ではなく、approval telemetry は権限ではない |
 | global／per-run native hook 合成 | NOT_RUN。新 hash／trust／設定は人間の確認が必要で、bypass／自動 trust しない |
 | 同じ native 会話と元の target／model／provider への再開 | 隔離した app-server stdio は PASS。同一 UUID、保持された合成文脈、元 cwd／model／provider／policy、実 owner の正常終了を確認。exec／TUI と managed-PTY 復旧は NOT_RUN |

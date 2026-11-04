@@ -24,12 +24,20 @@ An isolated normal-CLI app-server stdio probe observed the effective native cwd,
 
 The first resume harness stopped before its verification turn because it incorrectly required account/updated to be emitted on every process. This was an observation-availability failure, not a provider authentication failure. The corrected check used account/read with refreshToken=false, retained only account type chatgpt and discarded account details. No token or credential was requested or retained. This evidence qualifies only the isolated app-server API context-resume contract, **not** command hooks, exec/TUI resume, managed-PTY generation binding or adoption of a production app-server broker.
 
+## Additional native metadata measurements
+
+Two actual native app-server processes were live concurrently in the same canonical cwd, without Traceary runtime hints. Separate thread/start calls returned distinct native IDs with matching model/provider/policy. No model turn was requested. This establishes same-cwd ambiguity, not a managed-generation witness.
+
+For the exact completed synthetic conversation above, another metadata-only measurement observed owner A successfully resume that UUID while owner B, concurrently live, received native error code -32600 for the same resume. Both actual owners then exited normally. The rejection reason was not retained beyond its hash and is not proven to be a stable provider exclusion contract. Traceary must still own explicit session exclusion and prove old-owner inactivity; neither a UUID nor this one negative test replaces those checks. No model/input was replayed.
+
+The first combined matrix stopped at a rejected hooks/list request after the distinct-ID case; its FAIL is retained. A second early harness omitted the successful-owner index on a rejected resume; that incomplete evidence is retained separately. The instrumented measurement records owner A success and owner B rejection, not two successful resumes. Hook inventory, command-hook payload, per-run composition and generic-PTY binding remain unqualified.
+
 ## Required native evidence before closing the leaf
 
 | Requirement | Current evidence |
 | --- | --- |
 | Exact native hook payload and core capture/redaction/stdout/receipt equivalence | NOT_RUN on 0.166; synthetic decoder/Cobra tests only |
-| Same-cwd concurrent runs, independent generation witness, resume ID reuse, late callbacks, missing hints, duplicate/reorder/expiry | NOT_RUN; descriptor/env/cwd/native IDs alone never bind |
+| Same-cwd concurrent runs, independent generation witness, resume ID reuse, late callbacks, missing hints, duplicate/reorder/expiry | Native API metadata: two simultaneous same-cwd owners produced distinct IDs; same-ID resume succeeded for A and was rejected for B. No runtime hints supplied. Command-hook/managed-generation, late/reorder/expiry matrix remains NOT_RUN; these IDs never bind on their own. |
 | Working / waiting_input / waiting_approval / turn / process / unknown coverage | Unqualified; Stop is not process exit/readiness and approval telemetry is not permission |
 | Global/per-run native hook composition | NOT_RUN; new hash/trust/settings require human review, never bypass/auto-trust |
 | Same native conversation and original target/model/provider resume | PASS for isolated app-server stdio: exact UUID plus retained synthetic context, original cwd/model/provider/policy and actual-owner normal exits. Exec/TUI and managed-PTY recovery remain NOT_RUN. |
