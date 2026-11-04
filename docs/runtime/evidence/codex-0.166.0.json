@@ -86,5 +86,40 @@
     "global_configuration_or_auth_changed_by_test": false,
     "automatic_retry_or_auth_fallback": false,
     "cause": "UNKNOWN"
+  },
+  "read_only_hook_discovery": {
+    "result": "PASS_METADATA_DISCOVERY_ONLY",
+    "requests_sent": [
+      "initialize",
+      "hooks/list",
+      "configRequirements/read"
+    ],
+    "hooks": {
+      "exact_cwd_entry": true,
+      "own_hooks": [],
+      "other_hooks_count": 14,
+      "errors_count": 0,
+      "own_hook_parse_error": false,
+      "warnings_count": 0
+    },
+    "requirements_present": false,
+    "allow_managed_hooks_only": "NOT_SPECIFIED",
+    "native_actual_wait_exit": 0,
+    "temporary_files_unchanged": true,
+    "production_app_server_profile_adopted": false,
+    "raw_report_or_hook_commands_or_account_saved_or_shared": false,
+    "model_requests": 0,
+    "cause_confirmed": false,
+    "own_project_trust_config_metadata": {
+      "dedicated_worktree": "NOT_SPECIFIED",
+      "main_worktree": "trusted"
+    },
+    "effective_policy_proven": false,
+    "human_project_trust_check_pending": true,
+    "proof_sha256": {
+      "traceary-2474-hook-list-diagnostic.py": "2e03b9fb54698cf38672da1a4632e1444bc051d69870ec0ebf98affd74ff1c11",
+      "traceary-2474-hook-list-diagnostic-result.json": "e4ca0637b3f9eb58c1c11df25411073e4f5b71b7a835cfe9d79f8e41832f69d2",
+      "traceary-2474-own-trust-policy-metadata.json": "8958076cd6d158a6fd07692f20c0521678dda65cf78154bbf46fa8c4cd4b79e2"
+    }
   }
 }

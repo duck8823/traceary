@@ -81,3 +81,19 @@ Codex と採用済み Claude の両 port を組み立てた public Cobra テス�
 model 要求、login、global 設定変更、raw report の保存は行っていません。
 これは診断の可用性に関する失敗であり、認証失敗や project trust、managed-only policy の証拠ではありません。
 自動再試行も行っていません。
+
+## exact cwd の read-only discovery 診断
+
+source を固定した別の native process で、初期化、専用 worktree の `hooks/list`、`configRequirements/read` だけを行いました。
+thread/turn や model request は作成していません。
+[公式 API 文書](https://learn.chatgpt.com/docs/app-server) と、先に確認した導入済み0.166.0 schema に従う read 操作です。
+exact cwd の応答に一時 hook file の hook は0件、その他は14件あり、報告された error/warning は0件、requirements 文書はありませんでした。
+managed-only が未指定であることは、false や effective policy の証明ではありません。
+実診断 process の Wait は0で、一時3ファイルの hash も不変です。
+保存したのは選択した boolean・enum・件数のみで、hook command、raw 応答、account 値、credential は保存しません。
+この診断は app-server 実行 profile の製品採用ではありません。
+
+user config の非 secret な selector だけを確認したところ、元 worktree の明示的な trusted 登録はありましたが、専用 worktree の exact trust 登録と root の managed-only flag は未指定でした。
+effective project trust や hook 非表示の原因を証明したわけではありません。
+この会話で、専用フォルダの project 信頼確認が表示された場合だけ、ユーザーに手動確認を依頼しました。
+project/global 設定・native trust・認証の変更は行わず、raw 診断・設定データを他の AI へ渡していません。
