@@ -40,7 +40,7 @@ Traceary runtime hint を渡さず、同じ canonical cwd で実際の native ap
 | 同 cwd 並行、独立 generation witness、resume ID 再利用、遅延 callback、hint 不達、重複／逆順／失効 | Native API metadata では同 cwd の2実 owner に別 ID。同一 ID の resume は A が成功、B は拒否。runtime hint は不使用。command-hook／managed generation、遅延／逆順／失効 matrix は NOT_RUN。ID 単独で binding しない |
 | working／waiting_input／waiting_approval／turn／process／unknown の coverage | 未認定。Stop は process 終了／readiness ではなく、approval telemetry は権限ではない |
 | global／per-run native hook 合成 | NOT_RUN。新 hash／trust／設定は人間の確認が必要で、bypass／自動 trust しない |
-| 同じ native 会話と元の target／model／provider への再開 | 隔離した app-server stdio は PASS。同一 UUID、保持された合成文脈、元 cwd／model／provider／policy、実 owner の正常終了を確認。exec／TUI と managed-PTY 復旧は NOT_RUN |
+| 同じ native 会話と元の target／model／provider への再開 | 隔離した app-server stdio は PASS。同一 UUID、保持された合成文脈、元 cwd／model／provider／policy、実 owner の正常終了を確認。通常 TUI の完了済み文脈再開も成功。ただし実 model／provider は未認定で、中断・managed-PTY 復旧は NOT_RUN |
 
 Traceary は target／source の変更や未知 UUID を、resume plan の実行前に拒否する必要がある。native CLI の挙動は別に測定し、この拒否を provider に期待しない。friendly name／picker／last／fork／新 chat／model／API 課金の fallback は許可しない。native fixture は #2478 service の完成を待たずに検証し、service 側が durable record、実際の旧 owner 非稼働、session 排他、crash／重複の意味を担当する。
 
@@ -64,8 +64,14 @@ fixture は read-only sandbox を指定し、global の認証・承認設定は�
 先行する prompt なし TUI metadata 試行は、観測時間内に元の SessionStart 記録を確認できず、model turn を要求せず実 owner を -15 で Wait しました。
 この FAIL は保持し、原因を推測しません。
 どちらも、中断 input/tool/approval の挙動、端末表示からの実 model/provider、callback field の意味、管理対象 generation の binding は認定しません。
-この会話で一時的な metadata 専用 hook の追加を確認し、回答までは新しい hook/config を作成していません。
-native hook の信頼確認は迂回せず、自動回答しません。
+ユーザーがこの worktree に限定して一時 metadata 専用 hook を許可したため、4定義と collector を配置しました。
+元の記録 hook と global 設定は変更していません。
+その後の prompt なし通常 TUI 検証2回はいずれも metadata sample が0件で、実 owner の Wait は -15 でした。
+空の project config layer を追加しても観測は変わりませんでした。
+ユーザーも `/hooks` に**表示されない**と回答しています。
+これは信頼確認の拒否を示す証拠ではなく、discovery/load は未確認です。
+native trust への回答や迂回は行っていません。
+redacted doctor の config.load は OK ですが、一時 hook path は出力されず、原因は確定できません。
 
 任意 decoder は入力全体の UTF-8 も検証し、不正 byte を含む場合は primary capture を変更せず claim を付与しません。
 Codex と採用済み Claude の両 port を組み立てた public Cobra テストで、host/version/nil の分離と Claude の session-only 契約を維持することを検証します。

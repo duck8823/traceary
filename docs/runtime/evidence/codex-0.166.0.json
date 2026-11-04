@@ -55,6 +55,23 @@
     "existing selected metadata stays unbound; no native-current authority",
     "Muse native and physical sleep/wake remain user-deferred"
   ],
-  "native_metadata_hook_question": "Asked in active conversation; no new project hook/config written pending answer",
-  "runtime_recovery_service": "#2478 is merged, but Codex native adapter is not qualified for it"
+  "native_metadata_hook_question": "User authorized exact-worktree metadata-only temporary hook; user subsequently reported definitions not displayed in /hooks",
+  "runtime_recovery_service": "#2478 is merged, but Codex native adapter is not qualified for it",
+  "temporary_metadata_discovery": {
+    "model_turns_requested": 0,
+    "attempts": 2,
+    "metadata_samples": [
+      0,
+      0
+    ],
+    "owned_exit_returncodes": [
+      -15,
+      -15
+    ],
+    "user_hooks_displayed": false,
+    "cause_confirmed": false,
+    "global_settings_changed": false,
+    "primary_recorder_modified_or_duplicated": false,
+    "trust_answer_or_bypass_sent": false
+  }
 }
