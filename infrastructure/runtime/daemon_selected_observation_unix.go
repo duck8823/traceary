@@ -24,11 +24,12 @@ func (s *daemonServer) selectedObservationReply(reply *runtimeResponse, request 
 		reply.Code = "invalid"
 		return
 	}
-	if err = s.runtime.CheckObservation(s.ctx, observation); err != nil {
+	receipt, err := s.runtime.AdmitObservation(s.ctx, observation)
+	if err != nil {
 		reply.Code = operationCode(err)
 		return
 	}
-	if !s.enqueueItem(pendingObservation{selected: &observation, bytes: size}) {
+	if !s.enqueueItem(pendingObservation{selected: &receipt, bytes: size}) {
 		reply.Code = "busy"
 		return
 	}

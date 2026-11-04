@@ -55,7 +55,7 @@ type daemonSocket struct {
 	slots      chan struct{}
 }
 type pendingObservation struct {
-	selected *app.SelectedObservation
+	selected *app.ObservationReceipt
 	metadata app.ObservationMetadata
 	bytes    int
 }
@@ -551,7 +551,7 @@ func (s *daemonServer) consume() {
 					continue
 				}
 				ctx, cancel := context.WithTimeout(s.ctx, ManagementRuntimeBudget)
-				err := s.runtime.RecordObservation(ctx, *item.selected)
+				err := s.runtime.ConsumeObservation(ctx, *item.selected)
 				cancel()
 				if err != nil {
 					s.degraded.Store(true)
