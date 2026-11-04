@@ -10,6 +10,11 @@
 リリース済みの機能や host の対応認定を意味しません。
 broker、app-server 実行方式、model API、agent wrapper は採用しません。
 
+adapter の前提として、実行ごとの private な起動 metadata 保存と、無出力の内部 SessionStart 処理を実装していますが、通常起動にはまだ接続していません。
+この処理は主要な session log を記録せず、復旧の権限も確立しません。
+最新の callback が変更、不正、読み取り不完全となった場合、以前の metadata は無効になります。
+private な一時ファイルの後始末は、root の交換や未知のファイルを検出すると削除を拒否します。
+
 ## 安全性の契約
 
 同じ native 会話を再開するには、元の管理対象AIについて、実際の Wait による終了を Traceary が正確な実行識別子とともに永続化している必要があります。

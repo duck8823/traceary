@@ -46,6 +46,10 @@ func (p nativeStartPlan) valid() bool {
 // history/model/provider and original target; public observations cannot call
 // this codec to produce RecoveryBinding or verified/control authority.
 func decodeNativeStart(data []byte, plan nativeStartPlan, environment map[string]string) (nativeStartEvent, error) {
+	return decodeNativeStartEvent(data, plan, environment, false)
+}
+
+func decodeNativeStartEvent(data []byte, plan nativeStartPlan, environment map[string]string, allowCompact bool) (nativeStartEvent, error) {
 	if !plan.valid() {
 		return nativeStartEvent{}, domain.ErrInvalid
 	}
@@ -85,7 +89,7 @@ func decodeNativeStart(data []byte, plan nativeStartPlan, environment map[string
 	if values["hook_event_name"] != "SessionStart" {
 		return nativeStartEvent{}, domain.ErrInvalid
 	}
-	if values["session_id"] != plan.SessionID || values["cwd"] != plan.CWD || values["source"] != plan.Source {
+	if values["session_id"] != plan.SessionID || values["cwd"] != plan.CWD || values["source"] != plan.Source && (!allowCompact || values["source"] != "compact") {
 		return nativeStartEvent{}, domain.ErrChanged
 	}
 	expected := map[string]string{"TRACEARY_RUNTIME_RUN_ID": plan.Identity.Run, "TRACEARY_RUNTIME_GENERATION": plan.Identity.Generation, "TRACEARY_RUNTIME_EPOCH": plan.Identity.Epoch, "TRACEARY_DB_PATH": plan.Store}

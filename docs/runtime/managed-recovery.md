@@ -6,6 +6,8 @@
 
 The application coordinator, private recovery journal, management SDK/IPC and `runtime resume` command are implemented in the recovery branch. The normal native CLI adapter and interrupted-turn no-replay qualification remain incomplete. The default PTY launcher therefore does not advertise native resume and rejects unsupported attempts. This is not a released or host-certified recovery feature. No broker, app-server execution mode, model API or agent wrapper is adopted.
 
+Private per-run startup metadata storage and silent internal SessionStart plumbing are implemented as adapter prerequisites, but are not attached to normal launches yet. They neither record primary session logs nor establish recovery authority. Changed, malformed or incomplete latest callbacks invalidate earlier metadata; private temporary cleanup refuses exchanged roots and unknown files.
+
 ## Safety contract
 
 An operator may resume the same verified native conversation only after Traceary has durably recorded the exact old managed AI's actual Wait exit. A saved PID, a lost daemon, an interrupted lifecycle label or a client-supplied verified flag is not exit proof. The initial implementation does not recover missing exit proof through global process scans or PID adoption. External CLI actors and all-descendant inactivity are outside the guarantee.
