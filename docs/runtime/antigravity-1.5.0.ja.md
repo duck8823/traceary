@@ -188,3 +188,13 @@ native default は gemini-4-argon-high です。
 bounded output は gap なしで13213 byteを観測し、保存していません。
 これは owned metadata/control/primary 経路の実測であり、中断復旧・provider/最終model/順序・native現在状態の認定ではありません。
 全過程で source fingerprint は変わっていません。
+
+## Provider gate：account の存在だけでは不十分
+
+[公式認証仕様](https://antigravity.google/docs/install/) には、account・Gemini API key・ADC の別経路があります。
+[statusLine](https://antigravity.google/docs/cli/statusline/) の email は account 情報であり、明示的な active provider の識別子ではありません。
+独立した実装前 checkpoint は、AccountPresent と未定義の override guard だけで `native-account` を確定する案を承認しませんでした。
+effective route の入力元と優先順位、active route との排他性、元と再開時の provider class の保存・再検証について、追加証拠が必要です。
+別認証の試験や設定変更は行っていません。
+この近道を不採用としたのであり、native 復旧が不可能という判定ではありません。
+metadata codec と復旧 unsupported の契約は維持します。

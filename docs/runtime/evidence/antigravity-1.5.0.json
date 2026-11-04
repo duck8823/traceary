@@ -462,5 +462,21 @@
     "raw_native_terminal_or_account_saved": false,
     "native_recovery_qualified": false,
     "scope": "normal owned launch/metadata/primary/control/exit only; not interrupted resume certification"
+  },
+  "provider_design_checkpoint": {
+    "verdict": "INSUFFICIENT_CONTEXT",
+    "account_presence_promoted_to_provider": false,
+    "missing": [
+      "effective route inputs and precedence",
+      "active-route exclusivity",
+      "durable original/current provider-class verification"
+    ],
+    "alternate_auth_test_or_configuration_change": false,
+    "native_recovery_impossible_claimed": false,
+    "review_sha256": "7ef74637f6ca26ae5737d4fc328d6035373b416495659e71c372ddd5f8d6e40f",
+    "references": [
+      "https://antigravity.google/docs/install/",
+      "https://antigravity.google/docs/cli/statusline/"
+    ]
   }
 }
