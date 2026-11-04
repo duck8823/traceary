@@ -15,6 +15,7 @@ import (
 
 // RootCLI provides the Traceary root command.
 type RootCLI struct {
+	hookObservation             hookObservationConfig
 	runtimeDaemon               appruntime.Daemon
 	runtimeClient               appruntime.Client
 	runtimeOperators            appruntime.OperatorFactory

@@ -16,6 +16,15 @@ type SelectedObservation struct {
 	Metadata  domain.DerivedObservation
 }
 
+// SelectedObservationOf validates explicit correlation without reading files or granting native authority.
+func SelectedObservationOf(selection OutputSelection, metadata domain.DerivedObservation) (SelectedObservation, error) {
+	value := SelectedObservation{Selection: selection, Metadata: metadata}
+	if err := validateSelectedObservation(value); err != nil {
+		return SelectedObservation{}, err
+	}
+	return value, nil
+}
+
 func validateSelectedObservation(o SelectedObservation) error {
 	if _, err := domain.DerivedObservationOf(o.Metadata.Snapshot()); err != nil {
 		return xerrors.Errorf("validate selected observation metadata: %w", err)

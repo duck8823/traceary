@@ -2,7 +2,7 @@
 
 [English](native-observation-delivery.md)
 
-状態は **修正済み実装前契約を主担当が採用し、domain・Runtime の所有 capability・selected wire/SDK を実装済み、CLI/hook は未実装** です。
+状態は **修正済み実装前契約を主担当が採用し、domain・Runtime・selected wire/SDK・CLI・opt-in hook 配送を実装済み、leaf 最終検証・独立レビュー・delivery は未完了** です。
 独立 report の CHANGES_REQUIRED は変更せず、明示 triage と修正契約を保持します。実装の認定ではありません。
 [観測配送の leaf](https://github.com/duck8823/traceary/issues/2466) の実装前設計資料であり、新しい CLI command の利用案内や native host の認定ではありません。
 [採用済み headless R0](../adr/2026-11-03-headless-runtime-r0.ja.md) を正本とします。
@@ -85,6 +85,14 @@ source 上では、不変 metadata 値と四つの closed kind、owned selection
 
 wire/SDK は、closed な observe_selected_v1、正確な field 名と raw 4 KiB 上限、全 arm の request/ACK guard、共有 queue から実 RuntimeFactory への消費、degraded 表示と総 client budget を実装しています。実 socket/有限 PTY で、成功・不一致・旧 peer の invalid response・物理 store 交換・停止した metadata lock・queue 圧力を検証します。
 
-public CLI・optional hook flags/配送・host-native association・lifecycle 統合認定・leaf 全体の delivery は未完了です。owner capability だけで production transport 配送が利用可能になるわけではありません。元の leaf 全体の scope と、残る独立実装レビュー・CI/security・wave gate は維持します。
+public CLI と optional hook flags/配送は実装済みです。host-native association・lifecycle 統合認定・leaf 全体の delivery は未完了です。owner capability だけで production transport 配送が利用可能になるわけではありません。元の leaf 全体の scope と、残る独立実装レビュー・CI/security・wave gate は維持します。
 
 既存の lowercase key 検査では Go の case folding による Unicode long-s alias が受理されることを再現しました。新 selected request variant は正確な field 名を検査し、bare queued ACK は正確な canonical header を要求します。共通の version/null/重複検査と永続 metadata codec は変更しません。これは protocol 検査であり、native origin の認証ではありません。
+
+## CLI と opt-in hook の実装
+
+`traceary runtime observe` は明示的な絶対 `--runtime-dir` と epoch/run/generation/worktree/profile/host/host-version/event-id/kind を必須とし、native-session-id/native-turn-id は任意です。stdin・位置引数・環境や既定 root を読みません。正しい optional 配送は schema_version/outcome/binding/authority の JSON 一つを出し、binding は常に unbound、authority は admission_only です。不正な operator flag と出力失敗は error にします。別 process の実 main/daemon と有限 fixture による queued、HOME/core 非作成、元の PTY 出力・終了の維持を検証します。
+
+hidden hook に observe-runtime-dir/epoch/run/generation/worktree/profile/host-version の明示 flag を追加します。既存 command に引数を追加するだけで、packaged/global/per-run 設定、auth/model/PATH を変更せず二つ目の handler を作りません。native host の合成・伝播は未認定です。source の引数合成 fixture は同じ既存 handler が一度だけ capture し、stdout/exit・spool が維持されることを確認するもので、host 設定の合成を認定しません。
+
+配送全体は primary 成功と current spool clear の後、backlog drain の前です。失敗・defer・clear 失敗・replay は配送せず、残時間が 250 ms + drain reserve 以下なら省略します。spool 保存失敗の既存 fallback も primary 成功後だけ配送します。単一の process-wide slot が導出と client の実終了まで保持され、取消を無視する callback/client に置換 worker を増やしません。panic/error/timeout は元の結果・出力を変更しません。payload は取得済みの不変文字列から参照し、stdin を再消費しません。event ID は取得済み spool receipt です。native ID は codex の thread_id、他の対応 host の session_id と任意 turn_id を untrusted な文字列としてのみ参照し、不正値は省略します。native association の証拠としては扱いません。

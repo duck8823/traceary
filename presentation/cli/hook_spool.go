@@ -247,7 +247,11 @@ func (c *RootCLI) runHookDurably(
 			// unavailable. The operational error remains visible in debug logs;
 			// successful persistence is the timeout-kill guarantee.
 			slog.Debug("hook spool persistence failed", "command", spec.Command, "client", spec.Client, "error", err)
-			return run(record.payloadReader())
+			primaryErr := run(record.payloadReader())
+			if primaryErr == nil {
+				c.deliverHookObservation(ctx, startedAt, spec, record)
+			}
+			return primaryErr
 		}
 		if err := ctx.Err(); err != nil {
 			if promoteErr := promoteCurrentHookSpoolRecord(path); promoteErr != nil && !os.IsNotExist(promoteErr) {
@@ -270,6 +274,7 @@ func (c *RootCLI) runHookDurably(
 		if err := clearCurrentHookSpoolRecord(path); err != nil {
 			return xerrors.Errorf("failed to clear committed hook spool record: %w", err)
 		}
+		c.deliverHookObservation(ctx, startedAt, spec, record)
 		// The current delivery is committed and its spool record is cleared
 		// before backlog work can consume the remaining host timeout. Replay is
 		// opportunistic and budget-capped: failures remain durable and never
