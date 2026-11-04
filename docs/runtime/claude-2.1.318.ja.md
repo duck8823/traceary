@@ -16,6 +16,28 @@
 
 修正 observer は string／list と古い prompt の否定 test に成功してから使用した。同じ自作 UUID を foreground で明示 resume し、元 cwd と capture store で新しい文脈確認質問から元の高エントロピーマーカーを復元した。native model とサブスク provider は同じで、再開した実 owner は exit 0 だった。元入力／保留入力／承認／tool を再送せず、name／picker／continue／fork／background／新 chat／model／API の fallback は行っていない。証明したのは完了済み会話の文脈再開だけであり、任意の中断副作用の復元や runtime 排他／crash 安全性ではない。
 
+## 実際の中断会話と明示的な PTY 入力
+
+後続の foreground fixture は合成 user turn を受け付け、その turn の assistant 記録がない段階で中断しました。
+正確に所有する native child の Wait 結果は exit 143 でした。
+通常の foreground resume は同じ UUID/cwd の native SessionStart を発生させ、新しい RUN_ID/generation/epoch hint と一致しました。
+`CLAUDE_CODE_RESUME_INTERRUPTED_TURN=0` を指定した起動後8秒間は、新しい入力を送らず、UserPromptSubmit/Stop callback と user/assistant 記録の追加がないことを確認しました。
+この変数による中断 turn の自動継続の無効化は [公式環境変数リファレンス](https://code.claude.com/docs/en/env-vars) に記載されています。
+この foreground fixture の挙動は実測に基づき、print mode の文書から推測していません。
+
+観測器の失敗2件は FAIL のまま保持しています。
+最初の raw terminal burst と Return では UserPromptSubmit がなく、native resume の失敗は証明されませんでした。
+別の明示質問を標準 bracketed paste と別送 Return で入力すると、元の model/provider のまま最初の message の marker を復元し、実 owner は exit 0 で終了しました。
+その fixture の最終件数判定は、native が保存した `/exit` の表示用 user 形状記録3件を誤って再送に数えました。
+別の metadata verifier が実際の自作記録を検査し、元の保留入力と新しい明示入力が各1回だけ存在し、追加分が local-command caveat/exit/stdout の正確な3件組だけであることを確認しました。
+修正した観測器の test は、任意の continuation や保留入力の重複を拒否します。
+元の FAIL を PASS に書き換えていません。
+
+再開 run の SessionStart、UserPromptSubmit、Stop、SessionEnd は各1回で、元会話と target、新しく注入した runtime hint に一致しました。
+これは model tool 呼び出しがゼロの通常 CLI について、中断した文脈の再開と保留入力の非再送を確認した証拠です。
+保留 tool/approval の fixture、global 排他の証明、現在の waiting 状態の認定、製品 Runtime adapter の認定ではありません。
+raw native ID、会話本文、account data は共有していません。
+
 ## Native hook 入力と capture
 
 テスト専用の追加 metadata observer が SessionStart、UserPromptSubmit、Stop、SessionEnd をそれぞれ1回受信した。stdin を制限し、stdout／判断を返さず、隔離 store に root field／型、照合 bool、hash だけを保持した。agent を wrap せず、元 recorder の置換や2つ目の primary recorder の追加は行っていない。元の Traceary transcript capture は1件だけ増え（4→5）、実 native owner は exit 0 だった。
@@ -39,7 +61,7 @@
 | 要求 | 状態 |
 | --- | --- |
 | 正確な source と4種の native hook field／型 | 上記を実測。他の tool／permission event は NOT_RUN |
-| 同じ native 完了済み会話の文脈／cwd／store／model／provider | foreground の完了済み文脈 fixture のみ PASS。同じ UUID の foreground 並行起動2件を実測。turn 途中の中断と安全な active／重複排他は未認定 |
+| 同じ native 会話の文脈／cwd／store／model／provider | 完了済み文脈と制御した中断文脈の fixture は PASS。同じ UUID の foreground 並行起動2件を実測。保留 tool/approval と製品の管理内排他は未認定 |
 | global／per-run primary handler 合成 | duplicate-primary 候補は FAILED・却下。安全な descriptor 拡張は未認定 |
 | 同 cwd 並行、独立 generation、ID 再利用／遅延／hint 不達／重複／逆順／失効 | 未完了。descriptor／env／cwd／native ID 単独では unbound |
 | working／waiting_input／waiting_approval／process | 未認定。permission metadata は可視の待ちや承認判断ではない |

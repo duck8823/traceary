@@ -16,6 +16,14 @@ A synthetic marker-only turn completed with native model `claude-opus-5-5`. The 
 
 The corrected observer passed string/list and stale-prompt tests before use. Explicit foreground resume of the same own UUID in the original cwd and capture store recovered the original high-entropy marker from a new context question, with the same native model and subscription provider. The resumed actual owner exited 0. No original or pending input, approval or tool was replayed; no name/picker/continue/fork/background/new-chat/model/API fallback was used. This proves completed-conversation context resume only, not arbitrary interrupted-side-effect recovery or runtime exclusion/crash safety.
 
+## Actual interrupted native conversation and explicit PTY input
+
+A later foreground fixture accepted a synthetic user turn and was interrupted before any assistant record for that turn. The exact owned native child was reaped with exit 143. A subsequent normal foreground resume emitted native SessionStart with the same UUID/cwd and the expected fresh RUN_ID/generation/epoch hints. With `CLAUDE_CODE_RESUME_INTERRUPTED_TURN=0`, an eight-second no-input startup window produced no UserPromptSubmit/Stop callback and no new user/assistant record. The [official environment reference](https://code.claude.com/docs/en/env-vars) documents disabling interrupted-turn auto-continuation with this variable; the foreground observations here, not the print-mode documentation, establish this fixture's behavior.
+
+Two observer failures remain recorded as FAIL. The first sent a raw terminal burst plus Return but observed no UserPromptSubmit; it did not prove a native resume failure. A new explicit question used standard bracketed paste and a separately sent Return, recovered the original first-message marker with the original model/provider, and the actual owner exited 0. Its initial final-count assertion incorrectly counted three native local `/exit` presentation records as replay. A separate metadata verifier checked the actual immutable own record: the old pending input occurs once, the new explicit input once, and the only additional user-shaped rows are the exact local-command caveat/exit/stdout triplet. Correction tests reject arbitrary continuations and duplicate pending input; neither original FAIL was rewritten as PASS.
+
+The resumed run emitted exactly one SessionStart, UserPromptSubmit, Stop and SessionEnd, all matching the original conversation/target and the new injected runtime hints. This is real ordinary-CLI interrupted-context/no-pending-input-replay evidence with **zero model tool calls**, not a pending-tool/approval fixture, a global exclusion proof, current-waiting qualification or certification of the production Runtime adapter. Raw native IDs, conversation bodies and account data were not shared.
+
 ## Native hook input and capture
 
 A test-only additive metadata observer received one native callback each for SessionStart, UserPromptSubmit, Stop and SessionEnd. It read bounded stdin, emitted no stdout/decision, and retained only root field/type inventory, match booleans and hashes in an isolated store. It did not wrap the agent or replace/add a second primary recorder. The original Traceary transcript capture increased exactly once (4 to 5), and the actual native owner exited 0.
@@ -39,7 +47,7 @@ This proves that foreground resume/session-start alone does **not** provide sing
 | Requirement | Status |
 | --- | --- |
 | Exact source and four native hook field/type inventories | Measured above; other tool/permission events NOT_RUN |
-| Same native completed-conversation context/cwd/store/model/provider | PASS foreground completed-context fixture only; two concurrent foreground starts observed. Interrupted mid-turn and safe active/duplicate exclusion remain unqualified |
+| Same native conversation context/cwd/store/model/provider | PASS completed-context and controlled interrupted-context fixtures; two concurrent foreground starts observed. Pending tool/approval and production managed exclusion remain unqualified |
 | Global/per-run primary-handler composition | Duplicate-primary candidate FAILED and rejected; safe descriptor enrichment unqualified |
 | Same-cwd concurrency, independent generation, reused-ID/late/missing-hint/duplicate/reorder/expiry matrix | Incomplete; descriptor/env/cwd/native IDs alone remain unbound |
 | working / waiting_input / waiting_approval / process | Not qualified; permission metadata is not a visible wait or permission decision |

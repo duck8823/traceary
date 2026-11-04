@@ -128,7 +128,7 @@
     "native current working/waiting_input/waiting_approval",
     "same-cwd concurrent native foreground runs",
     "Traceary-managed active/duplicate resume exclusion (#2478), not external native global exclusion",
-    "interrupted mid-turn recovery and no pending-effect replay",
+    "pending tool/approval interruption and product Runtime recovery integration",
     "late/duplicate/reorder/expiry native matrix",
     "Traceary descriptor argument composition",
     "product adapter/source verification and runtime recovery service",
@@ -199,6 +199,32 @@
         143
       ],
       "raw_native_ids_or_prompt_shared": false
+    },
+    {
+      "command": "rtk proxy python3 /private/tmp/traceary-2475-native-interrupted.py",
+      "driver_sha256": "0a35c84a265c666ca93ecad2d8099517606471d929870a04a71e828e2079219a",
+      "result": "FAIL",
+      "local_evidence_path": "/private/tmp/traceary-2475-native-interrupted-result.json",
+      "local_evidence_sha256": "4648617752a30ecfad160f8dbaad4114e223dfe16ab2cc61ba3ad33c553edb74",
+      "raw_native_ids_or_prompt_shared": false,
+      "classification": "FAIL_RAW_PTY_INPUT_NOT_SUBMITTED"
+    },
+    {
+      "command": "rtk proxy python3 /private/tmp/traceary-2475-native-interrupted-pty-input.py",
+      "driver_sha256": "772fe9c2265bea5f8f798f01767d32090227e6412a707a3c5f97c48727e8803c",
+      "result": "FAIL",
+      "local_evidence_path": "/private/tmp/traceary-2475-native-interrupted-pty-input-result.json",
+      "local_evidence_sha256": "a7d6019516b2170db1e7bf72494f3b7fff493b57b048181d985c44b8ad8a36ab",
+      "raw_native_ids_or_prompt_shared": false,
+      "classification": "FAIL_LOCAL_EXIT_ROW_COUNT_ORACLE"
+    },
+    {
+      "command": "rtk proxy python3 /private/tmp/traceary-2475-native-interrupted-verify.py",
+      "driver_sha256": "46642d629c8ba7ec4e0a626f22f34079674070685f0e7169c5658b73964fd81a",
+      "result": "PASS_VERIFIED_NATIVE_INTERRUPTION_CONTEXT_RESUME_NO_PENDING_INPUT_REPLAY",
+      "local_evidence_path": "/private/tmp/traceary-2475-native-interrupted-verified-result.json",
+      "local_evidence_sha256": "a859b65dc302af38d6cab7fd74cfa4aa5be915c61d9fe30244e2bbdf01bdb091",
+      "raw_native_ids_or_prompt_shared": false
     }
   ],
   "optional_correlation_constraint": "Observed prompt_id is prompt correlation, not native turn_id. The current generic Claude path must not be certified as having native turn identity; versioned adapter changes require before-product-code review.",
@@ -228,5 +254,39 @@
     "date": "2026-11-04",
     "issue": 2478,
     "decision": "Old Traceary-managed AI only; explicit normal CLI resume, one managed request per conversation, no replay. External CLI coordination/all-descendant inactivity outside guarantee; no extra server/broker/app-server mode adopted. Unknown managed exit still refuses."
+  },
+  "interrupted_context_resume": {
+    "result": "PASS_VERIFIED_NATIVE_INTERRUPTION_CONTEXT_RESUME_NO_PENDING_INPUT_REPLAY",
+    "actual_profile_version": "2.1.318 (Claude Code)",
+    "native_model": "claude-opus-5-5",
+    "auth_class": "cached_claude.ai_firstParty",
+    "normal_cli_only": true,
+    "actual_original_owned_wait_exit_code": 143,
+    "actual_resumed_owned_wait_exit_code": 0,
+    "same_native_conversation_verified": true,
+    "same_target_and_capture_store": true,
+    "fresh_run_and_generation_verified": true,
+    "original_context_marker_verified": true,
+    "original_pending_input_count": 1,
+    "new_explicit_input_count": 1,
+    "tool_calls_in_this_fixture": 0,
+    "native_lifecycle_event_counts": {
+      "SessionStart": 1,
+      "Stop": 1,
+      "SessionEnd": 1,
+      "UserPromptSubmit": 1
+    },
+    "no_input_startup_observation_seconds": 8,
+    "no_automatic_user_or_assistant_turn_observed": true,
+    "local_exit_user_records": 3,
+    "local_exit_triplet_unit_tests": "PASS; arbitrary continuations/duplicate pending input reject",
+    "terminal_input_method": "clear draft, bracketed paste, then separately explicit Return",
+    "production_runtime_resume_qualified": false,
+    "qualified_current_waiting": false,
+    "pending_tool_or_permission_fixture": "NOT_RUN",
+    "source_urls": [
+      "https://code.claude.com/docs/en/env-vars",
+      "https://code.claude.com/docs/en/headless"
+    ]
   }
 }
