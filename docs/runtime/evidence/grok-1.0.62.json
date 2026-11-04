@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "issue": 2477,
+  "status": "discovery_only_native_execution_unqualified",
+  "base": "508b485bed744324fc404b578cfdc5bda3fd1ede",
+  "version": "grok 1.0.62 (1474f9cbdd91)",
+  "binary_sha256": "ec434e831afdcfce87780f2815fd732b1df8a4a8de96a491716ad75d13605a4e",
+  "binary_kind": "Mach-O arm64 direct executable",
+  "vendor_build_prefix_observed": "1474f9cbdd91",
+  "full_upstream_revision_proven": false,
+  "compatible_range_inferred": false,
+  "option_availability": {
+    "no_memory": {
+      "exit": 0,
+      "unexpected_argument": false,
+      "body_not_shared": true
+    },
+    "no_leader": {
+      "exit": 0,
+      "unexpected_argument": false,
+      "body_not_shared": true
+    },
+    "negative_control": {
+      "exit": 2,
+      "unexpected_argument": true,
+      "body_not_shared": true
+    }
+  },
+  "native_AI_calls": "NOT_RUN",
+  "auth_model_provider_and_effective_tool_policy": "UNQUALIFIED",
+  "global_auth_config_memory_leader_changed": false,
+  "raw_private_data_or_credentials_shared": false,
+  "native_current_and_recovery_enabled": false,
+  "official_hooks_reference": "https://docs.x.ai/build/features/hooks",
+  "vendor_html_sha256": "47fcb22b6268dbc41454687d556c3924c62a4329eb7d6468a73505f7757b1c64",
+  "official_docs_not_native_proof": true,
+  "observed_at": "2026-11-04T19:44:33.019399+00:00"
+}

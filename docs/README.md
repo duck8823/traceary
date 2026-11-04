@@ -28,6 +28,8 @@ This page is the detailed docs index for Traceary. Start here when the top-level
 
 - [Claude Code native qualification](./runtime/claude-2.1.318.md): exact-version evidence, rejected duplicate-handler composition and remaining native gates
 
+- [Grok Build native qualification](./runtime/grok-1.0.62.md): pinned source discovery; native qualification remains incomplete
+
 ## Integrations
 
 - [Native integrations](./integrations/README.md): packaged Claude / Codex / Gemini (legacy) integration bundles, install flows, and smoke tests
