@@ -28,6 +28,8 @@
 - [Runtime 観測の投影](./runtime/observation-projection.ja.md)：因果 reducer、有効期限、最新 snapshot。製品の metadata は未束縛のまま
 - [管理対象AIの明示的な native 復旧](./runtime/managed-recovery.ja.md)：明示 resume の契約、不確定性、現在の対応制限
 
+- [Antigravity native 認定](./runtime/antigravity-1.5.0.ja.md)：1.5.0 source 調査と未完了の native gate
+
 ## 連携まわり
 
 - [ネイティブ連携ガイド](./integrations/README.ja.md): Claude / Codex / Gemini（レガシー）向けパッケージ、導入手順、smoke test

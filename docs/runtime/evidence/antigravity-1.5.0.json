@@ -1,0 +1,18 @@
+{
+  "issue": 2476,
+  "base": "bfcf05e42b7aaec5393bc801178e5c924d05a827",
+  "version": "1.5.0",
+  "source_sha256": "e61679b8ba54abae9a56534208e21f65e1dede6e4eb0144dbd64535f42d07724",
+  "help_sha256": "e92946f85cec63eca61f93014ca49f53b1e84277eac7954e7fac7d8d712940fd",
+  "installed_vendor_hook_docs_sha256": "31749bcc58053efc852a20110e0a90716d235796a03262ae507a1b5f09177898",
+  "official_reference": "https://antigravity.google/docs/hooks",
+  "native_AI_probe": "NOT_RUN",
+  "native_recovery": "UNQUALIFIED",
+  "global_settings_or_auth_changed": false,
+  "timestamp": "2026-11-04T18:13:11.388818+00:00",
+  "status": "discovery_only_native_unqualified",
+  "schema_version": 1,
+  "compatible_range_inferred": false,
+  "native_current_capability_enabled": false,
+  "raw_payload_or_credentials_shared": false
+}
