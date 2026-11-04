@@ -122,6 +122,11 @@ func (r *runtimeRequest) UnmarshalJSON(data []byte) error {
 			return err
 		}
 	}
+	if decoded.Resume != nil {
+		if _, err := selectedObjectFields(data, []string{"protocol_version", "request_id", "operation", "resume"}, nil); err != nil {
+			return err
+		}
+	}
 	*r = runtimeRequest(decoded)
 	return nil
 }
@@ -139,6 +144,11 @@ func (r *runtimeResponse) UnmarshalJSON(data []byte) error {
 	value := runtimeResponse(decoded)
 	if value.Code == "queued" && value.acknowledgmentOnly() {
 		if _, err := selectedObjectFields(data, []string{"protocol_version", "request_id", "code"}, nil); err != nil {
+			return err
+		}
+	}
+	if decoded.Resume != nil {
+		if _, err := selectedObjectFields(data, []string{"protocol_version", "request_id", "code", "resume"}, nil); err != nil {
 			return err
 		}
 	}

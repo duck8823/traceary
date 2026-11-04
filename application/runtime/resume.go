@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"time"
 
@@ -16,6 +17,27 @@ type ResumeRequest struct {
 	Selection            OutputSelection
 	RequestID            string
 	WorkLossAcknowledged bool
+}
+
+// Valid checks syntax and explicit consent, not source/exit/ownership authority.
+func (r ResumeRequest) Valid() bool {
+	if !r.WorkLossAcknowledged || !r.Selection.Identity.Valid() || !(domain.LaunchIdentity{Run: r.Epoch, Generation: r.Epoch, Epoch: r.Epoch}).Valid() {
+		return false
+	}
+	if !validLaunchRequest(LaunchRequest{Epoch: r.Epoch, Worktree: r.Selection.Worktree, Profile: r.Selection.Profile, RequestID: r.RequestID}) {
+		return false
+	}
+	worktree, err := hex.DecodeString(string(r.Selection.Worktree)[2:])
+	if err != nil || hex.EncodeToString(worktree) != string(r.Selection.Worktree)[2:] {
+		return false
+	}
+	_, err = domain.ControlRequestIDFrom(r.RequestID)
+	return err == nil
+}
+
+// ResumeClient sends one explicit management operation, never an implicit retry.
+type ResumeClient interface {
+	Resume(context.Context, string, ResumeRequest) (ResumeResult, error)
 }
 
 // ResumeResult separates recorded outcome from actual in-memory ownership.
@@ -67,8 +89,7 @@ func (s *Runtime) Resume(ctx context.Context, request ResumeRequest) (ResumeResu
 	if request.Epoch != s.epoch {
 		return ResumeResult{}, domain.ErrChanged
 	}
-	launch := LaunchRequest{Epoch: request.Epoch, Worktree: request.Selection.Worktree, Profile: request.Selection.Profile, RequestID: request.RequestID}
-	if !request.WorkLossAcknowledged || !request.Selection.Identity.Valid() || !validLaunchRequest(launch) {
+	if !request.Valid() {
 		return ResumeResult{}, domain.ErrInvalid
 	}
 	journal, ok := s.journal.(RecoveryJournal)
@@ -425,4 +446,12 @@ func (s *Runtime) confirmResume(journal RecoveryJournal, attempt *domain.ResumeA
 		return xerrors.Errorf("retain confirmed recovery result: %w", err)
 	}
 	return nil
+}
+
+// SupportsResume advertises only adapter availability, not any profile/version
+// qualification. Individual source/target/native checks remain mandatory.
+func (s *Runtime) SupportsResume() bool {
+	_, journal := s.journal.(RecoveryJournal)
+	_, native := s.launcher.(NativeResumer)
+	return journal && native
 }
