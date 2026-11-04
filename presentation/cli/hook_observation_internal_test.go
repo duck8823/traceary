@@ -6,6 +6,7 @@ import (
 	"errors"
 	app "github.com/duck8823/traceary/application/runtime"
 	apptypes "github.com/duck8823/traceary/application/types"
+	"github.com/duck8823/traceary/infrastructure/filesystem"
 	"golang.org/x/xerrors"
 	"io"
 	"os"
@@ -34,7 +35,7 @@ func hookObservationFixture() hookObservationConfig {
 func TestHookObservationFollowsPrimaryAndSpoolClearWithoutSecondInput(t *testing.T) {
 	state := t.TempDir()
 	t.Setenv(hookStateDirEnvKey, state)
-	payload := `{"prompt":"PRIVATE_BODY_NOT_TELEMETRY","session_id":"native-session","cwd":"/tmp"}`
+	payload := `{"hook_event_name":"UserPromptSubmit","prompt":"PRIVATE_BODY_NOT_TELEMETRY","session_id":"native-session","cwd":"/tmp"}`
 	var output bytes.Buffer
 	var receipt string
 	primary := false
@@ -53,6 +54,8 @@ func TestHookObservationFollowsPrimaryAndSpoolClearWithoutSecondInput(t *testing
 		return app.ErrDaemonUnavailable
 	}}
 	cli := &RootCLI{runtimeDaemon: client, hookObservation: hookObservationFixture()}
+	cli.claudeObservationClaims = filesystem.NewClaudeObservationClaimDecoder()
+	cli.hookObservation.flags.version = "2.1.318 (Claude Code)"
 	err := cli.runHookDurably(context.Background(), "prompt", hookInvocationSpec{Command: "prompt", Client: "claude"}, strings.NewReader(payload), func(input io.Reader) error {
 		primary = true
 		reader, ok := input.(*explicitHookPayloadReader)

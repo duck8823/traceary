@@ -68,6 +68,12 @@ A later metadata-only test opened the exact same completed synthetic UUID in two
 
 This proves that foreground resume/session-start alone does **not** provide single-process ownership for this installed version. It does not test concurrent model turns, arbitrary descendant quiescence or a stable global lease. Traceary must not infer exclusion from one CLI startup, one history PID, or the fact that its own request is serialized. The corrected test collector checked the actual RUN_ID hint name; no generation or recovery authority is enabled.
 
+## Optional correlation decoder
+
+The exact-version optional decoder accepts canonical `session_id` and matching hook boundary only. It returns no native turn identity: `prompt_id` is not `turn_id`, and a supplied `turn_id` or runtime descriptor is not trusted as a witness. Duplicate/case-aliased critical fields, malformed/trailing JSON, invalid UTF-8, oversized input and mismatched boundaries are rejected without returning payload values. Unknown versions or an absent decoder leave session claims unavailable; primary capture is unchanged.
+
+The application owns the small consumer port, the filesystem infrastructure provides a pure bounded JSON implementation, and the CLI injects it only for optional Claude telemetry after primary capture and spool clearance. No native file, process, auth, global setting, execution mode or generation authority is added. Synthetic parser and actual durable-hook pipeline tests cover byte-identical primary input, original receipt ownership, missing decoder, unknown version, malformed claims and absent daemon. These tests do not certify live state or replace the remaining native negative matrix.
+
 ## Remaining qualification and safety gates
 
 | Requirement | Status |
@@ -77,7 +83,7 @@ This proves that foreground resume/session-start alone does **not** provide sing
 | Global/per-run primary-handler composition | Duplicate-primary candidate FAILED and rejected; distinct private metadata handler preserved exact primary counts in actual Daemon composition; live descriptor enrichment remains unqualified |
 | Same-cwd concurrency, independent generation, reused-ID/late/missing-hint/duplicate/reorder/expiry matrix | Incomplete; descriptor/env/cwd/native IDs alone remain unbound |
 | working / waiting_input / waiting_approval / process | Not qualified; permission metadata is not a visible wait or permission decision |
-| Product adapter, independent implementation review, final-head CI/security/wave | Candidate #2478 integration passed real Daemon completed and interrupted-input recovery; final review/CI/security/wave pending, no issue closure or all-host capability inferred |
+| Product adapter, independent implementation review, final-head CI/security/wave | Candidate #2478 integration passed real Daemon completed and interrupted-input recovery; core independent review/CI/security/wave accepted in #2478; this leaf still requires its own final review/CI/wave and native matrix, no issue closure or all-host capability inferred |
 
 Safe runtime recovery remains #2478: durable verified identity, original source/target/profile, actual old-owner inactivity, session exclusion and crash/duplicate semantics. Exact UUID alone never authorizes execution. In particular, the installed CLI help says background resume can copy an already-running session; background/fork/copy paths are forbidden for recovery. The foreground-opening behavior was measured above; it is not a native global lease. After the maintainer’s explicit 2026-11-04 scope decision in [#2478](https://github.com/duck8823/traceary/issues/2478), recovery guarantees cover the old Traceary-managed AI process and Traceary-managed request exclusion only. Coordinating external native CLI processes or proving every descendant stopped is outside the guarantee. This native limitation must be disclosed, not worked around with an extra server or treated as a requirement to fence external sessions. Managed exclusion and verified old-managed-AI exit remain required in #2478.
 

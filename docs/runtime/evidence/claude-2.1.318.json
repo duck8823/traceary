@@ -415,5 +415,25 @@
     "verified_evidence_sha256": "e3699d91f7c47ad22194f8c6885952ac1cef719aa465eecc75b0961799eb21f3",
     "driver_sha256": "ed4c9ea6e156befed81790a3b3843934595dbf788ad56e6a07da62a9a4d9864c",
     "oracle_correction": "No new native attempt: ANSI/whitespace-normalized own UI matched actual permission choices; exact-space observer initially failed"
+  },
+  "optional_session_claim_decoder": {
+    "status": "implemented_synthetic_tests_pass_native_matrix_incomplete",
+    "literal_version": "2.1.318 (Claude Code)",
+    "output_fields": [
+      "SessionID",
+      "Available"
+    ],
+    "turn_generation_authority": false,
+    "prompt_id_is_not_turn_id": true,
+    "primary_capture_bytes_and_receipt_preserved": true,
+    "fallback_on_unknown_version": "no_optional_claims",
+    "before_code_review_sha256": "aeb7e1f4646b1197704590f1a96800d7a00bef7bc1267e4e5c3d32aaea8297c0",
+    "tests": [
+      "TestClaudeObservationClaimsPreserveOnlyUntrustedSession",
+      "TestClaudeObservationClaimsFailClosedWithoutBodyInErrors",
+      "TestClaudeObservationClaimsUnknownVersionAndCancellation",
+      "TestClaudeOptionalClaimsPreservePrimaryBytesReceiptAndNoTurnAuthority"
+    ],
+    "native_certification": false
   }
 }

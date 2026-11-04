@@ -128,6 +128,19 @@ transcript の欠落を「保留要求がなかった」証明には使いませ
 
 この導入版では foreground resume／session-start だけで**単一 process の所有を保証しない**ことが分かった。同時 model turn、任意の子孫 process の非稼働、安定した global lease は検証していない。CLI 起動1回、履歴中の PID、Traceary 内の要求直列化だけから排他を推論しない。修正 test collector は実際の RUN_ID hint 名を確認したが、generation や復旧の権限は有効にしない。
 
+## 任意の相関 decoder
+
+version が完全一致する任意 decoder は、canonical な `session_id` と対応する hook boundary だけを受け付けます。
+native turn identity は返しません。
+`prompt_id` を `turn_id` に読み替えず、入力中の `turn_id` や runtime descriptor も witness として信頼しません。
+重要 field の重複・大文字小文字の alias、不正 JSON・後続 JSON、不正 UTF-8、入力上限超過、boundary 不一致は、payload 値を返さず拒否します。
+未対応 version や decoder 不在では session claim を付与せず、主要な capture は変更しません。
+
+application が小さな consumer port、filesystem infrastructure が純粋な上限付き JSON 実装を所有し、CLI は主要 capture と spool 消去後の任意 Claude telemetry にだけ接続します。
+native file、process、auth、global 設定、実行方式、generation の権限は追加しません。
+合成 parser と実際の永続 hook pipeline のテストで、主要入力の byte 同一性、元の receipt 所有、decoder 不在、未対応 version、不正 claim、daemon 不在を検証します。
+これらのテストは live state の認定や、残る native negative matrix の代わりにはなりません。
+
 ## 残る認定と安全 gate
 
 | 要求 | 状態 |
