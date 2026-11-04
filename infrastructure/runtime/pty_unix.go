@@ -150,6 +150,16 @@ func (w *boundedVersionOutput) Write(p []byte) (int, error) {
 
 // Start validates policy/target, directly starts the real executable and transfers live ownership.
 func (l *PTYLauncher) Start(ctx context.Context, descriptor domain.LaunchDescriptor) (app.OwnedChild, error) {
+	return l.start(ctx, descriptor, nil)
+}
+
+func (l *PTYLauncher) start(ctx context.Context, descriptor domain.LaunchDescriptor, nativePlan *claudeLaunchPlan) (app.OwnedChild, error) {
+	transferred := false
+	defer func() {
+		if nativePlan != nil && !transferred {
+			nativePlan.close()
+		}
+	}()
 	snapshot := descriptor.Snapshot()
 	if snapshot.State != domain.RunReserved || !snapshot.Identity.Valid() {
 		return nil, domain.ErrInvalid
@@ -162,6 +172,11 @@ func (l *PTYLauncher) Start(ctx context.Context, descriptor domain.LaunchDescrip
 	}
 	if err := l.registry.Revalidate(ctx, snapshot.Target, string(snapshot.Profile.ID())); err != nil {
 		return nil, xerrors.Errorf("revalidate launch target: %w", err)
+	}
+	if nativePlan == nil {
+		// Optional static source planning only. Never wait on native history,
+		// provider status or startup callbacks during a normal launch.
+		nativePlan, _ = l.prepareClaudeLaunch(ctx, snapshot, nil)
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, xerrors.Errorf("validate launch budget: %w", err)
@@ -217,6 +232,22 @@ func (l *PTYLauncher) Start(ctx context.Context, descriptor domain.LaunchDescrip
 	command := exec.Command(snapshot.Profile.Snapshot().Executable)
 	command.Dir = snapshot.Target.Worktree().Path()
 	command.Env = launchEnvironment(l.environment, snapshot.Target.Worktree().Store(), snapshot.Identity)
+	if nativePlan != nil {
+		p := nativePlan.slot.intent.Plan.plan()
+		source, sourceErr := inspectClaudeRecoverySource(ctx, snapshot.Profile, l.environment)
+		if sourceErr != nil || p.Identity != snapshot.Identity || p.CWD != command.Dir || p.Store != snapshot.Target.Worktree().Store() || source.Namespace != p.Namespace {
+			if p.Source == "resume" {
+				_ = slave.Close()
+				_ = unix.Close(fd)
+				return nil, domain.ErrChanged
+			}
+			nativePlan.close()
+			nativePlan = nil
+		} else {
+			command.Args = append([]string{command.Path}, nativePlan.args()...)
+			command.Env = interruptedContinuationDisabled(command.Env)
+		}
+	}
 	if l.historyRoot != "" {
 		// Store-bound launches only: profile --version probes never receive
 		// routing or identity. Missing optional routing cannot abort launch.
@@ -246,6 +277,10 @@ func (l *PTYLauncher) Start(ctx context.Context, descriptor domain.LaunchDescrip
 	}
 	watchErr := watch.bind(ctx, command.Process.Pid)
 	child := &ptyChild{pid: command.Process.Pid, done: make(chan struct{}), output: output, fd: fd, launcher: l, target: snapshot.Target, profile: snapshot.Profile, selection: selection, controlsClosed: watchErr != nil, controlErr: watchErr}
+	if nativePlan != nil {
+		child.nativeRecovery = &ownedClaudeRecovery{slot: nativePlan.slot, environment: append([]string{}, l.environment...)}
+	}
+	transferred = true
 	watchTransferred = true
 	drained := make(chan struct{})
 	stopDrain := make(chan struct{})

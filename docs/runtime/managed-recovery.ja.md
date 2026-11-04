@@ -5,12 +5,13 @@
 ## 実装状況
 
 復旧用 branch では application coordinator、private recovery journal、管理 SDK/IPC、`runtime resume` コマンドを実装しています。
-通常の native CLI adapter と、中断した入力を再実行しないことの実機検証は未完了です。
-そのため、既定の PTY launcher は native resume を capability として通知せず、未対応の要求を拒否します。
+通常の Claude 2.1.318 CLI を使う候補 adapter も実装しています。
+実際の Daemon/CLI で、完了済みの会話と、管理対象AIの入力を実際に中断した会話について、新しい明示入力前に再送せず文脈を復旧する検証に成功しています。
+host 全体の対応認定、最終の独立実装レビュー、最終 head の CI/wave gate は未完了です。
 リリース済みの機能や host の対応認定を意味しません。
 broker、app-server 実行方式、model API、agent wrapper は採用しません。
 
-adapter の前提として、実行ごとの private な起動 metadata 保存と、無出力の内部 SessionStart 処理を実装していますが、通常起動にはまだ接続していません。
+adapter の前提として、実行ごとの private な起動 metadata 保存と、無出力の内部 SessionStart 処理を実装し、source が厳密に一致する対応候補だけに接続しています。
 この処理は主要な session log を記録せず、復旧の権限も確立しません。
 最新の callback が変更、不正、読み取り不完全となった場合、以前の metadata は無効になります。
 private な一時ファイルの後始末は、root の交換や未知のファイルを検出すると削除を拒否します。
@@ -26,12 +27,22 @@ native のローカルな `<synthetic>` model は、model の証拠に使いま�
 認証、provider、コード注入の上書き設定がある場合、経路を切り替えず復旧を未対応とします。
 別の上限付き native `auth status` 検証は、既存のログイン済み first-party subscription の種別を要求します。
 host 認証は native CLI だけが利用し、account 項目と stderr は破棄します。
-既存 host で source と status の検証に成功していますが、所有中の child による復旧処理にはまだ接続していません。
+既存 host で source と status の検証に成功し、所有中の child による復旧処理へ接続しています。
+通常の起動計画は、provider status や native 履歴の確認を待ちません。
 
 所有中の child の metadata を管理する内部処理は、実際の Wait 後に、最新の marker の取得と slot の後始末を同じ lock 内で実施します。
 以前に取得した生存中の binding は使い回しません。
 source、履歴、provider の検証が返すのは metadata だけであり、application の永続化済み終了記録の代わりにはなりません。
-native の起動計画と resume 呼び出しはまだ有効化していないため、通常起動の引数は変わりません。
+対応候補の通常起動は、新しい計画済み `--session-id` と、metadata 専用の `--settings` handler 一つを追加します。
+resume は記録済みの会話を `--resume`、model を `--model` で指定するだけです。
+対応候補では native の中断ターン自動継続を無効にし、入力は送信しません。
+未対応 source の通常起動引数は変わりません。
+
+daemon は、起動時に登録済み source が静的な対応条件を満たす場合だけ resume を通知します。
+各操作は引き続き、正確な target/source/history/model/provider を再検証します。
+capability は daemon の epoch ごとに固定します。
+後から登録した profile でこの任意機能を使うには、明示的に新しい daemon epoch を起動する必要があります。
+自動再起動や PID の adopt は行いません。
 
 ## 安全性の契約
 

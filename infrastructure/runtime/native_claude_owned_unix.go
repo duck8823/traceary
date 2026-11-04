@@ -4,6 +4,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -44,6 +45,28 @@ func (s *ownedClaudeRecovery) event(ctx context.Context) (nativeStartEvent, erro
 	return s.slot.read(ctx)
 }
 
+func (s *ownedClaudeRecovery) confirmedEvent(ctx context.Context) (nativeStartEvent, error) {
+	for {
+		event, err := s.event(ctx)
+		if !errors.Is(err, domain.ErrNotFound) {
+			return event, err
+		}
+		s.mu.Lock()
+		finished := s.finished
+		s.mu.Unlock()
+		if finished {
+			return nativeStartEvent{}, err
+		}
+		timer := time.NewTimer(25 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nativeStartEvent{}, xerrors.Errorf("await owned native startup metadata: %w", ctx.Err())
+		case <-timer.C:
+		}
+	}
+}
+
 // RecoveryBinding does not establish exit: Runtime still requires the actual
 // child's successful Wait plus a durable exact execution receipt separately.
 func (c *ptyChild) RecoveryBinding(ctx context.Context) (domain.RecoveryBinding, error) {
@@ -51,7 +74,7 @@ func (c *ptyChild) RecoveryBinding(ctx context.Context) (domain.RecoveryBinding,
 	if s == nil {
 		return domain.RecoveryBinding{}, domain.ErrUnsupported
 	}
-	event, err := s.event(ctx)
+	event, err := s.confirmedEvent(ctx)
 	if err != nil {
 		return domain.RecoveryBinding{}, err
 	}
