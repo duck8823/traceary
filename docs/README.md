@@ -26,6 +26,8 @@ This page is the detailed docs index for Traceary. Start here when the top-level
 - [Runtime observation projection](./runtime/observation-projection.md): causal reducer, expiry and latest snapshots; production metadata remains unbound
 - [Explicit managed native recovery](./runtime/managed-recovery.md): explicit resume contract, uncertainty and current qualification limits
 
+- [Claude Code native qualification](./runtime/claude-2.1.318.md): exact-version evidence, rejected duplicate-handler composition and remaining native gates
+
 ## Integrations
 
 - [Native integrations](./integrations/README.md): packaged Claude / Codex / Gemini (legacy) integration bundles, install flows, and smoke tests

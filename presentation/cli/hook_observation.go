@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"github.com/duck8823/traceary/application"
 	app "github.com/duck8823/traceary/application/runtime"
 	domain "github.com/duck8823/traceary/domain/runtime"
 	"github.com/spf13/cobra"
@@ -89,6 +90,17 @@ func hookObservationNativeIDs(payload, host string) (string, string) {
 	return session, turn
 }
 
+func (c *RootCLI) claudeHookObservationSession(ctx context.Context, payload, version string, kind domain.ObservationKind) string {
+	if c.claudeObservationClaims == nil {
+		return ""
+	}
+	claim, err := c.claudeObservationClaims.Decode(ctx, application.ClaudeObservationClaimInput{Payload: payload, SourceVersion: version, ExpectedBoundary: kind})
+	if err != nil || !claim.Available {
+		return ""
+	}
+	return claim.SessionID
+}
+
 // deliverHookObservation is deliberately void: optional failures never replace
 // primary capture/stdout/exit, receipt/spool ownership or backlog replay policy.
 func (c *RootCLI) deliverHookObservation(parent context.Context, started time.Time, spec hookInvocationSpec, record hookSpoolRecord) {
@@ -99,7 +111,7 @@ func (c *RootCLI) deliverHookObservation(parent context.Context, started time.Ti
 	ctx, cancel := context.WithTimeout(parent, app.ObservationDeliveryBudget)
 	defer cancel()
 	client, _ := c.runtimeDaemon.(app.SelectedObservationClient)
-	_ = app.NewObservationDelivery(client).Deliver(ctx, config.root, func(context.Context) (app.SelectedObservation, error) {
+	_ = app.NewObservationDelivery(client).Deliver(ctx, config.root, func(deriveCtx context.Context) (app.SelectedObservation, error) {
 		if !explicitObservationRoot(config.root) {
 			return app.SelectedObservation{}, domain.ErrInvalid
 		}
@@ -116,7 +128,12 @@ func (c *RootCLI) deliverHookObservation(parent context.Context, started time.Ti
 			return app.SelectedObservation{}, err
 		}
 		state := value.Metadata.Snapshot()
-		state.NativeSessionID, state.NativeTurnID = hookObservationNativeIDs(record.Payload, host)
+		if host == "claude" {
+			state.NativeSessionID = c.claudeHookObservationSession(deriveCtx, record.Payload, flags.version, kind)
+			state.NativeTurnID = ""
+		} else {
+			state.NativeSessionID, state.NativeTurnID = hookObservationNativeIDs(record.Payload, host)
+		}
 		if metadata, e := domain.DerivedObservationOf(state); e == nil {
 			value.Metadata = metadata
 		}
