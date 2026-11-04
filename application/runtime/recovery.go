@@ -8,7 +8,7 @@ import (
 )
 
 // RecoveryBindingSource belongs to the actual owned native child adapter, not
-// hook/client observations. After Wait, it returns metadata only if its exact
+// hook/client observations. At explicit resume confirmation or after Wait, it returns metadata only if its exact
 // supported native CLI/source, conversation, target and model/provider verify.
 // Missing/delayed/unsupported evidence must return an error. Implementations
 // must honor the bounded context and never resume, adopt, signal or replay input.
@@ -26,7 +26,7 @@ type RecoveryRecorder interface {
 // exit. Optional native evidence never changes a normal launch/exit outcome.
 // Publication uncertainty is not liveness: a separately observed exact owned
 // exit can still qualify; missing exit proof can never be replaced by a PID.
-func (s *Runtime) persistOwnedRecovery(child OwnedChild, snapshot domain.RunSnapshot) {
+func (s *Runtime) persistOwnedRecovery(child OwnedChild, snapshot domain.RunSnapshot, expected domain.RecoveryBinding) {
 	source, ok := child.(RecoveryBindingSource)
 	if !ok {
 		return
@@ -44,6 +44,15 @@ func (s *Runtime) persistOwnedRecovery(child OwnedChild, snapshot domain.RunSnap
 	state := binding.Snapshot()
 	if state.Identity != snapshot.Identity || state.Target != snapshot.Target || state.Profile != snapshot.Profile || state.PID != snapshot.PID || snapshot.State != domain.RunExited {
 		return
+	}
+	if expected != (domain.RecoveryBinding{}) {
+		wanted := expected.Snapshot()
+		wanted.Identity = snapshot.Identity
+		wanted.PID = snapshot.PID
+		verified, err := domain.RecoveryBindingOf(wanted)
+		if err != nil || verified != binding {
+			return
+		}
 	}
 	record, err := domain.NewRecoveryRecord(binding)
 	if err != nil {

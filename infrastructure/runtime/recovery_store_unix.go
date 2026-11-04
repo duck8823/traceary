@@ -238,3 +238,31 @@ func (s *ExecutionStore) SaveResume(ctx context.Context, before, after domain.Re
 		return false, domain.ErrNotFound
 	})
 }
+
+// ListResumeAttempts returns bounded historical request outcomes for explicit
+// inspection. Reserved/unknown records are never reconstructed as live work.
+func (s *ExecutionStore) ListResumeAttempts(ctx context.Context) ([]domain.ResumeAttemptState, error) {
+	result := []domain.ResumeAttemptState{}
+	err := s.metadata.locked(ctx, func(fd int) error {
+		execution, _, err := s.read(fd)
+		if err != nil {
+			return err
+		}
+		doc, _, err := s.readRecovery(fd, execution)
+		if err != nil {
+			return err
+		}
+		for _, row := range doc.Attempts {
+			attempt, err := row.domainAttempt()
+			if err != nil {
+				return err
+			}
+			result = append(result, attempt.Snapshot())
+		}
+		return s.metadata.verifyRoot(fd)
+	})
+	if err != nil {
+		return nil, xerrors.Errorf("list recovery request outcomes: %w", err)
+	}
+	return result, nil
+}

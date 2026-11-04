@@ -13,8 +13,11 @@ import (
 	"sync"
 	"testing"
 
+	app "github.com/duck8823/traceary/application/runtime"
 	domain "github.com/duck8823/traceary/domain/runtime"
 )
+
+var _ app.RecoveryJournal = (*ExecutionStore)(nil)
 
 func TestRecoveryJournalConcurrentReserveAndReopenNeverRearms(t *testing.T) {
 	audit, root := recoveryMetadataFixture(t)
@@ -94,6 +97,16 @@ func TestRecoveryJournalConcurrentReserveAndReopenNeverRearms(t *testing.T) {
 	if err != nil || fresh || saved.Phase != domain.ResumeUnknown {
 		t.Fatalf("unknown replay lost: %+v %v %v", saved, fresh, err)
 	}
+	listed, err := reopened.ListResumeAttempts(ctx)
+	if err != nil || len(listed) != 1 || listed[0] != saved {
+		t.Fatalf("lost persisted attempt inspection: %+v %v", listed, err)
+	}
+	listed[0].Phase = domain.ResumeReserved
+	listed, err = reopened.ListResumeAttempts(ctx)
+	if err != nil || listed[0].Phase != domain.ResumeUnknown {
+		t.Fatal("inspection mutated stored outcome")
+	}
+
 }
 
 func TestRecoveryJournalImmutableReceiptAndCanceledReservation(t *testing.T) {
