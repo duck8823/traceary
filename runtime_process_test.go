@@ -22,15 +22,12 @@ import (
 )
 
 func TestRuntimeCLIEndToEndRegistrationLaunchAndListWithoutHomeOrCoreBootstrap(t *testing.T) {
-	for _, control := range []bool{false, true} {
-		name := "output"
-		if control {
-			name = "controls"
-		}
-		t.Run(name, func(t *testing.T) { runtimeCLIProcessFixture(t, control) })
+	for _, mode := range []string{"output", "controls", "observe"} {
+		t.Run(mode, func(t *testing.T) { runtimeCLIProcessFixture(t, mode) })
 	}
 }
-func runtimeCLIProcessFixture(t *testing.T, control bool) {
+func runtimeCLIProcessFixture(t *testing.T, mode string) {
+	control := mode == "controls"
 	t.Helper()
 	base := os.TempDir()
 	if runtime.GOOS == "darwin" {
@@ -74,6 +71,11 @@ func main(){
  control:=os.Getenv("TRACEARY_TEST_RUNTIME_CONTROL")=="1"
  if control {if _,e:=term.MakeRaw(0);e!=nil{os.Exit(94)};os.WriteFile(result+".ready",[]byte("ready"),0600)}
  os.Stdout.Write(bytes.Repeat([]byte("x"),2*1024*1024))
+ if os.Getenv("TRACEARY_TEST_RUNTIME_OBSERVE")=="1" {
+  deadline:=time.Now().Add(15*time.Second)
+  for {if _,e:=os.Stat(result+".observe-release");e==nil{break};if time.Now().After(deadline){os.Exit(92)};time.Sleep(5*time.Millisecond)}
+ }
+
  if control {
   raw:=make([]byte,5);if _,e:=io.ReadFull(os.Stdin,raw);e!=nil{os.Exit(95)};os.WriteFile(result+".input",raw,0600)
   marker:=make([]byte,1);if _,e:=io.ReadFull(os.Stdin,marker);e!=nil{os.Exit(95)}
@@ -106,6 +108,10 @@ func main(){
 		if control {
 			cmd.Env = append(cmd.Env, "TRACEARY_TEST_RUNTIME_CONTROL=1")
 		}
+		if mode == "observe" {
+			cmd.Env = append(cmd.Env, "TRACEARY_TEST_RUNTIME_OBSERVE=1")
+		}
+
 		return cmd
 	}
 	jsonCommand := func(args ...string) map[string]any {
@@ -185,6 +191,17 @@ func main(){
 	launched := jsonCommand("runtime", "launch", "--runtime-dir", metadata, "--epoch", status.Epoch, "--worktree", w["id"].(string), "--profile", "codex-fixture", "--request-id", "explicit-fixture-request")
 	if launched["request_id"] != "explicit-fixture-request" {
 		t.Fatal("launch receipt lost request")
+	}
+	if mode == "observe" {
+		target := launched["run"].(map[string]any)
+		args := []string{"runtime", "observe", "--runtime-dir", metadata, "--epoch", status.Epoch, "--run", target["run"].(string), "--generation", target["generation"].(string), "--worktree", w["id"].(string), "--profile", "codex-fixture", "--host", "codex", "--host-version", "fixture-runtime 1", "--event-id", "spool:actual-cli", "--kind", "prompt_boundary"}
+		observed := jsonCommand(args...)
+		if len(observed) != 4 || observed["outcome"] != "queued" || observed["binding"] != "unbound" || observed["authority"] != "admission_only" {
+			t.Fatal("actual CLI did not deliver admission-only metadata", observed)
+		}
+		if err = os.WriteFile(resultFile+".observe-release", []byte("release finite owned fixture"), 0600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	expectedExit := 7
 	if control {

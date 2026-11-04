@@ -2,8 +2,8 @@
 
 [English](./history-reconciliation.md)
 
-実装途中です。maintenance に譲る SQLite 読取 capability、domain/application の履歴 page、実 SQLite reader/source adapter、公開 daemon SDK/CLI transport、coarse hint transport は実装済みです。
-任意の commit 後 hint 生成と信頼済み managed root への配送は実装済みです。metadata audit/preview/forget は対応する v1 lifecycle envelope と endpoint envelope も扱いますが、最終検証と delivery gate は未完了です。リリース可能・native host/session の復旧認定済みとは扱いません。
+履歴照合の leaf は実装・レビュー・マージが完了し、`main` に含まれています。未リリースの source 上の機能であり、配布済み daemon の保証ではありません。maintenance に譲る SQLite 読取 capability、domain/application の履歴 page、実 SQLite reader/source adapter、公開 daemon SDK/CLI transport、coarse hint transport は実装済みです。
+任意の commit 後 hint 生成と信頼済み managed root への配送は実装済みです。metadata audit/preview/forget は対応する v1 lifecycle envelope と endpoint envelope も扱いますが、この leaf の独立実装レビュー・固定 source の統合検証・マージは完了しています。daemon 全体・実機/native・リリースの検証は別です。リリース可能・native host/session の復旧認定済みとは扱いません。
 
 ## store の正本と reader の寿命
 
@@ -20,7 +20,7 @@
 公開 daemon transport と CLI は、履歴 core を厳密な要求照合、有界 frame、正しい prefix と継続位置の制御を伴って公開しています。
 commit 後の hint は capture 結果、標準出力、spool 所有権、receipt 冪等性を変更してはいけません。
 明示 runtime metadata export/forget では範囲、version、上限、同意、部分変更の不確定性を定義し、Registry、core 履歴、Git data、native 会話を削除してはいけません。
-lifecycle の最終検証、独立した実装レビューと delivery gate が残っています。別の実 prepared upgrade と filesystem spool fixture の検証を後述しますが、実 host の認定ではありません。
+履歴 leaf の独立実装レビュー・同一 head の CI・マージ後検証は完了しています。lifecycle 統合・native host・リリースの最終検証は残っています。別の実 prepared upgrade と filesystem spool fixture の検証を後述しますが、実 host の認定ではありません。
 これらは未完了の delivery 作業であり、現在の daemon が提供済みの capability ではありません。
 
 ## commit 済み page と登録済みの読取 source
@@ -140,7 +140,7 @@ offline endpoint 検証は、保持する lifecycle epoch を新たな daemon �
 sidecar の一括削除、orphan の自動 cleanup、endpoint 回収や native 復旧は提供しません。
 
 **delivery は未完了です。**
-固定した実 lifecycle producer/reader との検証、最終独立実装レビューと新しい CI/security/merge/wave gate が必要です。
+固定した実 lifecycle producer/reader fixture の検証、独立実装レビュー、新しい CI とマージ後検証は完了しています。lifecycle 全体・daemon wave・リリースの最終 gate は残っています。
 この監査操作は native 会話の再開を実装、認定するものではありません。
 
 ## 実 compaction と所有 PTY の検証
@@ -182,10 +182,12 @@ runtime 履歴全件と既存 CLI metadata query の結果も一致させます�
 daemon の別 drainer、native 入力、実 AI は追加しません。
 
 これらは生成 SQLite/filesystem と所有有限 PTY の検証であり、性能 benchmark、fresh-store bootstrap の採用、実 host/会話の復旧認定ではありません。
-実 schema の確定後の recovery format 統合、最終独立実装レビュー、新しい CI/security、merge/wave gate は引き続き必要です。
+実 schema の確定後の recovery format 統合と、daemon 全体・native・wave・リリースの最終 gate は引き続き必要です。
 
 compaction の診断用 build-progress worker は、停止時に実際の終了まで join します。
 停止の反復・同時呼出しも扱い、cancel だけを完了とは扱いません。
 phase の移行や出力 consumer が最後の emit と競合せず、設定は worker 起動前に取り込みます。
 他の所有 I/O と同様、任意の writer/filesystem が停止したままなら、その I/O が戻るまで join できません。
 見せかけの完了 timeout は提供しません。
+
+新しい descriptor や recovery schema は、実際の metadata inventory・budget・各書込 prefix が有効な forget 契約を拡張する必要があります。完了した履歴 leaf が新 schema を認定するわけではありません。

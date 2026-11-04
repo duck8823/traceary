@@ -22,6 +22,8 @@ This page is the detailed docs index for Traceary. Start here when the top-level
 - [Local daemon IPC](./runtime/daemon-ipc.md): explicit foreground transport, private Unix endpoints, protocol and failure boundaries
 - [History reconciliation and maintenance](./runtime/history-reconciliation.md): yielding read capability and remaining reconciliation contracts
 
+- [Native observation delivery design checkpoint](./runtime/native-observation-delivery.md): proposed boundaries and before-code validation; not an implemented CLI surface
+
 ## Integrations
 
 - [Native integrations](./integrations/README.md): packaged Claude / Codex / Gemini (legacy) integration bundles, install flows, and smoke tests

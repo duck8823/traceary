@@ -12,18 +12,19 @@ import (
 )
 
 type runtimeRequest struct {
-	History     *historyRequestRecord        `json:"history,omitempty"`
-	HistoryHint *struct{}                    `json:"history_hint,omitempty"`
-	Control     *controlRequestRecord        `json:"control,omitempty"`
-	Receipt     *controlReceiptRequestRecord `json:"receipt,omitempty"`
-	Attach      *outputAttachRecord          `json:"attach,omitempty"`
-	Version     int                          `json:"protocol_version"`
-	ID          string                       `json:"request_id"`
-	Operation   string                       `json:"operation"`
-	Role        string                       `json:"role,omitempty"`
-	Observation *observationRecord           `json:"observation,omitempty"`
-	Launch      *launchRequestRecord         `json:"launch,omitempty"`
-	Page        *runPageRequestRecord        `json:"page,omitempty"`
+	SelectedObservation *selectedObservationRecord   `json:"selected_observation,omitempty"`
+	History             *historyRequestRecord        `json:"history,omitempty"`
+	HistoryHint         *struct{}                    `json:"history_hint,omitempty"`
+	Control             *controlRequestRecord        `json:"control,omitempty"`
+	Receipt             *controlReceiptRequestRecord `json:"receipt,omitempty"`
+	Attach              *outputAttachRecord          `json:"attach,omitempty"`
+	Version             int                          `json:"protocol_version"`
+	ID                  string                       `json:"request_id"`
+	Operation           string                       `json:"operation"`
+	Role                string                       `json:"role,omitempty"`
+	Observation         *observationRecord           `json:"observation,omitempty"`
+	Launch              *launchRequestRecord         `json:"launch,omitempty"`
+	Page                *runPageRequestRecord        `json:"page,omitempty"`
 }
 type observationRecord struct {
 	Host            string `json:"host"`
