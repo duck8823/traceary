@@ -142,3 +142,21 @@ plan_tier は未観測であり、provider/認証 class は未認定です。
 statusLine は入力前の構造化 metadata を得る具体的候補ですが、復旧全体の成功ではありません。
 製品利用には、process 内の表示上書きに対する明示採用、source/order/model 確定の設計と review、新 session の動的 identity binding、残る native fault matrix が必要です。
 この実測で native 現在状態・承認権限、wrapper、broker、app-server を導入していません。
+
+その後、ユーザーは **Traceary 管理下の AGY1.5.0 process 内だけ**の metadata 経路の採用と、その process の custom statusLine 表示の一時置換を許可しました。
+global 設定、元の記録 hook、認証、native model default の変更は許可していません。
+provider・最終 model・順序の検証が終わるまで、復旧成功を公開しません。
+独立 review は入力前 surface の存在を確認しましたが、過去の any-match 選択と A-B-A を失う fingerprint 重複排除は、製品の latest binding protocol には使えないと指摘しました。
+今回の実測は一致する callback の存在であり、安定した最新 binding の証明ではありません。
+launcher や復旧を有効にする前に、独立した dormant な private codec を設計しています。
+
+dormant な infrastructure-private statusLine codec を実装しました。
+返すのは session・正規 path・model の縮約表現と account field の存在 boolean だけです。
+version1.5.0/product、UUIDv4 alias の一致、current cwd、native catalog の model label、完全な UTF-8、重複・alias 拒否と上限（1MiB、object128 key、array128件、root を含む container16段）を検証します。
+初期化中の snapshot は binding にせず、未対応版・model や不正・矛盾入力では固定 sentinel と zero result を返します。
+account 値やその hash、agent state、承認、provider class は返しません。
+A-B-A は別々に decode され、latest/any-match/重複排除 protocol は実装していません。
+この codec は **launcher、private slot、復旧成功の経路へ接続していません**。
+元の Claude codec と journal 規則は変更していません。
+1回の検証に使った process 限定 settings file は、実 Wait 後に作成時 hash が一致することを確認して削除しました。
+collector は private な証拠 artifact としてだけ保持しています。

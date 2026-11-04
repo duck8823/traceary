@@ -96,7 +96,11 @@
     "traceary-2476-statusline-manifest.json": "8a566c3c5c10c08e0d35bf7c26d6ca8223b5de6bb5a6cc35f28f4804db6bf922",
     "traceary-2476-own-full-history-schema.json": "1bbec490917f7c4ba5c1316596523a2d31584aa98baab5f7929c5cbaeab31c29",
     "traceary-2476-own-message-schema.json": "033df7bcdb348bd6802967e25c3c4728ae13bc09ca9e279a2f5e7db63e604cbd",
-    "traceary-2476-recovery-feasibility-audit.json": "d717b50c7dcf43141be2ef3591a4d6f101079937e06cdaed407f1db0cbc3341c"
+    "traceary-2476-recovery-feasibility-audit.json": "d717b50c7dcf43141be2ef3591a4d6f101079937e06cdaed407f1db0cbc3341c",
+    "statusline_feasibility_review_sha256": "21a14002496fea623d9e6369c5edebbb0be3169b162ec250104449180b7df069",
+    "traceary-2476-statusline-codec-design-review.json": "107f4e3f65a5c706841c5c9e6715d3febfe80448639a55e5ec312c915d0eded3",
+    "traceary-2476-statusline-codec-source-manifest.json": "041926540ae43f4117f4020da2624ec34f33391751c5b61a009ca0ccbe517e48",
+    "traceary-2476-statusline-cleanup.json": "4b3bc1f143588bb525f02a85a4e333bc93383827da6beade7d719c59eb3eb7aa"
   },
   "native_metadata_probe": {
     "primary_capture_counts": {
@@ -371,5 +375,31 @@
       "genuine interrupted state coverage",
       "final family review/CI/security/wave"
     ]
+  },
+  "metadata_channel_authorization": {
+    "source": "explicit subsequent maintainer reply in this session",
+    "authorized": true,
+    "scope": "Traceary-managed AGY1.5.0 processes only",
+    "permitted_per_process_display_override": true,
+    "global_settings_original_hooks_authentication_native_model_defaults_unchanged": true,
+    "runtime_recovery_enabled": false,
+    "provider_final_model_ordering_qualification_still_required": true,
+    "authorization_artifact_sha256": "199c6ff6dfd10d0f27f2396da33889f62974738da22883258cec29e639ade30e"
+  },
+  "private_statusline_codec": {
+    "implemented": true,
+    "wired_to_launcher_or_recovery": false,
+    "representation_only": true,
+    "source_version_literal": "1.5.0",
+    "product_literal": "antigravity",
+    "model_catalog_label_mapping_not_native_variant_certification": true,
+    "account_presence_not_provider_class": true,
+    "raw_account_value_or_hash_retained": false,
+    "deduplication_or_any_match_selection": false,
+    "max_bytes": 1048576,
+    "max_object_keys": 128,
+    "max_array_items": 128,
+    "max_json_container_depth_root_included": 16,
+    "source_provenance_ordering_control_or_recovery_authority": false
   }
 }
