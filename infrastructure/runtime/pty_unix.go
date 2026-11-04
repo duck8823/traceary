@@ -32,6 +32,7 @@ const maxExecutableBytes int64 = 512 * 1024 * 1024
 type PTYLauncher struct {
 	registry    app.TargetRegistry
 	environment []string
+	historyRoot string
 }
 
 // NewPTYLauncher snapshots trusted composition-time environment without persisting it.
@@ -43,6 +44,21 @@ func NewPTYLauncher(registry app.TargetRegistry, environment []string) (*PTYLaun
 		environment = os.Environ()
 	}
 	return &PTYLauncher{registry: registry, environment: append([]string{}, environment...)}, nil
+}
+
+// NewPTYLauncherWithHistoryRoot binds explicit daemon routing at composition
+// time. It neither starts a daemon nor changes native arguments/authentication.
+// Legacy launchers remain hint-free, even with ambient TRACEARY_RUNTIME_DIR.
+func NewPTYLauncherWithHistoryRoot(registry app.TargetRegistry, environment []string, root string) (*PTYLauncher, error) {
+	if !validHistoryHintRoot(root) {
+		return nil, domain.ErrUnsafe
+	}
+	launcher, err := NewPTYLauncher(registry, environment)
+	if err != nil {
+		return nil, err
+	}
+	launcher.historyRoot = root
+	return launcher, nil
 }
 
 // InspectProfile is an explicit trusted-operator preflight. It fixes canonical executable
@@ -201,6 +217,13 @@ func (l *PTYLauncher) Start(ctx context.Context, descriptor domain.LaunchDescrip
 	command := exec.Command(snapshot.Profile.Snapshot().Executable)
 	command.Dir = snapshot.Target.Worktree().Path()
 	command.Env = launchEnvironment(l.environment, snapshot.Target.Worktree().Store(), snapshot.Identity)
+	if l.historyRoot != "" {
+		// Store-bound launches only: profile --version probes never receive
+		// routing or identity. Missing optional routing cannot abort launch.
+		if validHistoryHintRoot(l.historyRoot) {
+			command.Env = append(command.Env, "TRACEARY_RUNTIME_DIR="+l.historyRoot)
+		}
+	}
 	command.Stdin = slave
 	command.Stdout = slave
 	command.Stderr = slave

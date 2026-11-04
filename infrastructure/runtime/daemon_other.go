@@ -46,6 +46,19 @@ func (d *LocalDaemon) Receipt(context.Context, string, app.OutputSelection, stri
 	return app.ControlResult{}, app.ErrRuntimeUnsupported
 }
 
+// HistoryPage refuses unsupported native transport rather than opening a core store.
+func (d *LocalDaemon) HistoryPage(context.Context, string, app.RemoteHistoryRequest) (app.HistoryResult, error) {
+	return app.HistoryResult{}, app.ErrRuntimeUnsupported
+}
+
+// HintHistory never starts an unsupported daemon or falls back to network transport.
+func (d *LocalDaemon) HintHistory(context.Context, string) error { return app.ErrRuntimeUnsupported }
+
+// NewHistoryService never opens unchecked metadata on unsupported platforms.
+func NewHistoryService(context.Context, string) (*app.History, error) {
+	return nil, app.ErrRuntimeUnsupported
+}
+
 // PreviewShutdown has no unchecked non-Unix transport fallback.
 func (d *LocalDaemon) PreviewShutdown(context.Context, string, string) (app.ShutdownPreviewPage, error) {
 	return app.ShutdownPreviewPage{}, app.ErrRuntimeUnsupported

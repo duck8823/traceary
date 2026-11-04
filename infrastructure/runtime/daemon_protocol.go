@@ -12,6 +12,8 @@ import (
 )
 
 type runtimeRequest struct {
+	History     *historyRequestRecord        `json:"history,omitempty"`
+	HistoryHint *struct{}                    `json:"history_hint,omitempty"`
 	Lifecycle   *lifecycleRequestRecord      `json:"lifecycle,omitempty"`
 	Control     *controlRequestRecord        `json:"control,omitempty"`
 	Receipt     *controlReceiptRequestRecord `json:"receipt,omitempty"`
@@ -37,16 +39,18 @@ type observationRecord struct {
 	Kind            string `json:"kind"`
 }
 type runtimeResponse struct {
-	Lifecycle *lifecycleResponseRecord `json:"lifecycle,omitempty"`
-	Control   *controlResultRecord     `json:"control,omitempty"`
-	Output    *outputRecord            `json:"output,omitempty"`
-	Version   int                      `json:"protocol_version"`
-	ID        string                   `json:"request_id"`
-	Code      string                   `json:"code"`
-	Role      string                   `json:"role,omitempty"`
-	Status    *runtimeStatusRecord     `json:"status,omitempty"`
-	Run       *launchRecord            `json:"run,omitempty"`
-	Page      *runPageRecord           `json:"page,omitempty"`
+	History     *historyResultRecord     `json:"history,omitempty"`
+	HistoryHint *historyHintRecord       `json:"history_hint,omitempty"`
+	Control     *controlResultRecord     `json:"control,omitempty"`
+	Output      *outputRecord            `json:"output,omitempty"`
+	Version     int                      `json:"protocol_version"`
+	ID          string                   `json:"request_id"`
+	Code        string                   `json:"code"`
+	Role        string                   `json:"role,omitempty"`
+	Status      *runtimeStatusRecord     `json:"status,omitempty"`
+	Run         *launchRecord            `json:"run,omitempty"`
+	Page        *runPageRecord           `json:"page,omitempty"`
+	Lifecycle   *lifecycleResponseRecord `json:"lifecycle,omitempty"`
 }
 type launchRequestRecord struct {
 	Epoch     string `json:"epoch"`

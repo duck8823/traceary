@@ -198,6 +198,31 @@ func TestEndpointReceiptStrictCodecRejectsMalformedAndUnsafeEvidence(t *testing.
 		}
 	}
 }
+func TestEndpointReceiptVersionDiscrimination(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		body string
+		want error
+	}{
+		{"future", `{"version":2,"future":true}`, domain.ErrUnsupported},
+		{"future_null", `{"version":2,"future":null}`, domain.ErrUnsupported},
+		{"future_nested_null", `{"version":2,"future":{"value":null}}`, domain.ErrUnsupported},
+		{"future_duplicate", `{"version":2,"future":null,"future":true}`, domain.ErrInvalid},
+		{"future_trailing", `{"version":2} {}`, domain.ErrInvalid},
+		{"missing_version", `{"future":null}`, domain.ErrInvalid},
+		{"null_version", `{"version":null}`, domain.ErrInvalid},
+		{"v1_null", `{"version":1,"revision":null}`, domain.ErrInvalid},
+		{"v1_unknown", `{"version":1,"future":true}`, domain.ErrInvalid},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := decodeEndpointReceipt([]byte(tt.body), "root", strings.Repeat("f", 32))
+			if !errors.Is(err, tt.want) {
+				t.Fatalf("decode error = %v, want %v", err, tt.want)
+			}
+		})
+	}
+}
+
 func TestEndpointReceiptFailureDoesNotPublishEpochOrIgnoreSharedBudget(t *testing.T) {
 	root := receiptRoot(t)
 	// A private sparse sibling consumes the envelope without supplying any socket

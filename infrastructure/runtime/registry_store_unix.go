@@ -252,6 +252,12 @@ func (s *RegistryStore) metadataBudget(dir int, target string, size int64) error
 	return nil
 }
 func (s *RegistryStore) writeMetadata(ctx context.Context, dir int, target string, data []byte, old *unix.Stat_t) error {
+	return s.writeMetadataChecked(ctx, dir, target, data, old, nil)
+}
+
+// writeMetadataChecked adds an operation-specific external ownership check at
+// the actual replace boundary. Ordinary writers keep their existing nil policy.
+func (s *RegistryStore) writeMetadataChecked(ctx context.Context, dir int, target string, data []byte, old *unix.Stat_t, ownership func() error) error {
 	if err := s.metadataBudget(dir, target, int64(len(data))); err != nil {
 		return err
 	}
@@ -299,6 +305,11 @@ func (s *RegistryStore) writeMetadata(ctx context.Context, dir int, target strin
 	} else if err != nil || !privateRegular(current) || current.Dev != old.Dev || current.Ino != old.Ino {
 		return domain.ErrChanged
 	}
+	if ownership != nil {
+		if err = ownership(); err != nil {
+			return err
+		}
+	}
 	if err = unix.Renameat(dir, name, dir, target); err != nil {
 		return xerrors.Errorf("replace runtime registry: %w", err)
 	}
@@ -308,6 +319,11 @@ func (s *RegistryStore) writeMetadata(ctx context.Context, dir int, target strin
 	}
 	if err = s.verifyRoot(dir); err != nil {
 		return ErrCommitUncertain
+	}
+	if ownership != nil {
+		if err = ownership(); err != nil {
+			return ErrCommitUncertain
+		}
 	}
 	return nil
 }

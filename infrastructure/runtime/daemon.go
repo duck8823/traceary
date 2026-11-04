@@ -25,6 +25,8 @@ type DaemonOptions struct {
 	IOTimeout                                                                          time.Duration
 	// RuntimeFactory is trusted composition only, never client-supplied policy.
 	RuntimeFactory app.Factory
+	// HistoryFactory supplies only read-only history, never opens core stores at startup.
+	HistoryFactory app.HistoryFactory
 	// CausalReceiver selects live native projection intake instead of legacy
 	// history delivery. Trusted composition only, never a client/config grant.
 	CausalReceiver app.CausalObservationReceiver

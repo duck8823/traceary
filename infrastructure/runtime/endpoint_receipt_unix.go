@@ -10,12 +10,10 @@ import (
 	app "github.com/duck8823/traceary/application/runtime"
 	domain "github.com/duck8823/traceary/domain/runtime"
 	"golang.org/x/sys/unix"
-	"io"
 	"math"
 	"net"
 	"os"
 	"path/filepath"
-	"unicode/utf8"
 )
 
 const maxEndpointReceiptBytes int64 = 4096
@@ -64,33 +62,11 @@ func sameSocketIdentity(a, b unix.Stat_t) bool {
 }
 func decodeEndpointReceipt(data []byte, witness, currentEpoch string) (endpointReceipt, error) {
 	invalid := domain.ErrInvalid
-	if !utf8.Valid(data) {
-		return endpointReceipt{}, invalid
-	}
-	if err := uniqueJSONValue(json.NewDecoder(bytes.NewReader(data)), 0); err != nil {
-		return endpointReceipt{}, invalid
-	}
-	tokens := json.NewDecoder(bytes.NewReader(data))
-	for {
-		token, err := tokens.Token()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil || token == nil {
-			return endpointReceipt{}, invalid
-		}
-	}
-	var header struct {
-		Version *int `json:"version"`
-	}
-	if json.Unmarshal(data, &header) != nil || header.Version == nil {
-		return endpointReceipt{}, invalid
-	}
-	if *header.Version != 1 {
-		return endpointReceipt{}, domain.ErrUnsupported
-	}
 	var doc endpointReceipt
-	if decodeControlMetadata(data, &doc) != nil || doc.Revision == nil || *doc.Revision < 1 || !validLifecycleID(doc.Epoch) || doc.Epoch == currentEpoch || doc.RootWitness != witness || len(doc.Endpoints) != 2 {
+	if err := decodeControlMetadata(data, &doc); err != nil {
+		return endpointReceipt{}, err
+	}
+	if doc.Revision == nil || *doc.Revision < 1 || !validLifecycleID(doc.Epoch) || doc.Epoch == currentEpoch || doc.RootWitness != witness || len(doc.Endpoints) != 2 {
 		return endpointReceipt{}, invalid
 	}
 	for i, r := range doc.Endpoints {

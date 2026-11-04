@@ -20,15 +20,18 @@ const (
 )
 
 type eventUsecase struct {
-	eventRepo    model.EventRepository
-	eventQuery   queryservice.EventReadQueryService
-	auditPayload queryservice.CommandAuditPayloadQueryService
+	commitObserver EventCommitObserver
+	commitHintSlot chan struct{}
+	eventRepo      model.EventRepository
+	eventQuery     queryservice.EventReadQueryService
+	auditPayload   queryservice.CommandAuditPayloadQueryService
 }
 
 // NewEventUsecase creates an EventUsecase.
 func NewEventUsecase(
 	eventRepo model.EventRepository,
 	eventQuery queryservice.EventReadQueryService,
+	options ...EventUsecaseOption,
 ) EventUsecase {
 	var auditPayload queryservice.CommandAuditPayloadQueryService
 	if payload, ok := any(eventQuery).(queryservice.CommandAuditPayloadQueryService); ok {
@@ -41,11 +44,17 @@ func NewEventUsecase(
 			auditPayload = payload
 		}
 	}
-	return &eventUsecase{
+	u := &eventUsecase{
 		eventRepo:    eventRepo,
 		eventQuery:   eventQuery,
 		auditPayload: auditPayload,
 	}
+	for _, option := range options {
+		if option != nil {
+			option(u)
+		}
+	}
+	return u
 }
 
 func (u *eventUsecase) Log(ctx context.Context, message string, kind types.EventKind, client types.Client, agent types.Agent, sessionID types.SessionID, workspace types.Workspace, logCfg apptypes.LogRedaction) (apptypes.EventWriteResult, error) {
@@ -118,6 +127,7 @@ func (u *eventUsecase) Log(ctx context.Context, message string, kind types.Event
 		return apptypes.EventWriteResult{}, xerrors.Errorf("failed to save log event: %w", err)
 	}
 
+	u.notifyCommittedHistory(ctx)
 	return apptypes.EventWriteResultOf(event, event.PersistInserted()), nil
 }
 
@@ -132,6 +142,7 @@ func (u *eventUsecase) DeleteTranscript(ctx context.Context, eventID types.Event
 	if err := u.eventRepo.DeleteTranscript(ctx, parsed); err != nil {
 		return xerrors.Errorf("failed to delete transcript event: %w", err)
 	}
+	u.notifyCommittedHistory(ctx)
 	return nil
 }
 
@@ -235,6 +246,7 @@ func (u *eventUsecase) Audit(ctx context.Context, in apptypes.AuditInput, auditC
 		commandAudit.RebindEventID(event.EventID())
 	}
 
+	u.notifyCommittedHistory(ctx)
 	return apptypes.EventWriteResultOf(event, event.PersistInserted()), commandAudit, nil
 }
 

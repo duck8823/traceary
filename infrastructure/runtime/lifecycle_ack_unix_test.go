@@ -18,7 +18,7 @@ import (
 )
 
 func TestShutdownSDKLostMalformedContradictoryAndQueuedAckNeverReplay(t *testing.T) {
-	for _, mode := range []string{"lost", "malformed", "mismatched", "contradictory", "queued", "known_rejection", "delivered"} {
+	for _, mode := range []string{"lost", "malformed", "mismatched", "contradictory", "queued", "known_rejection", "history_contamination", "delivered"} {
 		t.Run(mode, func(t *testing.T) {
 			base := os.TempDir()
 			if goruntime.GOOS == "darwin" {
@@ -86,6 +86,8 @@ func TestShutdownSDKLostMalformedContradictoryAndQueuedAckNeverReplay(t *testing
 				result := recordShutdown(app.ShutdownResult{Binding: binding, Outcome: domain.ShutdownDraining})
 				reply := runtimeResponse{Version: 1, ID: request.ID, Code: "ok", Lifecycle: &lifecycleResponseRecord{Decision: &result}}
 				switch mode {
+				case "history_contamination":
+					reply.HistoryHint = &historyHintRecord{Revision: "1", Overflow: new(bool)}
 				case "malformed":
 					reply.Lifecycle = &lifecycleResponseRecord{}
 				case "mismatched":
