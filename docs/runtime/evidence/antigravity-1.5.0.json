@@ -6,11 +6,11 @@
   "help_sha256": "e92946f85cec63eca61f93014ca49f53b1e84277eac7954e7fac7d8d712940fd",
   "installed_vendor_hook_docs_sha256": "31749bcc58053efc852a20110e0a90716d235796a03262ae507a1b5f09177898",
   "official_reference": "https://antigravity.google/docs/hooks",
-  "native_AI_probe": "PASS first synthetic foreground marker after human folder trust",
+  "native_AI_probe": "PASS marker/context plus incremental capture; actual cleanup0 in later metadata fixture",
   "native_recovery": "UNQUALIFIED",
   "global_settings_or_auth_changed": false,
   "timestamp": "2026-11-04T18:13:11.388818+00:00",
-  "status": "native_completed_context_observed_cleanup_pending_not_recovery_qualified",
+  "status": "ordinary_native_context_capture_and_metadata_measured_recovery_unqualified",
   "schema_version": 1,
   "compatible_range_inferred": false,
   "native_current_capability_enabled": false,
@@ -66,16 +66,116 @@
       "transcript": 2
     },
     "new_unique_question_not_replay": true,
-    "actual_owner_terminal": false,
-    "cleanup_status": "cleanup_actual_owned_handle_still_live",
-    "accepted_pass": false,
+    "actual_owner_terminal": true,
+    "cleanup_status": "terminal_original_owner_reaped_after_human_authorized_exact_child_SIGKILL",
+    "accepted_pass": true,
     "native_model_provider": "UNQUALIFIED",
-    "note": "Terminal result requires actual owned Wait; observation and raw harness PASS are not terminal proof."
+    "note": "Completed context and incremental capture only. Forced test cleanup is not normal native shutdown or product recovery qualification.",
+    "actual_owned_cleanup_returncode": -9
   },
   "workspace_oracle_correction": "Domain workspace projection is a repository identity, not a native canonical cwd. Earlier path-equality boolean is not valid target evidence.",
   "proof_digests": {
     "traceary-2476-native-marker-after-trust-result.json": "7483e49c756502d229dacf9bbc2b157dfaa67c47e39a9a3af8df52a22cb5d97c",
     "traceary-2476-resume-oracle-adoption.json": "46ebfab0a6dd7a9a927366695b9c4fd574b5bda5fb7a2fa101a7882caa065865",
-    "traceary-2476-native-context-resume-capture-gate.py": "c65001e223770c57599cab03d90158670d70a6bf863fe53aabab83102ddc6e48"
+    "traceary-2476-native-context-resume-capture-gate.py": "c65001e223770c57599cab03d90158670d70a6bf863fe53aabab83102ddc6e48",
+    "traceary-2476-native-context-resume-capture-gate-result.json": "36f311e1b3ba3b12ba64b2d0832d6db6b73a0beb5e275d41d398b7855f0db150",
+    "traceary-2476-authorized-cleanup-result.json": "35cf1ae33fdd2a93c1e4f6c537d341331504116e597a072d28edd1b6afc6b664",
+    "traceary-2476-native-metadata.py": "89c6cc375eb7c25ed55c5446ac457d0089452ee0e6120df6db6e3224715dc20f",
+    "traceary-2476-native-metadata-result.json": "d86c8a51745b324926f4333b4e944d19769b1528a392c99ad43b67f14fca5953",
+    "traceary-2476-temp-hook-cleanup.json": "2671771acc602c40465f8c5b2a518472061c269a25159b91b314b95ac88f5dab",
+    "design_checkpoint_sha256": "386705dfa8bc77bdb462d516b7d1e4746a1cb0d5fd309817c75c3df453069c65"
+  },
+  "native_metadata_probe": {
+    "primary_capture_counts": {
+      "prompt": 4,
+      "session_started": 1,
+      "transcript": 3
+    },
+    "actual_owned_cleanup_returncode": 0,
+    "native_metadata_samples": [
+      {
+        "event": "PostInvocation",
+        "field_types": {
+          "conversationId": "str",
+          "workspacePaths": "list",
+          "transcriptPath": "str",
+          "artifactDirectoryPath": "str",
+          "modelName": "str"
+        },
+        "session_matches": true,
+        "workspace_exact_target": true,
+        "native_generation_independently_witnessed": false,
+        "modelName": {
+          "sha256": "ec25af38e1d9159f39962175e5141b647a25dba339a6f52127e2366a41b002ff",
+          "matches_requested_model": true,
+          "known_provider": null
+        }
+      },
+      {
+        "event": "PreInvocation",
+        "field_types": {
+          "conversationId": "str",
+          "workspacePaths": "list",
+          "transcriptPath": "str",
+          "artifactDirectoryPath": "str",
+          "modelName": "str"
+        },
+        "session_matches": true,
+        "workspace_exact_target": true,
+        "native_generation_independently_witnessed": false,
+        "modelName": {
+          "sha256": "ec25af38e1d9159f39962175e5141b647a25dba339a6f52127e2366a41b002ff",
+          "matches_requested_model": true,
+          "known_provider": null
+        }
+      },
+      {
+        "event": "Stop",
+        "field_types": {
+          "conversationId": "str",
+          "workspacePaths": "list",
+          "transcriptPath": "str",
+          "artifactDirectoryPath": "str",
+          "modelName": "str",
+          "fullyIdle": "bool",
+          "terminationReason": "str"
+        },
+        "session_matches": true,
+        "workspace_exact_target": true,
+        "native_generation_independently_witnessed": false,
+        "modelName": {
+          "sha256": "ec25af38e1d9159f39962175e5141b647a25dba339a6f52127e2366a41b002ff",
+          "matches_requested_model": true,
+          "known_provider": null
+        },
+        "fullyIdle": true
+      }
+    ],
+    "raw_body_saved_or_shared": false,
+    "metadata_only_hook_removed_after_actual_wait": true,
+    "existing_primary_recorder_unchanged": true,
+    "global_configuration_changed": false,
+    "native_generation_independently_witnessed": false,
+    "actual_provider": "UNQUALIFIED",
+    "session_start_on_resume": "NOT_OBSERVED",
+    "modelName": "Measured callback string equals requested gemini-4-argon-medium; not independent upstream provider proof"
+  },
+  "optional_observation_adapter": {
+    "implemented": true,
+    "source_version_literal": "1.5.0",
+    "supported_caller_boundaries": [
+      "prompt_boundary",
+      "turn_boundary"
+    ],
+    "session_only": true,
+    "native_event_name_fabricated": false,
+    "source_provenance_or_generation_granted": false,
+    "payload_max_bytes": 1048576,
+    "root_key_max": 128,
+    "unknown_container_depth_max": 64,
+    "nil_error_unknown_version_generic_fallback": false,
+    "primary_capture_or_shipped_hooks_changed": false,
+    "product_delivery": "DORMANT_UNMEASURED",
+    "native_recovery_qualified": false
   }
 }

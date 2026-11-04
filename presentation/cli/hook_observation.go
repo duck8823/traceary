@@ -101,6 +101,19 @@ func (c *RootCLI) claudeHookObservationSession(ctx context.Context, payload, ver
 	return claim.SessionID
 }
 
+// Antigravity provides no event-name proof through this correlation port.
+// Only the measured caller boundaries can yield an untrusted session claim.
+func (c *RootCLI) antigravityHookObservationSession(ctx context.Context, payload, version string, kind domain.ObservationKind) string {
+	if c.antigravityObservationClaims == nil {
+		return ""
+	}
+	claim, err := c.antigravityObservationClaims.Decode(ctx, application.AntigravityObservationClaimInput{Payload: payload, SourceVersion: version, ExpectedBoundary: kind})
+	if err != nil || !claim.Available {
+		return ""
+	}
+	return claim.SessionID
+}
+
 // deliverHookObservation is deliberately void: optional failures never replace
 // primary capture/stdout/exit, receipt/spool ownership or backlog replay policy.
 func (c *RootCLI) deliverHookObservation(parent context.Context, started time.Time, spec hookInvocationSpec, record hookSpoolRecord) {
@@ -128,10 +141,14 @@ func (c *RootCLI) deliverHookObservation(parent context.Context, started time.Ti
 			return app.SelectedObservation{}, err
 		}
 		state := value.Metadata.Snapshot()
-		if host == "claude" {
+		switch host {
+		case "claude":
 			state.NativeSessionID = c.claudeHookObservationSession(deriveCtx, record.Payload, flags.version, kind)
 			state.NativeTurnID = ""
-		} else {
+		case "antigravity":
+			state.NativeSessionID = c.antigravityHookObservationSession(deriveCtx, record.Payload, flags.version, kind)
+			state.NativeTurnID = ""
+		default:
 			state.NativeSessionID, state.NativeTurnID = hookObservationNativeIDs(record.Payload, host)
 		}
 		if metadata, e := domain.DerivedObservationOf(state); e == nil {

@@ -2,7 +2,7 @@
 
 [English](antigravity-1.5.0.md)
 
-**状態：初回 native turn は成功。増分 capture を伴う文脈再開を観測しましたが、実 owner の後始末は未完了で、復旧は未認定です。** [#2476](https://github.com/duck8823/traceary/issues/2476) を追跡します。
+**状態：通常 native の文脈・増分 capture・metadata を実測。実 owner は回収済みですが、復旧は未認定です。** [#2476](https://github.com/duck8823/traceary/issues/2476) を追跡します。
 親の host 対応を完了扱いにせず、native 現在状態や復旧を有効にしません。
 [本文を含まない source 証拠](evidence/antigravity-1.5.0.json) で実測 metadata と未実施 gate を区別します。
 
@@ -61,10 +61,42 @@ primary capture は session_started1/prompt1/transcript1 で、実 owner の後�
 その後、同じ会話の明示 resume で、新しい質問への返答が元の marker と完全一致しました。
 ただし初回 harness は既存 transcript 件数を受け入れて早期に後始末したため、raw verdict を保持したうえで完全な capture 成功としては不採用にしています。
 修正版は別の一意な新質問を使い、baseline prompt2/transcript1 に対して prompt3/transcript2 を要求し、文脈保持と増分件数を観測しました。
-しかし SIGTERM 後の実 owner はまだ Wait を返しておらず、controller は handle を保持して稼働中です。
-実終了までは terminal PASS、新たな resume、PID adopt、model/provider 認定を行いません。
+この試行の実 owner は SIGTERM だけでは終了せず、ユーザーが検証用 process だけの強制終了を許可しました。
+controller との直接親子関係・UID・完全な argv/input hash・cwd・source を再確認して対象 child だけを停止し、元の Popen の Wait が -9 を返しました。
+正常 shutdown や製品の PID adopt 許可とは扱いません。
 
 native USER_INPUT は CLI 引数を包むため、native content 全体の hash は元 CLI 入力との同値判定に使えません。
 既知の合成引数が完全一致で1回含まれることを確認しました。
 domain workspace projection も repository identity であり、正規 cwd の path ではありません。
 fixture path との直接比較は target の証拠にならず、これらの harness 修正で製品の target 検証を弱めてはいけません。
+
+## metadata 専用 hook の実測
+
+元の primary recorder を変更せず、専用 worktree に判断を返さない一時 metadata hook を追加しました。
+実終了確認後、同じ合成会話への別の新質問で prompt4/transcript3/session_started1 を観測し、実 owner の Wait は0でした。
+PreInvocation/PostInvocation/Stop の callback で conversationId が元の会話と一致し、workspacePaths は元の正規 target を含み、modelName は要求した gemini-4-argon-medium と一致しました。
+Stop の fullyIdle=true から現在状態や終了権限を作りません。
+resume 時の SessionStart は未観測で、inventory は選択した key の型だけです。
+実 provider と独立した generation witness は未認定です。
+本文・認証情報・transcript path は保存・共有せず、元 recorder の重複はありません。
+一時 hook/helper は実 Wait 後に作成時 hash が一致したものだけ削除しました。
+
+## 実装した任意相関：復旧認定ではない
+
+application に session-only の AntigravityObservationClaimDecoder port を設け、純粋で上限付きの filesystem parser を通常 composition root の両経路に注入しました。
+元の取得済み payload を借用し、stdin の再読、native 履歴・環境変数の参照、primary recorder の追加を行いません。
+source version1.5.0 の完全一致は format の選択だけであり、provenance の認証ではありません。
+実測済みの prompt/turn 呼出し境界だけを対象とし、session/tool 境界は unavailable にします。
+native event-name field を合成しません。
+
+canonical な小文字 UUID の conversationId だけを受け入れ、重複・case-fold alias・他 host の identity field 混在を拒否します。
+完全な UTF-8、payload1MiB、root key128件、未知 container64段の上限を検証し、未知の本文を claim や error に保持しません。
+nil、未対応版、unavailable、error では両 native ID を空にし、snake_case の共通抽出へ fallback しません。
+結果は turn、model、provider、generation、現在状態、承認、終了、復旧の権限を持てません。
+他 host と元の capture/stdout/receipt/spool は維持し、配布 hook に --observe flag は追加していません。
+製品側の配送は dormant/未実測です。
+
+合成 parser、durable intake、公開 Cobra、runtime の同 cwd・会話 ID 再利用テストで契約を検証します。
+native metadata は実測 shape の証拠であり、管理対象 generation の binding ではありません。
+実装前の独立 design checkpoint はこの限定 slice を承認しました。
+#2476 を閉じるには、native 復旧、実 provider の証明、最終の別 family review、final-head CI/security、同 SHA wave が引き続き必要です。

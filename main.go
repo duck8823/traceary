@@ -146,7 +146,7 @@ func run() error {
 		// Avoid constructing a second command tree for ordinary capture hooks.
 		// Cobra still decides whether the token is a namespace or a flag value.
 		runtimeRoot := cli.NewRootCLI(cli.WithRuntimeDaemon(runtimeDaemon),
-			cli.WithClaudeObservationClaims(filesystem.NewClaudeObservationClaimDecoder()),
+			cli.WithClaudeObservationClaims(filesystem.NewClaudeObservationClaimDecoder()), cli.WithAntigravityObservationClaims(filesystem.NewAntigravityObservationClaimDecoder()),
 			cli.WithRuntimeClient(runtimeDaemon), cli.WithRuntimeOperators(runtimeinfra.LocalOperatorFactory{}),
 			cli.WithNativeSessionMetadata(runtimeinfra.NativeSessionMarkerSink{})).Command()
 		command, _, _ := runtimeRoot.Find(os.Args[1:])
@@ -241,7 +241,7 @@ func run() error {
 	pluginDetector := filesystem.NewClaudePluginDetectorAdapter()
 
 	rootCmd := cli.NewRootCLI(
-		cli.WithRuntimeDaemon(runtimeDaemon), cli.WithClaudeObservationClaims(filesystem.NewClaudeObservationClaimDecoder()),
+		cli.WithRuntimeDaemon(runtimeDaemon), cli.WithClaudeObservationClaims(filesystem.NewClaudeObservationClaimDecoder()), cli.WithAntigravityObservationClaims(filesystem.NewAntigravityObservationClaimDecoder()),
 		cli.WithRuntimeClient(runtimeDaemon), cli.WithRuntimeOperators(runtimeinfra.LocalOperatorFactory{}),
 		cli.WithNativeSessionMetadata(runtimeinfra.NativeSessionMarkerSink{}),
 		cli.WithEvent(eventUsecase),
