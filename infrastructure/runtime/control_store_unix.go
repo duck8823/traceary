@@ -35,6 +35,18 @@ func decodeControlMetadata(data []byte, target any) error {
 	if err := uniqueJSONValue(json.NewDecoder(bytes.NewReader(data)), 0); err != nil {
 		return err
 	}
+	// Discriminate a well-formed version before applying v1-only null/field
+	// constraints. A future schema is unsupported, not corrupt merely because
+	// it introduced fields that this reader cannot interpret safely.
+	var header struct {
+		Version *int `json:"version"`
+	}
+	if json.Unmarshal(data, &header) != nil || header.Version == nil {
+		return domain.ErrInvalid
+	}
+	if *header.Version != 1 {
+		return domain.ErrUnsupported
+	}
 	tokens := json.NewDecoder(bytes.NewReader(data))
 	for {
 		token, err := tokens.Token()

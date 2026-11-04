@@ -25,6 +25,8 @@ type DaemonOptions struct {
 	IOTimeout                                                                          time.Duration
 	// RuntimeFactory is trusted composition only, never client-supplied policy.
 	RuntimeFactory app.Factory
+	// HistoryFactory supplies only read-only history, never opens core stores at startup.
+	HistoryFactory app.HistoryFactory
 }
 
 // LocalDaemon is a foreground transport owner and a bounded, non-starting client.
