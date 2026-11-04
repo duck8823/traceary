@@ -273,6 +273,45 @@ func (s NativeSessionMarkerSink) Observe(ctx context.Context, root string, input
 // roots/files fail closed, never recursive cleanup or native-history deletion.
 // The child owner must snapshot latest marker state after actual Wait first.
 func (s *nativeStartSlot) close(ctx context.Context) error {
+	return s.cleanup(ctx, nil)
+}
+
+// finish consumes the latest observation and removes the slot under the same
+// lock. A delayed invalidation cannot slip between snapshot and deletion.
+// Only the actual child owner may call this after its real Wait.
+func (s *nativeStartSlot) finish(ctx context.Context) (nativeStartEvent, error) {
+	var event nativeStartEvent
+	var observedErr error
+	err := s.cleanup(ctx, func(fd int) {
+		marker, stamp, err := readNativeMarker(s.metadata, fd, s.intent)
+		if err != nil {
+			observedErr = err
+			return
+		}
+		if stamp == nil {
+			observedErr = domain.ErrNotFound
+			return
+		}
+		if marker.Status != "bound" {
+			observedErr = domain.ErrChanged
+			return
+		}
+		event = nativeStartEvent{Plan: s.intent.Plan.plan(), TranscriptPath: marker.Transcript}
+	})
+	if err != nil {
+		return nativeStartEvent{}, err
+	}
+	if observedErr != nil {
+		return nativeStartEvent{}, observedErr
+	}
+	// A missing root is idempotent cleanup, but never binding evidence.
+	if event == (nativeStartEvent{}) {
+		return event, domain.ErrNotFound
+	}
+	return event, nil
+}
+
+func (s *nativeStartSlot) cleanup(ctx context.Context, observe func(int)) error {
 	if _, err := os.Lstat(s.metadata.root); errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
@@ -311,6 +350,12 @@ func (s *nativeStartSlot) close(ctx context.Context) error {
 		}
 		if err := s.metadata.verifyRoot(fd); err != nil {
 			return err
+		}
+		if observe != nil {
+			observe(fd)
+		}
+		if err := ctx.Err(); err != nil {
+			return xerrors.Errorf("finish native metadata: %w", err)
 		}
 		for _, entry := range entries {
 			if err := unix.Unlinkat(fd, entry.Name(), 0); err != nil {

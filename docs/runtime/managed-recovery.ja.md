@@ -21,6 +21,18 @@ native のローカルな `<synthetic>` model は、model の証拠に使いま�
 16 MiB を超えるファイル、4 MiB を超える行、証拠不足、識別子の不一致は拒否し、project の走査や fallback は行いません。
 この reader だけで native 復旧の対応を認定するものではありません。
 
+静的な source 検証は登録済みの実行ファイルを維持し、固定した native artifact を確認します。
+既知の non-print entry では、二つのローカルな routing import の固定と、既存の native 解決先が変わっていないことも必要です。
+認証、provider、コード注入の上書き設定がある場合、経路を切り替えず復旧を未対応とします。
+別の上限付き native `auth status` 検証は、既存のログイン済み first-party subscription の種別を要求します。
+host 認証は native CLI だけが利用し、account 項目と stderr は破棄します。
+既存 host で source と status の検証に成功していますが、所有中の child による復旧処理にはまだ接続していません。
+
+所有中の child の metadata を管理する内部処理は、実際の Wait 後に、最新の marker の取得と slot の後始末を同じ lock 内で実施します。
+以前に取得した生存中の binding は使い回しません。
+source、履歴、provider の検証が返すのは metadata だけであり、application の永続化済み終了記録の代わりにはなりません。
+native の起動計画と resume 呼び出しはまだ有効化していないため、通常起動の引数は変わりません。
+
 ## 安全性の契約
 
 同じ native 会話を再開するには、元の管理対象AIについて、実際の Wait による終了を Traceary が正確な実行識別子とともに永続化している必要があります。

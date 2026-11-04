@@ -264,6 +264,11 @@ func (l *PTYLauncher) Start(ctx context.Context, descriptor domain.LaunchDescrip
 		// Closed is permanent before the sole reap; never hold admission while
 		// a fallback Wait or descendant-held PTY tail can block.
 		waitErr := command.Wait()
+		if child.nativeRecovery != nil {
+			// Snapshot the latest native metadata only after actual owned Wait.
+			// This optional path cannot change the process result.
+			child.nativeRecovery.finish()
+		}
 		close(stopDrain)
 		<-drained
 		child.mu.Lock()
@@ -365,6 +370,7 @@ type ptyChild struct {
 	pid, code      int
 	err            error
 	done           chan struct{}
+	nativeRecovery *ownedClaudeRecovery
 }
 
 func (c *ptyChild) SubscribeOutput(selection app.OutputSelection, cursor domain.ByteOffset) (*app.OutputSubscription, error) {
@@ -392,60 +398,67 @@ func launchEnvironment(source []string, store string, id domain.LaunchIdentity) 
 	return result
 }
 
+type nativeSourceFingerprint struct{ Witness, Digest string }
+
 // executableWitness opens no-follow through trusted ancestors, verifies before
 // hashing and never executes the file. Pathname exec cannot isolate hostile same UID.
 func executableWitness(ctx context.Context, path string) (string, error) {
+	fingerprint, err := inspectNativeSourceFile(ctx, path, true)
+	return fingerprint.Witness, err
+}
+
+func inspectNativeSourceFile(ctx context.Context, path string, requireExecutable bool) (nativeSourceFingerprint, error) {
 	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
-		return "", domain.ErrInvalid
+		return nativeSourceFingerprint{}, domain.ErrInvalid
 	}
 	dir, err := unix.Open("/", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
 	if err != nil {
-		return "", domain.ErrUnsafe
+		return nativeSourceFingerprint{}, domain.ErrUnsafe
 	}
 	parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
 	for _, part := range parts[:len(parts)-1] {
 		next, e := unix.Openat(dir, part, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 		_ = unix.Close(dir)
 		if e != nil {
-			return "", domain.ErrUnsafe
+			return nativeSourceFingerprint{}, domain.ErrUnsafe
 		}
 		dir = next
 		var stat unix.Stat_t
 		if unix.Fstat(dir, &stat) != nil || (stat.Uid != 0 && stat.Uid != uint32(os.Geteuid())) || (stat.Mode&0022 != 0 && (stat.Uid != 0 || stat.Mode&unix.S_ISVTX == 0)) {
 			_ = unix.Close(dir)
-			return "", domain.ErrUnsafe
+			return nativeSourceFingerprint{}, domain.ErrUnsafe
 		}
 	}
 	fd, err := unix.Openat(dir, parts[len(parts)-1], unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC|unix.O_NONBLOCK, 0)
 	_ = unix.Close(dir)
 	if err != nil {
-		return "", domain.ErrUnsafe
+		return nativeSourceFingerprint{}, domain.ErrUnsafe
 	}
 	file := os.NewFile(uintptr(fd), "registered executable")
 	defer func() { _ = file.Close() }()
 	var before, after unix.Stat_t
-	if unix.Fstat(fd, &before) != nil || before.Mode&unix.S_IFMT != unix.S_IFREG || (before.Uid != 0 && before.Uid != uint32(os.Geteuid())) || before.Mode&0022 != 0 || before.Mode&0111 == 0 {
-		return "", domain.ErrUnsafe
+	if unix.Fstat(fd, &before) != nil || before.Mode&unix.S_IFMT != unix.S_IFREG || (before.Uid != 0 && before.Uid != uint32(os.Geteuid())) || before.Mode&0022 != 0 || requireExecutable && before.Mode&0111 == 0 {
+		return nativeSourceFingerprint{}, domain.ErrUnsafe
 	}
 	if before.Size <= 0 || before.Size > maxExecutableBytes {
-		return "", domain.ErrLimit
+		return nativeSourceFingerprint{}, domain.ErrLimit
 	}
 	info, err := file.Stat()
 	if err != nil {
-		return "", domain.ErrUnsafe
+		return nativeSourceFingerprint{}, domain.ErrUnsafe
 	}
 	digest := sha256.New()
 	buffer := make([]byte, 64*1024)
 	var total int64
 	for {
 		if err = ctx.Err(); err != nil {
-			return "", xerrors.Errorf("inspect registered executable budget: %w", err)
+			return nativeSourceFingerprint{}, xerrors.Errorf("inspect registered executable budget: %w", err)
 		}
 		n, readErr := file.Read(buffer)
 		if n > 0 {
 			total += int64(n)
 			if total > maxExecutableBytes {
-				return "", domain.ErrLimit
+				return nativeSourceFingerprint{}, domain.ErrLimit
 			}
 			_, _ = digest.Write(buffer[:n])
 		}
@@ -453,13 +466,13 @@ func executableWitness(ctx context.Context, path string) (string, error) {
 			break
 		}
 		if readErr != nil {
-			return "", domain.ErrUnsafe
+			return nativeSourceFingerprint{}, domain.ErrUnsafe
 		}
 	}
 	fresh, err := file.Stat()
 	if err != nil || unix.Fstat(fd, &after) != nil || before.Dev != after.Dev || before.Ino != after.Ino || before.Mode != after.Mode || before.Uid != after.Uid || before.Size != after.Size || total != before.Size || !info.ModTime().Equal(fresh.ModTime()) {
-		return "", domain.ErrChanged
+		return nativeSourceFingerprint{}, domain.ErrChanged
 	}
 	witness := sha256.Sum256([]byte(fmt.Sprintf("%d:%d:%d:%d:%d:%d:%x", before.Uid, before.Dev, before.Ino, before.Mode, before.Size, info.ModTime().UnixNano(), digest.Sum(nil))))
-	return hex.EncodeToString(witness[:]), nil
+	return nativeSourceFingerprint{Witness: hex.EncodeToString(witness[:]), Digest: hex.EncodeToString(digest.Sum(nil))}, nil
 }
