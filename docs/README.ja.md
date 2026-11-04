@@ -26,6 +26,7 @@
 
 - [Native 観測配送](./runtime/native-observation-delivery.ja.md)：実装済みの定量上限付き CLI／hook metadata 配送。native 認定は別途必要
 - [Runtime 観測の投影](./runtime/observation-projection.ja.md)：因果 reducer、有効期限、最新 snapshot。製品の metadata は未束縛のまま
+- [Codex 0.166.0 の native 認定作業](./runtime/codex-0.166.0.ja.md)：任意 claim decoder は実装済み。native binding と復旧は未認定
 
 ## 連携まわり
 

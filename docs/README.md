@@ -24,6 +24,7 @@ This page is the detailed docs index for Traceary. Start here when the top-level
 
 - [Native observation delivery](./runtime/native-observation-delivery.md): implemented bounded CLI/hook metadata delivery; native qualification remains separate
 - [Runtime observation projection](./runtime/observation-projection.md): causal reducer, expiry and latest snapshots; production metadata remains unbound
+- [Codex 0.166.0 native qualification work](./runtime/codex-0.166.0.md): implemented optional claim decoder; native binding and recovery remain unqualified
 
 ## Integrations
 

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"github.com/duck8823/traceary/application"
 	app "github.com/duck8823/traceary/application/runtime"
 	domain "github.com/duck8823/traceary/domain/runtime"
 	"github.com/spf13/cobra"
@@ -76,13 +77,19 @@ func hookObservationBoundary(spec hookInvocationSpec) (string, domain.Observatio
 
 // Hook-native IDs remain optional untrusted correlation. No claimed ID grants
 // association, readiness or recovery authority; versioned host proof is separate.
-func hookObservationNativeIDs(payload, host string) (string, string) {
-	field := "session_id"
+func (c *RootCLI) hookObservationNativeIDs(ctx context.Context, payload, host, version string, kind domain.ObservationKind) (string, string) {
 	if host == "codex" {
-		field = "thread_id"
+		if c.codexObservationClaims == nil {
+			return "", ""
+		}
+		claims, err := c.codexObservationClaims.Decode(ctx, application.CodexObservationClaimInput{SourceVersion: version, ExpectedBoundary: kind, Payload: payload})
+		if err != nil || !claims.Available {
+			return "", ""
+		}
+		return claims.SessionID, claims.TurnID
 	}
 	body := []byte(payload)
-	value, _ := lookupHookPayloadValue(body, field)
+	value, _ := lookupHookPayloadValue(body, "session_id")
 	session, _ := value.(string)
 	value, _ = lookupHookPayloadValue(body, "turn_id")
 	turn, _ := value.(string)
@@ -99,7 +106,7 @@ func (c *RootCLI) deliverHookObservation(parent context.Context, started time.Ti
 	ctx, cancel := context.WithTimeout(parent, app.ObservationDeliveryBudget)
 	defer cancel()
 	client, _ := c.runtimeDaemon.(app.SelectedObservationClient)
-	_ = app.NewObservationDelivery(client).Deliver(ctx, config.root, func(context.Context) (app.SelectedObservation, error) {
+	_ = app.NewObservationDelivery(client).Deliver(ctx, config.root, func(deriveCtx context.Context) (app.SelectedObservation, error) {
 		if !explicitObservationRoot(config.root) {
 			return app.SelectedObservation{}, domain.ErrInvalid
 		}
@@ -116,7 +123,7 @@ func (c *RootCLI) deliverHookObservation(parent context.Context, started time.Ti
 			return app.SelectedObservation{}, err
 		}
 		state := value.Metadata.Snapshot()
-		state.NativeSessionID, state.NativeTurnID = hookObservationNativeIDs(record.Payload, host)
+		state.NativeSessionID, state.NativeTurnID = c.hookObservationNativeIDs(deriveCtx, record.Payload, host, flags.version, kind)
 		if metadata, e := domain.DerivedObservationOf(state); e == nil {
 			value.Metadata = metadata
 		}

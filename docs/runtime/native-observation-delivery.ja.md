@@ -95,7 +95,7 @@ public CLI と optional hook flags/配送は実装済みです。host-native ass
 
 hidden hook に observe-runtime-dir/epoch/run/generation/worktree/profile/host-version の明示 flag を追加します。既存 command に引数を追加するだけで、packaged/global/per-run 設定、auth/model/PATH を変更せず二つ目の handler を作りません。native host の合成・伝播は未認定です。source の引数合成 fixture は同じ既存 handler が一度だけ capture し、stdout/exit・spool が維持されることを確認するもので、host 設定の合成を認定しません。
 
-配送全体は primary 成功と current spool clear の後、backlog drain の前です。失敗・defer・clear 失敗・replay は配送せず、残時間が 250 ms + drain reserve 以下なら省略します。spool 保存失敗の既存 fallback も primary 成功後だけ配送します。単一の process-wide slot が導出と client の実終了まで保持され、取消を無視する callback/client に置換 worker を増やしません。panic/error/timeout は元の結果・出力を変更しません。payload は取得済みの不変文字列から参照し、stdin を再消費しません。event ID は取得済み spool receipt です。native ID は codex の thread_id、他の対応 host の session_id と任意 turn_id を untrusted な文字列としてのみ参照し、不正値は省略します。native association の証拠としては扱いません。
+配送全体は primary 成功と current spool clear の後、backlog drain の前です。失敗・defer・clear 失敗・replay は配送せず、残時間が 250 ms + drain reserve 以下なら省略します。spool 保存失敗の既存 fallback も primary 成功後だけ配送します。単一の process-wide slot が導出と client の実終了まで保持され、取消を無視する callback/client に置換 worker を増やしません。panic/error/timeout は元の結果・出力を変更しません。payload は取得済みの不変文字列から参照し、stdin を再消費しません。event ID は取得済み spool receipt です。native ID は Codex の版別 decoder が返す canonical session_id、他の対応 host の session_id と任意 turn_id を untrusted な文字列としてのみ参照し、不正値は省略します。native association の証拠としては扱いません。
 
 ### Packaged host action と保守的な結果
 
