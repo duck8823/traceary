@@ -601,8 +601,8 @@
     "PR": 2490,
     "state": "MERGED",
     "merge_head": "bfcf05e42b7aaec5393bc801178e5c924d05a827",
-    "leaf_independent_review_and_CI_wave_complete": false,
-    "live_state_still_unqualified": true
+    "live_state_still_unqualified": true,
+    "core_evidence_alone_does_not_prove_leaf_delivery": true
   },
   "qualification_scope": {
     "exact_version_only": true,
