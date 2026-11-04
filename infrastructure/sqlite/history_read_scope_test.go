@@ -261,3 +261,89 @@ func TestYieldingHistoryReadMissingAndCanceledInputNeverCreatesStore(t *testing.
 		t.Fatal("missing store created a lease file", err)
 	}
 }
+
+func TestMetadataBorrowedScopeHandleSurvivesUntilOwnerReturns(t *testing.T) {
+	for _, scopeKind := range []string{"yielding", "ordinary", "per-call"} {
+		for _, firstKind := range []string{"recent", "window", "context", "timestamp"} {
+			t.Run(scopeKind+"/"+firstKind, func(t *testing.T) {
+				d, path := historyReadFixture(t, supportedHistoryReadSchema+`INSERT INTO event_metadata_projection(id,kind,client,agent,session_id,workspace,source_hook,created_at,created_at_norm,body_original_bytes,body_stored_bytes,body_ingest_truncated,body_storage_truncated,body_metadata_version,command_failed) VALUES('fixture-metadata','note','codex','fixture-agent','fixture-session','/fixture','fixture-hook','2026-11-04T00:00:00Z','2026-11-04T00:00:00.000000000Z',0,0,0,0,1,0);`)
+				datasource := NewEventDatasource(d)
+				criteria := apptypes.NewEventListCriteriaBuilder(2).Build()
+				var borrowed *sql.DB
+				scope := d.WithYieldingReadScope
+				switch scopeKind {
+				case "ordinary":
+					scope = d.WithReadScope
+				case "per-call":
+					scope = func(ctx context.Context, fn func(context.Context) error) error { return fn(ctx) }
+				}
+				err := scope(context.Background(), func(ctx context.Context) error {
+					var e error
+					if scopeKind != "per-call" {
+						borrowed, e = d.openReadOnly(ctx)
+						if e != nil {
+							return e
+						}
+					}
+					count := 0
+					switch firstKind {
+					case "recent":
+						rows, e := datasource.ListRecentMetadata(ctx, criteria)
+						if e != nil {
+							return e
+						}
+						count = len(rows)
+					case "window":
+						rows, e := datasource.ListWindowMetadata(ctx, criteria)
+						if e != nil {
+							return e
+						}
+						count = len(rows)
+					case "context":
+						rows, e := datasource.GetContextMetadata(ctx, apptypes.NewEventContextCriteriaBuilder(2).Build())
+						if e != nil {
+							return e
+						}
+						count = len(rows)
+					case "timestamp":
+						rows, e := datasource.ListRecentTimestampKinds(ctx, apptypes.NewEventListCriteriaBuilder(1).Build())
+						if e != nil {
+							return e
+						}
+						count = len(rows)
+					}
+					if count != 1 {
+						return xerrors.Errorf("first metadata query returned %d rows", count)
+					}
+					rows, e := datasource.ListRecentMetadata(ctx, criteria)
+					if e != nil {
+						return xerrors.Errorf("second metadata query lost borrowed scope handle: %w", e)
+					}
+					if len(rows) != 1 || rows[0].EventID().String() != "fixture-metadata" {
+						return errors.New("second query changed metadata membership")
+					}
+					if borrowed != nil {
+						var one int
+						if e = borrowed.QueryRowContext(ctx, "SELECT 1").Scan(&one); e != nil {
+							return xerrors.Errorf("read retained scope handle: %w", e)
+						}
+					}
+					return nil
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if scopeKind != "per-call" && (borrowed == nil || borrowed.Stats().OpenConnections != 0 || borrowed.Ping() == nil) {
+					t.Fatal("scope owner retained the physical connection")
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+				defer cancel()
+				release, err := (StoreLeaseCoordinator{}).AcquireExclusive(ctx, path)
+				if err != nil {
+					t.Fatal("completed callback retained maintenance lease", err)
+				}
+				release()
+			})
+		}
+	}
+}

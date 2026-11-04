@@ -73,7 +73,7 @@ func (d *EventDatasource) ListRecentTimestampKinds(ctx context.Context, criteria
 	if err != nil {
 		return nil, xerrors.Errorf("failed to open DB for event timestamp/kind listing: %w", err)
 	}
-	defer closeMetadataResource(db)
+	defer releaseMetadataReadHandle(ctx, db)
 	query := selectLatestEventTimestampKindQuery
 	args := []any(nil)
 	if workspace != "" {
@@ -124,7 +124,7 @@ func (d *EventDatasource) ListRecentMetadata(
 	if err != nil {
 		return nil, xerrors.Errorf("failed to open DB for event metadata listing: %w", err)
 	}
-	defer closeMetadataResource(db)
+	defer releaseMetadataReadHandle(ctx, db)
 
 	rows, err := queryRecentEventMetadata(
 		ctx,
@@ -154,7 +154,7 @@ func (d *EventDatasource) ListWindowMetadata(
 	if err != nil {
 		return nil, xerrors.Errorf("failed to open DB for event metadata window: %w", err)
 	}
-	defer closeMetadataResource(db)
+	defer releaseMetadataReadHandle(ctx, db)
 
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
@@ -229,7 +229,7 @@ func (d *EventDatasource) GetContextMetadata(
 	if err != nil {
 		return nil, xerrors.Errorf("failed to open DB for event metadata context: %w", err)
 	}
-	defer closeMetadataResource(db)
+	defer releaseMetadataReadHandle(ctx, db)
 
 	workspace := strings.TrimSpace(criteria.Workspace().String())
 	sessionID := strings.TrimSpace(criteria.SessionID().String())
@@ -276,6 +276,16 @@ func formatMetadataOptionalTimestamp(value time.Time) string {
 		return ""
 	}
 	return formatMemoryValidityTimestamp(value)
+}
+
+func releaseMetadataReadHandle(ctx context.Context, db *sql.DB) {
+	// The scope owns this exact handle until its callback returns. Each
+	// datasource still closes its rows/transaction, but must not invalidate
+	// later queries or release the owner's physical lease prematurely.
+	if scope, ok := ctx.Value(readScopeKey{}).(*readScope); ok && scope.db == db {
+		return
+	}
+	closeMetadataResource(db)
 }
 
 func closeMetadataResource(db *sql.DB) {
