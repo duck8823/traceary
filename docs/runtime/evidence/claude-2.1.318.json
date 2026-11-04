@@ -134,7 +134,6 @@
     "late/duplicate/reorder/expiry native matrix",
     "live descriptor enrichment of existing primary capture; private recovery SessionStart composition is separately tested",
     "final independent review/CI/security/wave",
-    "persisted-cutoff-tool/permission-dialog native qualification",
     "final adoption of #2478 candidate product Runtime recovery integration"
   ],
   "controls": {
@@ -357,8 +356,8 @@
     "same_request_reinspection": "PASS no new native start",
     "native_current_waiting_qualified": false,
     "tool_requests_in_fixtures": 0,
-    "permission_dialog": "NOT_RUN",
-    "persisted_cutoff_tool": "NOT_RUN",
+    "permission_dialog": "PASS separate real managed permission fixture",
+    "persisted_cutoff_tool": "PASS canonical pending tool correlated to PreToolUse, no execution/replay",
     "external_actor_exclusion_guaranteed": false,
     "all_descendant_inactivity_proven": false,
     "evidence_sha256": "2583986009c0ac98dcc22af86e95dd0357d386c7c0fc4d267f0c93f70022094c",
@@ -378,5 +377,43 @@
       }
     },
     "primary_capture_semantics": "Two completed answers yield two transcript events. Original and resumed native starts share one idempotent core Session start; two native process ends yield two lifecycle end events. Metadata-only handler adds no primary capture."
+  },
+  "managed_permission_and_persisted_tool_interruption": {
+    "runtime_source_production_head": "96c21f9c134a608b90950e10009223cd099cd880",
+    "result": "PASS_REAL_DAEMON_ORDINARY_CLI",
+    "actual_permission_request": true,
+    "actual_visible_permission_prompt_and_yes_no_choices": true,
+    "native_permission_prompt_notification": true,
+    "canonical_pending_tool_id_matches_pretool_metadata": true,
+    "command": "rtk proxy pwd",
+    "command_risk": "read-only; never executed",
+    "actual_old_owned_wait_exit_code": 143,
+    "resumed_owned_wait_exit_code": 143,
+    "durable_old_execution_and_native_exit_before_resume": true,
+    "same_conversation_target_profile_model_provider_confirmed": true,
+    "pretool_permission_posttool_counts_total": {
+      "PreToolUse": 1,
+      "PermissionRequest": 1,
+      "PostToolUse": 0
+    },
+    "new_tool_or_permission_request_during_resume": false,
+    "new_model_request_or_user_text_during_entire_resume_and_eight_second_idle": false,
+    "approval_answer_sent": false,
+    "post_resume_stdin_sent": false,
+    "new_context_response_in_this_fixture": "NOT_REQUESTED; separate completed/interrupted-input fixtures cover fresh context response",
+    "interaction_current_state_qualified": false,
+    "temporary_synthetic_project_ask_deny_guard": "original absence restored after exact content hash check",
+    "all_owned_processes_exited_before_daemon_reaped": true,
+    "raw_history_terminal_account_credentials_shared": false,
+    "primary_capture_counts": {
+      "note": 1,
+      "prompt": 2,
+      "session_ended": 2,
+      "session_started": 1,
+      "transcript": 1
+    },
+    "verified_evidence_sha256": "e3699d91f7c47ad22194f8c6885952ac1cef719aa465eecc75b0961799eb21f3",
+    "driver_sha256": "ed4c9ea6e156befed81790a3b3843934595dbf788ad56e6a07da62a9a4d9864c",
+    "oracle_correction": "No new native attempt: ANSI/whitespace-normalized own UI matched actual permission choices; exact-space observer initially failed"
   }
 }

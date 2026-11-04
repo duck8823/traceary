@@ -62,7 +62,29 @@ prompt は完了fixtureが二件、中断fixtureが三件です。
 一つ目は主要hookの client=hook/agent=claude を client=claude と誤認し、二つ目は最初の入力前にnative履歴ファイルを要求したものです。
 どちらもmodel入力なしで旧ownerの実Wait143を確認してから、新しい修正版fixtureへ進みました。
 native resume の失敗とは扱いません。
-tool/permission、live turn/generationの検証行列、最終review/CI/waveは未完了です。
+後続の永続化済み保留tool・permission dialogのno-replay fixtureが、その中断caseの不足を解消しました。
+live turn/generationの検証行列と最終review/CI/waveは未完了です。
+
+## 保留toolが永続化された実際の管理対象permission dialog
+
+後続の実Daemon・通常CLI fixtureは、読み取り専用の `rtk proxy pwd` だけに承認を要求しました。
+一時project guardはそのcommandをaskにし、予期しないcommandはすべてdenyとしました。
+PermissionRequest/Notification observerは承認を返しません。
+実際の対話terminalに実行確認とYes/No選択肢が表示され、PermissionRequestと、遅延したnativeのpermission_prompt通知も一致しました。
+中断前のcanonical native履歴にあるassistant tool-use IDは、PreToolUseで観測したIDと一致しています。
+toolは実行されていません。
+
+旧管理対象AIの実Wait143と、execution/native終了記録の永続化後、明示的な同会話resumeで元のtarget/profile/model/providerを確認しました。
+承認promptへ回答する可能性を避け、**再開後はstdinもReturnも一切送っていません**。
+resume呼び出し全体と、その後の無入力8秒間に、新規model要求、user text、PreToolUse、PermissionRequest、PostToolUseはありませんでした。
+合計はPreToolUse=1、PermissionRequest=1、PostToolUse=0です。
+両native ownerの実Wait143を確認してからdaemonを終了し、一時guardは自分が書いた内容のhashを確認して元の不在状態へ戻しています。
+
+これは観測した保留tool・承認中断の自動再送なしを検証したものであり、現在のwaiting/approval権限の認定ではありません。
+このfixtureでは新しい文脈質問を送らず、再開後の新規応答は別の完了会話・中断入力fixtureで検証しています。
+最初の事後UI照合は、nativeのANSI描画による空白の分割を想定せず失敗しました。
+別の正規化verifierで実際のpromptと選択肢を照合し、native試行や承認は繰り返していません。
+現在の一般仕様は[公式hook reference](https://code.claude.com/docs/en/hooks)と[permission reference](https://code.claude.com/docs/en/permissions)を参照しましたが、対象版の成立は実fixtureで検証しています。
 
 ## 実際の保留 tool callback の中断
 
@@ -84,7 +106,8 @@ transcript の欠落を「保留要求がなかった」証明には使いませ
 別の明示的な tool 不使用の質問は、元の model/provider で最初の message の marker を復元しました。
 再開側の tool callback はなく、実 owner は exit 0 でした。
 元の保留要求と新入力は各1回だけ記録されています。
-permission dialog の復旧と製品 Runtime の統合は未認定のままです。
+この先行fixture単体ではpermission dialogの復旧や製品Runtimeの接続は未認定でした。
+後続の管理対象Daemon fixtureが上記の中断経路を検証していますが、現在のwaiting/approval権限や外部・global排他の証明にはしません。
 現在の waiting/approval 権限や、外部/global 排他の証明にはなりません。
 
 ## Native hook 入力と capture
@@ -109,9 +132,9 @@ permission dialog の復旧と製品 Runtime の統合は未認定のままで�
 
 | 要求 | 状態 |
 | --- | --- |
-| 正確な source と4種の native hook field／型 | 上記と実保留 PreToolUse を実測。permission dialog と成功した PostToolUse は NOT_RUN |
-| 同じ native 会話の文脈／cwd／store／model／provider | 完了済み文脈と制御した中断文脈の fixture は PASS。同じ UUID の foreground 並行起動2件を実測。保留 PreToolUse callback は検証済み。永続化済み cutoff tool、permission dialog、製品の管理内排他は未認定 |
-| global／per-run primary handler 合成 | duplicate-primary 候補は FAILED・却下。安全な descriptor 拡張は未認定 |
+| 正確な source と4種の native hook field／型 | 上記と実保留PreToolUseを実測。後続の実permission dialog・永続化済み保留toolの中断はPASS。成功したPostToolUseはNOT_RUN |
+| 同じ native 会話の文脈／cwd／store／model／provider | 完了済み文脈と制御した中断文脈の fixture は PASS。同じ UUID の foreground 並行起動2件を実測。保留 PreToolUse callback は検証済み。実Daemonの管理内完了・中断入力resume、および別の永続化済み保留tool・permission dialogのno-replay fixtureもPASS |
+| global／per-run primary handler 合成 | duplicate-primary候補はFAILED・却下。private metadata handlerは実Daemonで主要capture件数を維持。live descriptor拡張は未認定 |
 | 同 cwd 並行、独立 generation、ID 再利用／遅延／hint 不達／重複／逆順／失効 | 未完了。descriptor／env／cwd／native ID 単独では unbound |
 | working／waiting_input／waiting_approval／process | 未認定。permission metadata は可視の待ちや承認判断ではない |
 | 製品 adapter、独立実装 review、final-head CI／security／wave | 未実施。Issue close や製品 capability を推論しない |
