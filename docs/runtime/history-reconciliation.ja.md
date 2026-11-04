@@ -112,7 +112,14 @@ export version1 は復元用 backup ではなく、有界な監査要約です�
 終了記録があっても pending/unknown receipt と interrupted-run の記録による不確定性は残ります。
 lifecycle/endpoint の revision、中断記録の件数、保持する shutdown/update/autostart/endpoint の範囲を明示しますが、update の内容や socket identity は export しません。
 
-`forget` は記録済み launch、control receipt group と lifecycle 中断記録の全件を消し、native 会話は消しません。
+対応する recovery metadata は、export に `recovery_revision`、`recovery_records`、`resume_attempts` だけを追加します。
+native ID、履歴 path、model/provider、PID は export しません。
+recovery record と attempt は各 1024 件、envelope は共有 root budget 内の 16 MiB を上限とします。
+閉じた codec は元と後継の execution 記録との整合性を検証します。
+この監査機能は native resume を有効にせず、host の対応を認定しません。
+Forget は記録の放棄であり、process の終了や resume の許可を証明しません。
+
+`forget` は記録済み launch、control receipt group、lifecycle 中断記録、対応する recovery binding/attempt の全件を消し、native 会話は消しません。
 新しい preview の正確な `--preview-digest` と、`--acknowledge-forget-history`、`--acknowledge-recovery-record-loss` の両方が必要です。
 消した履歴にある復旧用の結び付けは失われ、export 要約では復元できません。
 profile、Registry、core 履歴/spool、Git、native 会話は保持します。
@@ -123,16 +130,16 @@ preview を破棄しても履歴は変わりませんが、既存 root 内に調
 確認時は実際の daemon lifetime 排他 lease、同一 process の root claim、metadata lock が必要です。
 稼働中 owner は busy とし、停止や signal は送りません。
 実 replace 境界でも lease/root identity を再検証します。
-同じ内容の JSON 整形を含め、全 5 envelope の raw content/revision/file identity/root の変更は preview を無効にします。
+同じ内容の JSON 整形を含め、全 6 envelope の raw content/revision/file identity/root の変更は preview を無効にします。
 同じ byte 内容でファイルを交換した場合も preview は無効になります。
-receipt group、中断記録、launch 記録の順に置換し、各 commit 済み prefix の参照整合性を維持します。
+receipt group、中断記録、recovery binding/attempt、launch 記録の順に置換し、各 commit 済み prefix の参照整合性を維持します。
 すべての revision 増分、各 envelope の encode 後サイズ上限と合計 byte budget を、最初の置換前に検証します。
 効果が発生した後の失敗/cancel は明示的な不確定結果とし、rollback・成功とは扱わず自動再試行もしません。
 export と新たな preview で確認してから、別の明示判断が必要です。
 すでに空の receipt、中断記録、launch は書き直さず、no-op は履歴 envelope を作成せず revision も進めません。
 出力 error でも受け付け済み mutation は取り消せません。
 
-対応する registry/execution/receipt/lifecycle/endpoint v1 envelope を厳密に検証します。
+対応する registry/execution/receipt/lifecycle/endpoint/recovery v1 envelope を厳密に検証します。
 中断記録から launch への参照、保持する shutdown/update の不変条件と物理 root に結び付いた endpoint 証跡も検証対象です。
 正しい JSON の未対応 version は v1 固有の field/null 検証より先に未対応として拒否し、壊れた JSON や重複 key は不正として拒否します。
 未知、危険、非互換の metadata（実 schema を統合する前の recovery/history format を含む）は mutation 前に拒否します。

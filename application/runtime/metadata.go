@@ -35,6 +35,9 @@ type MetadataRunSummary struct {
 // MetadataExport is a versioned bounded audit summary, not a restore backup.
 // Revision strings preserve exact counters beyond JSON's numeric precision.
 type MetadataExport struct {
+	RecoveryRevision         string                   `json:"recovery_revision"`
+	RecoveryRecords          int                      `json:"recovery_records"`
+	ResumeAttempts           int                      `json:"resume_attempts"`
 	LifecycleRevision        string                   `json:"lifecycle_revision"`
 	EndpointRevision         string                   `json:"endpoint_revision"`
 	InterruptedRuns          int                      `json:"interrupted_runs"`
