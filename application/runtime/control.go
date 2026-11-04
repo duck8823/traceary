@@ -121,6 +121,13 @@ func (s *Runtime) Control(ctx context.Context, request ControlRequest) (ControlR
 		s.mu.Unlock()
 		return ControlResult{}, domain.ErrChanged
 	}
+	// A resumed owner is published only after native confirmation and durable
+	// result publication. Reuse that gate for new input; cached receipts above
+	// remain inspectable and explicit human stop/resize remain available.
+	if request.Intent.Snapshot().Kind == domain.ControlInput && !run.published {
+		s.mu.Unlock()
+		return ControlResult{}, ErrRuntimeRejected
+	}
 	if s.controlsPending >= domain.MaxControlCoordinators || run.controls != nil && run.controls.busy {
 		s.mu.Unlock()
 		return ControlResult{}, ErrRuntimeBusy

@@ -41,6 +41,7 @@ var pillarInventory = []pillarInventoryEntry{
 	{Path: "runtime registry list", Pillar: pillarKeep, Reason: "explicit owner-scoped runtime operation; no core Session lifecycle or approval authority"},
 	{Path: "runtime profile register", Pillar: pillarKeep, Reason: "explicit owner-scoped runtime operation; no core Session lifecycle or approval authority"},
 	{Path: "runtime profile list", Pillar: pillarKeep, Reason: "explicit owner-scoped runtime operation; no core Session lifecycle or approval authority"},
+	{Path: "runtime resume", Pillar: pillarKeep, Reason: "explicit same-conversation native recovery after managed-owner exit; no pending input replay, global exclusion or core Session lifecycle"},
 	{Path: "runtime launch", Pillar: pillarKeep, Reason: "explicit owner-scoped runtime operation; no core Session lifecycle or approval authority"},
 	{Path: "runtime input", Pillar: pillarKeep, Reason: "explicit owned-run terminal control/receipt; no telemetry-derived approval or core Session lifecycle"},
 	{Path: "runtime resize", Pillar: pillarKeep, Reason: "explicit owned-run terminal control/receipt; no telemetry-derived approval or core Session lifecycle"},

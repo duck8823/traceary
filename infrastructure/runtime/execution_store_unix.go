@@ -126,6 +126,11 @@ func (s *ExecutionStore) update(ctx context.Context, mutate func(*executionEnvel
 		if err = mutate(&doc); err != nil {
 			return err
 		}
+		// A launch update must not invalidate durable recovery linkage. Reading
+		// under this same lock never reconstructs a saved child/process owner.
+		if _, _, err = s.readRecovery(fd, doc); err != nil {
+			return err
+		}
 		*doc.Revision++
 		data, err := json.Marshal(doc)
 		if err != nil {

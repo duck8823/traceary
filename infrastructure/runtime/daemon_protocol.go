@@ -12,6 +12,7 @@ import (
 )
 
 type runtimeRequest struct {
+	Resume              *resumeRequestRecord         `json:"resume,omitempty"`
 	SelectedObservation *selectedObservationRecord   `json:"selected_observation,omitempty"`
 	History             *historyRequestRecord        `json:"history,omitempty"`
 	HistoryHint         *struct{}                    `json:"history_hint,omitempty"`
@@ -39,6 +40,7 @@ type observationRecord struct {
 	Kind            string `json:"kind"`
 }
 type runtimeResponse struct {
+	Resume      *resumeResultRecord  `json:"resume,omitempty"`
 	History     *historyResultRecord `json:"history,omitempty"`
 	HistoryHint *historyHintRecord   `json:"history_hint,omitempty"`
 	Control     *controlResultRecord `json:"control,omitempty"`

@@ -20,6 +20,7 @@ type RootCLI struct {
 	runtimeDaemon               appruntime.Daemon
 	runtimeClient               appruntime.Client
 	runtimeOperators            appruntime.OperatorFactory
+	nativeSessionMetadata       appruntime.NativeSessionMetadataSink
 	event                       usecase.EventUsecase
 	eventMetadata               usecase.EventMetadataUsecase
 	twoTierSearch               queryservice.TwoTierSearch

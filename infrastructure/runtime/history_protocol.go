@@ -180,10 +180,10 @@ func (r historyResultRecord) result() (app.HistoryResult, error) {
 
 func (r runtimeRequest) singleArm() bool {
 	count := 0
-	for _, present := range []bool{r.Control != nil, r.Receipt != nil, r.Attach != nil, r.Observation != nil, r.Launch != nil, r.Page != nil, r.History != nil, r.HistoryHint != nil, r.SelectedObservation != nil} {
+	for _, present := range []bool{r.Resume != nil, r.Control != nil, r.Receipt != nil, r.Attach != nil, r.Observation != nil, r.Launch != nil, r.Page != nil, r.History != nil, r.HistoryHint != nil, r.SelectedObservation != nil} {
 		if present {
 			count++
 		}
 	}
-	return count <= 1 && (r.History == nil || r.Operation == "history_page") && (r.HistoryHint == nil || r.Operation == "history_hint")
+	return count <= 1 && (r.Resume == nil || r.Operation == "resume") && (r.History == nil || r.Operation == "history_page") && (r.HistoryHint == nil || r.Operation == "history_hint")
 }

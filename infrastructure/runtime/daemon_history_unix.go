@@ -92,7 +92,7 @@ func (s *daemonServer) historyReply(reply *runtimeResponse, record *historyReque
 	}
 }
 func historyOnlyResponse(r runtimeResponse) bool {
-	return r.Control == nil && r.Output == nil && r.Run == nil && r.Page == nil && r.Status == nil && r.Role == ""
+	return r.Resume == nil && r.Control == nil && r.Output == nil && r.Run == nil && r.Page == nil && r.Status == nil && r.Role == ""
 }
 
 // HistoryPage reads exactly once from an existing daemon; no store/path/agent side effects.
