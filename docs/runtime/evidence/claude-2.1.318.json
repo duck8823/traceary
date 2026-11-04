@@ -128,7 +128,7 @@
     "native current working/waiting_input/waiting_approval",
     "same-cwd concurrent native foreground runs",
     "Traceary-managed active/duplicate resume exclusion (#2478), not external native global exclusion",
-    "pending tool/approval interruption and product Runtime recovery integration",
+    "persisted-cutoff-tool/permission-dialog interruption and product Runtime recovery integration",
     "late/duplicate/reorder/expiry native matrix",
     "Traceary descriptor argument composition",
     "product adapter/source verification and runtime recovery service",
@@ -225,6 +225,24 @@
       "local_evidence_path": "/private/tmp/traceary-2475-native-interrupted-verified-result.json",
       "local_evidence_sha256": "a859b65dc302af38d6cab7fd74cfa4aa5be915c61d9fe30244e2bbdf01bdb091",
       "raw_native_ids_or_prompt_shared": false
+    },
+    {
+      "command": "rtk proxy python3 /private/tmp/traceary-2475-native-pending-tool.py",
+      "driver_sha256": "1e3f0743a3cfbdea044e318e9d4b3a9b4c3aeb54b1dc5f1e2acbf505c58177b5",
+      "result": "FAIL",
+      "classification": "canonical transcript lag assumption failed; actual old native Wait143",
+      "local_evidence_path": "/private/tmp/traceary-2475-native-pending-tool-result.json",
+      "local_evidence_sha256": "3d3fa7eb05a045d14f4acb6de0697b97202fb4348438339cc6c544d89af7459c",
+      "raw_native_ids_or_prompt_shared": false
+    },
+    {
+      "command": "rtk proxy python3 /private/tmp/traceary-2475-native-pending-tool-flush.py",
+      "driver_sha256": "c049e4541f340b7043c1199c5af36db85da6e236f5f7357865dc5d2f86532b02",
+      "result": "PASS_NATIVE_PENDING_TOOL_INTERRUPTION_NO_REPLAY_SAME_CONTEXT",
+      "classification": "actual pending callback/no replay; transcript tool block not yet persisted",
+      "local_evidence_path": "/private/tmp/traceary-2475-native-pending-tool-flush-result.json",
+      "local_evidence_sha256": "f70f19be62ed703ce4ef6f49067e3dfc67c67e08281f14254c1e841884d0e8a9",
+      "raw_native_ids_or_prompt_shared": false
     }
   ],
   "optional_correlation_constraint": "Observed prompt_id is prompt correlation, not native turn_id. The current generic Claude path must not be certified as having native turn identity; versioned adapter changes require before-product-code review.",
@@ -288,5 +306,35 @@
       "https://code.claude.com/docs/en/env-vars",
       "https://code.claude.com/docs/en/headless"
     ]
+  },
+  "pending_tool_callback_interruption": {
+    "result": "PASS_NATIVE_PENDING_TOOL_INTERRUPTION_NO_REPLAY_SAME_CONTEXT",
+    "old_owned_wait_exit_code": 143,
+    "resumed_owned_wait_exit_code": 0,
+    "actual_pending_pretooluse_observed": true,
+    "pending_tool_persisted_in_native_transcript": false,
+    "pending_tool_proof_source": "actual owned native PreToolUse; transcript presence measured separately",
+    "no_pending_tool_replay_observed": true,
+    "no_native_model_request_before_input": true,
+    "same_native_conversation_verified": true,
+    "fresh_run_and_generation_verified": true,
+    "original_context_verified": true,
+    "model_preserved": true,
+    "permission_answers_sent": 0,
+    "tool_permission_allowlist_added": false,
+    "actual_resumed_tool_callbacks": 0,
+    "native_lifecycle_event_counts": {
+      "SessionEnd": 1,
+      "Stop": 1,
+      "UserPromptSubmit": 1,
+      "SessionStart": 1
+    },
+    "pending_permission_fixture": "NOT_RUN",
+    "normal_cli_only": true,
+    "actual_profile_version": "2.1.318 (Claude Code)",
+    "actual_model": "claude-opus-5-5",
+    "production_runtime_resume_qualified": false,
+    "qualified_current_waiting": false,
+    "guard": "test-only synchronous PreToolUse: hold exact read-only command, then deny; unexpected commands deny immediately; never allow"
   }
 }

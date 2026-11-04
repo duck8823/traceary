@@ -8,7 +8,7 @@
 
 The installed normal CLI reports `2.1.318 (Claude Code)`. Native artifact SHA256 is `677a2ea7bf576cedd20e191d973914ed8a41796f53a63b1923381ddc4d5b5e7d`; normal entry SHA256 is `079234054a9e035839f50118b618c1568c8ae1e20950f9b668a60bf27722e3cc`. Both were checked before and after probes. No upstream commit or compatible range is inferred.
 
-The normal foreground CLI owned its existing cached claude.ai / firstParty subscription authentication, confirmed under the same minimal nonsecret environment before requests. The orchestrator did not read/copy/display credential caches or forward credential values through the child environment; the native CLI alone used its host authentication. Print/SDK billing paths are not qualified here. Plan mode, empty model tools, strict empty MCP and no-Chrome narrowed the probe; existing native hooks/Guardian remained active. No wrapper, login, installation, persistent global/project/auth/permission-setting modification or permission answer was introduced.
+The normal foreground CLI owned its existing cached claude.ai / firstParty subscription authentication, confirmed under the same minimal nonsecret environment before requests. The orchestrator did not read/copy/display credential caches or forward credential values through the child environment; the native CLI alone used its host authentication. Print/SDK billing paths are not qualified here. Marker/input probes used plan mode, empty model tools, strict empty MCP and no-Chrome; the separate pending-tool fixture exposed only Bash behind a deny-only test guard; existing native hooks/Guardian remained active. No wrapper, login, installation, persistent global/project/auth/permission-setting modification or interactive approval answer was introduced.
 
 ## Actual completed-conversation resume
 
@@ -23,6 +23,14 @@ A later foreground fixture accepted a synthetic user turn and was interrupted be
 Two observer failures remain recorded as FAIL. The first sent a raw terminal burst plus Return but observed no UserPromptSubmit; it did not prove a native resume failure. A new explicit question used standard bracketed paste and a separately sent Return, recovered the original first-message marker with the original model/provider, and the actual owner exited 0. Its initial final-count assertion incorrectly counted three native local `/exit` presentation records as replay. A separate metadata verifier checked the actual immutable own record: the old pending input occurs once, the new explicit input once, and the only additional user-shaped rows are the exact local-command caveat/exit/stdout triplet. Correction tests reject arbitrary continuations and duplicate pending input; neither original FAIL was rewritten as PASS.
 
 The resumed run emitted exactly one SessionStart, UserPromptSubmit, Stop and SessionEnd, all matching the original conversation/target and the new injected runtime hints. This is real ordinary-CLI interrupted-context/no-pending-input-replay evidence with **zero model tool calls**, not a pending-tool/approval fixture, a global exclusion proof, current-waiting qualification or certification of the production Runtime adapter. Raw native IDs, conversation bodies and account data were not shared.
+
+## Actual pending-tool callback interruption
+
+A separate ordinary-CLI plan-mode fixture requested only the read-only command `rtk proxy pwd`. A synchronous test-only PreToolUse guard recorded metadata, held that exact command, and would then return **deny**, never allow; every other command was denied immediately. The driver stopped the exact owned native AI while PreToolUse was pending and observed exit 143. No tool was executed or interactively approved, even if the driver had failed.
+
+The first observer required the matching tool-use block to exist in the canonical transcript and failed. That FAIL is retained. A corrected new fixture measured transcript lag while holding the callback: even after five seconds, the tool-use block had not been persisted before SIGTERM. The actual owned native PreToolUse event, matching session/cwd/runtime hints/Bash command/plan mode, is evidence of the pending request; the missing transcript block is not treated as proof that nothing was pending. This is **not** a persisted-cutoff-tool fixture.
+
+After actual old-owner exit, same-UUID foreground resume with auto-continuation disabled produced no new PreToolUse/PostToolUse/UserPromptSubmit/Stop callback, tool request or recorded native `api-request` during the eight-second no-input window. A new explicit tool-free context question recovered the original first-message marker with the same model/provider, no resumed tool callbacks, and actual exit 0. The old pending request and the new input each occur once. Permission-dialog recovery and production Runtime integration remain unqualified; the result is not current waiting/approval authority or an external/global exclusion proof.
 
 ## Native hook input and capture
 
@@ -46,8 +54,8 @@ This proves that foreground resume/session-start alone does **not** provide sing
 
 | Requirement | Status |
 | --- | --- |
-| Exact source and four native hook field/type inventories | Measured above; other tool/permission events NOT_RUN |
-| Same native conversation context/cwd/store/model/provider | PASS completed-context and controlled interrupted-context fixtures; two concurrent foreground starts observed. Pending tool/approval and production managed exclusion remain unqualified |
+| Exact source and four native hook field/type inventories | Measured above, including one actual pending PreToolUse; permission-dialog and successful PostToolUse events NOT_RUN |
+| Same native conversation context/cwd/store/model/provider | PASS completed-context and controlled interrupted-context fixtures; two concurrent foreground starts observed. Pending PreToolUse callback covered; persisted-cutoff-tool/permission-dialog and production managed exclusion remain unqualified |
 | Global/per-run primary-handler composition | Duplicate-primary candidate FAILED and rejected; safe descriptor enrichment unqualified |
 | Same-cwd concurrency, independent generation, reused-ID/late/missing-hint/duplicate/reorder/expiry matrix | Incomplete; descriptor/env/cwd/native IDs alone remain unbound |
 | working / waiting_input / waiting_approval / process | Not qualified; permission metadata is not a visible wait or permission decision |

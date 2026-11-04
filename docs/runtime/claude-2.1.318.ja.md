@@ -38,6 +38,29 @@
 保留 tool/approval の fixture、global 排他の証明、現在の waiting 状態の認定、製品 Runtime adapter の認定ではありません。
 raw native ID、会話本文、account data は共有していません。
 
+## 実際の保留 tool callback の中断
+
+別の通常 CLI fixture は plan mode のまま、read-only command `rtk proxy pwd` だけを要求しました。
+同期の test 用 PreToolUse guard は metadata を記録してその command を保留し、継続した場合も allow ではなく deny を返します。
+他の command は直ちに deny するため、driver が停止しても tool は実行されません。
+PreToolUse の保留中に、正確に所有する native AI を中断し、exit 143 を確認しました。
+tool を実行したり、承認に自動回答したりしていません。
+
+最初の観測器は、対応する tool-use block が canonical transcript にあることを要求して失敗しました。
+この FAIL は保持しています。
+別の修正 fixture は callback を保留したまま書込遅延を測り、5秒後でも SIGTERM 前に tool-use block が保存されていないことを確認しました。
+保留要求の証拠は、session、cwd、runtime hint、Bash command、plan mode が一致した実 native PreToolUse event です。
+transcript の欠落を「保留要求がなかった」証明には使いません。
+永続化済みの cutoff tool の fixture を検証したわけではありません。
+
+実旧 owner の終了後、自動継続を無効にして同じ UUID を foreground resume しました。
+新入力を送らない8秒間に、PreToolUse/PostToolUse/UserPromptSubmit/Stop callback、tool 要求、native の記録済み `api-request` は増えませんでした。
+別の明示的な tool 不使用の質問は、元の model/provider で最初の message の marker を復元しました。
+再開側の tool callback はなく、実 owner は exit 0 でした。
+元の保留要求と新入力は各1回だけ記録されています。
+permission dialog の復旧と製品 Runtime の統合は未認定のままです。
+現在の waiting/approval 権限や、外部/global 排他の証明にはなりません。
+
 ## Native hook 入力と capture
 
 テスト専用の追加 metadata observer が SessionStart、UserPromptSubmit、Stop、SessionEnd をそれぞれ1回受信した。stdin を制限し、stdout／判断を返さず、隔離 store に root field／型、照合 bool、hash だけを保持した。agent を wrap せず、元 recorder の置換や2つ目の primary recorder の追加は行っていない。元の Traceary transcript capture は1件だけ増え（4→5）、実 native owner は exit 0 だった。
@@ -60,8 +83,8 @@ raw native ID、会話本文、account data は共有していません。
 
 | 要求 | 状態 |
 | --- | --- |
-| 正確な source と4種の native hook field／型 | 上記を実測。他の tool／permission event は NOT_RUN |
-| 同じ native 会話の文脈／cwd／store／model／provider | 完了済み文脈と制御した中断文脈の fixture は PASS。同じ UUID の foreground 並行起動2件を実測。保留 tool/approval と製品の管理内排他は未認定 |
+| 正確な source と4種の native hook field／型 | 上記と実保留 PreToolUse を実測。permission dialog と成功した PostToolUse は NOT_RUN |
+| 同じ native 会話の文脈／cwd／store／model／provider | 完了済み文脈と制御した中断文脈の fixture は PASS。同じ UUID の foreground 並行起動2件を実測。保留 PreToolUse callback は検証済み。永続化済み cutoff tool、permission dialog、製品の管理内排他は未認定 |
 | global／per-run primary handler 合成 | duplicate-primary 候補は FAILED・却下。安全な descriptor 拡張は未認定 |
 | 同 cwd 並行、独立 generation、ID 再利用／遅延／hint 不達／重複／逆順／失効 | 未完了。descriptor／env／cwd／native ID 単独では unbound |
 | working／waiting_input／waiting_approval／process | 未認定。permission metadata は可視の待ちや承認判断ではない |
