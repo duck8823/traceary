@@ -2,7 +2,7 @@
 
 [English](claude-2.1.318.md)
 
-**状態：未完了。** [#2475](https://github.com/duck8823/traceary/issues/2475) を追跡し、native-host の親や runtime 復旧 service の完了を意味しない。[本文を含まない証拠](evidence/claude-2.1.318.json) に実測・失敗・未認定を分けて記録する。この fixture で native 現在状態や製品の復旧機能を有効にしない。
+**認定範囲：完全一致 version の session 相関と管理内復旧。native の live 状態は未対応・unknown です。** [#2475](https://github.com/duck8823/traceary/issues/2475) を追跡し、native-host の親や runtime 復旧 service の完了を意味しない。[本文を含まない証拠](evidence/claude-2.1.318.json) に実測・失敗・未認定を分けて記録する。この fixture で native 現在状態を有効にしません。独立して認定した製品の復旧実装は #2478 で merge 済みです。本 leaf の最終 delivery 状態は PR で追跡します。
 
 ## Source と認証
 
@@ -63,7 +63,7 @@ prompt は完了fixtureが二件、中断fixtureが三件です。
 どちらもmodel入力なしで旧ownerの実Wait143を確認してから、新しい修正版fixtureへ進みました。
 native resume の失敗とは扱いません。
 後続の永続化済み保留tool・permission dialogのno-replay fixtureが、その中断caseの不足を解消しました。
-live turn/generationの検証行列と最終review/CI/waveは未完了です。
+live turn/generation の権限は未対応のままで、本 leaf の delivery 状態は PR で追跡します。
 
 ## 保留toolが永続化された実際の管理対象permission dialog
 
@@ -108,7 +108,6 @@ transcript の欠落を「保留要求がなかった」証明には使いませ
 元の保留要求と新入力は各1回だけ記録されています。
 この先行fixture単体ではpermission dialogの復旧や製品Runtimeの接続は未認定でした。
 後続の管理対象Daemon fixtureが上記の中断経路を検証していますが、現在のwaiting/approval権限や外部・global排他の証明にはしません。
-現在の waiting/approval 権限や、外部/global 排他の証明にはなりません。
 
 ## Native hook 入力と capture
 

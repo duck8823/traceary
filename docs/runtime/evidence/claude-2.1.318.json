@@ -128,20 +128,17 @@
     "runtime_hint_probe_limitation": "RUN_ID is the actual product run hint; this collector checked RUN, not RUN_ID. The orchestrator supplied no runtime hints, but the sample does not prove absence of every inherited hint or nested witness. No binding capability is enabled."
   },
   "unqualified": [
-    "independent live-turn/generation observation witness; private conversation recovery binding is separate",
-    "native current working/waiting_input/waiting_approval",
-    "late/duplicate/reorder/expiry native matrix",
-    "live descriptor enrichment of existing primary capture; private recovery SessionStart composition is separately tested",
-    "final independent review/CI/security/wave"
+    "independent native live-turn/generation witness and current working/waiting/approval capability",
+    "live descriptor enrichment of existing primary capture; private recovery callback is separate"
   ],
   "controls": {
-    "global_project_auth_permission_settings_changed": true,
     "native_hooks_guardian_disabled": false,
     "agent_wrapper_added": false,
     "raw_prompt_transcript_account_credential_shared": false,
     "physical_sleep_wake": "user-deferred NOT_RUN",
     "persistent_global_project_auth_permission_settings_changed": false,
-    "temporary_project_settings_scope": "Only the preapproved synthetic native fixture used plan mode and deny-only PreToolUse. Exact owned content hash checked before removal; original absence restored, no global/auth changes."
+    "temporary_project_settings_scope": "Only the preapproved synthetic native fixture used plan mode and deny-only PreToolUse. Exact owned content hash checked before removal; original absence restored, no global/auth changes.",
+    "temporary_synthetic_project_settings_changed": true
   },
   "runs": [
     {
@@ -307,7 +304,8 @@
     "source_urls": [
       "https://code.claude.com/docs/en/env-vars",
       "https://code.claude.com/docs/en/headless"
-    ]
+    ],
+    "superseded_by": "managed_permission_and_persisted_tool_interruption for later permission/persisted-tool coverage; original case NOT_RUN retained"
   },
   "pending_tool_callback_interruption": {
     "result": "PASS_NATIVE_PENDING_TOOL_INTERRUPTION_NO_REPLAY_SAME_CONTEXT",
@@ -337,12 +335,13 @@
     "actual_model": "claude-opus-5-5",
     "production_runtime_resume_qualified": false,
     "qualified_current_waiting": false,
-    "guard": "test-only synchronous PreToolUse: hold exact read-only command, then deny; unexpected commands deny immediately; never allow"
+    "guard": "test-only synchronous PreToolUse: hold exact read-only command, then deny; unexpected commands deny immediately; never allow",
+    "superseded_by": "managed_permission_and_persisted_tool_interruption for later permission/persisted-tool coverage; original case NOT_RUN retained"
   },
   "managed_daemon_composition": {
     "runtime_issue": 2478,
     "runtime_implementation_head": "d35b0e51e23d345af60aaadcdbdb0e10c0c7ad36",
-    "qualification_status": "candidate implementation tested; final review/CI/wave and remaining host states unqualified",
+    "qualification_status": "core recovery merged PR2490; optional observation remains unbound; own host-leaf delivery tracked separately",
     "source_input_fingerprint_verified": true,
     "completed_context": "PASS_REAL_DAEMON_NORMAL_CLI",
     "managed_pending_input_interruption": "PASS_REAL_DAEMON_NORMAL_CLI",
@@ -415,7 +414,7 @@
     "oracle_correction": "No new native attempt: ANSI/whitespace-normalized own UI matched actual permission choices; exact-space observer initially failed"
   },
   "optional_session_claim_decoder": {
-    "status": "implemented_synthetic_tests_pass_native_matrix_incomplete",
+    "status": "implemented_session_only_no_native_current_authority",
     "literal_version": "2.1.318 (Claude Code)",
     "output_fields": [
       "SessionID",
@@ -586,7 +585,7 @@
     "cases": [
       "same-cwd distinct managed runs with reused native session ID",
       "duplicate and reordered boundary receipts",
-      "ancient native timestamp does not create current state",
+      "native timestamps/duplicate/reordered receipts carry no authority; ObserveUnbound keeps interaction unknown",
       "foreign/missing generation and epoch refused",
       "late callback after actual synthetic owned Wait refused",
       "environment-only hints never create selection in public Cobra",
@@ -604,5 +603,12 @@
     "merge_head": "bfcf05e42b7aaec5393bc801178e5c924d05a827",
     "leaf_independent_review_and_CI_wave_complete": false,
     "live_state_still_unqualified": true
+  },
+  "qualification_scope": {
+    "exact_version_only": true,
+    "native_recovery_contract": "qualified by actual ordinary managed completed/interrupted-input/persisted-tool permission cases in merged #2478",
+    "ordinary_hook_live_states": "verified unsupported/unknown: no independently attested turn/generation witness supplied by this decoder",
+    "negative_delivery_scope": "actual native same-ID concurrent opening and missing native hint inventory; synthetic real decoder/Runtime/public-Cobra fault/replay tests; NOT native current-state causal attestation",
+    "final_delivery_gates": "tracked in PR2489; never imply release/all-host completion"
   }
 }
