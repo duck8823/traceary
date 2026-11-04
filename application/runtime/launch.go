@@ -324,6 +324,9 @@ func (s *Runtime) reconcile(run *ownedRun) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	journalErr := s.journal.SaveLaunch(ctx, snapshot)
 	cancel()
+	if exitKnown && journalErr == nil {
+		s.persistOwnedRecovery(run.child, snapshot)
+	}
 	s.mu.Lock()
 	if journalErr != nil {
 		run.markUncertain()
