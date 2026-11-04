@@ -75,3 +75,9 @@ redacted doctor の config.load は OK ですが、一時 hook path は出力さ
 
 任意 decoder は入力全体の UTF-8 も検証し、不正 byte を含む場合は primary capture を変更せず claim を付与しません。
 Codex と採用済み Claude の両 port を組み立てた public Cobra テストで、host/version/nil の分離と Claude の session-only 契約を維持することを検証します。
+
+後続の read-only な native `doctor --json` は、redacted report から project layer/trust/managed-only の metadata だけを取得しようとしましたが、40秒で timeout しました。
+診断用の direct child は subprocess の timeout cleanup で Wait されましたが、終了値は記録していません。
+model 要求、login、global 設定変更、raw report の保存は行っていません。
+これは診断の可用性に関する失敗であり、認証失敗や project trust、managed-only policy の証拠ではありません。
+自動再試行も行っていません。

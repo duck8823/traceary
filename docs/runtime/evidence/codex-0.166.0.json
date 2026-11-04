@@ -45,7 +45,8 @@
   },
   "proof_digests": {
     "ordinary_tui_result_sha256": "bc079f07efd10e5f44a88cddbecd1f3a20337fa1664e18e09c623fba6963d26b",
-    "ordinary_tui_driver_sha256": "a98cfb36d9fec9f0bead1abfdfedb740334440f2e8ea72db847ceb7a52957946"
+    "ordinary_tui_driver_sha256": "a98cfb36d9fec9f0bead1abfdfedb740334440f2e8ea72db847ceb7a52957946",
+    "doctor_layer_failure_sha256": "9ec078a21387a0c539408f8f02e701a17808be84684b273cd40a594f8df08faa"
   },
   "scope_limits": [
     "completed-context fixture only, not interrupted tool/input/approval recovery",
@@ -73,5 +74,17 @@
     "global_settings_changed": false,
     "primary_recorder_modified_or_duplicated": false,
     "trust_answer_or_bypass_sent": false
+  },
+  "native_doctor_layer_metadata_query": {
+    "result": "FAIL_OBSERVATION_TIMEOUT",
+    "timeout_seconds": 40,
+    "new_layer_trust_or_managed_only_evidence": false,
+    "diagnostic_direct_child_reaped_by_subprocess_timeout_cleanup": true,
+    "native_returncode": "NOT_RECORDED",
+    "raw_report_or_account_values_saved_or_shared": false,
+    "model_request": false,
+    "global_configuration_or_auth_changed_by_test": false,
+    "automatic_retry_or_auth_fallback": false,
+    "cause": "UNKNOWN"
   }
 }
