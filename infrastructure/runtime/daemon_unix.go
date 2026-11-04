@@ -424,6 +424,14 @@ func (s *daemonServer) handle(conn *net.UnixConn, endpoint *daemonSocket) {
 			} else {
 				s.historyHintReply(&reply)
 			}
+		} else if request.Resume != nil || request.Operation == "resume" {
+			if endpoint.role != "management" {
+				reply.Code = "unsupported"
+			} else if request.Resume == nil {
+				reply.Code = "invalid"
+			} else {
+				s.resumeReply(&reply, request.Resume)
+			}
 		} else if request.Control != nil || request.Receipt != nil {
 			clear(data)
 			clean := request.Attach == nil && request.Observation == nil && request.Launch == nil && request.Page == nil && endpoint.role == "management"
@@ -468,6 +476,9 @@ func (s *daemonServer) handle(conn *net.UnixConn, endpoint *daemonSocket) {
 						state = "draining"
 					} else {
 						capabilities = append(capabilities, "launch")
+						if s.runtime.SupportsResume() {
+							capabilities = append(capabilities, "resume")
+						}
 					}
 				}
 				reply.Code = "ok"
@@ -576,7 +587,7 @@ func (d *LocalDaemon) Status(ctx context.Context, root string) (app.DaemonStatus
 	if err != nil {
 		return app.DaemonStatus{}, err
 	}
-	if reply.History != nil || reply.HistoryHint != nil || reply.Control != nil || reply.Output != nil || reply.Code != "ok" || reply.Status == nil || reply.Role != "" || reply.Run != nil || reply.Page != nil {
+	if reply.Resume != nil || reply.History != nil || reply.HistoryHint != nil || reply.Control != nil || reply.Output != nil || reply.Code != "ok" || reply.Status == nil || reply.Role != "" || reply.Run != nil || reply.Page != nil {
 		return app.DaemonStatus{}, app.ErrRuntimeProtocol
 	}
 	return decodeRuntimeStatus(reply)
@@ -692,7 +703,7 @@ func (d *LocalDaemon) openRuntime(ctx context.Context, root, operation string) (
 	if err != nil {
 		return nil, "", err
 	}
-	if hello.History != nil || hello.HistoryHint != nil || hello.Control != nil || hello.Output != nil || hello.Code != "ok" || hello.Role != role || hello.Status != nil || hello.Run != nil || hello.Page != nil {
+	if hello.Resume != nil || hello.History != nil || hello.HistoryHint != nil || hello.Control != nil || hello.Output != nil || hello.Code != "ok" || hello.Role != role || hello.Status != nil || hello.Run != nil || hello.Page != nil {
 		return nil, "", app.ErrRuntimeProtocol
 	}
 	success = true

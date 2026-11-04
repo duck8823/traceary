@@ -88,12 +88,26 @@ func (c *RootCLI) hookObservationNativeIDs(ctx context.Context, payload, host, v
 		}
 		return claims.SessionID, claims.TurnID
 	}
+	if host == "claude" {
+		return c.claudeHookObservationSession(ctx, payload, version, kind), ""
+	}
 	body := []byte(payload)
 	value, _ := lookupHookPayloadValue(body, "session_id")
 	session, _ := value.(string)
 	value, _ = lookupHookPayloadValue(body, "turn_id")
 	turn, _ := value.(string)
 	return session, turn
+}
+
+func (c *RootCLI) claudeHookObservationSession(ctx context.Context, payload, version string, kind domain.ObservationKind) string {
+	if c.claudeObservationClaims == nil {
+		return ""
+	}
+	claim, err := c.claudeObservationClaims.Decode(ctx, application.ClaudeObservationClaimInput{Payload: payload, SourceVersion: version, ExpectedBoundary: kind})
+	if err != nil || !claim.Available {
+		return ""
+	}
+	return claim.SessionID
 }
 
 // deliverHookObservation is deliberately void: optional failures never replace

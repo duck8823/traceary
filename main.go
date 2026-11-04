@@ -146,8 +146,10 @@ func run() error {
 		// Avoid constructing a second command tree for ordinary capture hooks.
 		// Cobra still decides whether the token is a namespace or a flag value.
 		runtimeRoot := cli.NewRootCLI(cli.WithRuntimeDaemon(runtimeDaemon),
+			cli.WithCodexObservationClaims(filesystem.NewCodexObservationClaimDecoder()),
+			cli.WithClaudeObservationClaims(filesystem.NewClaudeObservationClaimDecoder()),
 			cli.WithRuntimeClient(runtimeDaemon), cli.WithRuntimeOperators(runtimeinfra.LocalOperatorFactory{}),
-			cli.WithCodexObservationClaims(filesystem.NewCodexObservationClaimDecoder())).Command()
+			cli.WithNativeSessionMetadata(runtimeinfra.NativeSessionMarkerSink{})).Command()
 		command, _, _ := runtimeRoot.Find(os.Args[1:])
 		for current := command; current != nil && current != runtimeRoot; current = current.Parent() {
 			if (current.Name() == "daemon" || current.Name() == "runtime") && current.Parent() == runtimeRoot {
@@ -242,7 +244,9 @@ func run() error {
 	rootCmd := cli.NewRootCLI(
 		cli.WithRuntimeDaemon(runtimeDaemon),
 		cli.WithCodexObservationClaims(filesystem.NewCodexObservationClaimDecoder()),
+		cli.WithClaudeObservationClaims(filesystem.NewClaudeObservationClaimDecoder()),
 		cli.WithRuntimeClient(runtimeDaemon), cli.WithRuntimeOperators(runtimeinfra.LocalOperatorFactory{}),
+		cli.WithNativeSessionMetadata(runtimeinfra.NativeSessionMarkerSink{}),
 		cli.WithEvent(eventUsecase),
 		cli.WithEventMetadata(eventMetadataUsecase),
 		cli.WithTwoTierSearch(eventDatasource),
