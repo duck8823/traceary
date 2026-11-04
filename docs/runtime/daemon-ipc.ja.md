@@ -106,7 +106,7 @@ Default CLI の legacy consumer は未接続のままで、`observe` は `unsupp
 
 ## Selected untrusted observation V1
 
-typed SDK と managed daemon の source capability を実装しています。public CLI/hook と native 認定は未完了です。operation observe_selected_v1 は一つの selected_observation arm と `{selection:{epoch,run,generation,worktree,profile}, metadata:{host,host_version,event_id,kind,native_session_id?,native_turn_id?}}` を使います。推測した target_id、PID、command、approval、nested version は持ちません。別 operation から legacy observe への再送はしません。必須 field、正確な canonical 名（Unicode case alias も拒否）、重複/null/未知 field と raw nested value 4 KiB を検査します。outer frame は 64 KiB のままです。
+typed SDK と managed daemon の source capability を実装しています。public CLI/hook は実装済みであり、native host 連携・認定は未完了です。operation observe_selected_v1 は一つの selected_observation arm と `{selection:{epoch,run,generation,worktree,profile}, metadata:{host,host_version,event_id,kind,native_session_id?,native_turn_id?}}` を使います。推測した target_id、PID、command、approval、nested version は持ちません。別 operation から legacy observe への再送はしません。必須 field、正確な canonical 名（Unicode case alias も拒否）、重複/null/未知 field と raw nested value 4 KiB を検査します。outer frame は 64 KiB のままです。
 
 observations socket のみで受理し、実 Runtime の in-memory owned identity・固定 host/version・initial publication 成功を共有 queue の前で照合します。ACK 前に Registry/Git/filesystem を待ちません。既存の単一 worker が有界 context と owner lock 外で物理 source を再検証し、同じ owner を再確認して一つの volatile untrusted sample を保持します。失敗は sample を捨てて degraded とし、新しい file/core event/Registry/spool/drainer は作りません。最後に到着した telemetry を native binding・現在の interaction・入力権限・承認に昇格させず、native 証拠は後続 adapter が担当します。
 

@@ -96,3 +96,9 @@ public CLI と optional hook flags/配送は実装済みです。host-native ass
 hidden hook に observe-runtime-dir/epoch/run/generation/worktree/profile/host-version の明示 flag を追加します。既存 command に引数を追加するだけで、packaged/global/per-run 設定、auth/model/PATH を変更せず二つ目の handler を作りません。native host の合成・伝播は未認定です。source の引数合成 fixture は同じ既存 handler が一度だけ capture し、stdout/exit・spool が維持されることを確認するもので、host 設定の合成を認定しません。
 
 配送全体は primary 成功と current spool clear の後、backlog drain の前です。失敗・defer・clear 失敗・replay は配送せず、残時間が 250 ms + drain reserve 以下なら省略します。spool 保存失敗の既存 fallback も primary 成功後だけ配送します。単一の process-wide slot が導出と client の実終了まで保持され、取消を無視する callback/client に置換 worker を増やしません。panic/error/timeout は元の結果・出力を変更しません。payload は取得済みの不変文字列から参照し、stdin を再消費しません。event ID は取得済み spool receipt です。native ID は codex の thread_id、他の対応 host の session_id と任意 turn_id を untrusted な文字列としてのみ参照し、不正値は省略します。native association の証拠としては扱いません。
+
+### Packaged host action と保守的な結果
+
+既存 hook antigravity の pre-invocation/pre-tool-use/post-tool-use/stop は prompt/tool/tool/turn boundary に対応します。既存 hook grok の session-start/user-prompt-submit/pre-tool-use/post-tool-use/stop は session/prompt/tool/tool/turn boundary に対応します。command と client は一致させ、それ以外（compact action を含む）は明示的に対応するまで省略し、元の capture は変更しません。これは invocation の metadata 分類であり、host event・source provenance・native 待機・process exit・設定合成を認定しません。
+
+任意の native 相関 ID のどちらかが不正なら、両方とも保守的に省略できます。timeout や ACK 欠落は admission 不成立の証明ではなく、再送を許可しません。admission 後の run 終了でも sample が捨てられ sticky degraded になる場合がありますが、native process 故障の判定ではありません。正しい単一 selected arm と別 operation の組合せは unsupported、複数 arm は invalid です。明示した runtime root が存在しない場合は作成せず optional unavailable/zero exit とします。

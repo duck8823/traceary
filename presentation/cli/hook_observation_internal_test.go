@@ -242,3 +242,45 @@ func TestHookObservationBoundaryMappingIsClosedAndNeverMeansProcessExit(t *testi
 		}
 	}
 }
+
+func TestHookObservationMapsActualPackagedHostSpecifications(t *testing.T) {
+	for _, tt := range []struct{ host, command, action, kind string }{
+		{"antigravity", "antigravity", "pre-invocation", "prompt_boundary"},
+		{"antigravity", "antigravity", "pre-tool-use", "tool_boundary"},
+		{"antigravity", "antigravity", "post-tool-use", "tool_boundary"},
+		{"antigravity", "antigravity", "stop", "turn_boundary"},
+		{"grok", "grok", "session-start", "session_boundary"},
+		{"grok", "grok", "user-prompt-submit", "prompt_boundary"},
+		{"grok", "grok", "pre-tool-use", "tool_boundary"},
+		{"grok", "grok", "post-tool-use", "tool_boundary"},
+		{"grok", "grok", "stop", "turn_boundary"},
+	} {
+		t.Run(tt.host+"/"+tt.action, func(t *testing.T) {
+			spec := hookInvocationSpec{Command: tt.command, Client: tt.host, Action: tt.action}
+			host, kind, ok := hookObservationBoundary(spec)
+			if !ok || host != tt.host || string(kind) != tt.kind {
+				t.Fatalf("production spec skipped: host=%s kind=%s ok=%v", host, kind, ok)
+			}
+			state := t.TempDir()
+			t.Setenv(hookStateDirEnvKey, state)
+			client := &hookObservationClient{inspect: func(o app.SelectedObservation) error {
+				v := o.Metadata.Snapshot()
+				if v.Host != tt.host || string(v.Kind) != tt.kind {
+					t.Error("actual durable invocation mapped differently", v)
+				}
+				return nil
+			}}
+			c := &RootCLI{runtimeDaemon: client, hookObservation: hookObservationFixture()}
+			primary := 0
+			err := c.runHookDurably(context.Background(), "packaged fixture", spec, strings.NewReader(`{"session_id":"native-untrusted"}`), func(input io.Reader) error { primary++; _, e := readHookPayload(input); return e })
+			if err != nil || primary != 1 || client.calls != 1 {
+				t.Fatal("actual packaged spec did not preserve capture/deliver once", err, primary, client.calls)
+			}
+		})
+	}
+	for _, spec := range []hookInvocationSpec{{Command: "grok", Client: "claude", Action: "stop"}, {Command: "antigravity", Client: "grok", Action: "stop"}, {Command: "grok", Client: "grok", Action: "pre-compact"}, {Command: "antigravity", Client: "antigravity", Action: "unknown"}} {
+		if _, _, ok := hookObservationBoundary(spec); ok {
+			t.Fatal("foreign/unsupported packaged action was guessed", spec)
+		}
+	}
+}

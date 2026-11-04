@@ -31,6 +31,32 @@ func hookObservationBoundary(spec hookInvocationSpec) (string, domain.Observatio
 		return "", "", false
 	}
 	switch spec.Command {
+	case "antigravity":
+		if host != "antigravity" {
+			return "", "", false
+		}
+		switch spec.Action {
+		case "pre-invocation":
+			return host, domain.ObservationPromptBoundary, true
+		case "pre-tool-use", "post-tool-use":
+			return host, domain.ObservationToolBoundary, true
+		case "stop":
+			return host, domain.ObservationTurnBoundary, true
+		}
+	case "grok":
+		if host != "grok" {
+			return "", "", false
+		}
+		switch spec.Action {
+		case "session-start":
+			return host, domain.ObservationSessionBoundary, true
+		case "user-prompt-submit":
+			return host, domain.ObservationPromptBoundary, true
+		case "pre-tool-use", "post-tool-use":
+			return host, domain.ObservationToolBoundary, true
+		case "stop":
+			return host, domain.ObservationTurnBoundary, true
+		}
 	case "prompt":
 		return host, domain.ObservationPromptBoundary, true
 	case "audit":
