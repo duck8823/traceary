@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,6 +21,66 @@ func TestCLICompactionProgress_OnWindowWritesPreCopyToken(t *testing.T) {
 	if buf.String() != "compact: inspect_reclaim\n" {
 		t.Fatalf("window line = %q", buf.String())
 	}
+}
+
+// This writer exposes an actual in-flight callback, not a timing assumption
+// about the worker having observed cancellation. It owns no global test state.
+type blockedCompactionProgressWriter struct {
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (w *blockedCompactionProgressWriter) Write(data []byte) (int, error) {
+	w.once.Do(func() { close(w.entered) })
+	<-w.release
+	return len(data), nil
+}
+
+func TestCLICompactionProgress_StopJoinsActualEmissionAndIsIdempotent(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "candidate")
+	if err := os.WriteFile(file, []byte("fixture"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	w := &blockedCompactionProgressWriter{entered: make(chan struct{}), release: make(chan struct{})}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stop := newCLICompactionProgress(w).WatchBuild(ctx, file, 100)
+	var releaseOnce sync.Once
+	defer func() { releaseOnce.Do(func() { close(w.release) }); stop() }()
+	select {
+	case <-w.entered:
+	case <-time.After(time.Second):
+		t.Fatal("progress emission never started")
+	}
+	stopped := make(chan struct{})
+	go func() { stop(); close(stopped) }()
+	select {
+	case <-stopped:
+		t.Fatal("stop returned before its owned emission actually completed")
+	case <-time.After(20 * time.Millisecond):
+	}
+	releaseOnce.Do(func() { close(w.release) })
+	select {
+	case <-stopped:
+	case <-time.After(time.Second):
+		t.Fatal("stop did not join completed emission")
+	}
+	// These calls share cancellation but must all observe the same completion.
+	var wait sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wait.Add(1)
+		go func() { defer wait.Done(); stop() }()
+	}
+	joined := make(chan struct{})
+	go func() { wait.Wait(); close(joined) }()
+	select {
+	case <-joined:
+	case <-time.After(time.Second):
+		t.Fatal("idempotent stop did not complete")
+	}
+	cancel()
+	stop()
 }
 
 func TestCLICompactionProgress_OnPhaseWritesStderrOnlyShape(t *testing.T) {

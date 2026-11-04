@@ -2,7 +2,7 @@
 
 [日本語](native-observation-delivery.ja.md)
 
-Status: **Proposed, not accepted or implemented**. This is the before-code design input for [the observation-delivery leaf](https://github.com/duck8823/traceary/issues/2466), not a new CLI command reference or native-host certification. The [accepted headless R0](../adr/2026-11-03-headless-runtime-r0.md) remains authoritative. Independent High/security review and main-session adoption must resolve the open contract decisions before production implementation.
+Status: **Proposed, not accepted or implemented**. This is the before-code design input for [the observation-delivery leaf](https://github.com/duck8823/traceary/issues/2466), not a shipped CLI command reference or native-host certification. The [accepted headless R0](../adr/2026-11-03-headless-runtime-r0.md) remains authoritative. Independent High/security review and main-session adoption must resolve the open contract decisions before production implementation.
 
 ## Requirement and existing boundaries
 
@@ -33,9 +33,13 @@ The proposed **250 ms total monotonic deadline** starts before optional descript
 
 No daemon, unsafe sockets, oversized frames, queue pressure, disconnect and timeout must preserve the original event IDs, inserted/redelivery behavior, hook stdout, exit code and existing receipt/spool ownership. Live delivery does not create a daemon-specific spool or drain worker. An observation acknowledgement means admission only, not a committed event, native delivery, approval, process state or permission.
 
+## Implemented history baseline
+
+The [history leaf](history-reconciliation.md) is merged in `main`, including bounded metadata audit/preview/forget. This proposal must extend that actual implementation rather than defer inventory compatibility or treat own-produced descriptors as unsupported metadata. History leaf completion does not certify lifecycle hardware, native hooks or session recovery.
+
 ## Open contract decisions
 
-1. **Public intake name and schema.** Select a closed versioned metadata-only schema before advertising flags or implementing a public command. No proposed example here is an executable CLI guarantee.
+1. **Public intake schema.** The accepted R0 fixes the additive command name as `traceary runtime observe`. Its flags and closed versioned metadata-only schema still require before-code design review; this document does not advertise executable flags or a shipped command.
 2. **Descriptor representation.** Compare per-run immutable private files with a bounded closed envelope keyed by full launch selection. Decide owner publication, no-follow race checks, maximum sizes, aggregate budget and generation retirement before implementation. Do not silently treat ambient variables as an equivalent descriptor.
 3. **Unique native association.** Require independently verified per-invocation propagation plus an exact existing launch binding. Native session IDs need a unique versioned association; first-match or same-cwd matching is not sufficient. Ambiguous, foreign, unsupported or stale contexts cannot become bound/current.
 4. **Metadata loss and retention.** A new descriptor format must extend the actual typed audit/export/forget and aggregate-budget contracts. Define whether recovery links are erased and which audit/policy values survive. Every partial write prefix must remain readable by the actual launch and lifecycle readers; normal own-produced roots cannot become permanently unsupported. Unknown versions still fail closed.
@@ -59,3 +63,7 @@ Start with RED/GREEN observable tests and CLI compatibility goldens. Use real ge
 ## Rollback and scope
 
 Disable optional live delivery only. Preserve native hook capture, decisions, existing spool replay, core history, Registry and native conversations. No implicit input, approval, replay, resume or new-chat fallback is introduced. Authentication and billing stay with the actual host CLI. UI/framework/distribution are outside this leaf; Muse native work remains deferred. This proposal neither completes the leaf nor authorizes production changes before its design checkpoint.
+
+## Descriptor representation review candidate
+
+Also compare reusing the full immutable launch snapshot in the existing owner-private `launches.json` as the descriptor body, resolved through explicit full launch selection. This is a candidate, not adopted. It may avoid extra per-run files or envelopes, but actual source and tests must establish that the snapshot retains every store/worktree/profile host/version and run/generation/epoch witness and can be read safely within the same bounded deadline. Descriptor reference or equality alone never certifies native binding. Independently verified per-invocation hook propagation, causality and versioned host evidence remain necessary. Any change to the existing schema semantics must also update the typed metadata audit/forget/budget and valid-write-prefix contract.

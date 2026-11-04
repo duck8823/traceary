@@ -8,6 +8,18 @@ import (
 	"golang.org/x/xerrors"
 )
 
+// OpenMetadata never initializes core data, creates a root, or starts a daemon.
+func (LocalOperatorFactory) OpenMetadata(ctx context.Context, root string) (app.MetadataAudit, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, xerrors.Errorf("open metadata audit: %w", err)
+	}
+	store, err := OpenMetadataStore(root, MaxRegistryBytes)
+	if err != nil {
+		return nil, xerrors.Errorf("open metadata audit: %w", err)
+	}
+	return store, nil
+}
+
 // Create creates the explicitly selected private operator metadata root.
 func (LocalOperatorFactory) Create(ctx context.Context, root string) (app.OperatorServices, error) {
 	return openOperator(ctx, root, true)
@@ -60,7 +72,7 @@ func NewManagedRuntime(ctx context.Context, root, epoch string) (*app.Runtime, e
 	if err != nil {
 		return nil, err
 	}
-	launcher, err := NewPTYLauncher(services.Registry, nil)
+	launcher, err := NewPTYLauncherWithHistoryRoot(services.Registry, nil, root)
 	if err != nil {
 		return nil, err
 	}

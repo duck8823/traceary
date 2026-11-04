@@ -94,3 +94,13 @@ native hook の capture、判断、既存 spool replay、core 履歴、Registry 
 認証と課金は実 host CLI が担当します。
 UI/framework/distribution はこの leaf の対象外とし、Muse native 作業は保留します。
 この提案は leaf の完了や、設計 checkpoint 前の production 変更を許可するものではありません。
+
+## 実装済み履歴との整合
+
+[履歴 leaf](history-reconciliation.ja.md) は、有界な metadata audit/preview/forget を含めて `main` にマージ済みです。この提案では実際の実装を拡張し、inventory 互換性を先送りしたり、自ら生成した descriptor を非対応 metadata と扱ったりしてはいけません。履歴 leaf の完了は、lifecycle の実機・native hook・session 復旧の認定ではありません。
+
+受入済み R0 は追加 command 名を `traceary runtime observe` と定めています。未決定なのは flags と closed な versioned metadata-only schema であり、command 名を再選定するものではありません。実装前 design review が完了するまで、この文書は実行可能な flags や配布済み command を保証しません。
+
+## Descriptor 表現のレビュー候補
+
+既存の owner-private な `launches.json` の完全な immutable launch snapshot を descriptor 本体として再利用し、明示的な full launch selection から解決する案も比較します。これは未採用の候補です。新しい per-run file や envelope を増やさずに済む可能性がありますが、既存 snapshot が store/worktree/profile host/version と run/generation/epoch の全 witness を保持していること、同じ有界 deadline 内で安全に読み取れることを実 source とテストで確認する必要があります。descriptor の参照や一致だけで native binding を認定することはありません。native hook の per-invocation propagation・因果性・version ごとの証拠は別に必要です。既存 schema の意味を変更する場合は、同じ typed metadata audit/forget/budget と有効な書込 prefix の契約も更新します。
