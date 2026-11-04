@@ -1,0 +1,29 @@
+# Integrated headless daemon qualification
+
+[日本語](headless-qualification.ja.md)
+
+**INCOMPLETE.** This tracks [the headless qualification issue](https://github.com/duck8823/traceary/issues/2470), not a release or installed-AI certification. UI/framework decisions are separate. The physical sleep/wake test remains explicitly user-deferred, not passed. Muse native work remains deferred.
+
+## Integrated synthetic process fixture
+
+`TestRuntimeCLIEndToEndRegistrationLaunchAndListWithoutHomeOrCoreBootstrap` reuses actual public CLI subprocesses, a real isolated daemon and its directly owned synthetic PTY executable. No HOME, credential or installed model is used. An opaque existing core-store file must remain byte-identical and the poison core path must not be initialized.
+
+The `integrated` scenario establishes observation admission as **unbound**, reads live output, detaches only the read-only attach client and waits for that client. It verifies the same managed generation is still live, rejects a foreign-generation attach, then reconnects at the exact byte cursor **before any manual input**. It sends explicit bytes, inspects the duplicate-request receipt, resizes, verifies a marker and geometry in the child, explicitly acknowledges work loss and stops. The daemon must reconcile actual child exit; the reconnected stream must end without replaying consumed data. A stop-delivery receipt alone is not exit evidence.
+
+The fixed positive workload is one child, exactly2MiB of `x` output in64KiB bursts acknowledged by a fixture-private consumed-cursor file after actual decoding, five raw input bytes, one `r` marker, one duplicate same-request receipt inspection and a31x101 resize. The existing30-second fixture context is a failure bound, not an AI latency or performance SLA. Selection and contiguous canonical decimal cursors are checked on every live frame. Raw output is never interpreted as state or approval.
+
+The separate `replay-oracle` case intentionally sends the same five bytes with a **new** explicit synthetic request ID. The child requires literal `r` as its next byte; unexpected replay begins with0xe6 and exits97 before recording geometry. This confirms the positive duplicate-request test would fail if input were replayed. Distinct manual requests are not required to deduplicate. The original output/control/observe cases retain their unpaced2MiB burst as regression coverage. An earlier unpaced integrated race run reported a real slow-consumer gap; its failure is retained. The private-file handshake determines only the positive synthetic workload, not native backpressure or resource performance, and never accepts a gap as success.
+
+This is real process/CLI integration using a synthetic executable. It does **not** prove installed-AI hooks, bound native observation, native currentness, final model/provider, interrupted-session recovery, sleep/wake or system resource thresholds.
+
+## Remaining final integrated-head gates
+
+- Installed native launch/output/manual input/detach/reconnect, qualified bound observation and expiry, actual stop; explicit unsupported/unknown hosts.
+- Foreign/stale run, PID reuse, daemon absence/crash, partial input, slow consumer, overflow/cursor gap, maintenance, shutdown cancellation and update deferral fault matrix.
+- Physical sleep/wake: user-deferred NOT_RUN; do not infer success from timers.
+- Pre-fixed native workload/device/thresholds and measured total CPU/RSS/process tree plus bounded metadata/output.
+- Existing CLI/hooks/redaction/spool/history/memory compatibility without a daemon.
+- Exact native interruption/resume at the original target, new generation and no pending-input/tool/approval replay; old-owner live/unknown, concurrent resume, changed target, missing history and recovery crash refusal.
+- Required independent High review, final-head build/full CI/lint/security and approved wave E2E on the same integrated SHA.
+
+A green synthetic test never substitutes for these gates. No runtime/auth/default/config/schema change, wrapper, automatic adoption/kill/resume, UI adoption or distribution is authorized by this fixture. Rollback removes only its new test scenarios/helper and this qualification note. Parent issues remain open through the actual tagged release.

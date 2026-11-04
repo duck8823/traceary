@@ -22,12 +22,12 @@ import (
 )
 
 func TestRuntimeCLIEndToEndRegistrationLaunchAndListWithoutHomeOrCoreBootstrap(t *testing.T) {
-	for _, mode := range []string{"output", "controls", "observe"} {
+	for _, mode := range []string{"output", "controls", "observe", "integrated", "replay-oracle"} {
 		t.Run(mode, func(t *testing.T) { runtimeCLIProcessFixture(t, mode) })
 	}
 }
 func runtimeCLIProcessFixture(t *testing.T, mode string) {
-	control := mode == "controls"
+	control := mode == "controls" || mode == "integrated" || mode == "replay-oracle"
 	t.Helper()
 	base := os.TempDir()
 	if runtime.GOOS == "darwin" {
@@ -61,7 +61,7 @@ func runtimeCLIProcessFixture(t *testing.T, mode string) {
 	agentSource := filepath.Join(root, "fixture-agent.go")
 	agentBinary := filepath.Join(root, "fixture-agent")
 	program := `package main
-import("os";"encoding/json";"bytes";"io";"time";"golang.org/x/term";"golang.org/x/sys/unix")
+import("os";"encoding/json";"bytes";"io";"time";"strconv";"golang.org/x/term";"golang.org/x/sys/unix")
 func main(){
  if len(os.Args)==2&&os.Args[1]=="--version"{os.Stdout.WriteString("fixture-runtime 1\n");return}
  if len(os.Args)!=1{os.Exit(93)}
@@ -70,7 +70,18 @@ func main(){
  if os.WriteFile(result,data,0600)!=nil{os.Exit(90)}
  control:=os.Getenv("TRACEARY_TEST_RUNTIME_CONTROL")=="1"
  if control {if _,e:=term.MakeRaw(0);e!=nil{os.Exit(94)};os.WriteFile(result+".ready",[]byte("ready"),0600)}
- os.Stdout.Write(bytes.Repeat([]byte("x"),2*1024*1024))
+ if os.Getenv("TRACEARY_TEST_RUNTIME_INTEGRATED")=="1" {
+  deadline:=time.Now().Add(15*time.Second)
+  for end:=65536;end<=2*1024*1024;end+=65536 {
+   if _,e:=os.Stdout.Write(bytes.Repeat([]byte("x"),65536));e!=nil{os.Exit(98)}
+   for {
+    data,e:=os.ReadFile(result+".output-consumed");n,parse:=strconv.Atoi(string(data))
+    if e==nil&&parse==nil&&n==end {break}
+    if time.Now().After(deadline){os.Exit(98)}
+    time.Sleep(5*time.Millisecond)
+   }
+  }
+ } else {os.Stdout.Write(bytes.Repeat([]byte("x"),2*1024*1024))}
  if os.Getenv("TRACEARY_TEST_RUNTIME_OBSERVE")=="1" {
   deadline:=time.Now().Add(15*time.Second)
   for {if _,e:=os.Stat(result+".observe-release");e==nil{break};if time.Now().After(deadline){os.Exit(92)};time.Sleep(5*time.Millisecond)}
@@ -78,7 +89,7 @@ func main(){
 
  if control {
   raw:=make([]byte,5);if _,e:=io.ReadFull(os.Stdin,raw);e!=nil{os.Exit(95)};os.WriteFile(result+".input",raw,0600)
-  marker:=make([]byte,1);if _,e:=io.ReadFull(os.Stdin,marker);e!=nil{os.Exit(95)}
+  marker:=make([]byte,1);if _,e:=io.ReadFull(os.Stdin,marker);e!=nil{os.Exit(95)};if marker[0]!='r'{os.Exit(97)}
   size,e:=unix.IoctlGetWinsize(0,unix.TIOCGWINSZ);if e!=nil{os.Exit(96)};geometry,_:=json.Marshal([]uint16{size.Row,size.Col});os.WriteFile(result+".geometry",geometry,0600)
   time.Sleep(15*time.Second);os.Exit(92)
  }
@@ -107,6 +118,9 @@ func main(){
 		cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "TRACEARY_LANG=en", "LOG_LEVEL=error", "TRACEARY_TEST_DAEMON_HELPER=1", "TRACEARY_TEST_DAEMON_ARGS=" + string(data), "TRACEARY_TEST_RUNTIME_RESULT=" + resultFile, "TRACEARY_DB_PATH=" + poisonCore, "GORACE=atexit_sleep_ms=0"}
 		if control {
 			cmd.Env = append(cmd.Env, "TRACEARY_TEST_RUNTIME_CONTROL=1")
+		}
+		if mode == "integrated" {
+			cmd.Env = append(cmd.Env, "TRACEARY_TEST_RUNTIME_INTEGRATED=1")
 		}
 		if mode == "observe" {
 			cmd.Env = append(cmd.Env, "TRACEARY_TEST_RUNTIME_OBSERVE=1")
@@ -192,7 +206,7 @@ func main(){
 	if launched["request_id"] != "explicit-fixture-request" {
 		t.Fatal("launch receipt lost request")
 	}
-	if mode == "observe" {
+	if mode == "observe" || mode == "integrated" {
 		target := launched["run"].(map[string]any)
 		args := []string{"runtime", "observe", "--runtime-dir", metadata, "--epoch", status.Epoch, "--run", target["run"].(string), "--generation", target["generation"].(string), "--worktree", w["id"].(string), "--profile", "codex-fixture", "--host", "codex", "--host-version", "fixture-runtime 1", "--event-id", "spool:actual-cli", "--kind", "prompt_boundary"}
 		observed := jsonCommand(args...)
@@ -202,6 +216,38 @@ func main(){
 		if err = os.WriteFile(resultFile+".observe-release", []byte("release finite owned fixture"), 0600); err != nil {
 			t.Fatal(err)
 		}
+	}
+	var reconnected *integratedCLIOutput
+	if mode == "integrated" {
+		target := launched["run"].(map[string]any)
+		selection := map[string]string{"epoch": status.Epoch, "run": target["run"].(string), "generation": target["generation"].(string), "worktree": w["id"].(string), "profile": "codex-fixture"}
+		flags := []string{"runtime", "attach", "--runtime-dir", metadata, "--epoch", selection["epoch"], "--run", selection["run"], "--generation", selection["generation"], "--worktree", selection["worktree"], "--profile", selection["profile"]}
+		first := startIntegratedCLIOutput(t, command(append(flags, "--cursor", "0")...), selection)
+		first.snapshot(t)
+		cursor := first.consume(t, 2*1024*1024, resultFile+".output-consumed")
+		first.detach(t)
+		assertLive := func() {
+			t.Helper()
+			page := jsonCommand("runtime", "list", "--runtime-dir", metadata, "--epoch", status.Epoch)
+			runs := page["runs"].([]any)
+			if len(runs) != 1 || runs[0].(map[string]any)["process_state"] != "live" || runs[0].(map[string]any)["generation"] != selection["generation"] {
+				t.Fatal("detach changed or lost the original live synthetic child")
+			}
+		}
+		assertLive()
+		foreign := append([]string{}, flags...)
+		for i := range foreign {
+			if foreign[i] == "--generation" {
+				foreign[i+1] = strings.Repeat("f", 32)
+			}
+		}
+		if err := command(foreign...).Run(); err == nil {
+			t.Fatal("foreign generation attached to integrated run")
+		}
+		assertLive()
+		reconnected = startIntegratedCLIOutput(t, command(append(flags, "--cursor", cursor)...), selection)
+		reconnected.snapshot(t)
+		assertLive() // Reconnection is positively established BEFORE manual input.
 	}
 	expectedExit := 7
 	if control {
@@ -243,16 +289,27 @@ func main(){
 		if _, e = duplicate.CombinedOutput(); e != nil {
 			t.Fatal("actual CLI duplicate receipt inspection failed")
 		}
-		_ = jsonCommand(args("resize", "cli-resize", "--sequence", "1", "--rows", "31", "--cols", "101")...)
-		marker := command(args("input", "cli-marker", "--manual-terminal")...)
-		marker.Stdin = strings.NewReader("r")
-		if _, e = marker.CombinedOutput(); e != nil {
-			t.Fatal("actual CLI marker failed")
+		if mode == "replay-oracle" {
+			// Intentionally inject a distinct manual request, not a product retry.
+			// Its leading 0xe6 must fail the child's literal-r marker oracle.
+			replayed := command(args("input", "injected-new-replay", "--manual-terminal")...)
+			replayed.Stdin = bytes.NewReader(raw)
+			if _, e = replayed.CombinedOutput(); e != nil {
+				t.Fatal("could not deliver intentional synthetic replay fault")
+			}
+			expectedExit = 97
+		} else {
+			_ = jsonCommand(args("resize", "cli-resize", "--sequence", "1", "--rows", "31", "--cols", "101")...)
+			marker := command(args("input", "cli-marker", "--manual-terminal")...)
+			marker.Stdin = strings.NewReader("r")
+			if _, e = marker.CombinedOutput(); e != nil {
+				t.Fatal("actual CLI marker failed")
+			}
+			if string(artifact(resultFile+".geometry")) != "[31,101]" {
+				t.Fatal("actual CLI resize or no-replay contract failed")
+			}
+			_ = jsonCommand(args("stop", "cli-stop", "--acknowledge-work-loss")...)
 		}
-		if string(artifact(resultFile+".geometry")) != "[31,101]" {
-			t.Fatal("actual CLI resize or no-replay contract failed")
-		}
-		_ = jsonCommand(args("stop", "cli-stop", "--acknowledge-work-loss")...)
 		receipt := jsonCommand(args("receipt", "cli-input")...)
 		if receipt["receipt"].(map[string]any)["written_bytes"] != "5" {
 			t.Fatal("actual CLI lost input receipt after stop")
@@ -271,6 +328,14 @@ func main(){
 			t.Fatalf("owned synthetic exit not reconciled: %v", e)
 		}
 		time.Sleep(5 * time.Millisecond)
+	}
+	if mode == "replay-oracle" {
+		if _, err := os.Stat(resultFile + ".geometry"); !os.IsNotExist(err) {
+			t.Fatal("intentional replay passed the literal-r oracle")
+		}
+	}
+	if reconnected != nil {
+		reconnected.ended(t)
 	}
 	page := jsonCommand("runtime", "list", "--runtime-dir", metadata, "--epoch", status.Epoch)
 	if len(page["runs"].([]any)) != 1 {
