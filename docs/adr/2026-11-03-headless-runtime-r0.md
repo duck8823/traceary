@@ -233,20 +233,28 @@ A record is correlation, not authorization. Recovery support is certified separa
 from live interaction state; an unknown waiting state alone need not prevent a
 resume whose session identity and exclusivity can be independently proven.
 
-The operator selects the interrupted run and confirms its recovery target. Under
-a per-native-session exclusive reservation, verify the native session still
-exists, the original canonical worktree/store/profile is unchanged and usable,
-the exact host/version resume contract is supported, and the previous execution
-is definitively no longer active. A saved PID, absence of its parent, elapsed
-time or an orphan label alone cannot prove that no descendant or external host
-process still owns the native session. Use owned process identity and host-native
-exclusivity evidence where available; otherwise report blocked/unknown rather
-than guess, adopt or kill an existing process. Concurrent or duplicate recovery
-requests cannot start two owners of the same native session.
+On 2026-11-04 the maintainer explicitly simplified the guarantee to the old AI
+process managed by Traceary. This replaces the earlier requirement to prove all
+descendants and external native owners inactive. Use the normal CLI's native
+resume; do not add a broker, app-server execution mode, wrapper or model API as a
+workaround. Traceary does not coordinate native CLI sessions started outside it
+or guarantee that every tool/descendant process has stopped. Make that boundary
+visible; do not silently claim global native-session exclusion.
+
+The operator selects the interrupted run and confirms its recovery target.
+Traceary permits at most one managed resume of that conversation at a time.
+Verify the native session exists, the original canonical worktree/store/profile
+is unchanged and usable, the exact host/version resume contract is supported,
+and the original managed AI process has ended. Use its actual owned Wait result
+or a fresh check of the recorded process identity, including birth identity to
+handle PID reuse. A stored PID, missing parent, elapsed time or orphan label alone
+is insufficient. If that managed process is live or its identity/exit cannot be
+verified, report blocked/unknown; never guess, adopt or kill it to allow recovery.
+Concurrent or duplicate Traceary recovery requests must not launch a second owner.
 
 Resume invokes the configured real CLI directly through its versioned, typed
 resume adapter, retaining host-owned authentication/approval and fixed target
-constraints. Allocate a fresh run/generation/epoch, link it to the interrupted
+constraints. Allocate a fresh run/generation in the current daemon epoch, link it to the interrupted
 predecessor, and bind it anew; old callbacks, input receipts and controls remain
 stale. A recovery request gets a bounded durable intent/result before reporting
 success. If recovery itself crashes or delivery is ambiguous, reconcile ownership
