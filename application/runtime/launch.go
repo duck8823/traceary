@@ -65,11 +65,15 @@ type launchTicket struct {
 	err                                    error
 }
 type ownedRun struct {
-	controls   *runControls
-	descriptor domain.LaunchDescriptor
-	child      OwnedChild
-	done       chan struct{}
-	waitErr    error
+	// Volatile publication/telemetry belongs only to this actual child owner.
+	published      bool
+	observation    domain.DerivedObservation
+	hasObservation bool
+	controls       *runControls
+	descriptor     domain.LaunchDescriptor
+	child          OwnedChild
+	done           chan struct{}
+	waitErr        error
 }
 
 // Runtime owns bounded launch reservations, immutable outcomes and live child handles.
@@ -257,8 +261,10 @@ func (s *Runtime) launch(t *launchTicket) {
 	cancel()
 	s.mu.Lock()
 	if err != nil || journalErr != nil {
-		_ = run.descriptor.MarkUncertain()
+		run.markUncertain()
 		t.err = ErrLaunchUnknown
+	} else {
+		run.published = true
 	}
 	t.result = run.descriptor.Snapshot()
 	t.complete = true
@@ -301,11 +307,12 @@ func (s *Runtime) fail(t *launchTicket, err error) {
 func (s *Runtime) reconcile(run *ownedRun) {
 	code, err := run.child.Wait()
 	s.mu.Lock()
+	run.clearObservation()
 	if err == nil {
 		err = run.descriptor.Exit(code)
 	}
 	if err != nil {
-		_ = run.descriptor.MarkUncertain()
+		run.markUncertain()
 		run.waitErr = ErrLaunchUnknown
 	}
 	snapshot := run.descriptor.Snapshot()
@@ -317,7 +324,7 @@ func (s *Runtime) reconcile(run *ownedRun) {
 	cancel()
 	s.mu.Lock()
 	if journalErr != nil {
-		_ = run.descriptor.MarkUncertain()
+		run.markUncertain()
 	}
 	if exitKnown {
 		s.active--
@@ -363,6 +370,9 @@ func (s *Runtime) DisableLaunches() {
 	s.mu.Lock()
 	if !s.disabled {
 		s.disabled = true
+		for _, run := range s.runs {
+			run.clearObservation()
+		}
 		s.changedLocked()
 	}
 	s.mu.Unlock()

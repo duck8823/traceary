@@ -2,10 +2,11 @@
 
 [English](native-observation-delivery.md)
 
-状態は **提案であり、未採用、未実装** です。
+状態は **修正済み実装前契約を主担当が採用し、domain と Runtime の所有 capability を実装済み、wire/CLI/hook は未実装** です。
+独立 report の CHANGES_REQUIRED は変更せず、明示 triage と修正契約を保持します。実装の認定ではありません。
 [観測配送の leaf](https://github.com/duck8823/traceary/issues/2466) の実装前設計資料であり、新しい CLI command の利用案内や native host の認定ではありません。
 [採用済み headless R0](../adr/2026-11-03-headless-runtime-r0.ja.md) を正本とします。
-production 実装前に、独立した High/security review と主 session の採否判断で未確定の contract を解決する必要があります。
+末尾の具体的な契約と checkpoint 採否に従って実装します。最終の独立実装レビューと native host 認定は別の gate です。
 
 ## 要求と既存の境界
 
@@ -40,92 +41,19 @@ infrastructure は descriptor の no-follow read、root lock、atomic publicatio
 主 capture と host の stdout/exit 整形は既存 CLI hook の責務です。
 既存の対象単位 service に capability を加える設計とし、hook ごとの新しい class や二つ目の target Registry は作りません。
 
-## 配送順序の提案
-
-既存 hook handler は payload を一度だけ読み、主 capture と判断結果を保持します。
-任意の経路が allowlist 済み metadata を導出し、明示された、対応を検証済みの native invocation context を解決します。
-その後、将来の明示的な metadata intake と同じ有界 application port を使います。
-生の native payload は転送せず、stdin の二重 reader も作りません。
-
-提案する **全体 250 ms の単調時計 deadline** は、任意処理の descriptor 検証前に開始します。
-root/file 検証、connect、handshake、frame write と acknowledgement のすべてを含めます。
-phase ごとに 250 ms を与える実装は全体上限を超えるため採用しません。
-上限内に終えられなければ unavailable/unknown の telemetry とし、無制限の background worker を残したり、元の capture 結果を変えたりしません。
-cancellation と実際に残る処理中 worker も上限設計に含め、cancel を無視する callback によって代替 worker を無制限に増やしてはいけません。
-
-daemon 不在、危険な socket、過大 frame、queue 圧迫、切断、timeout でも、元の event ID、inserted/redelivery、hook stdout、exit code と既存 receipt/spool の所有権を保持します。
-live 配送のための独自 spool や drain worker は追加しません。
-観測 ACK は受付だけを示し、event の commit、native 配送、承認、process 状態や権限の証明ではありません。
-
-## 未確定の contract
-
-1. **public intake 名と schema**：閉じた version 付き metadata-only schema を、flag の案内や public command の実装より前に決めます。この文書には実行可能な CLI 保証となる例を載せません。
-2. **descriptor 表現**：run ごとの不変 private file と、完全な launch selection を key とする有界 envelope を比較します。所有者による publication、no-follow race 検証、最大サイズ、合計 budget と generation 廃止を実装前に決めます。環境変数を暗黙の同等品として扱いません。
-3. **native の一意な対応**：独立に検証した invocation ごとの伝播と、既存 launch への正確な binding を要求します。native session ID は version ごとの一意な対応が必要で、最初に見つかった候補や同じ cwd では不十分です。曖昧、他対象、未対応、古い context を bound/current にしてはいけません。
-4. **metadata の損失と保持**：新しい descriptor format は、実際の型付き audit/export/forget と合計 budget の contract に統合します。どの復旧用 link を消し、どの監査、policy を保持するかを決めます。各部分 write の確定済み prefix を実際の launch/lifecycle reader が読める必要があり、通常の自製 root を恒久的に unsupported にしてはいけません。未知の version は引き続き拒否します。
-5. **hook 合成**：無関係な global/per-run handler、host の判断優先順位と一回の論理 capture を保持します。global 設定の install/上書き、auth/trust/model/PATH 変更や wrapper 導入は行いません。合成 fixture は、実 host/version での動作を証明しません。
-
-これらの決定は関連します。
-descriptor file だけを選び、寿命、監査、削除 contract を後回しにすることは、必須の安全性を解決したことになりません。
-この文書では表現を採用しません。
-
-## 振る舞いテストと検証計画
-
-| 条件と操作 | 必須の観測結果 |
-| --- | --- |
-| 対応済みで一意な invocation descriptor と生成した private Unix server | 一つの有界な導出 frame のみ。元の capture ID/件数/stdout/exit は不変で、ACK は受付だけを示す |
-| 各 phase で daemon 不在、低速、危険、backpressure | 一つの全体 deadline。主処理の失敗、二つ目の drainer、自動 replay、無制限の worker 増加を起こさない |
-| env/native-ID/cwd だけの主張、race/future/他所有者の descriptor、誤った store/host/version/generation/epoch、曖昧な対応 | 任意 telemetry を unbound/拒否とし、native 権限や主処理結果を変えない |
-| 重複、順序逆転、旧 generation から遅延した callback | 現 generation に昇格せず、因果検証を version ごとの独立した境界に残す |
-| global/per-run hook 合成 fixture | 既存 handler と判断優先順位を保持し、論理 capture を二重化しない。未検証の native 合成は unknown のまま |
-| descriptor publication/廃止/forget の各 write 境界で失敗 | 実 metadata reader が確定済みの各 prefix を読め、損失/保持と不確定性を明示し、自動 retry しない |
-
-RED/GREEN の観測可能な test と CLI 互換性 golden から始めます。
-経過時間、deadline、queue は実際に生成した private socket で検証し、fixture を通すために production deadline を延ばしません。
-影響する staged/reverse test、並行処理の race test、build/vet/lint、英日文書検証、新しい同一 head の CI/security を実施します。
-最終独立実装レビューと daemon 統合 wave も必要です。
-合成 fixture で実 native hook、実機 sleep/wake や同一会話の再開を認定してはいけません。
-
-## rollback と scope
-
-任意の live 配送だけを止めます。
-native hook の capture、判断、既存 spool replay、core 履歴、Registry と native 会話は保持します。
-暗黙の input、承認、replay、resume や新しい会話への fallback は導入しません。
-認証と課金は実 host CLI が担当します。
-UI/framework/distribution はこの leaf の対象外とし、Muse native 作業は保留します。
-この提案は leaf の完了や、設計 checkpoint 前の production 変更を許可するものではありません。
-
-## 実装済み履歴との整合
-
-[履歴 leaf](history-reconciliation.ja.md) は、有界な metadata audit/preview/forget を含めて `main` にマージ済みです。この提案では実際の実装を拡張し、inventory 互換性を先送りしたり、自ら生成した descriptor を非対応 metadata と扱ったりしてはいけません。履歴 leaf の完了は、lifecycle の実機・native hook・session 復旧の認定ではありません。
-
-受入済み R0 は追加 command 名を `traceary runtime observe` と定めています。未決定なのは flags と closed な versioned metadata-only schema であり、command 名を再選定するものではありません。実装前 design review が完了するまで、この文書は実行可能な flags や配布済み command を保証しません。
-
-## Descriptor 表現のレビュー候補
-
-既存の owner-private な `execution.json` の完全な immutable launch snapshot を descriptor 本体として再利用し、明示的な full launch selection から解決する案も比較します。これは未採用の候補です。新しい per-run file や envelope を増やさずに済む可能性がありますが、既存 snapshot が store/worktree/profile host/version と run/generation/epoch の全 witness を保持していること、同じ有界 deadline 内で安全に読み取れることを実 source とテストで確認する必要があります。descriptor の参照や一致だけで native binding を認定することはありません。native hook の per-invocation propagation・因果性・version ごとの証拠は別に必要です。既存 schema の意味を変更する場合は、同じ typed metadata audit/forget/budget と有効な書込 prefix の契約も更新します。
-
-## 独立実装前レビューの結果
-
-固定 tree `7a94503a` の独立 High/security レビューは **CHANGES_REQUIRED** です。実装や native 認定の承認ではありません。descriptor の比較対象となる実ファイル名は `execution.json`（`executionEnvelope.launches`）です。新しい per-run file を追加する案は採用せず、既存の完全な launch snapshot と明示的な full selection の再利用を具体化します。新ファイル・新 schema を追加しない限り inventory の拡張は不要ですが、既存 metadata audit/forget と有効な書込 prefix が変化しないことは実テストで確認します。
-
-実装前の残件は、wire 上の worktree/profile/full selection の一意な表現、production の有界な observation receiver と後続 reducer の責務境界、closed な event kind、primary hook budget 内の配送位置の確定です。現在の `ObservationMetadata.TargetID` には domain 上の対応を推測せず、旧 daemon が新 schema を明示拒否する互換性も定めます。descriptor と一致しても native binding・入力許可・承認済み状態には昇格させません。レビュー推奨の新規 ring buffer は自動採用せず、後続 projection と重複する状態所有者を作らない設計を確認します。
-
-optional 配送は primary capture の完了後に限定し、既存 packaged hook の残り budget と spool drain の予約時間を侵食する場合は省略します。stdout/exit と receipt/spool の意味は変更しません。正確な command flags・wire schema と receiver 境界の修正版は再度 checkpoint で検証し、それまでは production code を追加しません。host ごとの native hook 引数伝播・合成の認定は各 adapter leaf に残し、ここで universal な対応を宣言しません。
-
 ## 修正版の実装前レビューに出す具体的 v1 契約
 
 この節は、先行する未決定の表現・schema の比較案に優先する checkpoint 入力です。実装や native 認定の完了ではなく、受入済み R0 の範囲内です。host 設定の導入や product-wide な設計変更は採用しません。
 
 ### Descriptor と receiver の所有
 
-既存 Runtime が所有し `execution.json` に保存する immutable な完全 launch snapshot を使います。明示 selection は既存 OutputSelection と同じ epoch/run/generation/worktree/profile です。client は descriptor file を読みません。同一 epoch の live・publish 成功済み owned run と全 selection・profile host/version を照合し、保存 record/PID、reserved/exited/uncertain、環境変数や native ID の一致では受理しません。既存 TargetRegistry.Revalidate は Runtime.mu の外で元 target に対して実行し、その後同じ owned run の identity/state を再確認します。native 引数伝播が未認定なら telemetry は unbound のままです。
+既存 Runtime が所有し `execution.json` に保存する immutable な完全 launch snapshot を使います。明示 selection は既存 OutputSelection と同じ epoch/run/generation/worktree/profile です。client は descriptor file を読みません。同一 epoch の live・publish 成功済み owned run と全 selection・profile host/version を照合し、保存 record/PID、reserved/exited/uncertain、環境変数や native ID の一致では受理しません。admission 前は Runtime.mu 内の immutable な owned snapshot のみを照合し、file・Registry・subprocess を参照しません。物理的な TargetRegistry.Revalidate は消費時に owner lock 外の有界 worker context で実行し、その後同じ owned run の identity/state を再確認してから sample を保持します。失敗・timeout では sample を捨てて degraded とし、queued を消費完了と扱いません。native 引数伝播が未認定なら telemetry は unbound のままです。
 
 新 selected intake は既存 Runtime が所有し、legacy ObservationReceiver とは分離します。既存 daemon の単一 observation queue/worker で admission 前と消費時に照合します。main の既存 RuntimeFactory を使った実 composition で動作させ、legacy observe の nil receiver は引き続き unsupported とします。二つ目の queue・drainer・ring は作りません。live run ごとに最大 4 KiB の最後に到着した untrusted sample を一つだけ保持し、全体を 256 個・1 MiB 以下に制限します。実 Wait 完了・uncertainty・owner shutdown・epoch 失効で消去します。重複・遅延・順不同は native 状態・入力許可・core Session を変更しません。後続 reducer は同じ所有境界を拡張できますが、この sample を新しい因果的証拠として再生してはいけません。
 
 ### Wire と版の相違
 
-outer protocol 1 と legacy observe は変更せず、operation observe_selected_v1 と request arm selected_observation を追加します。legacy への fallback はしません。closed な selected schema は `{selection:{epoch,run,generation,worktree,profile}, metadata:{host,host_version,event_id,kind,native_session_id?,native_turn_id?}}` です。operation 名を版の識別に使い、重複した nested version field は追加しません。必須欠落・null・重複 key・後続 JSON・未知 field・複数 arm を拒否します。protocol 1 の非 null・closed field 制約は維持します。protocol 1 として正しい field を持つ未対応 operation（例 observe_selected_v2）は unsupported、未知 field・null・壊れた JSON は invalid です。future operation を selected v1 として解釈せず、legacy に再送しません。outer decoder の特例化や緩和はしません。TargetID の意味を推測せず、新 schema には含めません。host/version は固定 profile と一致させます。kind は prompt_boundary/tool_boundary/turn_boundary/session_boundary のみです。event/native ID は有界な相関識別子であり本文ではありません。selected value は 4 KiB 以下、既存 frame は 64 KiB 以下です。旧 daemon は未知 arm/operation を拒否し、新 client は unavailable/unsupported として扱い、別 schema で再送しません。
+outer protocol 1 と legacy observe は変更せず、operation observe_selected_v1 と request arm selected_observation を追加します。legacy への fallback はしません。closed な selected schema は `{selection:{epoch,run,generation,worktree,profile}, metadata:{host,host_version,event_id,kind,native_session_id?,native_turn_id?}}` です。operation 名を版の識別に使い、重複した nested version field は追加しません。必須欠落・null・重複 key・後続 JSON・未知 field・複数 arm を拒否します。protocol 1 の非 null・closed field 制約は維持します。protocol 1 として正しい field を持つ未対応 operation（例 observe_selected_v2）は unsupported、未知 field・null・壊れた JSON は invalid です。future operation を selected v1 として解釈せず、legacy に再送しません。outer decoder の特例化や緩和はしません。TargetID の意味を推測せず、新 schema には含めません。host/version は固定 profile と一致させます。kind は prompt_boundary/tool_boundary/turn_boundary/session_boundary のみです。event/native ID は有界な相関識別子であり本文ではありません。selected value は 4 KiB 以下、既存 frame は 64 KiB 以下です。旧 daemon は未知 arm に相関しない invalid response を返すため、新 client は既存の protocol error のまま invalid として扱い、request ID 検証を緩めず別 schema に再送しません。総 budget 外の capability pre-check は追加しません。
 
 observations endpoint だけが受理し、実 runtime intake がある場合だけ status が observe_selected_v1 を広告します。これは native host 認定ではありません。成功 ACK は相関した queued のみで、effect/approval/data arm を含めません。ACK は admission だけであり、消費・core commit・native association・可視の承認待ちを保証しません。既存 SDK 全体で request one-of と混在 reply arm を拒否し、別 lifecycle branch との統合時も再確認します。frame/byte/queue 上限と degraded 表示を維持し、payload を含まない既存の invalid/unsupported/changed/not_found/rejected/busy error code を使います。
 
@@ -139,6 +67,20 @@ primary capture 成功と現在の spool clear の後、backlog drain の前だ�
 
 ### 総 deadline・検証・rollback
 
-optional metadata 導出と root 検証の前から単調時計の 250 ms を一つだけ使い、connect/handshake/write/ACK すべてを含めます。各 phase で budget を更新しません。既存 transport worker slot は実終了まで保持します。hook の導出と配送も process/service ごとに一つの保持 slot、panic containment、不変入力、cancellation check を使い、cancel を無視する callback が際限ない置換 worker や primary の時間超過を起こさないようにします。retry・遅延再送・新しい durable spool は禁止です。server の target 再検証は owner lock 外の有界 context で実行し、無応答の依存に対しても既存 connection/queue/worker 上限を維持します。
+optional metadata 導出と root 検証の前から単調時計の 250 ms を一つだけ使い、connect/handshake/write/ACK すべてを含めます。各 phase で budget を更新しません。既存 transport worker slot は実終了まで保持します。hook の導出と配送も process/service ごとに一つの保持 slot、panic containment、不変入力、cancellation check を使い、cancel を無視する callback が際限ない置換 worker や primary の時間超過を起こさないようにします。retry・遅延再送・新しい durable spool は禁止です。server の物理 target 再検証は消費時だけ、owner lock 外の既存 management budget を上限とする context で実行し、無応答の依存に対しても既存 connection/queue/worker 上限を維持します。
 
 RED/GREEN では、main 相当の実 composition と owner の実 API で selected sample の受理・参照を確認します。全 selection/profile/host/version/state 不一致、物理 target 交換、dequeue 時の終了/epoch 失効、sample 上限と消去、旧新 socket、全 request/reply arm、future/null/重複/未知 field、各 phase の総 deadline、slot を保持した無応答 callback、queue 圧力、panic/cancel・非再送を検証します。観測後も metadata inventory/digest/export/forget と全 prefix が不変であることを実 reader で確認します。hook の stdout/exit/receipt/core/spool の比較、明示 flag のみの選択、一度だけの payload 読取、未認定 native は unknown、backlog 非配送、drain reserve 維持を検証します。rollback は selected optional 配送だけを無効にし、capture/history/spool/native 会話は保持します。実装後の独立 review・新 head CI/security・統合 wave は引き続き必須です。
+
+### 修正版 checkpoint の採否
+
+独立 round 2 は、先行する表現・schema・所有の指摘が解決し、人間による追加 architecture exception は不要と確認しました。admission 時の物理参照による不要な遅延リスクは、上記のとおり消費時の再検証へ変更します。admission は in-memory な正確な descriptor だけを照合し、物理再検証が失敗した場合は sample を保持せず native 権限も作りません。queued は検証成功の保証ではありません。旧 daemon に対する outcome は推測した unsupported ではなく invalid です。
+
+現在は initial SaveLaunch の完了前に run が map に入るため、成功後だけ設定する owner 専用の published marker を追加します。admission は marker を要求し、owned run のすべての uncertainty 経路で marker と sample を消去します。SaveLaunch を保留した状態と、その後の成功/失敗を実テストで検証します。marker と sample は永続化せず、保存 run の adoption に使いません。
+
+hook の導出 table は canonical client codex/claude/antigravity/grok に限定し、prompt は prompt_boundary、audit は tool_boundary、transcript は turn_boundary、session start/end は session_boundary、session stop は turn_boundary とします。対応しない command/action/client（gemini/kimi/muse を含む）は既存 capture を変えず optional 配送だけを省略します。host leaf が証明済みの対応を追加できますが、telemetry の境界を process exit の事実とは扱いません。raw の CHANGES_REQUIRED report と明示 triage を保持し、修正済み source 契約は主担当が採否を所有します。第三回の自動設計レビュー往復や実装承認は行わず、実装後の独立 review は必須のままです。
+
+## 現在の実装証跡の範囲
+
+source 上では、不変 metadata 値と四つの closed kind、owned selection/profile の正確な in-memory admission、SaveLaunch 成功後の publication marker、owner lock 外の物理的な消費時再検証、live run ごとに一つの untrusted sample、Wait/uncertainty/disable/検証失敗・取消時の消去を実装しています。実際に initial journal を保留するテスト、物理再検証が停止している間に owner が終了するテスト、取消を無視して戻る validator のテストを実行します。最後のケースでは古い telemetry の保持を再現し、process/control metadata を変更せずに消去する修正を行いました。
+
+selected wire operation・public CLI・optional hook flags/配送・host-native association・lifecycle 統合認定・leaf 全体の delivery は未完了です。owner capability だけで production transport 配送が利用可能になるわけではありません。元の leaf 全体の scope と、残る独立実装レビュー・CI/security・wave gate は維持します。

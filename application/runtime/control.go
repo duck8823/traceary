@@ -25,7 +25,8 @@ type controlTicket struct {
 	done        chan struct{}
 }
 
-func (s *Runtime) controlRunLocked(selection OutputSelection) (*ownedRun, error) {
+// selectedRunLocked matches an existing immutable selection; it grants no operation authority.
+func (s *Runtime) selectedRunLocked(selection OutputSelection) (*ownedRun, error) {
 	run := s.runs[selection.Identity.Run]
 	if run == nil {
 		return nil, domain.ErrNotFound
@@ -86,7 +87,7 @@ func (s *Runtime) Control(ctx context.Context, request ControlRequest) (ControlR
 		return ControlResult{}, err
 	}
 	s.mu.Lock()
-	run, err := s.controlRunLocked(request.Selection)
+	run, err := s.selectedRunLocked(request.Selection)
 	if err != nil {
 		s.mu.Unlock()
 		return ControlResult{}, err
@@ -168,7 +169,7 @@ func (s *Runtime) Receipt(selection OutputSelection, id string) (ControlResult, 
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	run, err := s.controlRunLocked(selection)
+	run, err := s.selectedRunLocked(selection)
 	if err != nil {
 		return ControlResult{}, err
 	}
