@@ -15,6 +15,12 @@ adapter の前提として、実行ごとの private な起動 metadata 保存�
 最新の callback が変更、不正、読み取り不完全となった場合、以前の metadata は無効になります。
 private な一時ファイルの後始末は、root の交換や未知のファイルを検出すると削除を拒否します。
 
+Claude 2.1.318 用の private な履歴 reader も実装し、既存の合成実機 fixture で検証しています。
+計画済みの private なファイルだけを symlink をたどらずに開き、物理的な同一性と、上限付き JSONL 全体を検証して、namespace の識別子と最後に記録された実際の model だけを返します。
+native のローカルな `<synthetic>` model は、model の証拠に使いません。
+16 MiB を超えるファイル、4 MiB を超える行、証拠不足、識別子の不一致は拒否し、project の走査や fallback は行いません。
+この reader だけで native 復旧の対応を認定するものではありません。
+
 ## 安全性の契約
 
 同じ native 会話を再開するには、元の管理対象AIについて、実際の Wait による終了を Traceary が正確な実行識別子とともに永続化している必要があります。

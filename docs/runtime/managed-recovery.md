@@ -8,6 +8,8 @@ The application coordinator, private recovery journal, management SDK/IPC and `r
 
 Private per-run startup metadata storage and silent internal SessionStart plumbing are implemented as adapter prerequisites, but are not attached to normal launches yet. They neither record primary session logs nor establish recovery authority. Changed, malformed or incomplete latest callbacks invalidate earlier metadata; private temporary cleanup refuses exchanged roots and unknown files.
 
+The private Claude 2.1.318 history reader is also implemented and checked against an existing synthetic native fixture. It opens only the planned private file without following symlinks, checks stable physical identity and the complete bounded JSONL stream, and returns only namespace identity and the last recorded actual model. Native local `<synthetic>` model placeholders are not model evidence. Files above 16 MiB, lines above 4 MiB, missing evidence or mismatched identities are refused; there is no project scan or fallback. This reader alone does not qualify native recovery.
+
 ## Safety contract
 
 An operator may resume the same verified native conversation only after Traceary has durably recorded the exact old managed AI's actual Wait exit. A saved PID, a lost daemon, an interrupted lifecycle label or a client-supplied verified flag is not exit proof. The initial implementation does not recover missing exit proof through global process scans or PID adoption. External CLI actors and all-descendant inactivity are outside the guarantee.
