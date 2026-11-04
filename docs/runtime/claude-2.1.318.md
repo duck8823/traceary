@@ -28,17 +28,23 @@ Current [official hook documentation](https://code.claude.com/docs/en/hooks) exp
 
 Adding the **same existing** `traceary hook transcript claude` through additional per-run settings did not deduplicate it in this installed configuration. Native Stop handlers increased from 3 to 4, and one synthetic response produced **two** core transcript events (2 to 4), despite zero native hook errors. The actual owner then exited 0. This is a recorded FAIL: never ship this duplicate-primary-handler approach or infer that appending descriptor flags safely replaces a global handler. The later metadata-only observer preserved one primary capture; it does not solve primary-handler enrichment or generation binding.
 
+## Actual concurrent foreground opening
+
+A later metadata-only test opened the exact same completed synthetic UUID in two normal foreground processes. A was confirmed live with a matching native SessionStart before B was attempted; B also emitted SessionStart for that UUID, and both actual processes were live. No new user or model-request records appeared in the own conversation. Both actual fixture handles were then deliberately cleaned up with SIGTERM (143/143), not called normal exits.
+
+This proves that foreground resume/session-start alone does **not** provide single-process ownership for this installed version. It does not test concurrent model turns, arbitrary descendant quiescence or a stable global lease. Traceary must not infer exclusion from one CLI startup, one history PID, or the fact that its own request is serialized. The corrected test collector checked the actual RUN_ID hint name; no generation or recovery authority is enabled.
+
 ## Remaining qualification and safety gates
 
 | Requirement | Status |
 | --- | --- |
 | Exact source and four native hook field/type inventories | Measured above; other tool/permission events NOT_RUN |
-| Same native completed-conversation context/cwd/store/model/provider | PASS foreground fixture only; interrupted mid-turn and active/duplicate resume exclusion NOT_RUN |
+| Same native completed-conversation context/cwd/store/model/provider | PASS foreground completed-context fixture only; two concurrent foreground starts observed. Interrupted mid-turn and safe active/duplicate exclusion remain unqualified |
 | Global/per-run primary-handler composition | Duplicate-primary candidate FAILED and rejected; safe descriptor enrichment unqualified |
 | Same-cwd concurrency, independent generation, reused-ID/late/missing-hint/duplicate/reorder/expiry matrix | Incomplete; descriptor/env/cwd/native IDs alone remain unbound |
 | working / waiting_input / waiting_approval / process | Not qualified; permission metadata is not a visible wait or permission decision |
 | Product adapter, independent implementation review, final-head CI/security/wave | Pending; no issue closure or production capability inferred |
 
-Safe runtime recovery remains #2478: durable verified identity, original source/target/profile, actual old-owner inactivity, session exclusion and crash/duplicate semantics. Exact UUID alone never authorizes execution. In particular, the installed CLI help says background resume can copy an already-running session; background/fork/copy paths are forbidden for recovery. The native foreground negative contract must still be measured.
+Safe runtime recovery remains #2478: durable verified identity, original source/target/profile, actual old-owner inactivity, session exclusion and crash/duplicate semantics. Exact UUID alone never authorizes execution. In particular, the installed CLI help says background resume can copy an already-running session; background/fork/copy paths are forbidden for recovery. The foreground-opening behavior was measured above; it is not a native global lease. After the maintainer’s explicit 2026-11-04 scope decision in [#2478](https://github.com/duck8823/traceary/issues/2478), recovery guarantees cover the old Traceary-managed AI process and Traceary-managed request exclusion only. Coordinating external native CLI processes or proving every descendant stopped is outside the guarantee. This native limitation must be disclosed, not worked around with an extra server or treated as a requirement to fence external sessions. Managed exclusion and verified old-managed-AI exit remain required in #2478.
 
 Physical sleep/wake remains user-deferred NOT_RUN; no sleep, launchd or power-setting operation was performed. Muse native work remains deferred. No UI/framework adoption or distribution is included. Rollback keeps original capture/history/auth and disables only an optional host/version capability, returning to unknown/unbound.

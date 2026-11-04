@@ -28,17 +28,23 @@
 
 追加 per-run settings に**同じ既存の** `traceary hook transcript claude` を入れても、この導入構成では deduplicate されなかった。native Stop handler は3→4になり、合成応答1回で core transcript event が**2件**増えた（2→4）。native hook error は0で、その後の実 owner は exit 0 だった。これは記録済み FAIL として却下し、duplicate primary handler を製品化しない。descriptor flag の追加で global handler が安全に置換されるとも推論しない。後続の metadata-only observer は primary capture を1件に維持したが、primary handler の拡張や generation binding は解決していない。
 
+## 実際の foreground 並行起動
+
+後続の metadata-only test で、完了済みの同じ合成 UUID を通常 foreground process 2つから開いた。A の生存と一致する native SessionStart を確認してから B を試し、B も同じ UUID の SessionStart を返し、両実 process が生存していた。自作会話の user／model-request record は増えていない。その後、実際に所有する fixture handle だけを意図的に SIGTERM で片付けた（143／143）。正常終了とは扱わない。
+
+この導入版では foreground resume／session-start だけで**単一 process の所有を保証しない**ことが分かった。同時 model turn、任意の子孫 process の非稼働、安定した global lease は検証していない。CLI 起動1回、履歴中の PID、Traceary 内の要求直列化だけから排他を推論しない。修正 test collector は実際の RUN_ID hint 名を確認したが、generation や復旧の権限は有効にしない。
+
 ## 残る認定と安全 gate
 
 | 要求 | 状態 |
 | --- | --- |
 | 正確な source と4種の native hook field／型 | 上記を実測。他の tool／permission event は NOT_RUN |
-| 同じ native 完了済み会話の文脈／cwd／store／model／provider | foreground fixture のみ PASS。turn 途中の中断、active／重複 resume 排他は NOT_RUN |
+| 同じ native 完了済み会話の文脈／cwd／store／model／provider | foreground の完了済み文脈 fixture のみ PASS。同じ UUID の foreground 並行起動2件を実測。turn 途中の中断と安全な active／重複排他は未認定 |
 | global／per-run primary handler 合成 | duplicate-primary 候補は FAILED・却下。安全な descriptor 拡張は未認定 |
 | 同 cwd 並行、独立 generation、ID 再利用／遅延／hint 不達／重複／逆順／失効 | 未完了。descriptor／env／cwd／native ID 単独では unbound |
 | working／waiting_input／waiting_approval／process | 未認定。permission metadata は可視の待ちや承認判断ではない |
 | 製品 adapter、独立実装 review、final-head CI／security／wave | 未実施。Issue close や製品 capability を推論しない |
 
-安全な runtime 復旧 #2478 は durable な検証済み identity、元 source／target／profile、実際の旧 owner 非稼働、session 排他、crash／重複の意味を担当する。正確な UUID だけで実行を許可しない。特に導入 CLI help は、background resume が実行中会話を copy する場合を説明するため、復旧では background／fork／copy を禁止する。foreground の native 否定契約は引き続き測定が必要である。
+安全な runtime 復旧 #2478 は durable な検証済み identity、元 source／target／profile、実際の旧 owner 非稼働、session 排他、crash／重複の意味を担当する。正確な UUID だけで実行を許可しない。特に導入 CLI help は、background resume が実行中会話を copy する場合を説明するため、復旧では background／fork／copy を禁止する。foreground の起動挙動は上記で実測しており、native の global lease ではない。[#2478](https://github.com/duck8823/traceary/issues/2478) についてユーザーが2026-11-04に明示決定した後は、旧Traceary管理AI processとTraceary内の要求排他を保証範囲とする。外部native CLIの調停や全子孫の終了証明は保証対象外である。このnative制約は表示し、追加serverで迂回したり外部sessionの排他要件に戻したりしない。管理内の排他と旧管理AIの終了確認は、引き続き#2478の必須条件である。
 
 物理 sleep／wake はユーザーが後回しにした NOT_RUN のままで、sleep／launchd／電源設定を操作していない。Muse native は保留する。UI／framework の採用や配布は含めない。rollback は元 capture／history／auth を維持し、任意の host／version capability だけを無効にして unknown／unbound へ戻す。

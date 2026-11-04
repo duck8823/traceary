@@ -127,7 +127,7 @@
     "independent managed-generation witness",
     "native current working/waiting_input/waiting_approval",
     "same-cwd concurrent native foreground runs",
-    "active/duplicate resume exclusion",
+    "Traceary-managed active/duplicate resume exclusion (#2478), not external native global exclusion",
     "interrupted mid-turn recovery and no pending-effect replay",
     "late/duplicate/reorder/expiry native matrix",
     "Traceary descriptor argument composition",
@@ -185,7 +185,48 @@
       "native_model_turns_requested": 1,
       "actual_exit_code": 0,
       "raw_native_ids_or_prompt_shared": false
+    },
+    {
+      "command": "rtk proxy python3 /private/tmp/traceary-2475-native-active-id.py",
+      "driver_sha256": "ad03085d0a3f9674cb12667aee8dd74601d380b86193a381e5a75ba4bddc8d73",
+      "result": "OBSERVED_TWO_LIVE_FOREGROUND_STARTS_SAME_UUID_NOT_NATIVE_EXCLUSION",
+      "input_sha256": null,
+      "local_evidence_path": "/private/tmp/traceary-2475-native-active-id-result.json",
+      "local_evidence_sha256": "d7c1a529c50ecb4c6c478db09c6ee4c1d1267e1ca648436c57faf179707ffca8",
+      "native_model_turns_requested": 0,
+      "actual_cleanup_exit_codes": [
+        143,
+        143
+      ],
+      "raw_native_ids_or_prompt_shared": false
     }
   ],
-  "optional_correlation_constraint": "Observed prompt_id is prompt correlation, not native turn_id. The current generic Claude path must not be certified as having native turn identity; versioned adapter changes require before-product-code review."
+  "optional_correlation_constraint": "Observed prompt_id is prompt correlation, not native turn_id. The current generic Claude path must not be certified as having native turn identity; versioned adapter changes require before-product-code review.",
+  "concurrent_foreground_opening": {
+    "result": "OBSERVED_TWO_LIVE_FOREGROUND_STARTS_SAME_UUID_NOT_NATIVE_EXCLUSION",
+    "first_native_owner_live": true,
+    "first_session_identity_confirmed": true,
+    "first_owner_still_live": true,
+    "second_owner_exit_before_cleanup": null,
+    "second_callback_counts": {
+      "SessionStart": 1
+    },
+    "second_same_session_start": true,
+    "second_foreign_session_start": false,
+    "user_record_delta": 0,
+    "api_request_record_delta": 0,
+    "actual_owner_cleanup_exit_codes": [
+      143,
+      143
+    ],
+    "cleanup_kind": "SIGTERM actual Popen handles of finite no-prompt fixture, not proof of normal exit",
+    "collector_sha256": "a2aa7fe03cdf54a98cabdda3f9e3d7cb4bf8859fc539a6bbd7c8efb491a650c3",
+    "stable_native_exclusion_contract_qualified": false,
+    "interpretation": "Two actual same-UUID foreground processes live after native SessionStart; not a concurrent-model-turn or descendant-quiescence test. Native startup alone is not a single-process lease."
+  },
+  "maintainer_scope_decision": {
+    "date": "2026-11-04",
+    "issue": 2478,
+    "decision": "Old Traceary-managed AI only; explicit normal CLI resume, one managed request per conversation, no replay. External CLI coordination/all-descendant inactivity outside guarantee; no extra server/broker/app-server mode adopted. Unknown managed exit still refuses."
+  }
 }
