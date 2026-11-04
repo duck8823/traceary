@@ -38,6 +38,32 @@
 保留 tool/approval の fixture、global 排他の証明、現在の waiting 状態の認定、製品 Runtime adapter の認定ではありません。
 raw native ID、会話本文、account data は共有していません。
 
+## 実Daemonの管理対象AIを使った接続・中断検証
+
+#2478 の候補実装 `d35b0e51e23d345af60aaadcdbdb0e10c0c7ad36` は、Go source の fingerprint が一致する実Daemon・通常CLIの検証に成功しました。
+通常の登録済み entry と二つのローカル routing import を固定し、print/API 経路、別executor、credential の転送は使っていません。
+実際の旧管理対象AIの Wait と、正確な execution/recovery 終了記録の永続化を確認してから、人の明示操作で同じ会話を新しい run/generation へ再開しました。
+
+完了済み会話と、入力を実際に中断した別fixtureの両方で、新しい明示質問から元の marker/model/provider/target を確認できました。
+中断fixtureでは旧入力が記録され、Stop/Wait 前にそのターンの完了記録はありません。
+resume 呼び出し全体と、その後の無入力8秒間に、新しい model 要求や入力の再送はありませんでした。
+同じ要求の再確認も再起動を行いません。
+これは製品adapterの接続検証であり、現在のwaitingや全hostの認定ではありません。
+
+隔離した core store では、両fixtureとも完了した二回答に対する transcript が二件、共有する native 会話の冪等な Session start が一件、native lifecycle end が二件でした。
+prompt は完了fixtureが二件、中断fixtureが三件です。
+別の private metadata SessionStart handler は主要recorderを重複させません。
+許可済みの合成projectに一時的な deny-only guard を置き、tool実行を拒否しました。
+削除前に自分が書いた内容のhashを照合し、元のファイル不在状態へ戻しています。
+全管理AIの実際の終了を確認してから各fixtureのdaemonを終了しました。
+永続的・global・認証の設定変更はありません。
+
+初期observerの二失敗は FAIL のまま保持しています。
+一つ目は主要hookの client=hook/agent=claude を client=claude と誤認し、二つ目は最初の入力前にnative履歴ファイルを要求したものです。
+どちらもmodel入力なしで旧ownerの実Wait143を確認してから、新しい修正版fixtureへ進みました。
+native resume の失敗とは扱いません。
+tool/permission、live turn/generationの検証行列、最終review/CI/waveは未完了です。
+
 ## 実際の保留 tool callback の中断
 
 別の通常 CLI fixture は plan mode のまま、read-only command `rtk proxy pwd` だけを要求しました。

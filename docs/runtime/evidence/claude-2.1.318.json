@@ -7,7 +7,11 @@
     "native_sha256": "677a2ea7bf576cedd20e191d973914ed8a41796f53a63b1923381ddc4d5b5e7d",
     "normal_entry_sha256": "079234054a9e035839f50118b618c1568c8ae1e20950f9b668a60bf27722e3cc",
     "upstream_revision_proven": false,
-    "compatible_range_inferred": false
+    "compatible_range_inferred": false,
+    "normal_entry_import_sha256": {
+      "claude_router.py": "c9af398d4f3dc015572786e0ccb5e8944ab758d618f44b6fe792100cfb602b18",
+      "verify_wif.py": "32be0b7e7f9c076898fbbca3c926d0269e0effb8aa807087debffb83192c875f"
+    }
   },
   "auth_class": "claude.ai / firstParty cached subscription; CLI-owned, no print/SDK path or API-key forwarding",
   "completed_context_resume": {
@@ -124,22 +128,23 @@
     "runtime_hint_probe_limitation": "RUN_ID is the actual product run hint; this collector checked RUN, not RUN_ID. The orchestrator supplied no runtime hints, but the sample does not prove absence of every inherited hint or nested witness. No binding capability is enabled."
   },
   "unqualified": [
-    "independent managed-generation witness",
+    "independent live-turn/generation observation witness; private conversation recovery binding is separate",
     "native current working/waiting_input/waiting_approval",
     "same-cwd concurrent native foreground runs",
-    "Traceary-managed active/duplicate resume exclusion (#2478), not external native global exclusion",
-    "persisted-cutoff-tool/permission-dialog interruption and product Runtime recovery integration",
     "late/duplicate/reorder/expiry native matrix",
-    "Traceary descriptor argument composition",
-    "product adapter/source verification and runtime recovery service",
-    "final independent review/CI/security/wave"
+    "live descriptor enrichment of existing primary capture; private recovery SessionStart composition is separately tested",
+    "final independent review/CI/security/wave",
+    "persisted-cutoff-tool/permission-dialog native qualification",
+    "final adoption of #2478 candidate product Runtime recovery integration"
   ],
   "controls": {
-    "global_project_auth_permission_settings_changed": false,
+    "global_project_auth_permission_settings_changed": true,
     "native_hooks_guardian_disabled": false,
     "agent_wrapper_added": false,
     "raw_prompt_transcript_account_credential_shared": false,
-    "physical_sleep_wake": "user-deferred NOT_RUN"
+    "physical_sleep_wake": "user-deferred NOT_RUN",
+    "persistent_global_project_auth_permission_settings_changed": false,
+    "temporary_project_settings_scope": "Only the preapproved synthetic native fixture used plan mode and deny-only PreToolUse. Exact owned content hash checked before removal; original absence restored, no global/auth changes."
   },
   "runs": [
     {
@@ -336,5 +341,42 @@
     "production_runtime_resume_qualified": false,
     "qualified_current_waiting": false,
     "guard": "test-only synchronous PreToolUse: hold exact read-only command, then deny; unexpected commands deny immediately; never allow"
+  },
+  "managed_daemon_composition": {
+    "runtime_issue": 2478,
+    "runtime_implementation_head": "d35b0e51e23d345af60aaadcdbdb0e10c0c7ad36",
+    "qualification_status": "candidate implementation tested; final review/CI/wave and remaining host states unqualified",
+    "source_input_fingerprint_verified": true,
+    "completed_context": "PASS_REAL_DAEMON_NORMAL_CLI",
+    "managed_pending_input_interruption": "PASS_REAL_DAEMON_NORMAL_CLI",
+    "old_managed_ai_exit": "actual owned Wait and durable exact execution/recovery receipt",
+    "resume_identity_model_provider_target": "PASS exact recorded original values",
+    "new_run_generation": "PASS",
+    "pending_input_or_model_request_replay": "none during entire resume call and eight-second no-input interval",
+    "new_explicit_question_context": "PASS",
+    "same_request_reinspection": "PASS no new native start",
+    "native_current_waiting_qualified": false,
+    "tool_requests_in_fixtures": 0,
+    "permission_dialog": "NOT_RUN",
+    "persisted_cutoff_tool": "NOT_RUN",
+    "external_actor_exclusion_guaranteed": false,
+    "all_descendant_inactivity_proven": false,
+    "evidence_sha256": "2583986009c0ac98dcc22af86e95dd0357d386c7c0fc4d267f0c93f70022094c",
+    "raw_native_data_in_repository": false,
+    "primary_capture_counts": {
+      "completed": {
+        "prompt": 2,
+        "transcript": 2,
+        "session_started": 1,
+        "session_ended": 2
+      },
+      "interrupted": {
+        "prompt": 3,
+        "transcript": 2,
+        "session_started": 1,
+        "session_ended": 2
+      }
+    },
+    "primary_capture_semantics": "Two completed answers yield two transcript events. Original and resumed native starts share one idempotent core Session start; two native process ends yield two lifecycle end events. Metadata-only handler adds no primary capture."
   }
 }
