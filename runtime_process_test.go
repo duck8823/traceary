@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -160,8 +161,8 @@ func main(){
 		t.Fatal("profile registration lost policy")
 	}
 	server := command("daemon", "serve", "--runtime-dir", metadata)
-	var errors bytes.Buffer
-	server.Stderr = &errors
+	var serverErrors bytes.Buffer
+	server.Stderr = &serverErrors
 	if err = server.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +195,7 @@ func main(){
 		}
 		select {
 		case e := <-done:
-			t.Fatalf("daemon exited: %v %.2000s", e, errors.String())
+			t.Fatalf("daemon exited: %v %.2000s", e, serverErrors.String())
 		default:
 		}
 		if time.Now().After(deadline) {
@@ -274,6 +275,56 @@ func main(){
 			}
 		}
 		_ = artifact(resultFile + ".ready")
+		for _, field := range []string{"epoch", "run", "generation", "worktree", "profile"} {
+			requestID := "wrong-" + field
+			foreign := args("input", requestID, "--manual-terminal")
+			for i := range foreign {
+				if foreign[i] == "--"+field {
+					value := strings.Repeat("f", 32)
+					if field == "worktree" {
+						value = "w_" + strings.Repeat("f", 64)
+					}
+					if field == "profile" {
+						value = "foreign-fixture"
+					}
+					if foreign[i+1] == value {
+						value = strings.ReplaceAll(value, "f", "e")
+					}
+					foreign[i+1] = value
+					break
+				}
+			}
+			bad := command(foreign...)
+			badPayload := []byte("bad!!")
+			bad.Stdin = bytes.NewReader(badPayload)
+			out, rejectErr := bad.CombinedOutput()
+			if rejectErr == nil || bytes.Contains(out, badPayload) {
+				t.Fatalf("foreign %s input succeeded or echoed bytes", field)
+			}
+			var rejected map[string]any
+			for _, line := range bytes.Split(out, []byte("\n")) {
+				if len(line) > 0 && line[0] == '{' {
+					if err := json.Unmarshal(line, &rejected); err != nil {
+						t.Fatal(err)
+					}
+					break
+				}
+			}
+			receipt, ok := rejected["receipt"].(map[string]any)
+			if !ok || receipt["outcome"] != "rejected" || receipt["written_bytes"] != "0" || receipt["request_id"] != requestID || receipt["input_bytes"] != "5" {
+				t.Fatalf("foreign %s input did not report explicit zero-effect rejection", field)
+			}
+			if _, err := command(args("receipt", requestID)...).CombinedOutput(); err == nil {
+				t.Fatalf("foreign %s input poisoned the valid selection receipt journal", field)
+			}
+			validSelection := app.OutputSelection{Identity: domain.LaunchIdentity{Epoch: status.Epoch, Run: target["run"].(string), Generation: target["generation"].(string)}, Worktree: domain.WorktreeID(w["id"].(string)), Profile: "codex-fixture"}
+			if _, err := client.Receipt(ctx, metadata, validSelection, requestID); !errors.Is(err, domain.ErrNotFound) {
+				t.Fatalf("foreign %s receipt absence was not positively classified as not-found: %v", field, err)
+			}
+		}
+		if _, err := os.Stat(resultFile + ".input"); !os.IsNotExist(err) {
+			t.Fatal("foreign/stale input reached the owned child before explicit valid input")
+		}
 		raw := []byte{0xe6, 0x97, 0xa5, 0x1b, 0xff}
 		input := command(args("input", "cli-input", "--manual-terminal")...)
 		input.Stdin = bytes.NewReader(raw)
@@ -415,7 +466,7 @@ func main(){
 	select {
 	case err = <-done:
 		if err != nil {
-			t.Fatalf("graceful owner exit: %v %.2000s", err, errors.String())
+			t.Fatalf("graceful owner exit: %v %.2000s", err, serverErrors.String())
 		}
 	case <-ctx.Done():
 		t.Fatal("daemon did not exit after owned reconciliation")

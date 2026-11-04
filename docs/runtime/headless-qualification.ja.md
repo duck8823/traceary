@@ -53,3 +53,13 @@ gap を成功として許容しません。
 この fixture は runtime/auth/default/config/schema の変更、wrapper、自動 adoption/kill/resume、UI 採用、配布を許可しません。
 rollback は新しい test scenario/helper と本文書だけを削除します。
 親 Issue は実際の tagged release まで開いたままです。
+
+## selection 不一致の入力拒否
+
+各 control scenario で、構文上は有効ですが epoch・run・generation・worktree・profile のいずれか1つが一致しない target に、明示的な5byteの合成入力を送ります。
+公開 CLI は失敗し、payload を表示せず、rejected・written0 の安全な receipt を返す必要があります。
+正しい selection で同じ request ID を照会しても not-found を維持し、元 child の input artifact が存在しないことを確認します。
+続く正確な正入力と literal marker の oracle によって、遅延した意図しない書込みも検出します。
+拒否された request は再送しません。
+unknown・不一致 selector の検証であり、既存 run の同時実行や native 所有権の残りの matrix の代替にはしません。
+runtime の振る舞い・上限は変更しません。

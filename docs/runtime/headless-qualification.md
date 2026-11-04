@@ -27,3 +27,7 @@ This is real process/CLI integration using a synthetic executable. It does **not
 - Required independent High review, final-head build/full CI/lint/security and approved wave E2E on the same integrated SHA.
 
 A green synthetic test never substitutes for these gates. No runtime/auth/default/config/schema change, wrapper, automatic adoption/kill/resume, UI adoption or distribution is authorized by this fixture. Rollback removes only its new test scenarios/helper and this qualification note. Parent issues remain open through the actual tagged release.
+
+## Mismatched-selection input refusals
+
+Every control-bearing scenario additionally submits an explicit five-byte synthetic payload using one syntactically valid but mismatched epoch, run, generation, worktree or profile at a time. Each public CLI call must fail with a safe rejected/zero-written receipt and must not echo the payload. Looking up its request ID through the correct selection must remain not-found; the original child must have no input artifact. The following exact positive input and literal-marker oracle also detect delayed unintended writes. No invalid request is retried. These unknown/mismatched selectors are not a substitute for the remaining concurrent-existing-run/native ownership matrix. Runtime behavior and limits are unchanged.
