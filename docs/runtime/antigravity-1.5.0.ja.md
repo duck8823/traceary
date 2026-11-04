@@ -100,3 +100,45 @@ nil、未対応版、unavailable、error では両 native ID を空にし、snak
 native metadata は実測 shape の証拠であり、管理対象 generation の binding ではありません。
 実装前の独立 design checkpoint はこの限定 slice を承認しました。
 #2476 を閉じるには、native 復旧、実 provider の証明、最終の別 family review、final-head CI/security、同 SHA wave が引き続き必要です。
+
+## 中断 oracle の失敗と、別の入力なし再開
+
+後続 fixture は d0c9244815055ed30434d7c4e330bb3a03b45cbd から build した candidate を使いました。
+実 PreInvocation は元の会話・正規 target・model と一致しましたが、想定した primary prompt の増分と public history の USER_INPUT を観測時間内に確認できませんでした。
+結果は **FAIL** であり、実 owner の Wait は0です。
+中断した model request や durable な保留入力は証明していません。
+非同期の capture を中断前の条件にした harness の前提は未証明で、失敗を保持し、自動再送や成功への読み替えは行いません。
+
+その実終了後、別の通常 CLI 再開では同じ会話 ID を指定し、**入力を送りませんでした**。
+元の marker が描画され、10秒間に PreInvocation/PostInvocation callback はなく、自己所有の履歴と primary 件数も prompt4/transcript3/session_started1 のままでした。
+実 owner の Wait は0です。
+これは時間範囲を限定した文脈読み込み・入力なし観測であり、保留 model/tool/approval の復旧認定ではありません。
+metadata collector を配置しても resume 時の SessionStart は再び未観測でした。
+native TUI 内の email pattern は検出され、Gemini API key の header 文言はありませんでしたが、account 値は保持していません。
+この boolean だけで durable な provider/認証を証明しません。
+一時 metadata file は両 owner の実終了後、作成時 hash が一致したものだけ削除しました。
+
+復旧には、resume 中の fresh な native identity acknowledgment、provider の再検証、実際の中断状態の coverage が残っています。
+CLI 引数、古い履歴、descriptor hint、端末描画で acknowledgment を置き換えません。
+現在の[公式 resume 文書](https://antigravity.google/docs/cli/commands/resume) は ID 指定を説明しますが、この導入版の startup callback や再送防止契約を証明しません。
+wrapper、app-server、broker の迂回は採用していません。
+
+## 許可された1回限りの passive statusLine 実測
+
+ユーザーが許可したのは**隔離テスト1回だけ**であり、製品への採用ではありません。
+通常 CLI を入力なしで再開し、process 限定の `--settings` に判断を返さない native statusLine command を指定しました。
+global 設定と元の primary hook は変更していません。
+現在の[公式 statusLine 文書](https://antigravity.google/docs/cli/statusline/) にある構造化 stdin を参考にし、導入済み1.5.0の実 callback は別に実測しました。
+
+最初の snapshot は会話が未一致で、model も要求と異なりました。
+続いて会話が一致し、その後で要求 model が一致しました。
+両 native identity alias、正規 cwd/workspace、要求した具体的 model、version、product がそろった最初の snapshot は **1.8566秒後**でした。
+実 owner の Wait は0で、自己所有の履歴と primary 件数は変わらず、model 入力は送っていません。
+1回の計測は起動時間の保証ではなく、一部の ID だけが一致した初期 snapshot を採用してはいけません。
+
+email は存在 boolean だけを保持し、account 値と raw payload は保存していません。
+plan_tier は未観測であり、provider/認証 class は未認定です。
+自己所有の合成会話の full transcript と message JSON には、選択した model/provider field がなく、本文・識別子を含まない schema だけを記録しました。
+statusLine は入力前の構造化 metadata を得る具体的候補ですが、復旧全体の成功ではありません。
+製品利用には、process 内の表示上書きに対する明示採用、source/order/model 確定の設計と review、新 session の動的 identity binding、残る native fault matrix が必要です。
+この実測で native 現在状態・承認権限、wrapper、broker、app-server を導入していません。

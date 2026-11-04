@@ -83,7 +83,20 @@
     "traceary-2476-native-metadata.py": "89c6cc375eb7c25ed55c5446ac457d0089452ee0e6120df6db6e3224715dc20f",
     "traceary-2476-native-metadata-result.json": "d86c8a51745b324926f4333b4e944d19769b1528a392c99ad43b67f14fca5953",
     "traceary-2476-temp-hook-cleanup.json": "2671771acc602c40465f8c5b2a518472061c269a25159b91b314b95ac88f5dab",
-    "design_checkpoint_sha256": "386705dfa8bc77bdb462d516b7d1e4746a1cb0d5fd309817c75c3df453069c65"
+    "design_checkpoint_sha256": "386705dfa8bc77bdb462d516b7d1e4746a1cb0d5fd309817c75c3df453069c65",
+    "traceary-2476-native-interruption.py": "9a8ea2fd1e9534a86301b2add9626895efcd9afbe512307142d92678252ce2f8",
+    "traceary-2476-native-interruption-result.json": "7c53c49d7f8da8e998c15f38919821e0282d4f01c682de5c7df1b18634a30b81",
+    "traceary-2476-interruption-oracle-adoption.json": "715aa2c06f963aafb4a4899e160654a35ef90c86027f7d74a921548a69ddad9a",
+    "traceary-2476-native-no-input-resume.py": "a8dbe486ebc15e8aa592f10eff05aa6248d480af72455726fa687da64dbac767",
+    "traceary-2476-native-no-input-resume-result.json": "2f64dd277e834c61c150bbaa5eb6b7f604eb19cb6a4b45e28b7a39ebbd2e9fad",
+    "traceary-2476-interruption-hook-cleanup.json": "3396829693263366434ee071265f2491f538f45296b5c958ffd39e0553b1f29f",
+    "traceary-2476-native-statusline.py": "5652746c2c09398532566cf54f210256c8fe3f6b283b353a84f1cadf0a8c0088",
+    "traceary-2476-native-statusline-result.json": "53156424b25eefedd716d1d1eacb55a027671b6f76c3da3a6a46caecdc6ad6c4",
+    "traceary-2476-statusline-collector.py": "ac7b8e320ca6b974b7492e811fdd0591555c0e714a32cfe6c70bbad8908cd60a",
+    "traceary-2476-statusline-manifest.json": "8a566c3c5c10c08e0d35bf7c26d6ca8223b5de6bb5a6cc35f28f4804db6bf922",
+    "traceary-2476-own-full-history-schema.json": "1bbec490917f7c4ba5c1316596523a2d31584aa98baab5f7929c5cbaeab31c29",
+    "traceary-2476-own-message-schema.json": "033df7bcdb348bd6802967e25c3c4728ae13bc09ca9e279a2f5e7db63e604cbd",
+    "traceary-2476-recovery-feasibility-audit.json": "d717b50c7dcf43141be2ef3591a4d6f101079937e06cdaed407f1db0cbc3341c"
   },
   "native_metadata_probe": {
     "primary_capture_counts": {
@@ -177,5 +190,186 @@
     "primary_capture_or_shipped_hooks_changed": false,
     "product_delivery": "DORMANT_UNMEASURED",
     "native_recovery_qualified": false
+  },
+  "interruption_probe": {
+    "result": "FAIL",
+    "reason": "pending_native_turn_not_observed",
+    "actual_owned_exits": [
+      0
+    ],
+    "matched_preinvocation_observed": true,
+    "native_model_inflight_or_durable_user_input_proven": false,
+    "adoption": "FAILED_PENDING_ORACLE_PREINVOCATION_ONLY",
+    "primary_prompt_increment_before_interruption_observed": false,
+    "original_input_automatically_replayed": false,
+    "candidate_commit": "d0c9244815055ed30434d7c4e330bb3a03b45cbd"
+  },
+  "no_input_resume_probe": {
+    "result": "PASS_NATIVE_LOADED_CONTEXT_NO_INPUT_WINDOW_ONLY",
+    "actual_owned_exits": [
+      0
+    ],
+    "observation_seconds": 10,
+    "same_original_conversation_argument": true,
+    "original_marker_rendered": true,
+    "native_invocation_callbacks": 0,
+    "session_start_callback": "NOT_OBSERVED",
+    "primary_before_resume": {
+      "prompt": 4,
+      "session_started": 1,
+      "transcript": 3
+    },
+    "primary_after_resume": {
+      "prompt": 4,
+      "session_started": 1,
+      "transcript": 3
+    },
+    "own_history_unchanged_in_window": true,
+    "new_prompt_or_pending_input_sent": false,
+    "api_key_header_phrase_seen": false,
+    "email_pattern_seen_in_tui": true,
+    "account_value_retained": false,
+    "provider_authentication_qualified": false,
+    "interpretation": "bounded no-input/context observation, not pending-model/tool/approval recovery or fresh native startup identity proof",
+    "candidate_commit": "d0c9244815055ed30434d7c4e330bb3a03b45cbd"
+  },
+  "recovery_remaining_evidence": [
+    "fresh native same-conversation startup acknowledgment on resume (SessionStart unobserved)",
+    "native provider/auth route witness suitable for durable revalidation",
+    "real pending model/tool/approval fault matrix (pending oracle failed)",
+    "same-SHA final review/CI/security/wave"
+  ],
+  "authorized_statusline_probe": {
+    "human_scope": "one isolated measurement only; production adoption not authorized",
+    "result": "PASS_NATIVE_PRE_INPUT_STATUSLINE_METADATA_ONLY",
+    "ordinary_cli_with_per_process_settings_only": true,
+    "model_inputs_sent": 0,
+    "model_requests_by_fixture": 0,
+    "actual_owned_exits": [
+      0
+    ],
+    "first_matching_sample_seconds": 1.8566308330046013,
+    "within_current_two_second_confirmation_budget_in_this_single_sample": true,
+    "single_measurement_not_latency_SLA": true,
+    "primary_before": {
+      "prompt": 4,
+      "session_started": 1,
+      "transcript": 3
+    },
+    "primary_after": {
+      "prompt": 4,
+      "session_started": 1,
+      "transcript": 3
+    },
+    "native_pre_input_structured_metadata_observed": true,
+    "startup_snapshots": [
+      {
+        "field_types": {
+          "session_id": "str",
+          "conversation_id": "str",
+          "cwd": "str",
+          "model": "dict",
+          "workspace": "dict",
+          "version": "str",
+          "product": "str",
+          "agent_state": "str",
+          "sandbox": "dict"
+        },
+        "session_matches": false,
+        "conversation_matches": false,
+        "cwd_matches": true,
+        "workspace_current_matches": true,
+        "workspace_project_matches": true,
+        "model_id_matches": false,
+        "model_display_matches": false,
+        "version_matches": true,
+        "product_matches": true,
+        "email_present": false,
+        "plan_tier_known_class": "unknown",
+        "model_field_types": {
+          "id": "str",
+          "display_name": "str"
+        },
+        "account_values_retained": false,
+        "state_or_permission_authority": false
+      },
+      {
+        "field_types": {
+          "session_id": "str",
+          "conversation_id": "str",
+          "cwd": "str",
+          "model": "dict",
+          "workspace": "dict",
+          "version": "str",
+          "product": "str",
+          "email": "str",
+          "agent_state": "str",
+          "sandbox": "dict",
+          "cycle_mode": "str"
+        },
+        "session_matches": true,
+        "conversation_matches": true,
+        "cwd_matches": true,
+        "workspace_current_matches": true,
+        "workspace_project_matches": true,
+        "model_id_matches": false,
+        "model_display_matches": false,
+        "version_matches": true,
+        "product_matches": true,
+        "email_present": true,
+        "plan_tier_known_class": "unknown",
+        "model_field_types": {
+          "id": "str",
+          "display_name": "str"
+        },
+        "account_values_retained": false,
+        "state_or_permission_authority": false
+      },
+      {
+        "field_types": {
+          "session_id": "str",
+          "conversation_id": "str",
+          "cwd": "str",
+          "model": "dict",
+          "workspace": "dict",
+          "version": "str",
+          "product": "str",
+          "email": "str",
+          "agent_state": "str",
+          "sandbox": "dict",
+          "cycle_mode": "str"
+        },
+        "session_matches": true,
+        "conversation_matches": true,
+        "cwd_matches": true,
+        "workspace_current_matches": true,
+        "workspace_project_matches": true,
+        "model_id_matches": true,
+        "model_display_matches": true,
+        "version_matches": true,
+        "product_matches": true,
+        "email_present": true,
+        "plan_tier_known_class": "unknown",
+        "model_field_types": {
+          "id": "str",
+          "display_name": "str",
+          "effort": "str"
+        },
+        "account_values_retained": false,
+        "state_or_permission_authority": false
+      }
+    ],
+    "native_recovery_qualified": false,
+    "provider_class_qualified": false,
+    "production_adoption": false,
+    "original_primary_hook_or_global_configuration_changed": false,
+    "remaining": [
+      "production statusLine adoption approval",
+      "provider/auth route classification",
+      "source/order/model sealing design and qualification",
+      "new-start dynamic native ID binding",
+      "genuine interrupted state coverage",
+      "final family review/CI/security/wave"
+    ]
   }
 }
