@@ -5,10 +5,16 @@
 ## 実装状況
 
 復旧用 branch では application coordinator、private recovery journal、管理 SDK/IPC、`runtime resume` コマンドを実装しています。
-通常の Claude 2.1.318 CLI を使う候補 adapter も実装しています。
-実際の Daemon/CLI で、完了済みの会話と、管理対象AIの入力を実際に中断した会話について、新しい明示入力前に再送せず文脈を復旧する検証に成功しています。
-host 全体の対応認定、最終の独立実装レビュー、最終 head の CI/wave gate は未完了です。
-リリース済みの機能や host の対応認定を意味しません。
+通常の Claude 2.1.318 CLI の source を固定した復旧 adapter も実装しています。
+実際の Daemon/CLI で、完了済みの会話、管理対象AIの入力を実際に中断した会話、および tool が履歴に保存された承認画面での中断からの復旧検証に成功しています。
+観測した待機時間内に入力、model request、tool、承認を再送せず、承認画面への回答も行っていません。
+本番実装は独立した Codex 実行レビューと Claude 実装レビューで採用済みです。
+リリース可否と最終 head の delivery 検証は実装 PR で別に追跡します。
+
+この認定は、以下に示す固定 source、first-party subscription provider、記録済み binding に限ります。
+現在の working/waiting/approval の観測、他の host version、実機の sleep/wake は認定していません。
+それぞれ別の host/lifecycle gate として扱い、live interaction 状態が不明でも、独立して検証できた復旧 identity は無効にしません。
+全 host 対応やリリース済みの認定ではありません。
 broker、app-server 実行方式、model API、agent wrapper は採用しません。
 
 adapter の前提として、実行ごとの private な起動 metadata 保存と、無出力の内部 SessionStart 処理を実装し、source が厳密に一致する対応候補だけに接続しています。
