@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "issue": 2475,
-  "status": "incomplete-native-qualification",
+  "status": "exact_version_session_correlation_and_managed_recovery_only",
   "source": {
     "cli_version": "2.1.318 (Claude Code)",
     "native_sha256": "677a2ea7bf576cedd20e191d973914ed8a41796f53a63b1923381ddc4d5b5e7d",
@@ -429,9 +429,13 @@
       "TestClaudeObservationClaimsPreserveOnlyUntrustedSession",
       "TestClaudeObservationClaimsFailClosedWithoutBodyInErrors",
       "TestClaudeObservationClaimsUnknownVersionAndCancellation",
-      "TestClaudeOptionalClaimsPreservePrimaryBytesReceiptAndNoTurnAuthority"
+      "TestClaudeOptionalClaimsPreservePrimaryBytesReceiptAndNoTurnAuthority",
+      "TestClaudeClaimDeliveryMatchesEveryBoundaryWithoutChangingPrimary",
+      "TestClaudePackagedHookRoutesHaveExplicitClaimSupport"
     ],
-    "native_certification": false
+    "native_certification": false,
+    "packaged_native_delivery": "dormant: packaged hooks do not supply --observe-*; no live descriptor enrichment or native-current authority",
+    "post_tool_use_failure": "unmeasured fields; optional session correlation deliberately unavailable; primary capture unchanged"
   },
   "successful_readonly_tool_telemetry": {
     "result": "PASS_NATIVE_READ_TOOL_METADATA_AND_SINGLE_PRIMARY_CAPTURE",

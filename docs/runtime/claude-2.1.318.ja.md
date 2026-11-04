@@ -154,7 +154,13 @@ native turn identity は返しません。
 application が小さな consumer port、filesystem infrastructure が純粋な上限付き JSON 実装を所有し、CLI は主要 capture と spool 消去後の任意 Claude telemetry にだけ接続します。
 native file、process、auth、global 設定、実行方式、generation の権限は追加しません。
 合成 parser と実際の永続 hook pipeline のテストで、主要入力の byte 同一性、元の receipt 所有、decoder 不在、未対応 version、不正 claim、daemon 不在を検証します。
-これらのテストは live state の認定や、残る native negative matrix の代わりにはなりません。
+七つの CLI/boundary の組み合わせと同梱 hooks.json の配線も検証し、PostToolUseFailure は session 相関なしに固定します。
+これらのテストは native live state の認定ではありません。
+
+同梱 hook 設定は `--observe-*` を渡さないため、明示設定がなければ任意の runtime session 相関は休止状態です。
+その製品配送経路や live descriptor 拡張を実 native で計測したとは主張しません。
+将来の配線変更では、実 callback が LastEvent へ届くことと、主要 capture 件数の不変を同時に計測する必要があります。
+主要 handler の重複追加は引き続き却下します。
 
 ## 残る認定と安全 gate
 
