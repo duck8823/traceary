@@ -2,7 +2,7 @@
 
 [English](antigravity-1.5.0.md)
 
-**状態：調査のみ。native 実行と復旧は未認定です。** [#2476](https://github.com/duck8823/traceary/issues/2476) を追跡します。
+**状態：初回 native turn は成功。増分 capture を伴う文脈再開を観測しましたが、実 owner の後始末は未完了で、復旧は未認定です。** [#2476](https://github.com/duck8823/traceary/issues/2476) を追跡します。
 親の host 対応を完了扱いにせず、native 現在状態や復旧を有効にしません。
 [本文を含まない source 証拠](evidence/antigravity-1.5.0.json) で実測 metadata と未実施 gate を区別します。
 
@@ -50,3 +50,21 @@ ACP、app-server 実行方式、remote-control、agent wrapper、新 model API�
 Muse native は保留を維持します。
 実機 sleep/wake は別途、ユーザー指示で保留しています。
 rollback は任意の host/version adapter だけを無効化し、元の認証・capture・history を保持します。
+
+## 後続の実測と保持する失敗
+
+ユーザーがこのフォルダだけを手動で信頼したと回答した後、通常 native foreground の合成 marker turn が完了しました。
+primary capture は session_started1/prompt1/transcript1 で、実 owner の後始末の Wait は0でした。
+これは turn 完了の証拠であり、実 model/provider や live state の認定ではありません。
+要求 model は gemini-4-argon-medium ですが、独立した native model/provider witness は未取得です。
+
+その後、同じ会話の明示 resume で、新しい質問への返答が元の marker と完全一致しました。
+ただし初回 harness は既存 transcript 件数を受け入れて早期に後始末したため、raw verdict を保持したうえで完全な capture 成功としては不採用にしています。
+修正版は別の一意な新質問を使い、baseline prompt2/transcript1 に対して prompt3/transcript2 を要求し、文脈保持と増分件数を観測しました。
+しかし SIGTERM 後の実 owner はまだ Wait を返しておらず、controller は handle を保持して稼働中です。
+実終了までは terminal PASS、新たな resume、PID adopt、model/provider 認定を行いません。
+
+native USER_INPUT は CLI 引数を包むため、native content 全体の hash は元 CLI 入力との同値判定に使えません。
+既知の合成引数が完全一致で1回含まれることを確認しました。
+domain workspace projection も repository identity であり、正規 cwd の path ではありません。
+fixture path との直接比較は target の証拠にならず、これらの harness 修正で製品の target 検証を弱めてはいけません。
