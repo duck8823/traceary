@@ -156,7 +156,35 @@ version1.5.0/product、UUIDv4 alias の一致、current cwd、native catalog の
 初期化中の snapshot は binding にせず、未対応版・model や不正・矛盾入力では固定 sentinel と zero result を返します。
 account 値やその hash、agent state、承認、provider class は返しません。
 A-B-A は別々に decode され、latest/any-match/重複排除 protocol は実装していません。
-この codec は **launcher、private slot、復旧成功の経路へ接続していません**。
+この codec は下記の owned metadata producer へ接続しましたが、**native 復旧成功の経路には接続していません**。
 元の Claude codec と journal 規則は変更していません。
 1回の検証に使った process 限定 settings file は、実 Wait 後に作成時 hash が一致することを確認して削除しました。
 collector は private な証拠 artifact としてだけ保持しています。
+
+## 実 daemon 所有の metadata producer
+
+通常の Traceary-owned PTY 起動で、完全一致の pinned AGY1.5.0 artifact だけに任意の metadata 観測を追加しました。
+child ごとの private settings file から、許可済み statusLine command を指定します。
+model/mode/認証/承認の override、global hook の書き換え、agent wrapper はありません。
+未知 source/版、loader injection、重複環境変数、temp namespace 不一致では、元の通常起動を維持して metadata を unavailable にします。
+CLI の両 composition に、silent・existing-root-only の専用 sink を注入し、元の Claude sink/lifetime は分離しています。
+
+owner は縮約した不変 launch intent を固定します。
+上限128KiBの constant-size private journal は、同じ snapshot でも **各 delivery** で local sequence を進め、session/model/project/account-presence の変化と A-B-A に対する uncertainty を取り消しません。
+partial/invalid/unsupported callback で古い知識を再有効化しません。
+local sequence は native causal order ではなく、raw account/payload、入力、環境、PID、承認・現在状態の権限を保存しません。
+実 `exec.Cmd.Wait` の後で、snapshot と既知 file だけの cleanup を同じ lock 内で行います。
+遅延 callback は退役 root を再作成せず、未知・交換済み file は再帰削除せず保持します。
+metadata の失敗は process の終了結果を変えません。
+AGY の RecoveryBinding/NativeResumer は引き続き未実装です。
+
+隔離した実 candidate daemon が、本物の AGY executable を登録して controlling PTY を所有しました。
+native model は override していません。
+入力前には sequence5 まで initializing delivery を記録しました。
+明示した合成 operator input は207/207 byteで ACK され、保留・元入力の再送や native 承認への自動回答はありません。
+新しい native 会話が marker を返し、元の記録は session_started1/prompt1/transcript1、private journal は sequence10/observed/uncertaintyfalse でした。
+native default は gemini-4-argon-high です。
+通常の ACK 付き Stop の後、実 native Wait/journal exit0、private slot の削除、実 daemon Wait0 を確認しました。
+bounded output は gap なしで13213 byteを観測し、保存していません。
+これは owned metadata/control/primary 経路の実測であり、中断復旧・provider/最終model/順序・native現在状態の認定ではありません。
+全過程で source fingerprint は変わっていません。

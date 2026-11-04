@@ -15,6 +15,7 @@ import (
 
 // RootCLI provides the Traceary root command.
 type RootCLI struct {
+	agyStatuslineMetadata        appruntime.NativeSessionMetadataSink
 	antigravityObservationClaims application.AntigravityObservationClaimDecoder
 	claudeObservationClaims      application.ClaudeObservationClaimDecoder
 	hookObservation              hookObservationConfig

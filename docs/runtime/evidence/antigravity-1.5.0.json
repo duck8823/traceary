@@ -100,7 +100,12 @@
     "statusline_feasibility_review_sha256": "21a14002496fea623d9e6369c5edebbb0be3169b162ec250104449180b7df069",
     "traceary-2476-statusline-codec-design-review.json": "107f4e3f65a5c706841c5c9e6715d3febfe80448639a55e5ec312c915d0eded3",
     "traceary-2476-statusline-codec-source-manifest.json": "041926540ae43f4117f4020da2624ec34f33391751c5b61a009ca0ccbe517e48",
-    "traceary-2476-statusline-cleanup.json": "4b3bc1f143588bb525f02a85a4e333bc93383827da6beade7d719c59eb3eb7aa"
+    "traceary-2476-statusline-cleanup.json": "4b3bc1f143588bb525f02a85a4e333bc93383827da6beade7d719c59eb3eb7aa",
+    "traceary-2476-owned-metadata-design-review.json": "b7f8a06c7274655880d0f375b0dcc214bb554d61c6fd43eb701d5c16ae356c90",
+    "traceary-2476-owned-metadata-implementation-review.json": "ca8f0927b74df3982a16e87805b2959eec008677ecf03e0f7abbb17758d2dd95",
+    "traceary-2476-owned-metadata-source-manifest.json": "be0bd9b018871dcbf17f5ec73d99d6692b4cb104a7b108d3ca055f96e76d4211",
+    "traceary-2476-owned-native-probe.py": "6be350677bf60d7eda9a06587ac3caac64e77f5ce024d7d0065fdf243933264e",
+    "traceary-2476-owned-native-probe-result.json": "28b34ba52f31c015c66752f8ae15eea6bf90fb7fbe871564afa21221109107b7"
   },
   "native_metadata_probe": {
     "primary_capture_counts": {
@@ -388,7 +393,6 @@
   },
   "private_statusline_codec": {
     "implemented": true,
-    "wired_to_launcher_or_recovery": false,
     "representation_only": true,
     "source_version_literal": "1.5.0",
     "product_literal": "antigravity",
@@ -400,6 +404,63 @@
     "max_object_keys": 128,
     "max_array_items": 128,
     "max_json_container_depth_root_included": 16,
-    "source_provenance_ordering_control_or_recovery_authority": false
+    "source_provenance_ordering_control_or_recovery_authority": false,
+    "wired_to_owned_metadata_sink": true,
+    "wired_to_recovery": false
+  },
+  "owned_metadata_producer": {
+    "implemented": true,
+    "normal_owned_launch_enabled_for_literal_source_only": true,
+    "source_version": "1.5.0",
+    "source_digest_literal": "e61679b8ba54abae9a56534208e21f65e1dede6e4eb0144dbd64535f42d07724",
+    "native_argv_added": [
+      "--settings",
+      "private-generated-file"
+    ],
+    "native_model_defaults_auth_original_hooks_global_settings_unchanged": true,
+    "private_root_budget_bytes": 131072,
+    "generated_file_limit_bytes": 32768,
+    "every_delivery_increments_local_sequence": true,
+    "native_causal_order_not_inferred": true,
+    "sticky_identity_model_project_account_presence_uncertainty": true,
+    "post_actual_wait_known_only_cleanup": true,
+    "native_recovery_binding_or_resumer_enabled": false,
+    "native_current_or_permission_authority": false
+  },
+  "actual_owned_daemon_native_probe": {
+    "result": "PASS_ACTUAL_OWNED_DAEMON_METADATA_AND_PRIMARY_ONLY",
+    "actual_daemon_owned_native": true,
+    "model_inputs_sent": 1,
+    "input_replayed": false,
+    "force_kill_or_pid_adoption": false,
+    "native_statusline_before_input": {
+      "sequence": 5,
+      "status": "initializing",
+      "uncertain": false
+    },
+    "source_owned_intent_matches_launch": true,
+    "input_outcome": "delivered",
+    "input_expected_bytes": 207,
+    "input_written_bytes": "207",
+    "native_model": "gemini-4-argon-high",
+    "primary_capture_counts": {
+      "prompt": 1,
+      "session_started": 1,
+      "transcript": 1
+    },
+    "private_sequence": 10,
+    "private_status": "observed",
+    "private_uncertain": false,
+    "stop_outcome": "delivered",
+    "native_actual_exit_code": 0,
+    "native_publication_uncertain": false,
+    "native_actual_wait_and_journal_exit_confirmed": true,
+    "private_slot_removed_after_actual_exit": true,
+    "daemon_actual_wait_exit": 0,
+    "output_bytes_observed_not_saved": 13213,
+    "output_gap": false,
+    "raw_native_terminal_or_account_saved": false,
+    "native_recovery_qualified": false,
+    "scope": "normal owned launch/metadata/primary/control/exit only; not interrupted resume certification"
   }
 }
