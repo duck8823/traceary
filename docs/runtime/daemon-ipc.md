@@ -29,8 +29,9 @@ inspection is excluded from these commands.
 A status object reports `protocol_version`, a fresh 32-hex `epoch`,
 `state: listening` (or `draining` when new launch admission is disabled), `capabilities` and `observation_delivery`. **Listening is
 transport readiness, not running/working/waiting/approval or input authority.**
-The CLI has no native observation receiver yet and returns `unsupported` to observations;
-managed `launch`/`list_runs` capabilities are described in [managed launch](managed-launch.md). It never falsely reports
+The legacy `observe` receiver remains unconfigured by default and returns `unsupported`.
+The managed composition also supplies selected untrusted metadata intake (`observe_selected_v1`); configured delivery is not native-origin authentication. Check the exact capability rather than assuming legacy observe works.
+Managed `launch`/`list_runs` capabilities are described in [managed launch](managed-launch.md). It never falsely reports
 accepted native state. Applications may inject the typed receiver port. `queued`
 then means only transport queuing, not persistence, causal binding or interpretation.
 
@@ -47,7 +48,7 @@ Two 0600 sockets have immutable roles:
 
 - `daemon.sock`: named management methods (`status` and the separate typed managed-launch/list slice). No generic exec,
   file access, reflection, arbitrary shell or implicit process control.
-- `observations.sock`: fixed derived-metadata `observe` only. Never input/stop,
+- `observations.sock`: fixed derived-metadata `observe`, `observe_selected_v1` and coarse history hints only. Never input/stop,
   approval, Memory mutation, management status or role switching.
 
 Client and server both verify native peer UID. macOS uses
@@ -100,7 +101,7 @@ This is not across-connection exactly-once execution or native-event deduplicati
   This diagnostic is not proof of a native interaction state or healed event gap.
 - A handshake/frame deadline of at most one second bounds slow peers. Constructor
   limits may tighten, never expand the fixed ceilings.
-- `Status`/`Observe` client calls have a total monotonic 250 ms optional budget,
+- `Status`/`Observe`/`ObserveSelected` client calls have a total monotonic 250 ms optional budget,
   including path inspection/dial/handshake/write/ack. Potentially blocking inspection
   runs behind 32 process-wide slots retained until actual completion: returning
   a timeout cannot accumulate unbounded background workers or cause a late send.
@@ -128,3 +129,11 @@ Rollback stops admission/cancels transport connections and removes only confirme
 owned sockets. Keep registry/core/history/Memory and conflict artifacts intact.
 Stopping a transport is not approval to stop agents; active-run lifecycle policy
 is implemented by its separate owner before the integrated runtime is qualified.
+
+## Selected untrusted observation V1
+
+This source capability is implemented in the typed SDK and managed daemon; its public CLI/hook path and native certification remain incomplete. Operation `observe_selected_v1` uses exactly one `selected_observation` request arm with `{selection:{epoch,run,generation,worktree,profile}, metadata:{host,host_version,event_id,kind,native_session_id?,native_turn_id?}}`. There is no guessed `target_id`, PID, command, approval or nested-version field. The operation name selects this schema; a different operation is never replayed as legacy observe. Required fields, canonical names (including rejection of Unicode case aliases), duplicate/null/unknown fields and raw nested value size (4 KiB) are checked. Outer frames stay at 64 KiB.
+
+Only the observations socket accepts it. The actual Runtime checks exact in-memory owned identity, pinned host/version and successful initial publication before the shared queue; it does not wait for Registry/Git/filesystem validation before ACK. The single existing worker revalidates physical source outside the owner lock under a bounded context and checks the same owner again before retaining one volatile untrusted sample. Failure drops the sample and marks degraded. No new file, core event, Registry, spool or drainer is introduced. Last-arrival telemetry never becomes native binding/current interaction, input authority or approval; native host evidence belongs to later adapters.
+
+`queued` is an admission-only bare ACK with matching canonical headers, not consumption or core persistence. Mixed data/role ACKs are rejected. An older daemon rejects the unknown arm with uncorrelated invalid; the new SDK reports a protocol error, does not relax request-ID checks and does not retry/fall back. The single 250 ms monotonic caller budget includes safe-root checks, connection, handshake, write and ACK; existing transport slots remain occupied until actual worker exit. Queue/frame/byte caps and loss diagnostics are shared with legacy transport. New capability advertisement requires an admitting Runtime and does not certify any native host. See [the current delivery contract](native-observation-delivery.md) for remaining CLI/hook work and validation boundaries.

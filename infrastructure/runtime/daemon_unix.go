@@ -55,6 +55,7 @@ type daemonSocket struct {
 	slots      chan struct{}
 }
 type pendingObservation struct {
+	selected *app.SelectedObservation
 	metadata app.ObservationMetadata
 	bytes    int
 }
@@ -399,7 +400,7 @@ func (s *daemonServer) handle(conn *net.UnixConn, endpoint *daemonSocket) {
 			return
 		}
 		if hello {
-			if request.Operation != "hello" || request.Role != endpoint.role || request.Observation != nil || request.Launch != nil || request.Page != nil || request.Attach != nil || request.Control != nil || request.Receipt != nil {
+			if request.Operation != "hello" || request.Role != endpoint.role || request != (runtimeRequest{Version: request.Version, ID: request.ID, Operation: request.Operation, Role: request.Role}) {
 				reply.Code = "invalid"
 				_ = writeRuntimeFrame(conn, reply)
 				return
@@ -409,6 +410,8 @@ func (s *daemonServer) handle(conn *net.UnixConn, endpoint *daemonSocket) {
 			hello = false
 		} else if request.Role != "" {
 			reply.Code = "invalid"
+		} else if request.SelectedObservation != nil || request.Operation == selectedObservationOperation {
+			s.selectedObservationReply(&reply, request, endpoint, len(data))
 		} else if request.History != nil {
 			if endpoint.role != "management" {
 				reply.Code = "unsupported"
@@ -452,8 +455,16 @@ func (s *daemonServer) handle(conn *net.UnixConn, endpoint *daemonSocket) {
 				}
 				state := "listening"
 				if s.runtime != nil {
+					disabled := s.runtime.Disabled()
+					if !disabled {
+						capabilities = append(capabilities, selectedObservationOperation)
+						delivery = "configured"
+						if s.degraded.Load() {
+							delivery = "degraded"
+						}
+					}
 					capabilities = append(capabilities, "list_runs", "attach", "input", "resize", "stop", "receipt")
-					if s.runtime.Disabled() {
+					if disabled {
 						state = "draining"
 					} else {
 						capabilities = append(capabilities, "launch")
@@ -492,13 +503,17 @@ func (s *daemonServer) handle(conn *net.UnixConn, endpoint *daemonSocket) {
 	}
 }
 func (s *daemonServer) enqueue(metadata app.ObservationMetadata, size int) bool {
+	return s.enqueueItem(pendingObservation{metadata: metadata, bytes: size})
+}
+func (s *daemonServer) enqueueItem(item pendingObservation) bool {
+	size := item.bytes
 	s.queueMu.Lock()
 	defer s.queueMu.Unlock()
 	if s.ctx.Err() != nil || len(s.queue) >= s.daemon.options.ObservationFrames || size > s.daemon.options.ObservationBytes-s.queueBytes {
 		s.degraded.Store(true)
 		return false
 	}
-	s.queue = append(s.queue, pendingObservation{metadata, size})
+	s.queue = append(s.queue, item)
 	s.queueBytes += size
 	select {
 	case s.notify <- struct{}{}:
@@ -530,7 +545,18 @@ func (s *daemonServer) consume() {
 			if s.ctx.Err() != nil {
 				return
 			}
-			if s.daemon.receiver != nil {
+			if item.selected != nil {
+				if s.runtime == nil {
+					s.degraded.Store(true)
+					continue
+				}
+				ctx, cancel := context.WithTimeout(s.ctx, ManagementRuntimeBudget)
+				err := s.runtime.RecordObservation(ctx, *item.selected)
+				cancel()
+				if err != nil {
+					s.degraded.Store(true)
+				}
+			} else if s.daemon.receiver != nil {
 				if s.daemon.receiver.ConsumeObservation(s.ctx, item.metadata) != nil {
 					s.degraded.Store(true)
 				}
@@ -567,7 +593,7 @@ func (d *LocalDaemon) Observe(ctx context.Context, root string, metadata app.Obs
 	if err != nil {
 		return err
 	}
-	if reply.History != nil || reply.HistoryHint != nil || reply.Control != nil || reply.Output != nil || reply.Code != "queued" || reply.Status != nil || reply.Role != "" || reply.Run != nil || reply.Page != nil {
+	if reply.Code != "queued" || !reply.acknowledgmentOnly() {
 		return app.ErrRuntimeProtocol
 	}
 	return nil
@@ -615,7 +641,7 @@ func (d *LocalDaemon) openRuntime(ctx context.Context, root, operation string) (
 		return nil, "", app.ErrUnsafeRuntime
 	}
 	name, role := "daemon.sock", "management"
-	if operation == "observe" || operation == "history_hint" {
+	if operation == "observe" || operation == "history_hint" || operation == selectedObservationOperation {
 		name, role = "observations.sock", "observations"
 	}
 	var before unix.Stat_t

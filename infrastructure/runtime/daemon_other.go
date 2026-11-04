@@ -58,3 +58,8 @@ func (d *LocalDaemon) HintHistory(context.Context, string) error { return app.Er
 func NewHistoryService(context.Context, string) (*app.History, error) {
 	return nil, app.ErrRuntimeUnsupported
 }
+
+// ObserveSelected never uses an uncertified platform, TCP, legacy or unchecked peer fallback.
+func (d *LocalDaemon) ObserveSelected(context.Context, string, app.SelectedObservation) error {
+	return app.ErrRuntimeUnsupported
+}

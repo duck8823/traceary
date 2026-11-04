@@ -2,7 +2,7 @@
 
 [English](native-observation-delivery.md)
 
-状態は **修正済み実装前契約を主担当が採用し、domain と Runtime の所有 capability を実装済み、wire/CLI/hook は未実装** です。
+状態は **修正済み実装前契約を主担当が採用し、domain・Runtime の所有 capability・selected wire/SDK を実装済み、CLI/hook は未実装** です。
 独立 report の CHANGES_REQUIRED は変更せず、明示 triage と修正契約を保持します。実装の認定ではありません。
 [観測配送の leaf](https://github.com/duck8823/traceary/issues/2466) の実装前設計資料であり、新しい CLI command の利用案内や native host の認定ではありません。
 [採用済み headless R0](../adr/2026-11-03-headless-runtime-r0.ja.md) を正本とします。
@@ -83,4 +83,8 @@ hook の導出 table は canonical client codex/claude/antigravity/grok に限�
 
 source 上では、不変 metadata 値と四つの closed kind、owned selection/profile の正確な in-memory admission、SaveLaunch 成功後の publication marker、owner lock 外の物理的な消費時再検証、live run ごとに一つの untrusted sample、Wait/uncertainty/disable/検証失敗・取消時の消去を実装しています。実際に initial journal を保留するテスト、物理再検証が停止している間に owner が終了するテスト、取消を無視して戻る validator のテストを実行します。最後のケースでは古い telemetry の保持を再現し、process/control metadata を変更せずに消去する修正を行いました。
 
-selected wire operation・public CLI・optional hook flags/配送・host-native association・lifecycle 統合認定・leaf 全体の delivery は未完了です。owner capability だけで production transport 配送が利用可能になるわけではありません。元の leaf 全体の scope と、残る独立実装レビュー・CI/security・wave gate は維持します。
+wire/SDK は、closed な observe_selected_v1、正確な field 名と raw 4 KiB 上限、全 arm の request/ACK guard、共有 queue から実 RuntimeFactory への消費、degraded 表示と総 client budget を実装しています。実 socket/有限 PTY で、成功・不一致・旧 peer の invalid response・物理 store 交換・停止した metadata lock・queue 圧力を検証します。
+
+public CLI・optional hook flags/配送・host-native association・lifecycle 統合認定・leaf 全体の delivery は未完了です。owner capability だけで production transport 配送が利用可能になるわけではありません。元の leaf 全体の scope と、残る独立実装レビュー・CI/security・wave gate は維持します。
+
+既存の lowercase key 検査では Go の case folding による Unicode long-s alias が受理されることを再現しました。新 selected request variant は正確な field 名を検査し、bare queued ACK は正確な canonical header を要求します。共通の version/null/重複検査と永続 metadata codec は変更しません。これは protocol 検査であり、native origin の認証ではありません。

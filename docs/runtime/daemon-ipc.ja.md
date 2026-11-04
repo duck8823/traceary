@@ -25,7 +25,7 @@ core reclaim検査も除外する。
 
 statusは`protocol_version`、新しい32桁hex `epoch`、`state: listening`（新規起動受付停止中は`draining`）、`capabilities`、`observation_delivery`を返す。
 **listeningはtransportの準備状態であり、agentのrunning/working/waiting/approvalや入力権限ではない。**
-既定CLIはnative receiver未接続なので観測にはunsupportedを返す。Managed runtime構成ではtyped launch/listのcapabilityをadvertiseするが、native状態の認定ではない。
+既定 CLI の legacy observe receiver は未接続のため observe は unsupported を返す。managed 構成には selected untrusted intake（observe_selected_v1）があり、configured は native origin の認証ではない。legacy observe の対応は個別 capability で確認する。Managed runtime構成ではtyped launch/listのcapabilityをadvertiseするが、native状態の認定ではない。
 native状態を受け入れたと偽装しない。
 applicationはtyped receiver portを注入できるが、queuedはtransport queueだけを意味し、永続化/因果binding/解釈の成功ではない。
 
@@ -40,7 +40,7 @@ stale socketを自動unlinkせず、既存pathは起動拒否とする。
 0600 socketのroleを固定する。
 
 - `daemon.sock`：名前付き管理method（statusおよびtyped managed launch/list）。汎用exec/file/reflection/任意shell/暗黙process操作は提供しない。
-- `observations.sock`：固定derived metadataのobserveだけ。input/stop/approval/Memory mutation/管理status/role変更を許可しない。
+- `observations.sock`：固定 derived metadata の observe、observe_selected_v1、coarse history hint。input/stop/approval/Memory mutation/管理status/role変更を許可しない。
 
 client/server双方がnative peer UIDを検証する。
 macOSは`LOCAL_PEERCRED`/`Xucred`のnative ABI version 0、Linux CI fixtureは`SO_PEERCRED`を使う。
@@ -82,7 +82,7 @@ connectionを越えるexactly-once実行やnative event重複排除の保証で�
 - Daemon単位で管理32 connection、観測32 connection。超過はhandler goroutineを増やさずbusy拒否。
 - 観測queueは256 frameかつ8 MiB、先に達した方で拒否。consumerは1 worker。queue/consumer失敗はobservation_delivery=degradedを保持し、native interaction状態や欠落回復の証明にしない。
 - handshake/frame deadlineは最大1秒。constructorで厳しくできるが固定上限を拡大しない。
-- Status/Observe clientはpath検査/dial/handshake/write/ackを含む単調時計250 msの任意予算。blockし得る検査はprocess全体32 slotで有界化し、実際に終了するまでslotを保持する。timeout後にworkerを無制限生成せず、遅延sendもしない。
+- Status/Observe/ObserveSelected clientはpath検査/dial/handshake/write/ackを含む単調時計250 msの任意予算。blockし得る検査はprocess全体32 slotで有界化し、実際に終了するまでslotを保持する。timeout後にworkerを無制限生成せず、遅延sendもしない。
 - 注入receiverはcancelを尊重する契約とする。不応答consumerが残れば有界root/lease claimを終了まで保持し、transportが無期限待機したり不明instanceへ第2ownerを入れたりしない。
 
 frame拒否/transport errorでcore DB初期化/query、host stdout/approval判断変更、capture成功判定を行わない。
@@ -102,4 +102,12 @@ transport停止はagent停止の許可ではなく、active run lifecycleの別�
 ## Managed 起動との接続
 
 CLI の typed `launch` / `list_runs`、8 秒の明示管理予算、active child の所有権を保持する Serve の `draining` は [managed 起動](managed-launch.ja.md) を参照してください。
-Default CLI の観測 consumer は未接続のままで、`observe` は `unsupported` です。起動 capability は native interaction/recovery 認定を意味しません。
+Default CLI の legacy consumer は未接続のままで、`observe` は `unsupported` です。managed Runtime は selected intake を提供します。起動 capability は native interaction/recovery 認定を意味しません。
+
+## Selected untrusted observation V1
+
+typed SDK と managed daemon の source capability を実装しています。public CLI/hook と native 認定は未完了です。operation observe_selected_v1 は一つの selected_observation arm と `{selection:{epoch,run,generation,worktree,profile}, metadata:{host,host_version,event_id,kind,native_session_id?,native_turn_id?}}` を使います。推測した target_id、PID、command、approval、nested version は持ちません。別 operation から legacy observe への再送はしません。必須 field、正確な canonical 名（Unicode case alias も拒否）、重複/null/未知 field と raw nested value 4 KiB を検査します。outer frame は 64 KiB のままです。
+
+observations socket のみで受理し、実 Runtime の in-memory owned identity・固定 host/version・initial publication 成功を共有 queue の前で照合します。ACK 前に Registry/Git/filesystem を待ちません。既存の単一 worker が有界 context と owner lock 外で物理 source を再検証し、同じ owner を再確認して一つの volatile untrusted sample を保持します。失敗は sample を捨てて degraded とし、新しい file/core event/Registry/spool/drainer は作りません。最後に到着した telemetry を native binding・現在の interaction・入力権限・承認に昇格させず、native 証拠は後続 adapter が担当します。
+
+queued は canonical header と request ID が一致する admission-only bare ACK であり、消費・core 永続化ではありません。data/role が混在する ACK を拒否します。旧 daemon の未知 arm は相関しない invalid となり、新 SDK は request ID を緩めず protocol error として扱い、再送/fallback はしません。単一の単調時計 250 ms は安全な root 検査・接続・handshake・write・ACK 全体を含み、transport slot は worker の実終了まで保持します。queue/frame/byte 上限と loss 診断を共有します。capability は受付可能な Runtime がある場合だけ広告し、native host は認定しません。[現在の配送契約](native-observation-delivery.ja.md)に CLI/hook の残件と検証範囲を示します。
