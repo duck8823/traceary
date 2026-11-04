@@ -28,6 +28,8 @@ Derived hook metadata enters only `ObserveUnbound`: bounded last-arrival metadat
 
 `SubscribeObservations` returns the actual immutable RunSnapshot, independent ProjectionSnapshot and the existing shared change channel atomically under the owner lock. No lost-wake window, per-client queue or new worker is created. Observation notification does **not increment launch-list revision**, so telemetry cannot invalidate launch-page continuation.
 
+The process axis is refreshed from the actual LaunchDescriptor on each subscription read. Owner exit/uncertainty invalidation happens independently before that read; telemetry never supplies process truth.
+
 This is latest-snapshot subscription, **not an exactly-once event/Attention stream**. Compare full selection and projection Version; skipped versions mean intermediate snapshots may be missing. Unrelated owner/control activity can also wake readers. There is **no expiry-channel wake promise**: a reader must schedule a reread no later than positive `RefreshAfter`, as well as listening to Changed. Native-current reads additionally require the original continuity gate described above.
 
 ## Validation and rollback

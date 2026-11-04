@@ -4,12 +4,70 @@ import (
 	"context"
 	"errors"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
 	app "github.com/duck8823/traceary/application/runtime"
 	domain "github.com/duck8823/traceary/domain/runtime"
 )
+
+func TestObservationProjectionOriginalIntakeSurvivesBlockedPhysicalRevalidation(t *testing.T) {
+	_, req, factory, base := runtimeFixture(t, false)
+	registry := &observationValidationRegistry{launchRegistry: base, entered: make(chan struct{}), release: make(chan struct{})}
+	var release sync.Once
+	t.Cleanup(func() { release.Do(func() { close(registry.release) }) })
+	profile, err := domain.HostProfileFrom(domain.HostProfileState{ID: "codex-fixture", Host: "codex", Executable: "/owned/agent", ExecutableWitness: "fixture", Version: "fixture 1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner, err := app.NewRuntime(registry, launchProfiles{profile}, factory, factory.journal, req.Epoch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := owner.Launch(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := selectedObservation(t, run, "blocked-original")
+	receipt, err := owner.AdmitObservation(context.Background(), o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	admittedUpperBound := time.Now()
+	registry.blocked.Store(true)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- owner.ConsumeObservation(ctx, receipt) }()
+	select {
+	case <-registry.entered:
+	case <-ctx.Done():
+		t.Fatal("physical validation not reached")
+	}
+	during, err := owner.SubscribeObservations(o.Selection)
+	if err != nil || during.Projection.HasLastEvent {
+		t.Fatal("published before physical validation", during, err)
+	}
+	releasedAt := time.Now()
+	release.Do(func() { close(registry.release) })
+	select {
+	case err = <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-ctx.Done():
+		t.Fatal("physical validation did not finish")
+	}
+	after, err := owner.SubscribeObservations(o.Selection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := after.Projection.LastEvent.Received.Wall
+	if !after.Projection.HasLastEvent || got.After(admittedUpperBound) || !got.Before(releasedAt) {
+		t.Fatal("original intake replaced at dequeue/physical completion", got, admittedUpperBound, releasedAt)
+	}
+}
 
 func TestObservationProjectionPreservesOriginalIntakeAndAtomicallyWakesSnapshot(t *testing.T) {
 	owner, req, _, _ := runtimeFixture(t, false)

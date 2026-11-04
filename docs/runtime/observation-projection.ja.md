@@ -28,6 +28,8 @@ hook の derived metadata は `ObserveUnbound` にだけ入る。source／版、
 
 `SubscribeObservations` は実際の不変 RunSnapshot、独立した ProjectionSnapshot、既存の共有 change channel を所有者 lock 内で原子的に返す。起床の取りこぼし区間、client 別待ち行列、新しい worker は作らない。観測通知は **launch 一覧 revision を増やさない**ため、telemetry が一覧の継続ページ取得を無効化しない。
 
+プロセス軸は購読の read ごとに、実際の LaunchDescriptor から更新する。所有者の終了／不確実化による失効はその read より前に独立して行い、telemetry をプロセスの真実として使わない。
+
 これは最新 snapshot の購読であり、**exactly-once の event／Attention stream ではない**。完全な選択と投影 Version を比較し、版が飛んだ場合は中間 snapshot が欠けた可能性を扱う。無関係な所有／制御操作でも起床し得る。**失効時の channel 起床は保証しない**。read 側は Changed を待つことに加え、正の `RefreshAfter` 以内に再読を予約する必要がある。native 現在状態の read には前述の元の継続性 gate も必須である。
 
 ## 検証と rollback

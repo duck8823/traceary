@@ -68,6 +68,8 @@ func (r *ownedRun) recordUnboundProjection(o SelectedObservation, received, now 
 		err = r.projection.ObserveUnbound(e, now)
 	}
 	if err != nil {
+		// Defensive against future conversion changes. Clock rejection may
+		// already revoke a revision; an extra revocation grants no authority.
 		r.projection.Invalidate(domain.ProjectionGap)
 	}
 }
