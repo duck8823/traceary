@@ -1,0 +1,191 @@
+{
+  "schema_version": 1,
+  "issue": 2475,
+  "status": "incomplete-native-qualification",
+  "source": {
+    "cli_version": "2.1.318 (Claude Code)",
+    "native_sha256": "677a2ea7bf576cedd20e191d973914ed8a41796f53a63b1923381ddc4d5b5e7d",
+    "normal_entry_sha256": "079234054a9e035839f50118b618c1568c8ae1e20950f9b668a60bf27722e3cc",
+    "upstream_revision_proven": false,
+    "compatible_range_inferred": false
+  },
+  "auth_class": "claude.ai / firstParty cached subscription; CLI-owned, no print/SDK path or API-key forwarding",
+  "completed_context_resume": {
+    "result": "PASS_NATIVE_FOREGROUND_COMPLETED_CONTEXT_RESUME_ONLY",
+    "same_native_uuid": true,
+    "original_target_store_model_preserved": true,
+    "model": "claude-opus-5-5",
+    "original_model_turn_completed": true,
+    "original_owner_cleanup_exit": 143,
+    "original_cleanup_reason": "list-only observer missed actual user content string; marker/native turn completion/tool0 verified before fresh actual-owner cleanup",
+    "resumed_owner_exit": 0,
+    "new_conversation_fallback": false,
+    "original_or_pending_input_replayed": false
+  },
+  "identical_primary_handler_composition": {
+    "result": "FAIL",
+    "original_native_stop_handler_count": 3,
+    "additional_per_run_same_command_handler_count": 4,
+    "native_hook_errors": 0,
+    "core_transcripts_before": 2,
+    "core_transcripts_after": 4,
+    "adoption": "REJECTED: do not append a second primary Traceary handler or infer non-destructive replacement"
+  },
+  "metadata_only_test_observer": {
+    "result": "PASS_NATIVE_HOOK_METADATA_AND_PRIMARY_CAPTURE_ONLY",
+    "role": "test-only additive metadata collector, not product integration or agent wrapper",
+    "collector_sha256": "2fd980c0b7b5e24215bebbfb8d5088701e72574a0964e4b9048d054ca687fbce",
+    "collector_tests": "PASS empty-output/valid/invalid/scalar/oversize",
+    "event_counts": {
+      "SessionEnd": 1,
+      "UserPromptSubmit": 1,
+      "Stop": 1,
+      "SessionStart": 1
+    },
+    "root_field_types_by_event": {
+      "SessionEnd": {
+        "session_id": "string",
+        "transcript_path": "string",
+        "cwd": "string",
+        "scratchpad_dir": "string",
+        "prompt_id": "string",
+        "hook_event_name": "string",
+        "reason": "string"
+      },
+      "UserPromptSubmit": {
+        "session_id": "string",
+        "transcript_path": "string",
+        "cwd": "string",
+        "scratchpad_dir": "string",
+        "prompt_id": "string",
+        "permission_mode": "string",
+        "hook_event_name": "string",
+        "prompt": "string"
+      },
+      "Stop": {
+        "session_id": "string",
+        "transcript_path": "string",
+        "cwd": "string",
+        "scratchpad_dir": "string",
+        "prompt_id": "string",
+        "permission_mode": "string",
+        "effort": "object",
+        "hook_event_name": "string",
+        "stop_hook_active": "bool",
+        "last_assistant_message": "string",
+        "background_tasks": "array",
+        "session_crons": "array"
+      },
+      "SessionStart": {
+        "session_id": "string",
+        "transcript_path": "string",
+        "cwd": "string",
+        "scratchpad_dir": "string",
+        "hook_event_name": "string",
+        "source": "string",
+        "seconds_since_last_response": "number",
+        "context_tokens": "number",
+        "prompt_cache_likely_expired": "bool",
+        "estimated_cache_write_usd": "number"
+      }
+    },
+    "turn_id_present_by_event": {
+      "SessionEnd": false,
+      "UserPromptSubmit": false,
+      "Stop": false,
+      "SessionStart": false
+    },
+    "permission_mode_by_event": {
+      "SessionEnd": "absent_or_unknown",
+      "UserPromptSubmit": "plan",
+      "Stop": "plan",
+      "SessionStart": "absent_or_unknown"
+    },
+    "native_generation_fields_by_event": {
+      "SessionEnd": [],
+      "UserPromptSubmit": [],
+      "Stop": [],
+      "SessionStart": []
+    },
+    "runtime_hint_names_present_by_event": {
+      "SessionEnd": [],
+      "UserPromptSubmit": [],
+      "Stop": [],
+      "SessionStart": []
+    },
+    "core_transcripts_before": 4,
+    "core_transcripts_after": 5,
+    "actual_owner_exit": 0,
+    "runtime_hint_names_checked": [
+      "TRACEARY_RUNTIME_RUN",
+      "TRACEARY_RUNTIME_GENERATION",
+      "TRACEARY_RUNTIME_EPOCH"
+    ],
+    "runtime_hint_probe_limitation": "RUN_ID is the actual product run hint; this collector checked RUN, not RUN_ID. The orchestrator supplied no runtime hints, but the sample does not prove absence of every inherited hint or nested witness. No binding capability is enabled."
+  },
+  "unqualified": [
+    "independent managed-generation witness",
+    "native current working/waiting_input/waiting_approval",
+    "same-cwd concurrent native foreground runs",
+    "active/duplicate resume exclusion",
+    "interrupted mid-turn recovery and no pending-effect replay",
+    "late/duplicate/reorder/expiry native matrix",
+    "Traceary descriptor argument composition",
+    "product adapter/source verification and runtime recovery service",
+    "final independent review/CI/security/wave"
+  ],
+  "controls": {
+    "global_project_auth_permission_settings_changed": false,
+    "native_hooks_guardian_disabled": false,
+    "agent_wrapper_added": false,
+    "raw_prompt_transcript_account_credential_shared": false,
+    "physical_sleep_wake": "user-deferred NOT_RUN"
+  },
+  "runs": [
+    {
+      "command": "rtk proxy python3 /private/tmp/traceary-2475-native-context.py",
+      "driver_sha256": "18e1f31be52bd2c7255ad5da583e4f73502e24b78dade8797848152318463cfb",
+      "result": "FAIL",
+      "input_sha256": "b218d1d47aeb2211edb9e39715c5e00bbafd1d08d52f17b9b2641e7b22a319a7",
+      "local_evidence_path": "/private/tmp/traceary-2475-native-context-result.json",
+      "local_evidence_sha256": "66de51c5388eed0171651522e93251e27edb798ff121341aaef48c001664585b",
+      "native_model_turns_requested": 1,
+      "actual_exit_code": 143,
+      "raw_native_ids_or_prompt_shared": false
+    },
+    {
+      "command": "rtk proxy python3 /private/tmp/traceary-2475-native-explicit-resume.py",
+      "driver_sha256": "937644f632e6a65cf579a89ee55b57c93c9afe8fb1de5fd6083a160dfd72e9a8",
+      "result": "PASS_NATIVE_FOREGROUND_COMPLETED_CONTEXT_RESUME_ONLY",
+      "input_sha256": "8f4907673a6c1d30877df7f3679eedf9c879453d2d5db88861e58991c40efc30",
+      "local_evidence_path": "/private/tmp/traceary-2475-native-explicit-resume-result.json",
+      "local_evidence_sha256": "28112986b31306336e930f156378f8f0700e5ef5e5a7ae0dad989f06b25d5b8d",
+      "native_model_turns_requested": 1,
+      "actual_exit_code": 0,
+      "raw_native_ids_or_prompt_shared": false
+    },
+    {
+      "command": "rtk proxy python3 /private/tmp/traceary-2475-native-composition.py",
+      "driver_sha256": "303b476cb1edd97d84f94d9a3ee9ff6db8dcb5b1f72446205a945b423f062cef",
+      "result": "FAIL",
+      "input_sha256": "c2f721b8659c3d59bcc2c6838bd0cc3ad1e622a3db8994893b7e87c4064ac072",
+      "local_evidence_path": "/private/tmp/traceary-2475-native-composition-result.json",
+      "local_evidence_sha256": "fe946291ecf01175bec07a414257134ee00e74464f2622840dd3ef0ebcae0487",
+      "native_model_turns_requested": 1,
+      "actual_exit_code": 0,
+      "raw_native_ids_or_prompt_shared": false
+    },
+    {
+      "command": "rtk proxy python3 /private/tmp/traceary-2475-native-payload.py",
+      "driver_sha256": "32e84f4cccfb21ec60a37859ba1912761f33957a76e0109c0ba23c36fecad0ff",
+      "result": "PASS_NATIVE_HOOK_METADATA_AND_PRIMARY_CAPTURE_ONLY",
+      "input_sha256": "af912b684da5a36532d94a914f0c580f7b4d5b254521cc935a8d2b95f102127c",
+      "local_evidence_path": "/private/tmp/traceary-2475-native-payload-result.json",
+      "local_evidence_sha256": "7b60d814edac2f663d585185a3cd9fa8b8bdfcdaab5219b5d47eb13fec02e066",
+      "native_model_turns_requested": 1,
+      "actual_exit_code": 0,
+      "raw_native_ids_or_prompt_shared": false
+    }
+  ],
+  "optional_correlation_constraint": "Observed prompt_id is prompt correlation, not native turn_id. The current generic Claude path must not be certified as having native turn identity; versioned adapter changes require before-product-code review."
+}

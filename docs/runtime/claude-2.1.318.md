@@ -1,0 +1,44 @@
+# Claude Code native qualification: 2.1.318
+
+[日本語](claude-2.1.318.ja.md)
+
+**Status: incomplete.** This tracks [#2475](https://github.com/duck8823/traceary/issues/2475), not completion of the native-host parent or runtime recovery service. [Body-free evidence](evidence/claude-2.1.318.json) distinguishes actual measurements, failures and unqualified states. No native-current or product recovery capability is enabled by these fixtures.
+
+## Source and authentication
+
+The installed normal CLI reports `2.1.318 (Claude Code)`. Native artifact SHA256 is `677a2ea7bf576cedd20e191d973914ed8a41796f53a63b1923381ddc4d5b5e7d`; normal entry SHA256 is `079234054a9e035839f50118b618c1568c8ae1e20950f9b668a60bf27722e3cc`. Both were checked before and after probes. No upstream commit or compatible range is inferred.
+
+The normal foreground CLI owned its existing cached claude.ai / firstParty subscription authentication, confirmed under the same minimal nonsecret environment before requests. The orchestrator did not read/copy/display credential caches or forward credential values through the child environment; the native CLI alone used its host authentication. Print/SDK billing paths are not qualified here. Plan mode, empty model tools, strict empty MCP and no-Chrome narrowed the probe; existing native hooks/Guardian remained active. No wrapper, login, installation, persistent global/project/auth/permission-setting modification or permission answer was introduced.
+
+## Actual completed-conversation resume
+
+A synthetic marker-only turn completed with native model `claude-opus-5-5`. The first harness incorrectly assumed user-record content was always a list; this installed version used a string, so the observer missed the completed turn. The original FAIL remains recorded. After verifying the original-input hash, final marker, native turn completion and zero tools, the exact live fixture child was cleaned up with SIGTERM using fresh actual-parent/UID/command/cwd/session-marker checks. Exit 143 is **not** a normal-exit success or proof of a mid-turn interruption.
+
+The corrected observer passed string/list and stale-prompt tests before use. Explicit foreground resume of the same own UUID in the original cwd and capture store recovered the original high-entropy marker from a new context question, with the same native model and subscription provider. The resumed actual owner exited 0. No original or pending input, approval or tool was replayed; no name/picker/continue/fork/background/new-chat/model/API fallback was used. This proves completed-conversation context resume only, not arbitrary interrupted-side-effect recovery or runtime exclusion/crash safety.
+
+## Native hook input and capture
+
+A test-only additive metadata observer received one native callback each for SessionStart, UserPromptSubmit, Stop and SessionEnd. It read bounded stdin, emitted no stdout/decision, and retained only root field/type inventory, match booleans and hashes in an isolated store. It did not wrap the agent or replace/add a second primary recorder. The original Traceary transcript capture increased exactly once (4 to 5), and the actual native owner exited 0.
+
+All four native payloads had canonical string session_id and cwd matching the own conversation/target. UserPromptSubmit, Stop and SessionEnd included string **prompt_id**, not turn_id; SessionStart had neither. Prompt/Stop permission_mode was plan; SessionStart/End omitted it. None carried run/generation/epoch fields, and no Traceary runtime hint names were supplied. These observations alone do not authenticate managed generation, freshness, current waiting or approval authority. prompt_id is prompt correlation, **not silently reinterpreted as native turn_id**. Native histories are not a current-state interface.
+
+Current [official hook documentation](https://code.claude.com/docs/en/hooks) explains prompt_id as prompt correlation and notes that transcript writes can lag. Current docs are supporting semantics, not a substitute for this exact-version measurement. Stop is not process exit/readiness; SessionEnd is lifecycle telemetry, not authority to adopt or signal a process.
+
+## Rejected composition candidate
+
+Adding the **same existing** `traceary hook transcript claude` through additional per-run settings did not deduplicate it in this installed configuration. Native Stop handlers increased from 3 to 4, and one synthetic response produced **two** core transcript events (2 to 4), despite zero native hook errors. The actual owner then exited 0. This is a recorded FAIL: never ship this duplicate-primary-handler approach or infer that appending descriptor flags safely replaces a global handler. The later metadata-only observer preserved one primary capture; it does not solve primary-handler enrichment or generation binding.
+
+## Remaining qualification and safety gates
+
+| Requirement | Status |
+| --- | --- |
+| Exact source and four native hook field/type inventories | Measured above; other tool/permission events NOT_RUN |
+| Same native completed-conversation context/cwd/store/model/provider | PASS foreground fixture only; interrupted mid-turn and active/duplicate resume exclusion NOT_RUN |
+| Global/per-run primary-handler composition | Duplicate-primary candidate FAILED and rejected; safe descriptor enrichment unqualified |
+| Same-cwd concurrency, independent generation, reused-ID/late/missing-hint/duplicate/reorder/expiry matrix | Incomplete; descriptor/env/cwd/native IDs alone remain unbound |
+| working / waiting_input / waiting_approval / process | Not qualified; permission metadata is not a visible wait or permission decision |
+| Product adapter, independent implementation review, final-head CI/security/wave | Pending; no issue closure or production capability inferred |
+
+Safe runtime recovery remains #2478: durable verified identity, original source/target/profile, actual old-owner inactivity, session exclusion and crash/duplicate semantics. Exact UUID alone never authorizes execution. In particular, the installed CLI help says background resume can copy an already-running session; background/fork/copy paths are forbidden for recovery. The native foreground negative contract must still be measured.
+
+Physical sleep/wake remains user-deferred NOT_RUN; no sleep, launchd or power-setting operation was performed. Muse native work remains deferred. No UI/framework adoption or distribution is included. Rollback keeps original capture/history/auth and disables only an optional host/version capability, returning to unknown/unbound.
