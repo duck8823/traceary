@@ -20,7 +20,7 @@ import (
 var _ app.RecoveryJournal = (*ExecutionStore)(nil)
 
 func TestRecoveryJournalQualifiedExitedSuccessorReleasesOnlyConversationReservation(t *testing.T) {
-	for _, phase := range []string{"reserved", "started", "unknown", "unknown wrong model", "confirmed final model"} {
+	for _, phase := range []string{"reserved", "started", "unknown", "unknown wrong model", "confirmed final model", "confirmed no native exit"} {
 		t.Run(phase, func(t *testing.T) {
 			audit, root := recoveryMetadataFixture(t)
 			store := audit.execution
@@ -78,7 +78,7 @@ func TestRecoveryJournalQualifiedExitedSuccessorReleasesOnlyConversationReservat
 					t.Fatal(err)
 				}
 			}
-			if phase == "confirmed final model" {
+			if strings.HasPrefix(phase, "confirmed") {
 				before = attempt.Snapshot()
 				if err := attempt.Confirm(started); err != nil {
 					t.Fatal(err)
@@ -117,8 +117,10 @@ func TestRecoveryJournalQualifiedExitedSuccessorReleasesOnlyConversationReservat
 			if err := successor.ObserveQualifiedOwnedExit(next, 143, final); err != nil {
 				t.Fatal(err)
 			}
-			if err := store.SaveRecovery(ctx, successor.Snapshot()); err != nil {
-				t.Fatal(err)
+			if phase != "confirmed no native exit" {
+				if err := store.SaveRecovery(ctx, successor.Snapshot()); err != nil {
+					t.Fatal(err)
+				}
 			}
 			reopened, err := OpenExecutionStore(root, MaxRegistryBytes)
 			if err != nil {
@@ -133,6 +135,10 @@ func TestRecoveryJournalQualifiedExitedSuccessorReleasesOnlyConversationReservat
 			if phase == "unknown wrong model" {
 				if fresh || !errors.Is(err, domain.ErrChanged) {
 					t.Fatalf("foreign unconfirmed binding released reservation: %v %v", fresh, err)
+				}
+			} else if phase == "confirmed no native exit" {
+				if fresh || !errors.Is(err, domain.ErrInvalid) {
+					t.Fatalf("new request accepted without durable native exit: %v %v", fresh, err)
 				}
 			} else if err != nil || !fresh {
 				t.Fatalf("qualified owned exit still locked: %v %v", fresh, err)
