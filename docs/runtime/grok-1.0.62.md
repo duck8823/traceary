@@ -8,7 +8,11 @@
 
 The installed direct arm64 executable reports `grok 1.0.62 (1474f9cbdd91)`, SHA256 `ec434e831afdcfce87780f2815fd732b1df8a4a8de96a491716ad75d13605a4e`. The displayed build prefix is not a proven full upstream revision. No compatible range is inferred.
 
-Actual help distinguishes new explicit UUID sessions from resume/fork/continue/code restoration and exposes ordinary tool/permission/subagent/web options. Root help does not display no-memory/no-leader, but each option is accepted in a help-only parse while a deliberately invalid option fails. This is parser availability, not proof of effective privacy, standalone ownership or tool safety. No leader, memory, configuration, authentication or model action was performed.
+Actual help distinguishes new explicit UUID sessions from resume/fork/continue/code restoration and exposes ordinary tool/permission/subagent/web options. Root help does not display no-memory/no-leader, but each option is accepted in a help-only parse while a deliberately invalid option fails. This is parser availability, not proof of effective privacy, standalone ownership or tool safety. The source-only discovery executed no leader/memory/auth/configuration management or model command; the separate startup attempt is described below.
+
+## Startup without a model prompt
+
+A normal TUI startup was attempted from an empty packet-only fixture cwd, with explicit no-memory/no-subagents/no-leader, empty builtin tools, disabled web and plan mode. No model prompt or approval/trust/login response was sent, no source/private workspace was exposed, and raw terminal was not recorded. No original SessionStart capture was observed. The actual owned process was stopped and reaped0; this is cleanup, not model success, and does not prove backend quiescence or a cause of missing capture. Effective memory/tools/backend ownership remain unqualified. A separate read-only inspect retained only known-section booleans/counts, never raw config, paths, server names or authentication values.
 
 ## Contract to verify
 

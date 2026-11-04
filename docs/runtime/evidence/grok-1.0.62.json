@@ -26,7 +26,7 @@
       "body_not_shared": true
     }
   },
-  "native_AI_calls": "NOT_RUN",
+  "native_AI_calls": "no model turn requested; no native model/provider qualification",
   "auth_model_provider_and_effective_tool_policy": "UNQUALIFIED",
   "global_auth_config_memory_leader_changed": false,
   "raw_private_data_or_credentials_shared": false,
@@ -34,5 +34,46 @@
   "official_hooks_reference": "https://docs.x.ai/build/features/hooks",
   "vendor_html_sha256": "47fcb22b6268dbc41454687d556c3924c62a4329eb7d6468a73505f7757b1c64",
   "official_docs_not_native_proof": true,
-  "observed_at": "2026-11-04T19:44:33.019399+00:00"
+  "observed_at": "2026-11-04T19:44:33.019399+00:00",
+  "startup_without_model_prompt": {
+    "result": "FAIL",
+    "phase": "observe_startup_no_prompt",
+    "reason": "native_original_start_capture_unobserved_no_model_requested",
+    "model_turn_requested": false,
+    "cwd_policy": "empty packet-only fixture; no source/private workspace access",
+    "requested_no_memory": true,
+    "requested_no_subagents": true,
+    "requested_no_leader": true,
+    "requested_builtin_tools": "empty",
+    "requested_disable_web": true,
+    "effective_tool_memory_backend_policy_qualified": false,
+    "native_recovery_qualified": false,
+    "auth_or_global_config_changed": false,
+    "permission_trust_or_login_answer_sent": false,
+    "raw_terminal_recorded_or_shared": false,
+    "actual_owned_cleanup_returncode": 0,
+    "driver_sha256": "f34a052ed19e38693a4d442e9313f615d3cbdb3be5e417eb5e5a16891e977718",
+    "source_after_matches": true,
+    "interpretation": "No original SessionStart capture observed; cause/auth/backend state is not inferred. Cleanup return0 is not a completed-model-turn success."
+  },
+  "inspect_metadata": {
+    "resource": "Grok local discovered-configuration metadata",
+    "exit": 0,
+    "raw_configuration_saved_or_shared": false,
+    "credentials_requested_or_returned_to_model": false,
+    "effective_native_tool_policy_qualified": false,
+    "known_section_presence": {
+      "cli": false,
+      "memory": false,
+      "permissions": true,
+      "mcp_servers": false,
+      "mcpServers": true,
+      "sandbox": false,
+      "tools": false,
+      "model": false,
+      "config": false,
+      "sources": false
+    },
+    "discovered_mcp_section_counts": []
+  }
 }

@@ -14,7 +14,18 @@
 実 help は、新しい UUID の明示と resume/fork/continue/code 復元を区別し、通常の tool・permission・subagent・web option を説明します。
 root help に no-memory/no-leader は表示されませんが、help 限定の解析では両 option を受け付け、故意の不正 option は失敗しました。
 これは parser の受け付けであり、実際の privacy、単独 ownership、tool 安全性の証明ではありません。
-leader、memory、設定、認証、model の操作は行っていません。
+source だけの調査では、leader/memory/設定/認証の管理や model command は実行していません。
+別の起動試行は下記に記録します。
+
+## model prompt なしの起動試行
+
+空の packet-only fixture cwd から、no-memory/no-subagents/no-leader、空の builtin tools、web 無効、plan mode を明示して通常 TUI の起動を試行しました。
+model prompt、承認・信頼・ログイン回答は送らず、source/private workspace は渡さず、raw terminal も保存していません。
+元の SessionStart 記録は観測できませんでした。
+実所有 process だけを停止して0で Wait しましたが、これは後始末であり model の成功ではありません。
+backend の停止や capture 欠落の原因も証明しません。
+実効 memory/tool/backend ownership は未認定のままです。
+別の read-only inspect は、既知 section の有無・件数だけを保持し、raw config、path、server 名、認証値は保存・共有していません。
 
 ## 検証が必要な契約
 
