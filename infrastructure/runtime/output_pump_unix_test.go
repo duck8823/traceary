@@ -40,7 +40,7 @@ func TestOutputPumpPostWaitTailAndOpenWriterBound(t *testing.T) {
 			stopped := make(chan struct{})
 			close(stopped)
 			before := time.Now()
-			drainPTY(fds[0], stopped, output)
+			drainPTY(fds[0], stopped, nil, output)
 			if time.Since(before) > time.Second {
 				t.Fatal("post-Wait drain exceeded bound")
 			}

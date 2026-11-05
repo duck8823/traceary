@@ -55,8 +55,9 @@ func (s *Profiles) List(ctx context.Context) ([]domain.HostProfile, error) {
 
 // OperatorServices are local operator capabilities, not management RPC overrides.
 type OperatorServices struct {
-	Registry *Registry
-	Profiles *Profiles
+	Lifecycle LifecycleReader
+	Registry  *Registry
+	Profiles  *Profiles
 }
 
 // OperatorFactory separates explicit creation from existing-root reads.
