@@ -9,6 +9,7 @@ import (
 	"errors"
 	domain "github.com/duck8823/traceary/domain/runtime"
 	"golang.org/x/xerrors"
+	"math"
 	"time"
 )
 
@@ -107,6 +108,14 @@ func (s *Runtime) Control(ctx context.Context, request ControlRequest) (ControlR
 			return s.awaitControl(ctx, ticket)
 		}
 	}
+	if s.revisionExhausted || s.revision == math.MaxUint64 {
+		s.mu.Unlock()
+		return ControlResult{}, domain.ErrLimit
+	}
+	if s.shutdownPreparing || (s.shutdownCommitted || s.lifecycleUncertain) && request.Intent.Snapshot().Kind != domain.ControlStop {
+		s.mu.Unlock()
+		return ControlResult{}, ErrRuntimeBusy
+	}
 	child, ok := run.child.(ControlledChild)
 	if !ok {
 		s.mu.Unlock()
@@ -189,7 +198,7 @@ func (s *Runtime) Receipt(selection OutputSelection, id string) (ControlResult, 
 	}
 	return ticket.result, nil
 }
-func (s *Runtime) notifyControlLocked() { close(s.changed); s.changed = make(chan struct{}) }
+func (s *Runtime) notifyControlLocked() { s.changedLocked() }
 func (s *Runtime) finishControl(run *ownedRun, ticket *controlTicket, result ControlResult, err error, drop bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

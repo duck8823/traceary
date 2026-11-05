@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -23,13 +24,15 @@ import (
 )
 
 func TestRuntimeCLIEndToEndRegistrationLaunchAndListWithoutHomeOrCoreBootstrap(t *testing.T) {
-	for _, mode := range []string{"output", "controls", "observe", "integrated", "replay-oracle"} {
+	for _, mode := range []string{"output", "controls", "observe", "integrated", "replay-oracle", "shutdown", "crash", "update", "autostart"} {
 		t.Run(mode, func(t *testing.T) { runtimeCLIProcessFixture(t, mode) })
 	}
 }
 func runtimeCLIProcessFixture(t *testing.T, mode string) {
 	control := mode == "controls" || mode == "integrated" || mode == "replay-oracle"
 	t.Helper()
+	lifecycle := mode == "shutdown" || mode == "crash"
+
 	base := os.TempDir()
 	if runtime.GOOS == "darwin" {
 		base = "/private/tmp"
@@ -62,13 +65,15 @@ func runtimeCLIProcessFixture(t *testing.T, mode string) {
 	agentSource := filepath.Join(root, "fixture-agent.go")
 	agentBinary := filepath.Join(root, "fixture-agent")
 	program := `package main
-import("os";"encoding/json";"bytes";"io";"time";"strconv";"golang.org/x/term";"golang.org/x/sys/unix")
+import("os";"encoding/json";"bytes";"io";"time";"os/signal";"syscall";"strconv";"golang.org/x/term";"golang.org/x/sys/unix")
 func main(){
  if len(os.Args)==2&&os.Args[1]=="--version"{os.Stdout.WriteString("fixture-runtime 1\n");return}
  if len(os.Args)!=1{os.Exit(93)}
  cwd,_:=os.Getwd();data,_:=json.Marshal(map[string]string{"cwd":cwd,"store":os.Getenv("TRACEARY_DB_PATH"),"run":os.Getenv("TRACEARY_RUNTIME_RUN_ID")})
  result:=os.Getenv("TRACEARY_TEST_RUNTIME_RESULT")
  if os.WriteFile(result,data,0600)!=nil{os.Exit(90)}
+ lifecycle:=os.Getenv("TRACEARY_TEST_RUNTIME_SHUTDOWN")=="1"
+ if lifecycle {signal.Ignore(syscall.SIGHUP);os.WriteFile(result+".ready",[]byte("ready"),0600)}
  control:=os.Getenv("TRACEARY_TEST_RUNTIME_CONTROL")=="1"
  if control {if _,e:=term.MakeRaw(0);e!=nil{os.Exit(94)};os.WriteFile(result+".ready",[]byte("ready"),0600)}
  if os.Getenv("TRACEARY_TEST_RUNTIME_INTEGRATED")=="1" {
@@ -94,6 +99,7 @@ func main(){
   size,e:=unix.IoctlGetWinsize(0,unix.TIOCGWINSZ);if e!=nil{os.Exit(96)};geometry,_:=json.Marshal([]uint16{size.Row,size.Col});os.WriteFile(result+".geometry",geometry,0600)
   time.Sleep(15*time.Second);os.Exit(92)
  }
+ if lifecycle {time.Sleep(15*time.Second);os.WriteFile(result+".survived",[]byte("survived"),0600);os.Exit(92)}
  os.Exit(7)
 }
 `
@@ -117,6 +123,9 @@ func main(){
 		data, _ := json.Marshal(args)
 		cmd := exec.CommandContext(ctx, binary, "-test.run=^TestDaemonCommandProcessHelper$")
 		cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "TRACEARY_LANG=en", "LOG_LEVEL=error", "TRACEARY_TEST_DAEMON_HELPER=1", "TRACEARY_TEST_DAEMON_ARGS=" + string(data), "TRACEARY_TEST_RUNTIME_RESULT=" + resultFile, "TRACEARY_DB_PATH=" + poisonCore, "GORACE=atexit_sleep_ms=0"}
+		if lifecycle {
+			cmd.Env = append(cmd.Env, "TRACEARY_TEST_RUNTIME_SHUTDOWN=1")
+		}
 		if control {
 			cmd.Env = append(cmd.Env, "TRACEARY_TEST_RUNTIME_CONTROL=1")
 		}
@@ -148,6 +157,46 @@ func main(){
 		return nil
 	}
 	missing := filepath.Join(root, "not-created")
+	if mode == "autostart" {
+		for _, args := range [][]string{{"status"}, {"descriptor"}, {"opt-in"}} {
+			args = append([]string{"daemon", "autostart", "--runtime-dir", missing}, args...)
+			if e := command(args...).Run(); e == nil {
+				t.Fatal("missing root/explicit flag accepted")
+			}
+			if _, e := os.Lstat(missing); !os.IsNotExist(e) {
+				t.Fatal("read/missing flag created root")
+			}
+		}
+		for _, value := range []string{"false", "true"} {
+			view := jsonCommand("daemon", "autostart", "opt-in", "--runtime-dir", metadata, "--enabled="+value)
+			if view["opt_in"] != (value == "true") || view["installation_state"] != "unknown" || view["host_inspection"] != "not_performed" || view["starts_agents"] != false {
+				t.Fatal("preference invented host installation", view)
+			}
+		}
+		view := jsonCommand("daemon", "autostart", "status", "--runtime-dir", metadata)
+		if view["opt_in"] != true {
+			t.Fatal("CLI lost preference")
+		}
+		out, e := command("daemon", "autostart", "descriptor", "--runtime-dir", metadata).CombinedOutput()
+		if runtime.GOOS == "darwin" {
+			actualBinary, pathErr := filepath.EvalSymlinks(binary)
+			if e != nil || pathErr != nil || !bytes.Contains(out, []byte("<string>"+actualBinary+"</string>")) || !bytes.Contains(out, []byte("<string>daemon</string>")) || !bytes.Contains(out, []byte("<string>serve</string>")) {
+				t.Fatalf("actual CLI descriptor failed: %v %.1000s", e, out)
+			}
+		} else if e == nil {
+			t.Fatal("unsupported descriptor unexpectedly succeeded")
+		}
+		actual, e := os.ReadFile(store)
+		if e != nil || !bytes.Equal(actual, original) {
+			t.Fatal("auto-start changed core store")
+		}
+		for _, path := range []string{filepath.Dir(poisonCore), resultFile, filepath.Join(metadata, "daemon.sock"), filepath.Join(metadata, "observations.sock"), filepath.Join(metadata, "execution.json"), filepath.Join(metadata, "registry.json")} {
+			if _, e = os.Stat(path); !os.IsNotExist(e) {
+				t.Fatal("auto-start created core/agent/daemon/registry state", path, e)
+			}
+		}
+		return
+	}
 	if e := command("runtime", "registry", "list", "--runtime-dir", missing).Run(); e == nil {
 		t.Fatal("missing registry silently initialized")
 	}
@@ -203,11 +252,208 @@ func main(){
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
+	if mode == "update" {
+		view := jsonCommand("daemon", "update", "status", "--runtime-dir", metadata, "--epoch", status.Epoch)
+		if view["quiescent"] != true || view["authority"] != "current_owner_metadata_only_not_installation" {
+			t.Fatal("CLI update status invented permission or work")
+		}
+		attempt := jsonCommand("daemon", "update", "attempt", "--runtime-dir", metadata, "--epoch", status.Epoch, "--target-version", "fixture-v2", "--target-protocol", "2")
+		if attempt["notice"] != true || attempt["outcome"] != "quiescent_snapshot_not_permission" {
+			t.Fatal("CLI attempt lost notice/boundary")
+		}
+		b := attempt["preview"].(map[string]any)
+		args := []string{"daemon", "update", "handoff", "--runtime-dir", metadata, "--epoch", status.Epoch, "--target-version", "fixture-v2", "--target-protocol", "2", "--preview-id", b["preview_id"].(string), "--revision", b["revision"].(string), "--roster-digest", b["roster_digest"].(string), "--total-runs", "0", "--pending-launches", "0", "--pending-controls", "0", "--pending-reconciliations", "0"}
+		if e := command(args...).Run(); e == nil {
+			t.Fatal("actual CLI handoff accepted missing exit acknowledgment")
+		}
+		out := jsonCommand(append(args, "--acknowledge-daemon-exit")...)
+		if out["outcome"] != "draining" || out["closed_terminals"] != float64(0) {
+			t.Fatal("empty CLI handoff changed live work")
+		}
+		select {
+		case e := <-done:
+			if e != nil {
+				t.Fatal(e)
+			}
+		case <-ctx.Done():
+			t.Fatal("actual CLI update handoff did not exit")
+		}
+		history := jsonCommand("daemon", "shutdown", "history", "--runtime-dir", metadata)
+		if history["clean"] != true {
+			t.Fatal("known empty CLI handoff not clean")
+		}
+		actual, e := os.ReadFile(store)
+		if e != nil || !bytes.Equal(actual, original) {
+			t.Fatal("CLI update changed core store")
+		}
+		if _, e = os.Stat(filepath.Dir(poisonCore)); !os.IsNotExist(e) {
+			t.Fatal("CLI update bootstrapped core path")
+		}
+		if _, e = os.Stat(resultFile); !os.IsNotExist(e) {
+			t.Fatal("CLI update launched native agent")
+		}
+		return
+	}
 	launched := jsonCommand("runtime", "launch", "--runtime-dir", metadata, "--epoch", status.Epoch, "--worktree", w["id"].(string), "--profile", "codex-fixture", "--request-id", "explicit-fixture-request")
 	if launched["request_id"] != "explicit-fixture-request" {
 		t.Fatal("launch receipt lost request")
 	}
+	if lifecycle {
+		ready := time.Now().Add(4 * time.Second)
+		for {
+			if _, e := os.Stat(resultFile + ".ready"); e == nil {
+				break
+			}
+			if time.Now().After(ready) {
+				t.Fatal("lifecycle native fixture not ready")
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		target := launched["run"].(map[string]any)
+		if mode == "shutdown" {
+			deferred := jsonCommand("daemon", "update", "attempt", "--runtime-dir", metadata, "--epoch", status.Epoch, "--target-version", "fixture-v2", "--target-protocol", "2")
+			if deferred["notice"] != true || deferred["outcome"] != "deferred" {
+				t.Fatal("active CLI update did not defer")
+			}
+			preview := jsonCommand("daemon", "shutdown", "preview", "--runtime-dir", metadata, "--epoch", status.Epoch)
+			bindingArgs := func(kind string, p map[string]any) []string {
+				b := p["binding"].(map[string]any)
+				v := []string{"daemon", "shutdown", kind, "--runtime-dir", metadata, "--epoch", b["epoch"].(string), "--preview-id", b["preview_id"].(string), "--revision", b["revision"].(string), "--roster-digest", b["roster_digest"].(string)}
+				for _, name := range []string{"total_runs", "pending_launches", "pending_controls", "pending_reconciliations"} {
+					v = append(v, "--"+strings.ReplaceAll(name, "_", "-"), strconv.Itoa(int(b[name].(float64))))
+				}
+				return v
+			}
+			if len(preview["runs"].([]any)) != 1 {
+				t.Fatal("actual CLI omitted affected run")
+			}
+			_ = jsonCommand(bindingArgs("cancel", preview)...)
+			preview = jsonCommand("daemon", "shutdown", "preview", "--runtime-dir", metadata, "--epoch", status.Epoch)
+			if e := command(bindingArgs("confirm", preview)...).Run(); e == nil {
+				t.Fatal("actual CLI confirmed without work-loss acknowledgment")
+			}
+			confirmation := jsonCommand(append(bindingArgs("confirm", preview), "--acknowledge-work-loss")...)
+			if confirmation["outcome"] != "draining" {
+				t.Fatal("actual CLI did not confirm master closure")
+			}
+			receipt := jsonCommand(bindingArgs("receipt", preview)...)
+			if receipt["outcome"] != "draining" {
+				t.Fatal("actual CLI receipt lost decision")
+			}
+			stopped := command("runtime", "stop", "--runtime-dir", metadata, "--epoch", status.Epoch, "--run", target["run"].(string), "--generation", target["generation"].(string), "--worktree", w["id"].(string), "--profile", "codex-fixture", "--request-id", "explicit-after-master-close", "--acknowledge-work-loss")
+			output, e := stopped.CombinedOutput()
+			if e != nil && !bytes.Contains(output, []byte(`"outcome":"unknown"`)) {
+				t.Fatalf("actual CLI Stop failed during shutdown: %v %.1000s", e, output)
+			}
+			select {
+			case e = <-done:
+				if e != nil {
+					t.Fatalf("confirmed daemon exit: %v %.1000s", e, serverErrors.String())
+				}
+			case <-ctx.Done():
+				t.Fatal("confirmed daemon failed to exit")
+			}
+			history := jsonCommand("daemon", "shutdown", "history", "--runtime-dir", metadata)
+			if history["clean"] != true || history["authority"] != "history_only_not_resume_permission" || len(history["decisions"].([]any)) != 1 {
+				t.Fatal("offline CLI history lost clean marker or invented resume authority")
+			}
+		} else {
+			// SIGKILL targets only this test-owned daemon handle. Never signal or adopt
+			// the old native child/PID; it is finite and explicitly ignores SIGHUP.
+			if e := server.Process.Kill(); e != nil {
+				t.Fatal(e)
+			}
+			if e := <-done; e == nil {
+				t.Fatal("crash fixture did not interrupt daemon")
+			}
+			restarted := command("daemon", "serve", "--runtime-dir", metadata)
+			var restartErrors bytes.Buffer
+			restarted.Stderr = &restartErrors
+			restarted.Stdout = &restartErrors
+			if e := restarted.Start(); e != nil {
+				t.Fatal(e)
+			}
+			restartDone := make(chan error, 1)
+			go func() { restartDone <- restarted.Wait(); close(restartDone) }()
+			defer func() {
+				_ = restarted.Process.Signal(syscall.SIGTERM)
+				select {
+				case <-restartDone:
+				case <-time.After(3 * time.Second):
+					_ = restarted.Process.Kill()
+					<-restartDone
+				}
+			}()
+			limit := time.Now().Add(4 * time.Second)
+			var fresh app.DaemonStatus
+			for {
+				fresh, err = client.Status(ctx, metadata)
+				if err == nil && fresh.Epoch != status.Epoch {
+					break
+				}
+				select {
+				case e := <-restartDone:
+					t.Fatalf("restart exited: %v %.1000s", e, restartErrors.String())
+				default:
+				}
+				if time.Now().After(limit) {
+					t.Fatal("restart did not issue new epoch")
+				}
+				time.Sleep(5 * time.Millisecond)
+			}
+			history := jsonCommand("daemon", "shutdown", "history", "--runtime-dir", metadata)
+			old := history["interrupted"].([]any)
+			if history["previous_epoch"] != status.Epoch || history["previous_clean"] != false || len(old) != 1 || old[0].(map[string]any)["status"] != "orphaned" {
+				t.Fatal("crash history falsely restored old process")
+			}
+			runs, e := client.ListRuns(ctx, metadata, app.RunPageRequest{Epoch: fresh.Epoch})
+			if e != nil || len(runs.Runs) != 0 {
+				t.Fatal("restart adopted old saved PID", e)
+			}
+			selection := app.OutputSelection{Identity: domain.LaunchIdentity{Epoch: status.Epoch, Run: target["run"].(string), Generation: target["generation"].(string)}, Worktree: domain.WorktreeID(w["id"].(string)), Profile: "codex-fixture"}
+			intent, e := domain.ControlIntentFrom(domain.ControlIntentState{RequestID: "must-not-signal-old-owner", Kind: domain.ControlStop, WorkLossAcknowledged: true})
+			if e != nil {
+				t.Fatal(e)
+			}
+			if _, e = client.Control(ctx, metadata, app.ControlRequest{Selection: selection, Intent: intent}); e == nil {
+				t.Fatal("old epoch allowed a process effect")
+			}
+			// Survival proves restart did not silently kill/adopt the prior native child.
+			for {
+				if _, e := os.Stat(resultFile + ".survived"); e == nil {
+					break
+				}
+				select {
+				case <-ctx.Done():
+					t.Fatal("old finite native child did not survive crash/restart without adoption")
+				default:
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			if e = restarted.Process.Signal(syscall.SIGTERM); e != nil {
+				t.Fatal(e)
+			}
+			select {
+			case e = <-restartDone:
+				if e != nil {
+					t.Fatal(e)
+				}
+			case <-ctx.Done():
+				t.Fatal("empty restarted owner did not stop")
+			}
+		}
+		actual, e := os.ReadFile(store)
+		if e != nil || !bytes.Equal(actual, original) {
+			t.Fatal("lifecycle CLI changed core store")
+		}
+		if _, e = os.Stat(filepath.Dir(poisonCore)); !os.IsNotExist(e) {
+			t.Fatal("lifecycle CLI bootstrapped core path")
+		}
+		return
+	}
+
 	if mode == "observe" || mode == "integrated" {
+
 		target := launched["run"].(map[string]any)
 		args := []string{"runtime", "observe", "--runtime-dir", metadata, "--epoch", status.Epoch, "--run", target["run"].(string), "--generation", target["generation"].(string), "--worktree", w["id"].(string), "--profile", "codex-fixture", "--host", "codex", "--host-version", "fixture-runtime 1", "--event-id", "spool:actual-cli", "--kind", "prompt_boundary"}
 		observed := jsonCommand(args...)
@@ -249,6 +495,13 @@ func main(){
 		reconnected = startIntegratedCLIOutput(t, command(append(flags, "--cursor", cursor)...), selection)
 		reconnected.snapshot(t)
 		assertLive() // Reconnection is positively established BEFORE manual input.
+		deferred := jsonCommand("daemon", "update", "attempt", "--runtime-dir", metadata, "--epoch", status.Epoch, "--target-version", "fixture-v2", "--target-protocol", "2")
+		if deferred["notice"] != true || deferred["outcome"] != "deferred" {
+			t.Fatal("integrated live run was not preserved during update deferral")
+		}
+		preview := jsonCommand("daemon", "shutdown", "preview", "--runtime-dir", metadata, "--epoch", status.Epoch)
+		_ = jsonCommand(integratedPreviewCancelArgs(t, metadata, selection, preview)...)
+		assertLive() // Canceling a preview cannot close/relaunch the child or replay input.
 	}
 	expectedExit := 7
 	if control {

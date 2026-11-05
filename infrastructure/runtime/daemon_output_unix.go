@@ -126,7 +126,7 @@ func (s *outputStream) Next(ctx context.Context) (app.OutputFrame, error) {
 		}
 		return app.OutputFrame{}, xerrors.Errorf("read runtime stream: %w", err)
 	}
-	if reply.Resume != nil || reply.History != nil || reply.HistoryHint != nil || reply.Control != nil || reply.Code != "ok" || reply.Output == nil || reply.Run != nil || reply.Page != nil || reply.Status != nil || reply.Role != "" {
+	if reply.Lifecycle != nil || reply.Resume != nil || reply.History != nil || reply.HistoryHint != nil || reply.Control != nil || reply.Code != "ok" || reply.Output == nil || reply.Run != nil || reply.Page != nil || reply.Status != nil || reply.Role != "" {
 		_ = s.Close()
 		return app.OutputFrame{}, app.ErrRuntimeProtocol
 	}

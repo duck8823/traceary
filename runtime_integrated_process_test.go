@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"reflect"
 	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 )
@@ -145,4 +146,48 @@ func (s *integratedCLIOutput) trailer(t *testing.T) []byte {
 		t.Fatal("unavailable/oversized synthetic CLI helper trailer")
 	}
 	return data
+}
+
+func integratedPreviewCancelArgs(t *testing.T, root string, selection map[string]string, preview map[string]any) []string {
+	t.Helper()
+	rows, ok := preview["runs"].([]any)
+	if !ok || len(rows) != 1 {
+		t.Fatal("integrated preview lost its one owned child")
+	}
+	row, ok := rows[0].(map[string]any)
+	if !ok {
+		t.Fatal("invalid integrated preview row")
+	}
+	got, ok := row["selection"].(map[string]any)
+	if !ok || len(got) != len(selection) || row["state"] != "live" || row["publication_uncertain"] != false {
+		t.Fatal("integrated preview lost actual live selection")
+	}
+	for k, want := range selection {
+		if got[k] != want {
+			t.Fatal("integrated preview retargeted the native child")
+		}
+	}
+	binding, ok := preview["binding"].(map[string]any)
+	if !ok || binding["epoch"] != selection["epoch"] {
+		t.Fatal("integrated preview epoch changed")
+	}
+	args := []string{"daemon", "shutdown", "cancel", "--runtime-dir", root}
+	for _, k := range []string{"epoch", "preview_id", "revision", "roster_digest"} {
+		v, ok := binding[k].(string)
+		if !ok || v == "" {
+			t.Fatal("integrated preview lost exact binding")
+		}
+		args = append(args, "--"+strings.ReplaceAll(k, "_", "-"), v)
+	}
+	for _, k := range []string{"total_runs", "pending_launches", "pending_controls", "pending_reconciliations"} {
+		want := 0
+		if k == "total_runs" {
+			want = 1
+		}
+		if binding[k] != float64(want) {
+			t.Fatal("integrated preview contained unexpected pending work")
+		}
+		args = append(args, "--"+strings.ReplaceAll(k, "_", "-"), strconv.Itoa(want))
+	}
+	return args
 }

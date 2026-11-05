@@ -103,7 +103,7 @@ func (s *Runtime) Resume(ctx context.Context, request ResumeRequest) (ResumeResu
 		return ResumeResult{}, domain.ErrChanged
 	}
 	if !exists {
-		if s.disabled {
+		if s.executionAdmissionClosedLocked() {
 			s.mu.Unlock()
 			return ResumeResult{}, ErrRuntimeBusy
 		}
@@ -274,7 +274,7 @@ func (s *Runtime) resume(t *resumeTicket, journal RecoveryJournal) {
 	result := ResumeResult{Selection: resumeSelection(binding, id), Phase: domain.ResumeReserved}
 	s.mu.Lock()
 	err = t.ctx.Err()
-	if err == nil && s.disabled {
+	if err == nil && s.executionAdmissionClosedLocked() {
 		err = ErrRuntimeBusy
 	}
 	if err == nil {

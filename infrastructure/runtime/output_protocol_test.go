@@ -36,3 +36,25 @@ func TestOutputWireExactCountersAndUntrustedBytes(t *testing.T) {
 func outputWireSelection() app.OutputSelection {
 	return app.OutputSelection{Identity: domain.LaunchIdentity{Epoch: "11111111111111111111111111111111", Run: "22222222222222222222222222222222", Generation: "33333333333333333333333333333333"}, Worktree: domain.WorktreeID("w_" + string(bytes.Repeat([]byte("a"), 64))), Profile: "test"}
 }
+
+func TestOutputWireTerminalCloseGapRequiresExactEndedUnknownCapture(t *testing.T) {
+	frame := app.OutputFrame{Kind: "gap", Info: app.OutputInfo{Selection: outputWireSelection(), Ended: true, Reason: app.CaptureTerminalClosed, Resize: app.ResizeEvidence{Rows: 24, Cols: 80}}, Gap: &app.OutputGap{Reason: string(app.CaptureTerminalClosed), DeliveryUnknown: true}}
+	record := recordOutput(frame)
+	got, err := record.frame()
+	if err != nil || got.Kind != "gap" || got.Gap == nil || got.Gap.Reason != string(app.CaptureTerminalClosed) || !got.Gap.DeliveryUnknown {
+		t.Fatal("intentional master-close gap rejected by wire codec", err)
+	}
+	for _, mutate := range []func(*outputRecord){
+		func(r *outputRecord) { r.Gap.DeliveryUnknown = false },
+		func(r *outputRecord) { r.Info.Ended = false; r.Info.Reason = "" },
+		func(r *outputRecord) { r.Info.Reason = string(app.CaptureTailUnknown) },
+		func(r *outputRecord) { r.Info.Head = "1"; r.Gap.To = "1" },
+		func(r *outputRecord) { r.Info.Head = "1" },
+	} {
+		invalid := recordOutput(frame)
+		mutate(invalid)
+		if _, err = invalid.frame(); err == nil {
+			t.Fatal("malformed terminal-close evidence accepted")
+		}
+	}
+}

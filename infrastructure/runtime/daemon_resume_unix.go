@@ -41,7 +41,7 @@ func (d *LocalDaemon) Resume(ctx context.Context, root string, request app.Resum
 		return unknown, app.ErrLaunchUnknown
 	}
 	invalid := errors.Join(app.ErrLaunchUnknown, app.ErrRuntimeProtocol)
-	if reply.History != nil || reply.HistoryHint != nil || reply.Control != nil || reply.Output != nil || reply.Status != nil || reply.Page != nil || reply.Run != nil || reply.Role != "" {
+	if reply.Lifecycle != nil || reply.History != nil || reply.HistoryHint != nil || reply.Control != nil || reply.Output != nil || reply.Status != nil || reply.Page != nil || reply.Run != nil || reply.Role != "" {
 		return unknown, invalid
 	}
 	if reply.ID != "" {

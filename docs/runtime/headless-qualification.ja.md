@@ -63,3 +63,17 @@ rollback は新しい test scenario/helper と本文書だけを削除します�
 拒否された request は再送しません。
 unknown・不一致 selector の検証であり、既存 run の同時実行や native 所有権の残りの matrix の代替にはしません。
 runtime の振る舞い・上限は変更しません。
+
+## lifecycle 依存を含む統合 source
+
+QA branch は lifecycle 依存98536b18c53130fd80604b04cc99c50fe9dd2747を含み、親の production source は変更しません。
+単一の process fixture で、output・controls・observe・integrated・replay-oracle・shutdown・crash・update・autostart の9 scenario を保持します。
+integrated の live run では、reconnect 後・手動入力前に、update attempt 1回の延期と notice、正確な単一 run・pending0の shutdown preview 1回の cancel を確認します。
+shutdown の confirm は行わず、続く正確な入力・再送防止・resize・Stop まで同じ child/generation が live であることを確認します。
+metadata の延期・preview 取消であり、更新の install、不可逆 shutdown の巻戻し、native 状態の権限ではありません。
+
+review diff を QA の test と英日文書に限定するため、Draft QA PR の base は lifecycle feature branch にします。
+**QA をこの feature branch に merge してはいけません。**
+lifecycle 親が固有の gate を満たして先に main へ merge した後、QA の base を明示的に main へ戻し、実際の最終統合 head で検証します。
+親が変更された場合は、対応する統合証拠も再検証します。
+必要な実機・native・最終 gate が未完了の間は双方を Draft に保ち、元の headless scope を狭い完了条件で置き換えません。

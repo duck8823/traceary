@@ -119,7 +119,7 @@ func (s *Runtime) ConsumeObservation(ctx context.Context, receipt ObservationRec
 	defer s.mu.Unlock()
 	if err := ctx.Err(); err != nil {
 		run.clearObservation()
-		s.notifyControlLocked()
+		s.notifyProjectionLocked()
 		return xerrors.Errorf("consume selected observation: %w", err)
 	}
 	current, err := s.observationRunLocked(o)
@@ -134,7 +134,7 @@ func (s *Runtime) ConsumeObservation(ctx context.Context, receipt ObservationRec
 	// Native projection capacity/failure must never turn ordinary metadata
 	// delivery into failure or stop updating the existing live sample.
 	run.recordUnboundProjection(o, receipt.received, s.observationClockLocked())
-	s.notifyControlLocked()
+	s.notifyProjectionLocked()
 	return nil
 }
 
@@ -169,6 +169,6 @@ func (s *Runtime) discardObservation(selection OutputSelection, run *ownedRun) {
 	defer s.mu.Unlock()
 	if s.runs[selection.Identity.Run] == run {
 		run.clearObservation()
-		s.notifyControlLocked()
+		s.notifyProjectionLocked()
 	}
 }

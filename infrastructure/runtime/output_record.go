@@ -90,7 +90,7 @@ func (r outputRecord) frame() (app.OutputFrame, error) {
 	}
 	if r.Info.Ended {
 		switch app.CaptureReason(r.Info.Reason) {
-		case app.CaptureClosed, app.CaptureReadError, app.CaptureTailUnknown:
+		case app.CaptureClosed, app.CaptureReadError, app.CaptureTailUnknown, app.CaptureTerminalClosed:
 		default:
 			return app.OutputFrame{}, invalid
 		}
@@ -133,6 +133,12 @@ func (r outputRecord) frame() (app.OutputFrame, error) {
 		switch g.Reason {
 		case "evicted":
 			if g.DeliveryUnknown || from == to || to > base {
+				return app.OutputFrame{}, invalid
+			}
+		case string(app.CaptureTerminalClosed):
+			// This is a zero-width unknowable tail at the ended capture head,
+			// not a claimed byte loss interval or proof of native process exit.
+			if !g.DeliveryUnknown || !r.Info.Ended || f.Info.Reason != app.CaptureTerminalClosed || from != to || to != head {
 				return app.OutputFrame{}, invalid
 			}
 		case "slow_consumer", "tail_unknown", "read_error":
