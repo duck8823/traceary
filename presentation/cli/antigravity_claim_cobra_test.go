@@ -30,7 +30,7 @@ func TestAntigravityClaimCobraKeepsPrimaryAndExplicitSelectionOnly(t *testing.T)
 			if mode == "absent_daemon" {
 				client.err = app.ErrDaemonUnavailable
 			}
-			options := []cli.RootCLIOption{cli.WithRuntimeDaemon(client), cli.WithClaudeObservationClaims(filesystem.NewClaudeObservationClaimDecoder()), cli.WithStoreManagement(&storeManagementUsecaseStub{}), cli.WithEvent(events), cli.WithSession(sessions)}
+			options := []cli.RootCLIOption{cli.WithRuntimeDaemon(client), cli.WithCodexObservationClaims(filesystem.NewCodexObservationClaimDecoder()), cli.WithClaudeObservationClaims(filesystem.NewClaudeObservationClaimDecoder()), cli.WithStoreManagement(&storeManagementUsecaseStub{}), cli.WithEvent(events), cli.WithSession(sessions)}
 			if mode != "nil" {
 				options = append(options, cli.WithAntigravityObservationClaims(filesystem.NewAntigravityObservationClaimDecoder()))
 			}

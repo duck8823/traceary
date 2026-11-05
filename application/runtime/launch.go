@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"golang.org/x/xerrors"
+	"math"
 	"sort"
 	"strings"
 	"sync"
@@ -81,23 +82,32 @@ type ownedRun struct {
 // Runtime owns bounded launch reservations, immutable outcomes and live child handles.
 // It has no core Session lifecycle or authority over externally started processes.
 type Runtime struct {
-	controlKey        [32]byte
-	controlKeySet     bool
-	controlsPending   int
-	registry          TargetRegistry
-	profiles          ProfileCatalog
-	launcher          ProcessLauncher
-	journal           LaunchJournal
-	epoch             string
-	observationOrigin time.Time
-	mu                sync.Mutex
-	tickets           map[string]*launchTicket
-	resumes           map[string]*resumeTicket
-	runs              map[string]*ownedRun
-	pending, active   int
-	disabled          bool
-	revision          uint64
-	changed           chan struct{}
+	lifecycleBound, lifecycleStarting    bool
+	lifecycleUncertain                   bool
+	updateDeferral                       *domain.UpdateDeferral
+	clock                                LifecycleClock
+	shutdownPreview                      *ShutdownPreview
+	shutdownTickets                      map[string]*shutdownTicket
+	shutdownPreparing, shutdownCommitted bool
+	lifecyclePending                     int
+	revisionExhausted                    bool
+	controlKey                           [32]byte
+	controlKeySet                        bool
+	controlsPending                      int
+	registry                             TargetRegistry
+	profiles                             ProfileCatalog
+	launcher                             ProcessLauncher
+	journal                              LaunchJournal
+	observationOrigin                    time.Time
+	resumes                              map[string]*resumeTicket
+	epoch                                string
+	mu                                   sync.Mutex
+	tickets                              map[string]*launchTicket
+	runs                                 map[string]*ownedRun
+	pending, active                      int
+	disabled                             bool
+	revision                             uint64
+	changed                              chan struct{}
 }
 
 // NewRuntime constructs an epoch-scoped launch owner with explicit ports.
@@ -105,7 +115,7 @@ func NewRuntime(registry TargetRegistry, profiles ProfileCatalog, launcher Proce
 	if registry == nil || profiles == nil || launcher == nil || journal == nil || !(domain.LaunchIdentity{Run: epoch, Generation: epoch, Epoch: epoch}).Valid() {
 		return nil, domain.ErrInvalid
 	}
-	return &Runtime{registry: registry, profiles: profiles, launcher: launcher, journal: journal, epoch: epoch, observationOrigin: time.Now(), tickets: make(map[string]*launchTicket), resumes: make(map[string]*resumeTicket), runs: make(map[string]*ownedRun), changed: make(chan struct{})}, nil
+	return &Runtime{registry: registry, profiles: profiles, launcher: launcher, journal: journal, epoch: epoch, observationOrigin: time.Now(), resumes: make(map[string]*resumeTicket), clock: runtimeWallClock{}, tickets: make(map[string]*launchTicket), runs: make(map[string]*ownedRun), changed: make(chan struct{})}, nil
 }
 func validLaunchRequest(r LaunchRequest) bool {
 	if len(r.RequestID) == 0 || len(r.RequestID) > 128 {
@@ -140,7 +150,11 @@ func (s *Runtime) Launch(ctx context.Context, request LaunchRequest) (domain.Run
 			return domain.RunSnapshot{}, domain.ErrChanged
 		}
 		if !exists {
-			if s.disabled {
+			if s.revisionExhausted || s.revision == math.MaxUint64 {
+				s.mu.Unlock()
+				return domain.RunSnapshot{}, domain.ErrLimit
+			}
+			if s.executionAdmissionClosedLocked() {
 				s.mu.Unlock()
 				return domain.RunSnapshot{}, ErrRuntimeBusy
 			}
@@ -397,14 +411,27 @@ func (s *Runtime) DisableLaunches() {
 }
 
 // Disabled reports launch admission, not native interaction state.
-func (s *Runtime) Disabled() bool { s.mu.Lock(); defer s.mu.Unlock(); return s.disabled }
-func (s *Runtime) changedLocked() { s.revision++; close(s.changed); s.changed = make(chan struct{}) }
+func (s *Runtime) Disabled() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.executionAdmissionClosedLocked()
+}
+func (s *Runtime) changedLocked() {
+	if s.revision == math.MaxUint64 {
+		s.revisionExhausted = true
+		s.disabled = true
+	} else {
+		s.revision++
+	}
+	close(s.changed)
+	s.changed = make(chan struct{})
+}
 
 // AwaitIdle retains ownership through actual Wait and journal reconciliation; it never signals a child.
 func (s *Runtime) AwaitIdle(ctx context.Context) error {
 	for {
 		s.mu.Lock()
-		if s.pending+s.active+s.controlsPending == 0 {
+		if s.pending+s.active+s.controlsPending+s.lifecyclePending == 0 {
 			s.mu.Unlock()
 			return nil
 		}
@@ -525,4 +552,10 @@ func newLaunchIdentity(epoch string) (domain.LaunchIdentity, error) {
 		return domain.LaunchIdentity{}, domain.ErrUnsafe
 	}
 	return domain.LaunchIdentity{Run: hex.EncodeToString(random[:16]), Generation: hex.EncodeToString(random[16:]), Epoch: epoch}, nil
+}
+
+// executionAdmissionClosedLocked fences NEW launch/resume effects only. Existing
+// receipts and explicit Stop retain their separate read/control contracts.
+func (s *Runtime) executionAdmissionClosedLocked() bool {
+	return s.disabled || s.shutdownPreparing || s.shutdownCommitted || s.lifecycleStarting
 }

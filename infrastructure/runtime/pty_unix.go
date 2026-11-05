@@ -292,7 +292,7 @@ func (l *PTYLauncher) start(ctx context.Context, descriptor domain.LaunchDescrip
 		return nil, domain.ErrUnsafe
 	}
 	watchErr := watch.bind(ctx, command.Process.Pid)
-	child := &ptyChild{pid: command.Process.Pid, done: make(chan struct{}), output: output, fd: fd, launcher: l, target: snapshot.Target, profile: snapshot.Profile, selection: selection, controlsClosed: watchErr != nil, controlErr: watchErr}
+	child := &ptyChild{pid: command.Process.Pid, done: make(chan struct{}), output: output, fd: fd, launcher: l, target: snapshot.Target, profile: snapshot.Profile, selection: selection, controlsClosed: watchErr != nil, controlErr: watchErr, stopDrain: make(chan struct{}), closeDrain: make(chan struct{}), drained: make(chan struct{}), terminalClosed: make(chan struct{})}
 	if nativePlan != nil {
 		child.nativeRecovery = &ownedClaudeRecovery{slot: nativePlan.slot, environment: append([]string{}, l.environment...)}
 	}
@@ -301,10 +301,8 @@ func (l *PTYLauncher) start(ctx context.Context, descriptor domain.LaunchDescrip
 	}
 	transferred = true
 	watchTransferred = true
-	drained := make(chan struct{})
-	stopDrain := make(chan struct{})
 	// The single native reader feeds only bounded volatile retention.
-	go func() { drainPTY(fd, stopDrain, output); close(drained) }()
+	go func() { drainPTY(fd, child.stopDrain, child.closeDrain, output); close(child.drained) }()
 	go func() {
 		watchErr := watch.wait()
 		watch.close()
@@ -326,11 +324,10 @@ func (l *PTYLauncher) start(ctx context.Context, descriptor domain.LaunchDescrip
 		if child.agyMetadata != nil {
 			child.agyMetadata.finish()
 		}
-		close(stopDrain)
-		<-drained
+		child.stopDrainOnce.Do(func() { close(child.stopDrain) })
+		<-child.drained
 		child.mu.Lock()
-		_ = unix.Close(fd)
-		child.fd = -1
+		_ = child.closeMasterLocked()
 		child.mu.Unlock()
 		if command.ProcessState != nil {
 			child.code = command.ProcessState.ExitCode()
@@ -346,12 +343,18 @@ func (l *PTYLauncher) start(ctx context.Context, descriptor domain.LaunchDescrip
 
 // drainPTY never shares a live descriptor with Close/reuse. Native reads are
 // nonblocking and poll is bounded, so owned Wait cannot hang on a Go TTY poller.
-func drainPTY(fd int, stopped <-chan struct{}, output *app.Output) {
+func drainPTY(fd int, stopped, terminalClose <-chan struct{}, output *app.Output) {
 	buffer := make([]byte, domain.MaxOutputChunk)
 	var deadline time.Time
 	remaining := domain.MaxOutputBytes
 	finish := func(reason app.CaptureReason, unknown bool) { output.Finish(reason, unknown) }
 	for {
+		select {
+		case <-terminalClose:
+			finish(app.CaptureTerminalClosed, true)
+			return
+		default:
+		}
 		if deadline.IsZero() {
 			select {
 			case <-stopped:
@@ -414,21 +417,27 @@ func drainPTY(fd int, stopped <-chan struct{}, output *app.Output) {
 }
 
 type ptyChild struct {
-	mu             sync.Mutex
-	fd             int
-	controlsClosed bool
-	controlErr     error
-	exitObserved   atomic.Bool
-	launcher       *PTYLauncher
-	target         domain.Target
-	profile        domain.HostProfile
-	selection      app.OutputSelection
-	output         *app.Output
-	pid, code      int
-	err            error
-	done           chan struct{}
-	nativeRecovery *ownedClaudeRecovery
-	agyMetadata    *ownedAntigravityMetadata
+	// These channels have distinct meanings: bounded post-exit tail versus
+	// explicit live master loss. All FD closes follow the same reader join.
+	stopDrain, closeDrain, drained, terminalClosed chan struct{}
+	stopDrainOnce, terminalCloseOnce               sync.Once
+	terminalClosing                                bool
+	terminalCloseErr                               error
+	mu                                             sync.Mutex
+	fd                                             int
+	controlsClosed                                 bool
+	controlErr                                     error
+	exitObserved                                   atomic.Bool
+	launcher                                       *PTYLauncher
+	target                                         domain.Target
+	profile                                        domain.HostProfile
+	selection                                      app.OutputSelection
+	output                                         *app.Output
+	pid, code                                      int
+	err                                            error
+	done                                           chan struct{}
+	nativeRecovery                                 *ownedClaudeRecovery
+	agyMetadata                                    *ownedAntigravityMetadata
 }
 
 func (c *ptyChild) SubscribeOutput(selection app.OutputSelection, cursor domain.ByteOffset) (*app.OutputSubscription, error) {

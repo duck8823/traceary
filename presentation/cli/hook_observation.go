@@ -77,13 +77,25 @@ func hookObservationBoundary(spec hookInvocationSpec) (string, domain.Observatio
 
 // Hook-native IDs remain optional untrusted correlation. No claimed ID grants
 // association, readiness or recovery authority; versioned host proof is separate.
-func hookObservationNativeIDs(payload, host string) (string, string) {
-	field := "session_id"
+func (c *RootCLI) hookObservationNativeIDs(ctx context.Context, payload, host, version string, kind domain.ObservationKind) (string, string) {
 	if host == "codex" {
-		field = "thread_id"
+		if c.codexObservationClaims == nil {
+			return "", ""
+		}
+		claims, err := c.codexObservationClaims.Decode(ctx, application.CodexObservationClaimInput{SourceVersion: version, ExpectedBoundary: kind, Payload: payload})
+		if err != nil || !claims.Available {
+			return "", ""
+		}
+		return claims.SessionID, claims.TurnID
+	}
+	if host == "claude" {
+		return c.claudeHookObservationSession(ctx, payload, version, kind), ""
+	}
+	if host == "antigravity" {
+		return c.antigravityHookObservationSession(ctx, payload, version, kind), ""
 	}
 	body := []byte(payload)
-	value, _ := lookupHookPayloadValue(body, field)
+	value, _ := lookupHookPayloadValue(body, "session_id")
 	session, _ := value.(string)
 	value, _ = lookupHookPayloadValue(body, "turn_id")
 	turn, _ := value.(string)
@@ -141,16 +153,7 @@ func (c *RootCLI) deliverHookObservation(parent context.Context, started time.Ti
 			return app.SelectedObservation{}, err
 		}
 		state := value.Metadata.Snapshot()
-		switch host {
-		case "claude":
-			state.NativeSessionID = c.claudeHookObservationSession(deriveCtx, record.Payload, flags.version, kind)
-			state.NativeTurnID = ""
-		case "antigravity":
-			state.NativeSessionID = c.antigravityHookObservationSession(deriveCtx, record.Payload, flags.version, kind)
-			state.NativeTurnID = ""
-		default:
-			state.NativeSessionID, state.NativeTurnID = hookObservationNativeIDs(record.Payload, host)
-		}
+		state.NativeSessionID, state.NativeTurnID = c.hookObservationNativeIDs(deriveCtx, record.Payload, host, flags.version, kind)
 		if metadata, e := domain.DerivedObservationOf(state); e == nil {
 			value.Metadata = metadata
 		}

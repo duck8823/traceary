@@ -15,6 +15,7 @@ import (
 
 // RootCLI provides the Traceary root command.
 type RootCLI struct {
+	codexObservationClaims       application.CodexObservationClaimDecoder
 	agyStatuslineMetadata        appruntime.NativeSessionMetadataSink
 	antigravityObservationClaims application.AntigravityObservationClaimDecoder
 	claudeObservationClaims      application.ClaudeObservationClaimDecoder
@@ -180,6 +181,12 @@ func WithCodexUsage(usage usecase.CodexUsageCaptureUsecase) RootCLIOption {
 // WithCodexHeadlessUsage injects the body-free `codex exec --json` stream adapter.
 func WithCodexHeadlessUsage(factory application.CodexHeadlessUsageStreamFactory) RootCLIOption {
 	return func(c *RootCLI) { c.codexHeadlessUsage = factory }
+}
+
+// WithCodexObservationClaims injects optional untrusted native correlation.
+// A nil decoder is unavailable, never a reason to change primary hook capture.
+func WithCodexObservationClaims(decoder application.CodexObservationClaimDecoder) RootCLIOption {
+	return func(c *RootCLI) { c.codexObservationClaims = decoder }
 }
 
 // WithClaudeUsage injects the body-free Claude usage capture adapter.

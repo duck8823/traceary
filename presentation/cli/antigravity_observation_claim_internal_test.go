@@ -43,7 +43,7 @@ func TestAntigravityOptionalClaimsPreservePrimaryReceiptAndBoundaryRestrictions(
 				if mode != "nil" {
 					decoder = filesystem.NewAntigravityObservationClaimDecoder()
 				}
-				c := NewRootCLI(WithRuntimeDaemon(client), WithAntigravityObservationClaims(decoder), WithClaudeObservationClaims(filesystem.NewClaudeObservationClaimDecoder()))
+				c := NewRootCLI(WithRuntimeDaemon(client), WithCodexObservationClaims(filesystem.NewCodexObservationClaimDecoder()), WithAntigravityObservationClaims(decoder), WithClaudeObservationClaims(filesystem.NewClaudeObservationClaimDecoder()))
 				c.hookObservation = hookObservationFixture()
 				c.hookObservation.flags.version = "1.5.0"
 				if mode == "unknown_version" {

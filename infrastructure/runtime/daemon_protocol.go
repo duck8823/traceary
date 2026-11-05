@@ -12,10 +12,9 @@ import (
 )
 
 type runtimeRequest struct {
-	Resume              *resumeRequestRecord         `json:"resume,omitempty"`
-	SelectedObservation *selectedObservationRecord   `json:"selected_observation,omitempty"`
 	History             *historyRequestRecord        `json:"history,omitempty"`
 	HistoryHint         *struct{}                    `json:"history_hint,omitempty"`
+	Lifecycle           *lifecycleRequestRecord      `json:"lifecycle,omitempty"`
 	Control             *controlRequestRecord        `json:"control,omitempty"`
 	Receipt             *controlReceiptRequestRecord `json:"receipt,omitempty"`
 	Attach              *outputAttachRecord          `json:"attach,omitempty"`
@@ -26,6 +25,8 @@ type runtimeRequest struct {
 	Observation         *observationRecord           `json:"observation,omitempty"`
 	Launch              *launchRequestRecord         `json:"launch,omitempty"`
 	Page                *runPageRequestRecord        `json:"page,omitempty"`
+	Resume              *resumeRequestRecord         `json:"resume,omitempty"`
+	SelectedObservation *selectedObservationRecord   `json:"selected_observation,omitempty"`
 }
 type observationRecord struct {
 	Host            string `json:"host"`
@@ -40,18 +41,19 @@ type observationRecord struct {
 	Kind            string `json:"kind"`
 }
 type runtimeResponse struct {
-	Resume      *resumeResultRecord  `json:"resume,omitempty"`
-	History     *historyResultRecord `json:"history,omitempty"`
-	HistoryHint *historyHintRecord   `json:"history_hint,omitempty"`
-	Control     *controlResultRecord `json:"control,omitempty"`
-	Output      *outputRecord        `json:"output,omitempty"`
-	Version     int                  `json:"protocol_version"`
-	ID          string               `json:"request_id"`
-	Code        string               `json:"code"`
-	Role        string               `json:"role,omitempty"`
-	Status      *runtimeStatusRecord `json:"status,omitempty"`
-	Run         *launchRecord        `json:"run,omitempty"`
-	Page        *runPageRecord       `json:"page,omitempty"`
+	History     *historyResultRecord     `json:"history,omitempty"`
+	HistoryHint *historyHintRecord       `json:"history_hint,omitempty"`
+	Control     *controlResultRecord     `json:"control,omitempty"`
+	Output      *outputRecord            `json:"output,omitempty"`
+	Version     int                      `json:"protocol_version"`
+	ID          string                   `json:"request_id"`
+	Code        string                   `json:"code"`
+	Role        string                   `json:"role,omitempty"`
+	Status      *runtimeStatusRecord     `json:"status,omitempty"`
+	Run         *launchRecord            `json:"run,omitempty"`
+	Page        *runPageRecord           `json:"page,omitempty"`
+	Lifecycle   *lifecycleResponseRecord `json:"lifecycle,omitempty"`
+	Resume      *resumeResultRecord      `json:"resume,omitempty"`
 }
 type launchRequestRecord struct {
 	Epoch     string `json:"epoch"`
@@ -181,6 +183,10 @@ func (v observationRecord) metadata() app.ObservationMetadata {
 }
 func responseError(code string) error {
 	switch code {
+	case "update_unknown":
+		return app.ErrUpdateUnknown
+	case "shutdown_unknown":
+		return app.ErrShutdownUnknown
 	case "control_unknown":
 		return app.ErrControlUnknown
 	case "output_cursor":

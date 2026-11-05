@@ -19,6 +19,7 @@ import (
 	"golang.org/x/xerrors"
 
 	app "github.com/duck8823/traceary/application/runtime"
+	domain "github.com/duck8823/traceary/domain/runtime"
 )
 
 // Roots are lifetime claims, bounded to 32 even if an injected consumer ignores
@@ -45,7 +46,7 @@ func runtimeSocketStat(s unix.Stat_t) bool {
 	return s.Uid == uint32(os.Geteuid()) && s.Mode&unix.S_IFMT == unix.S_IFSOCK && s.Mode&0777 == 0600 && s.Nlink == 1
 }
 func sameSocket(a, b unix.Stat_t) bool {
-	return runtimeSocketStat(a) && runtimeSocketStat(b) && a.Dev == b.Dev && a.Ino == b.Ino
+	return runtimeSocketStat(a) && runtimeSocketStat(b) && sameSocketIdentity(a, b)
 }
 
 type daemonSocket struct {
@@ -58,31 +59,43 @@ type pendingObservation struct {
 	selected *app.ObservationReceipt
 	metadata app.ObservationMetadata
 	bytes    int
+	stamp    app.ObservationStamp
 }
 type daemonServer struct {
-	history              *app.History
-	historyHints         atomic.Uint64
-	daemon               *LocalDaemon
-	ctx                  context.Context
-	cancel               context.CancelFunc
-	root, witness, epoch string
-	rootFD, leaseFD      int
-	releaseClaim         func()
-	leaseStamp           unix.Stat_t
-	endpoints            []*daemonSocket
-	connections          map[*net.UnixConn]struct{}
-	connectionMu         sync.Mutex
-	network              sync.WaitGroup
-	failure              chan error
-	queueMu              sync.Mutex
-	queue                []pendingObservation
-	queueBytes           int
-	notify               chan struct{}
-	workerDone           chan struct{}
-	workerStarted        bool
-	degraded             atomic.Bool
-	releaseOnce          sync.Once
-	runtime              *app.Runtime
+	history               *app.History
+	historyHints          atomic.Uint64
+	endpointMetadata      *RegistryStore
+	previousEndpoints     *endpointReceipt
+	staleEndpoints        map[string]unix.Stat_t
+	daemon                *LocalDaemon
+	ctx                   context.Context
+	cancel                context.CancelFunc
+	root, witness, epoch  string
+	rootFD, leaseFD       int
+	releaseClaim          func()
+	leaseStamp            unix.Stat_t
+	endpoints             []*daemonSocket
+	connections           map[*net.UnixConn]struct{}
+	connectionMu          sync.Mutex
+	replyMu               sync.Mutex
+	effectReplies         map[*net.UnixConn]chan struct{}
+	effectAdmissionClosed bool
+	network               sync.WaitGroup
+	failure               chan error
+	queueMu               sync.Mutex
+	queue                 []pendingObservation
+	queueBytes            int
+	notify                chan struct{}
+	workerDone            chan struct{}
+	workerStarted         bool
+	gate                  *app.ObservationGate
+	powerDone             chan struct{}
+	powerStarted          bool
+	updateDone            chan struct{}
+	updateStarted         bool
+	degraded              atomic.Bool
+	releaseOnce           sync.Once
+	runtime               *app.Runtime
 }
 
 // Serve owns the two local endpoints. It starts no agent and performs no core-store I/O.
@@ -100,19 +113,51 @@ func (d *LocalDaemon) Serve(ctx context.Context, root string) error {
 	defer s.shutdown()
 	s.workerStarted = true
 	go s.consume()
+	s.powerStarted = true
+	go s.watchContinuity()
+	if s.runtime != nil {
+		s.updateStarted = true
+		go s.watchUpdateNotices()
+	}
 	for _, endpoint := range s.endpoints {
 		s.network.Add(1)
 		go s.accept(endpoint)
 	}
+	var confirmed <-chan struct{}
+	if s.runtime != nil {
+		accepted := make(chan struct{})
+		confirmed = accepted
+		go func() {
+			if s.runtime.AwaitShutdownConfirmation(s.ctx) == nil {
+				close(accepted)
+			}
+		}()
+	}
+	normalConfirmation := false
 	select {
 	case <-ctx.Done():
 	case <-s.ctx.Done():
+	case <-confirmed:
+		normalConfirmation = true
 	}
 	if s.runtime != nil {
 		s.runtime.DisableLaunches()
 		// A caller/transport interruption is not permission to close active PTYs.
 		// Keep owner/lease and surviving management endpoints until owned reconciliation.
 		_ = s.runtime.AwaitIdle(context.Background())
+		// OS logout/shutdown can interrupt this bounded best-effort publication.
+		// Endpoints/lease remain until actual ownership has already joined.
+		publishCtx, publishCancel := context.WithTimeout(context.Background(), 2*time.Second)
+		publishErr := s.runtime.PublishCleanShutdown(publishCtx)
+		publishCancel()
+		if publishErr != nil && !errors.Is(publishErr, domain.ErrUnsupported) {
+			return xerrors.Errorf("finish daemon lifecycle publication: %w", publishErr)
+		}
+	}
+	if normalConfirmation {
+		replyCtx, replyCancel := context.WithTimeout(context.Background(), s.daemon.options.IOTimeout)
+		_ = s.awaitEffectReplies(replyCtx) // Best effort only; EOF/timeout remains unknown.
+		replyCancel()
 	}
 	select {
 	case err := <-s.failure:
@@ -170,14 +215,8 @@ func prepareDaemon(parent context.Context, d *LocalDaemon, root string) (*daemon
 		return nil, app.ErrDaemonUnavailable
 	}
 	s.epoch = hex.EncodeToString(random)
-	if d.options.RuntimeFactory != nil {
-		s.runtime, err = d.options.RuntimeFactory(parent, root, s.epoch)
-		if err != nil {
-			return nil, err
-		}
-		if s.runtime == nil {
-			return nil, app.ErrRuntimeUnsupported
-		}
+	if err = s.preflightEndpoints(parent); err != nil {
+		return nil, err
 	}
 	if d.options.HistoryFactory != nil {
 		s.history, err = d.options.HistoryFactory(parent, root)
@@ -195,28 +234,49 @@ func prepareDaemon(parent context.Context, d *LocalDaemon, root string) (*daemon
 		if err = parent.Err(); err != nil {
 			return nil, xerrors.Errorf("start local endpoints: %w", err)
 		}
-		owned, err := s.listen(endpoint.name, endpoint.role, endpoint.limit)
+		owned, err := s.listen(parent, endpoint.name, endpoint.role, endpoint.limit)
 		if err != nil {
 			return nil, err
 		}
 		s.endpoints = append(s.endpoints, owned)
 	}
+	if err = s.publishEndpointReceipt(parent); err != nil {
+		return nil, err
+	}
+	if d.options.RuntimeFactory != nil {
+		s.runtime, err = d.options.RuntimeFactory(parent, root, s.epoch)
+		if err != nil {
+			return nil, err
+		}
+		if s.runtime == nil {
+			return nil, app.ErrRuntimeUnsupported
+		}
+	}
+	s.gate, err = app.NewObservationGate(s.ctx, d.sampler, s.epoch)
+	if err != nil {
+		return nil, xerrors.Errorf("create daemon observation gate: %w", err)
+	}
+	s.powerDone = make(chan struct{})
+	s.updateDone = make(chan struct{})
 	complete = true
 	return s, nil
 }
-func (s *daemonServer) listen(name, role string, limit int) (*daemonSocket, error) {
+func (s *daemonServer) listen(ctx context.Context, name, role string, limit int) (*daemonSocket, error) {
 	if err := verifyRuntimeRoot(s.root, s.witness, s.rootFD); err != nil {
 		return nil, app.ErrUnsafeRuntime
 	}
 	var existing unix.Stat_t
 	err := unix.Fstatat(s.rootFD, name, &existing, unix.AT_SYMLINK_NOFOLLOW)
 	if err == nil {
-		if existing.Mode&unix.S_IFMT == unix.S_IFSOCK {
-			return nil, app.ErrRuntimeBusy
+		if !runtimeSocketStat(existing) {
+			return nil, app.ErrUnsafeRuntime
 		}
+		if err = s.reclaimEndpoint(ctx, name, existing); err != nil {
+			return nil, err
+		}
+	} else if !errors.Is(err, unix.ENOENT) {
 		return nil, app.ErrUnsafeRuntime
-	}
-	if !errors.Is(err, unix.ENOENT) {
+	} else if _, wasPresent := s.staleEndpoints[name]; wasPresent {
 		return nil, app.ErrUnsafeRuntime
 	}
 	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: filepath.Join(s.root, name), Net: "unix"})
@@ -252,7 +312,7 @@ func (s *daemonServer) cleanupSocket(endpoint *daemonSocket) {
 		return
 	}
 	var current unix.Stat_t
-	if unix.Fstatat(s.rootFD, endpoint.name, &current, unix.AT_SYMLINK_NOFOLLOW) == nil && current.Uid == uint32(os.Geteuid()) && current.Mode&unix.S_IFMT == unix.S_IFSOCK && current.Dev == endpoint.stamp.Dev && current.Ino == endpoint.stamp.Ino {
+	if unix.Fstatat(s.rootFD, endpoint.name, &current, unix.AT_SYMLINK_NOFOLLOW) == nil && current.Uid == uint32(os.Geteuid()) && current.Mode&unix.S_IFMT == unix.S_IFSOCK && sameSocketIdentity(current, endpoint.stamp) {
 		_ = unix.Unlinkat(s.rootFD, endpoint.name, 0)
 	}
 }
@@ -273,6 +333,9 @@ func (s *daemonServer) release() {
 }
 func (s *daemonServer) shutdown() {
 	s.cancel()
+	if s.gate != nil {
+		s.gate.Close() // Never joins an uninterruptible native read.
+	}
 	for _, endpoint := range s.endpoints {
 		_ = endpoint.listener.Close()
 	}
@@ -282,6 +345,12 @@ func (s *daemonServer) shutdown() {
 	}
 	s.connectionMu.Unlock()
 	s.network.Wait()
+	if s.powerStarted {
+		<-s.powerDone // Watcher's gate wait is bounded/cancellable, not the OS call.
+	}
+	if s.updateStarted {
+		<-s.updateDone // Actual lifecycle coordinators were already joined by AwaitIdle.
+	}
 	for _, endpoint := range s.endpoints {
 		s.cleanupSocket(endpoint)
 	}
@@ -358,6 +427,7 @@ func (s *daemonServer) endpointCurrent(endpoint *daemonSocket) bool {
 func (s *daemonServer) handle(conn *net.UnixConn, endpoint *daemonSocket) {
 	stop := context.AfterFunc(s.ctx, func() { _ = conn.Close() })
 	defer stop()
+	defer s.endEffectReply(conn)
 	if verifyRuntimePeer(conn) != nil || !s.endpointCurrent(endpoint) {
 		return
 	}
@@ -424,6 +494,21 @@ func (s *daemonServer) handle(conn *net.UnixConn, endpoint *daemonSocket) {
 			} else {
 				s.historyHintReply(&reply)
 			}
+		} else if request.Lifecycle != nil {
+			clean := endpoint.role == "management" && request.Control == nil && request.Receipt == nil && request.Attach == nil && request.Observation == nil && request.Launch == nil && request.Page == nil
+			if clean {
+				admitted := true
+				if request.Operation == "shutdown_confirm" || request.Operation == "update_handoff" {
+					admitted = s.beginEffectReply(conn)
+				}
+				if admitted {
+					s.lifecycleReply(&reply, request.Lifecycle, request.Operation)
+				} else {
+					reply.Code = "busy"
+				}
+			} else {
+				reply.Code = "unsupported"
+			}
 		} else if request.Resume != nil || request.Operation == "resume" {
 			if endpoint.role != "management" {
 				reply.Code = "unsupported"
@@ -437,7 +522,11 @@ func (s *daemonServer) handle(conn *net.UnixConn, endpoint *daemonSocket) {
 			clean := request.Attach == nil && request.Observation == nil && request.Launch == nil && request.Page == nil && endpoint.role == "management"
 			switch {
 			case clean && request.Control != nil && request.Receipt == nil && (request.Operation == "input" || request.Operation == "resize" || request.Operation == "stop"):
-				s.controlReply(&reply, request.Control, request.Operation)
+				if request.Operation != "stop" || s.beginEffectReply(conn) {
+					s.controlReply(&reply, request.Control, request.Operation)
+				} else {
+					reply.Code = "busy"
+				}
 			case clean && request.Receipt != nil && request.Control == nil && request.Operation == "receipt":
 				s.receiptReply(&reply, request.Receipt)
 			default:
@@ -451,7 +540,7 @@ func (s *daemonServer) handle(conn *net.UnixConn, endpoint *daemonSocket) {
 			case endpoint.role == "management" && request.Attach == nil && request.Operation == "status" && request.Observation == nil && request.Launch == nil && request.Page == nil:
 				delivery := "unavailable"
 				capabilities := []string{"status"}
-				if s.daemon.receiver != nil {
+				if s.daemon.receiver != nil || s.daemon.options.CausalReceiver != nil {
 					delivery = "configured"
 					capabilities = append(capabilities, "observe_metadata")
 					if s.degraded.Load() {
@@ -471,7 +560,10 @@ func (s *daemonServer) handle(conn *net.UnixConn, endpoint *daemonSocket) {
 							delivery = "degraded"
 						}
 					}
-					capabilities = append(capabilities, "list_runs", "attach", "input", "resize", "stop", "receipt")
+					capabilities = append(capabilities, "list_runs", "attach", "stop", "receipt", "shutdown_plan")
+					if !s.runtime.ShutdownInProgress() {
+						capabilities = append(capabilities, "input", "resize")
+					}
 					if disabled {
 						state = "draining"
 					} else {
@@ -487,8 +579,10 @@ func (s *daemonServer) handle(conn *net.UnixConn, endpoint *daemonSocket) {
 				metadata := request.Observation.metadata()
 				if !validObservation(metadata) {
 					reply.Code = "invalid"
-				} else if s.daemon.receiver == nil {
+				} else if s.daemon.receiver == nil && s.daemon.options.CausalReceiver == nil {
 					reply.Code = "unsupported"
+				} else if s.daemon.options.CausalReceiver != nil && metadata.Epoch != s.epoch {
+					reply.Code = "changed"
 				} else if !s.enqueue(metadata, len(data)) {
 					reply.Code = "busy"
 				} else {
@@ -508,24 +602,38 @@ func (s *daemonServer) handle(conn *net.UnixConn, endpoint *daemonSocket) {
 		if writeRuntimeFrame(conn, reply) != nil {
 			return
 		}
+		s.endEffectReply(conn)
 		if reply.Code != "ok" && reply.Code != "queued" {
 			return
 		}
 	}
 }
 func (s *daemonServer) enqueue(metadata app.ObservationMetadata, size int) bool {
-	return s.enqueueItem(pendingObservation{metadata: metadata, bytes: size})
+	var stamp app.ObservationStamp
+	if s.daemon.options.CausalReceiver != nil {
+		var err error
+		stamp, err = s.gate.Stamp(s.ctx) // Intake, before queue lock; NEVER dequeue.
+		if err != nil {
+			s.degraded.Store(true)
+			return false
+		}
+	}
+	return s.enqueueItem(pendingObservation{metadata: metadata, bytes: size, stamp: stamp})
 }
 func (s *daemonServer) enqueueItem(item pendingObservation) bool {
 	size := item.bytes
 	s.queueMu.Lock()
-	defer s.queueMu.Unlock()
 	if s.ctx.Err() != nil || len(s.queue) >= s.daemon.options.ObservationFrames || size > s.daemon.options.ObservationBytes-s.queueBytes {
+		s.queueMu.Unlock()
 		s.degraded.Store(true)
+		if s.gate != nil {
+			s.gate.InvalidateGap() // No queue/gate lock nesting.
+		}
 		return false
 	}
 	s.queue = append(s.queue, item)
 	s.queueBytes += size
+	s.queueMu.Unlock()
 	select {
 	case s.notify <- struct{}{}:
 	default:
@@ -567,11 +675,54 @@ func (s *daemonServer) consume() {
 				if err != nil {
 					s.degraded.Store(true)
 				}
+			} else if s.daemon.options.CausalReceiver != nil {
+				if item.stamp.Context().Err() != nil {
+					s.degraded.Store(true)
+					continue // Old queued evidence cannot acquire a new intake stamp.
+				}
+				if s.daemon.options.CausalReceiver.ConsumeCausalObservation(item.stamp.Context(), item.metadata, item.stamp) != nil {
+					s.degraded.Store(true)
+					s.gate.InvalidateGap()
+				}
 			} else if s.daemon.receiver != nil {
 				if s.daemon.receiver.ConsumeObservation(s.ctx, item.metadata) != nil {
 					s.degraded.Store(true)
 				}
 			}
+		}
+	}
+}
+
+func (s *daemonServer) watchContinuity() {
+	defer close(s.powerDone)
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		if _, err := s.gate.Stamp(s.ctx); err != nil && s.ctx.Err() == nil && s.daemon.options.CausalReceiver != nil {
+			s.degraded.Store(true)
+		}
+		select {
+		case <-s.ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+// Metadata publication has its OWN loop: even a slow journal cannot stall the
+// native power watcher. This publishes a private notice, not OS/human delivery.
+func (s *daemonServer) watchUpdateNotices() {
+	defer close(s.updateDone)
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		if err := s.runtime.PublishDueUpdateNotice(s.ctx); errors.Is(err, domain.ErrUnsupported) {
+			return // Legacy/custom factories are not silently lifecycle-enrolled.
+		}
+		select {
+		case <-s.ctx.Done():
+			return
+		case <-ticker.C:
 		}
 	}
 }
@@ -587,7 +738,7 @@ func (d *LocalDaemon) Status(ctx context.Context, root string) (app.DaemonStatus
 	if err != nil {
 		return app.DaemonStatus{}, err
 	}
-	if reply.Resume != nil || reply.History != nil || reply.HistoryHint != nil || reply.Control != nil || reply.Output != nil || reply.Code != "ok" || reply.Status == nil || reply.Role != "" || reply.Run != nil || reply.Page != nil {
+	if reply.Lifecycle != nil || reply.Resume != nil || reply.History != nil || reply.HistoryHint != nil || reply.Control != nil || reply.Output != nil || reply.Code != "ok" || reply.Status == nil || reply.Role != "" || reply.Run != nil || reply.Page != nil {
 		return app.DaemonStatus{}, app.ErrRuntimeProtocol
 	}
 	return decodeRuntimeStatus(reply)
@@ -703,7 +854,7 @@ func (d *LocalDaemon) openRuntime(ctx context.Context, root, operation string) (
 	if err != nil {
 		return nil, "", err
 	}
-	if hello.Resume != nil || hello.History != nil || hello.HistoryHint != nil || hello.Control != nil || hello.Output != nil || hello.Code != "ok" || hello.Role != role || hello.Status != nil || hello.Run != nil || hello.Page != nil {
+	if hello.Lifecycle != nil || hello.Resume != nil || hello.History != nil || hello.HistoryHint != nil || hello.Control != nil || hello.Output != nil || hello.Code != "ok" || hello.Role != role || hello.Status != nil || hello.Run != nil || hello.Page != nil {
 		return nil, "", app.ErrRuntimeProtocol
 	}
 	success = true
