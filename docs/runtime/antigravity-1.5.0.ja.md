@@ -198,3 +198,21 @@ effective route の入力元と優先順位、active route との排他性、元
 別認証の試験や設定変更は行っていません。
 この近道を不採用としたのであり、native 復旧が不可能という判定ではありません。
 metadata codec と復旧 unsupported の契約は維持します。
+
+### Provider 入力の具体的な証拠境界
+
+現在の [CLI 認証文書](https://antigravity.google/docs/cli/install/) では次の入力を説明していますが、導入済み1.5.0 artifact の完全な実装契約ではありません。
+
+| 入力 | 文書上の役割 | 未証明の項目 |
+|---|---|---|
+| 永続設定の `modelProvider` と `GEMINI_API_KEY` | Gemini API への直接経路を選択。key 単独では選択しない | この完全一致版での effective settings 解決 |
+| `GOOGLE_GEMINI_BASE_URL` | API 経路の custom endpoint | 元と再開時の経路の照合 |
+| `AGY_ADC_AUTH` | ADC 認証を有効化 | signed-in account metadata との排他性 |
+| process 専用設定と永続設定 | effective configuration に影響し得る | provider に関係する全入力と優先順位 |
+
+static 調査では pinned executable の digest 一致を再確認しました。
+binary の文字列候補は調査の手掛かりに限ります。
+連結された literal や無関係な library 文字列も含まれるため、環境変数一覧や effective-provider denylist として扱えません。
+host 設定・credential の読み取りや別認証 process の起動は行っていません。
+次の認定には、AccountPresent の追加推測ではなく、対象版の設定解決と active route の証拠が必要です。
+この表で provider・復旧 capability を有効化しません。

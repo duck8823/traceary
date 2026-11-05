@@ -80,3 +80,16 @@ A real isolated candidate daemon registered the actual AGY executable and owned 
 ## Provider gate: account presence is insufficient
 
 The [official authentication contract](https://antigravity.google/docs/install/) describes separate account, Gemini API-key and ADC routes; [statusLine](https://antigravity.google/docs/cli/statusline/) supplies account email but no explicit active-provider discriminator. An independent before-code checkpoint rejected sealing `native-account` from AccountPresent plus an unspecified override guard. Effective route inputs and their precedence, active-route exclusivity and durable original/current provider-class checks still need evidence. No alternate authentication test or configuration change was performed. This rejects that proposed shortcut, not native recovery as impossible; the metadata codec and unsupported recovery contract remain unchanged.
+
+### Concrete provider-input evidence boundary
+
+The current [CLI authentication documentation](https://antigravity.google/docs/cli/install/) identifies these inputs; it does not pin their complete implementation to the installed1.5.0 artifact:
+
+| Input | Documented relevance | Still unproven |
+|---|---|---|
+| Persistent `modelProvider` plus `GEMINI_API_KEY` | Selects the direct Gemini API route; a key alone does not select it | Effective settings resolution in this exact version |
+| `GOOGLE_GEMINI_BASE_URL` | Custom endpoint for the API route | Original/current route verification |
+| `AGY_ADC_AUTH` | Enables ADC authentication | Exclusivity with signed-in account metadata |
+| Per-process settings and persistent settings | May affect the effective configuration | Complete provider-relevant inputs and precedence |
+
+Static inspection reverified the pinned executable digest. Binary string candidates are only investigation leads: concatenated literals and unrelated library strings prevent treating them as an environment-variable inventory or an effective-provider denylist. No host settings, credentials or alternate-auth process were read or invoked. The next qualification needs version-specific resolution and active-route evidence, not additional AccountPresent inference. No provider/recovery capability is enabled by this table.
