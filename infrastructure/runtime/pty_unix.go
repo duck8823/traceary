@@ -155,9 +155,13 @@ func (l *PTYLauncher) Start(ctx context.Context, descriptor domain.LaunchDescrip
 
 func (l *PTYLauncher) start(ctx context.Context, descriptor domain.LaunchDescriptor, nativePlan *claudeLaunchPlan) (app.OwnedChild, error) {
 	transferred := false
+	var agyPlan *agyMetadataLaunchPlan
 	defer func() {
 		if nativePlan != nil && !transferred {
 			nativePlan.close()
+		}
+		if agyPlan != nil && !transferred {
+			agyPlan.close()
 		}
 	}()
 	snapshot := descriptor.Snapshot()
@@ -177,6 +181,9 @@ func (l *PTYLauncher) start(ctx context.Context, descriptor domain.LaunchDescrip
 		// Optional static source planning only. Never wait on native history,
 		// provider status or startup callbacks during a normal launch.
 		nativePlan, _ = l.prepareClaudeLaunch(ctx, snapshot, nil)
+		if nativePlan == nil {
+			agyPlan, _ = l.prepareAntigravityMetadata(ctx, snapshot)
+		}
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, xerrors.Errorf("validate launch budget: %w", err)
@@ -248,6 +255,15 @@ func (l *PTYLauncher) start(ctx context.Context, descriptor domain.LaunchDescrip
 			command.Env = interruptedContinuationDisabled(command.Env)
 		}
 	}
+	if agyPlan != nil {
+		// Optional metadata only: do not alter native auth/model/default policy.
+		if err := agyPlan.revalidate(ctx, snapshot, l.environment); err != nil {
+			agyPlan.close()
+			agyPlan = nil
+		} else {
+			command.Args = append([]string{command.Path}, agyPlan.args()...)
+		}
+	}
 	if l.historyRoot != "" {
 		// Store-bound launches only: profile --version probes never receive
 		// routing or identity. Missing optional routing cannot abort launch.
@@ -280,6 +296,9 @@ func (l *PTYLauncher) start(ctx context.Context, descriptor domain.LaunchDescrip
 	if nativePlan != nil {
 		child.nativeRecovery = &ownedClaudeRecovery{slot: nativePlan.slot, environment: append([]string{}, l.environment...)}
 	}
+	if agyPlan != nil {
+		child.agyMetadata = &ownedAntigravityMetadata{slot: agyPlan.slot}
+	}
 	transferred = true
 	watchTransferred = true
 	// The single native reader feeds only bounded volatile retention.
@@ -301,6 +320,9 @@ func (l *PTYLauncher) start(ctx context.Context, descriptor domain.LaunchDescrip
 			// Snapshot the latest native metadata only after actual owned Wait.
 			// This optional path cannot change the process result.
 			child.nativeRecovery.finish()
+		}
+		if child.agyMetadata != nil {
+			child.agyMetadata.finish()
 		}
 		child.stopDrainOnce.Do(func() { close(child.stopDrain) })
 		<-child.drained
@@ -415,6 +437,7 @@ type ptyChild struct {
 	err                                            error
 	done                                           chan struct{}
 	nativeRecovery                                 *ownedClaudeRecovery
+	agyMetadata                                    *ownedAntigravityMetadata
 }
 
 func (c *ptyChild) SubscribeOutput(selection app.OutputSelection, cursor domain.ByteOffset) (*app.OutputSubscription, error) {

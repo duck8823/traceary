@@ -39,7 +39,7 @@ func TestOptionalNativeClaimPortsRemainHostAndVersionIsolated(t *testing.T) {
 				}
 				return nil
 			}}
-			options := []RootCLIOption{WithRuntimeDaemon(client), WithStoreManagement(&spoolStoreManagementStub{}), WithEvent(events)}
+			options := []RootCLIOption{WithRuntimeDaemon(client), WithAntigravityObservationClaims(filesystem.NewAntigravityObservationClaimDecoder()), WithStoreManagement(&spoolStoreManagementStub{}), WithEvent(events)}
 			if tc.codex {
 				options = append(options, WithCodexObservationClaims(filesystem.NewCodexObservationClaimDecoder()))
 			}

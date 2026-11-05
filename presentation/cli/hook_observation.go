@@ -91,6 +91,9 @@ func (c *RootCLI) hookObservationNativeIDs(ctx context.Context, payload, host, v
 	if host == "claude" {
 		return c.claudeHookObservationSession(ctx, payload, version, kind), ""
 	}
+	if host == "antigravity" {
+		return c.antigravityHookObservationSession(ctx, payload, version, kind), ""
+	}
 	body := []byte(payload)
 	value, _ := lookupHookPayloadValue(body, "session_id")
 	session, _ := value.(string)
@@ -104,6 +107,19 @@ func (c *RootCLI) claudeHookObservationSession(ctx context.Context, payload, ver
 		return ""
 	}
 	claim, err := c.claudeObservationClaims.Decode(ctx, application.ClaudeObservationClaimInput{Payload: payload, SourceVersion: version, ExpectedBoundary: kind})
+	if err != nil || !claim.Available {
+		return ""
+	}
+	return claim.SessionID
+}
+
+// Antigravity provides no event-name proof through this correlation port.
+// Only the measured caller boundaries can yield an untrusted session claim.
+func (c *RootCLI) antigravityHookObservationSession(ctx context.Context, payload, version string, kind domain.ObservationKind) string {
+	if c.antigravityObservationClaims == nil {
+		return ""
+	}
+	claim, err := c.antigravityObservationClaims.Decode(ctx, application.AntigravityObservationClaimInput{Payload: payload, SourceVersion: version, ExpectedBoundary: kind})
 	if err != nil || !claim.Available {
 		return ""
 	}

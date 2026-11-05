@@ -30,6 +30,8 @@
 - [Claude Code native 認定](./runtime/claude-2.1.318.ja.md): 正確な版の実測、duplicate handler 合成の却下、残る native gate
 - [管理対象AIの明示的な native 復旧](./runtime/managed-recovery.ja.md)：明示 resume の契約、不確定性、現在の対応制限
 
+- [Antigravity native 認定](./runtime/antigravity-1.5.0.ja.md)：1.5.0 source 調査と未完了の native gate
+
 ## 連携まわり
 
 - [ネイティブ連携ガイド](./integrations/README.ja.md): Claude / Codex / Gemini（レガシー）向けパッケージ、導入手順、smoke test

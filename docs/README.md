@@ -27,6 +27,7 @@ This page is the detailed docs index for Traceary. Start here when the top-level
 - [Codex 0.166.0 native qualification work](./runtime/codex-0.166.0.md): implemented optional claim decoder; native binding and recovery remain unqualified
 - [Explicit managed native recovery](./runtime/managed-recovery.md): explicit resume contract, uncertainty and current qualification limits
 
+- [Antigravity native qualification](./runtime/antigravity-1.5.0.md): 1.5.0 source discovery; native qualification remains incomplete
 - [Claude Code native qualification](./runtime/claude-2.1.318.md): exact-version evidence, rejected duplicate-handler composition and remaining native gates
 
 ## Integrations

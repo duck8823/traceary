@@ -15,63 +15,65 @@ import (
 
 // RootCLI provides the Traceary root command.
 type RootCLI struct {
-	claudeObservationClaims     application.ClaudeObservationClaimDecoder
-	hookObservation             hookObservationConfig
-	runtimeDaemon               appruntime.Daemon
-	runtimeClient               appruntime.Client
-	runtimeOperators            appruntime.OperatorFactory
-	nativeSessionMetadata       appruntime.NativeSessionMetadataSink
-	event                       usecase.EventUsecase
-	eventMetadata               usecase.EventMetadataUsecase
-	twoTierSearch               queryservice.TwoTierSearch
-	reportCommand               usecase.ReportCommandUsecase
-	report                      usecase.ReportUsecase
-	codexCaptureDiagnostic      usecase.CodexCaptureDiagnosticUsecase
-	session                     usecase.SessionUsecase
-	sessionRefinement           usecase.SessionRefinementUsecase
-	consolidationPressure       usecase.ConsolidationPressureUsecase
-	consolidationRequest        usecase.ConsolidationRequestUsecase
-	consolidationConversion     queryservice.ConsolidationConversionQueryService
-	sessionEventOrder           model.SessionEventOrderRepository
-	sessionWakeSummary          queryservice.SessionWakeSummaryQueryService
-	memory                      usecase.MemoryUsecase
-	bundle                      usecase.BundleUsecase
-	codexUsage                  usecase.CodexUsageCaptureUsecase
-	codexHeadlessUsage          application.CodexHeadlessUsageStreamFactory
-	codexObservationClaims      application.CodexObservationClaimDecoder
-	claudeUsage                 usecase.ClaudeUsageCaptureUsecase
-	claudeHeadlessUsage         application.ClaudeHeadlessUsageStreamFactory
-	geminiUsage                 usecase.GeminiUsageCaptureUsecase
-	geminiHeadlessUsage         application.GeminiHeadlessUsageStreamFactory
-	antigravityUsage            usecase.AntigravityUsageCaptureUsecase
-	grokUsage                   usecase.GrokUsageCaptureUsecase
-	grokHeadlessUsage           application.GrokHeadlessUsageStreamFactory
-	kimiUsage                   usecase.KimiUsageCaptureUsecase
-	context                     usecase.ContextUsecase
-	storeManagement             usecase.StoreManagementUsecase
-	capacityInspector           application.CapacityInspector
-	pageMetadataInspector       application.PageMetadataInspector
-	endedSessionInspector       application.EndedSessionInspector
-	operatorCostInspector       application.OperatorCostInspector
-	attestationAnchorInspector  application.AttestationAnchorInspector
-	storeCompactionFactory      func(string) application.StoreCompactionUsecase
-	preparedStoreUpgradeFactory func(string) application.PreparedStoreUpgradeUsecase
-	workspaceIdentity           usecase.WorkspaceIdentityUsecase
-	hooksOrchestrator           application.HooksOrchestrator
-	hooksInspector              application.HooksInspector
-	pluginCacheInspector        application.PluginCacheInspector
-	pluginDetector              application.ClaudePluginDetector
-	extraRedactPatterns         []string
-	structuredRedactRules       []redaction.RuleConfig
-	defaultAuditMaxInputBytes   int
-	defaultAuditMaxOutputBytes  int
-	defaultReadFields           []string
-	readPresets                 map[string]presentation.ReadPreset
-	defaultReadColor            string
-	hookMemoryExtractLauncher   func(string) error
-	hookGrokTranscriptLauncher  func(string) error
-	hookMemoryBeforeJobRemoval  func()
-	hookMemoryAfterFinalCheck   func()
+	codexObservationClaims       application.CodexObservationClaimDecoder
+	agyStatuslineMetadata        appruntime.NativeSessionMetadataSink
+	antigravityObservationClaims application.AntigravityObservationClaimDecoder
+	claudeObservationClaims      application.ClaudeObservationClaimDecoder
+	hookObservation              hookObservationConfig
+	runtimeDaemon                appruntime.Daemon
+	runtimeClient                appruntime.Client
+	runtimeOperators             appruntime.OperatorFactory
+	nativeSessionMetadata        appruntime.NativeSessionMetadataSink
+	event                        usecase.EventUsecase
+	eventMetadata                usecase.EventMetadataUsecase
+	twoTierSearch                queryservice.TwoTierSearch
+	reportCommand                usecase.ReportCommandUsecase
+	report                       usecase.ReportUsecase
+	codexCaptureDiagnostic       usecase.CodexCaptureDiagnosticUsecase
+	session                      usecase.SessionUsecase
+	sessionRefinement            usecase.SessionRefinementUsecase
+	consolidationPressure        usecase.ConsolidationPressureUsecase
+	consolidationRequest         usecase.ConsolidationRequestUsecase
+	consolidationConversion      queryservice.ConsolidationConversionQueryService
+	sessionEventOrder            model.SessionEventOrderRepository
+	sessionWakeSummary           queryservice.SessionWakeSummaryQueryService
+	memory                       usecase.MemoryUsecase
+	bundle                       usecase.BundleUsecase
+	codexUsage                   usecase.CodexUsageCaptureUsecase
+	codexHeadlessUsage           application.CodexHeadlessUsageStreamFactory
+	claudeUsage                  usecase.ClaudeUsageCaptureUsecase
+	claudeHeadlessUsage          application.ClaudeHeadlessUsageStreamFactory
+	geminiUsage                  usecase.GeminiUsageCaptureUsecase
+	geminiHeadlessUsage          application.GeminiHeadlessUsageStreamFactory
+	antigravityUsage             usecase.AntigravityUsageCaptureUsecase
+	grokUsage                    usecase.GrokUsageCaptureUsecase
+	grokHeadlessUsage            application.GrokHeadlessUsageStreamFactory
+	kimiUsage                    usecase.KimiUsageCaptureUsecase
+	context                      usecase.ContextUsecase
+	storeManagement              usecase.StoreManagementUsecase
+	capacityInspector            application.CapacityInspector
+	pageMetadataInspector        application.PageMetadataInspector
+	endedSessionInspector        application.EndedSessionInspector
+	operatorCostInspector        application.OperatorCostInspector
+	attestationAnchorInspector   application.AttestationAnchorInspector
+	storeCompactionFactory       func(string) application.StoreCompactionUsecase
+	preparedStoreUpgradeFactory  func(string) application.PreparedStoreUpgradeUsecase
+	workspaceIdentity            usecase.WorkspaceIdentityUsecase
+	hooksOrchestrator            application.HooksOrchestrator
+	hooksInspector               application.HooksInspector
+	pluginCacheInspector         application.PluginCacheInspector
+	pluginDetector               application.ClaudePluginDetector
+	extraRedactPatterns          []string
+	structuredRedactRules        []redaction.RuleConfig
+	defaultAuditMaxInputBytes    int
+	defaultAuditMaxOutputBytes   int
+	defaultReadFields            []string
+	readPresets                  map[string]presentation.ReadPreset
+	defaultReadColor             string
+	hookMemoryExtractLauncher    func(string) error
+	hookGrokTranscriptLauncher   func(string) error
+	hookMemoryBeforeJobRemoval   func()
+	hookMemoryAfterFinalCheck    func()
 	// databasePathSetter is invoked by each subcommand's RunE after it
 	// resolves --db-path / TRACEARY_DB_PATH, so the shared Database
 	// instance opens the user-specified path instead of the composition-
@@ -82,6 +84,12 @@ type RootCLI struct {
 // RootCLIOption configures a RootCLI during construction. Options are
 // applied in order, so later options override earlier ones.
 type RootCLIOption func(*RootCLI)
+
+// WithAntigravityObservationClaims injects optional untrusted session correlation.
+// Missing or unavailable decoders never fall back to legacy host fields.
+func WithAntigravityObservationClaims(decoder application.AntigravityObservationClaimDecoder) RootCLIOption {
+	return func(c *RootCLI) { c.antigravityObservationClaims = decoder }
+}
 
 // WithClaudeObservationClaims injects optional untrusted session correlation.
 // Nil means unavailable and never changes primary hook capture.
