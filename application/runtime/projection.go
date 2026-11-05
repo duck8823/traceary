@@ -105,3 +105,11 @@ func (s *Runtime) SubscribeObservations(selection OutputSelection) (ObservationV
 	}
 	return ObservationView{Run: snapshot, Projection: run.projection.Snapshot(s.observationClockLocked()), Changed: s.changed}, nil
 }
+
+// notifyProjectionLocked wakes latest-view readers without changing the
+// authoritative launch/shutdown roster revision. Unbound telemetry is not a
+// native control effect or lifecycle reservation. Caller holds Runtime.mu.
+func (s *Runtime) notifyProjectionLocked() {
+	close(s.changed)
+	s.changed = make(chan struct{})
+}

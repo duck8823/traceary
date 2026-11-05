@@ -14,7 +14,7 @@ import (
 )
 
 func TestResumeSDKPrivateSocketCorrelatesOneOperationAndNeverReplaysUnknown(t *testing.T) {
-	for _, mode := range []string{"confirmed", "stored", "unknown", "reserved", "no-start", "unsupported", "lost", "wrong-id", "wrong-request", "wrong-previous", "wrong-epoch", "same-run", "missing-owned", "missing-result", "wrong-phase", "mixed", "queued"} {
+	for _, mode := range []string{"confirmed", "stored", "unknown", "reserved", "no-start", "unsupported", "lost", "wrong-id", "wrong-request", "wrong-previous", "wrong-epoch", "same-run", "missing-owned", "missing-result", "wrong-phase", "mixed", "lifecycle-error", "queued"} {
 		t.Run(mode, func(t *testing.T) {
 			request := resumeWireRequest()
 			var calls atomic.Int32
@@ -69,6 +69,10 @@ func TestResumeSDKPrivateSocketCorrelatesOneOperationAndNeverReplaysUnknown(t *t
 					reply.Resume.Phase = string(domain.ResumeUnknown)
 				case "mixed":
 					reply.Run = &launchRecord{}
+				case "lifecycle-error":
+					reply.Code = "unsupported"
+					reply.Resume = nil
+					reply.Lifecycle = &lifecycleResponseRecord{}
 				case "queued":
 					reply.Code = "queued"
 				}
