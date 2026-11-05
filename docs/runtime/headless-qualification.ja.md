@@ -118,3 +118,7 @@ childの実exit7後、cursor0のattachでcapture終了・base32768/head2129920�
 最初は既存2MiB producerでeviction oracleが失敗し、新しい合成workloadだけを増やして必要な圧力を加えました。
 このREDはfixtureの不足として保持し、runtimeの欠陥とは扱いません。
 history evictionをslow-live-consumer、unknown tail、実AI、resource性能の認定には読み替えません。
+
+## 保守者決定: CPU/RSS認定を延期（2026-11-05）
+
+保守者はCPU/RSS計測を明示的に延期し、応答性は後で体感確認する方針とした。このためCPU/RSS計測は今回のheadless deliveryの停止条件にしない。これは延期であり、リソース予算の実測合格ではない。Stage Aは合成校正のみで、native process familyのCPU/RSS網羅性も未証明のまま。sampling方式や数値予算を新たに採用したものではない。正確なbyte/ack、metadata/outputの上限、process所有と実終了の証拠は維持する。他のnative、sleep/wake、security、review、wave gateは変更しない。
