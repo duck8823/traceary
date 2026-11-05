@@ -65,3 +65,42 @@ func TestNativeSessionMetadataPlumbingIsNotAdvertisedAsOperatorCommand(t *testin
 		t.Fatalf("internal plumbing exposed: %v", err)
 	}
 }
+
+func TestNativeMetadataCommandsKeepDistinctSinksSilentAndHidden(t *testing.T) {
+	for _, command := range []string{"native-session-start", "native-antigravity-statusline"} {
+		for _, mode := range []string{"configured", "nil", "missing_slot"} {
+			t.Run(command+"_"+mode, func(t *testing.T) {
+				oldSink, newSink := &nativeMetadataSink{}, &nativeMetadataSink{}
+				options := []cli.RootCLIOption{}
+				if mode != "nil" {
+					options = append(options, cli.WithNativeSessionMetadata(oldSink), cli.WithAntigravityStatuslineMetadata(newSink))
+				}
+				root := cli.NewRootCLI(options...).Command()
+				var out bytes.Buffer
+				root.SetOut(&out)
+				root.SetErr(&out)
+				root.SetIn(bytes.NewBufferString("synthetic metadata only"))
+				args := []string{"runtime", command}
+				if mode != "missing_slot" {
+					args = append(args, "--slot", "/presentation-does-not-open-this")
+				}
+				root.SetArgs(args)
+				if err := root.Execute(); err != nil || out.Len() != 0 {
+					t.Fatal("metadata leaked/changed result", err, out.String())
+				}
+				expect := mode == "configured"
+				if command == "native-session-start" {
+					if oldSink.called != expect || newSink.called {
+						t.Fatal("cross-sink routing")
+					}
+				} else if newSink.called != expect || oldSink.called {
+					t.Fatal("cross-sink routing")
+				}
+				found, _, err := root.Find([]string{"runtime", command})
+				if err != nil || !found.Hidden {
+					t.Fatal("operator exposure", err)
+				}
+			})
+		}
+	}
+}
