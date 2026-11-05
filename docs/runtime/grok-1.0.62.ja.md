@@ -2,6 +2,8 @@
 
 [English](grok-1.0.62.md)
 
+**承認済みの delivery 分離（2026-11-05）:** 安全な [実装・証跡 #2477](https://github.com/duck8823/traceary/issues/2477) と [未完了の native 認定 #2497](https://github.com/duck8823/traceary/issues/2497) は別です。実装の merge を native binding・状態・復旧の合格にせず、未認定機能は fail-closed/unknown のままです。
+
 **状態：調査のみ。native AI turn、callback、安全な復旧は未認定です。** [#2477](https://github.com/duck8823/traceary/issues/2477) を追跡し、親を完了扱いにしません。
 [本文を含まない metadata](evidence/grok-1.0.62.json) で実測と未実施 gate を区別します。
 

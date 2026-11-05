@@ -2,6 +2,8 @@
 
 [English](antigravity-1.5.0.md)
 
+**承認済みの delivery 分離（2026-11-05）:** 安全な [実装・証跡 #2476](https://github.com/duck8823/traceary/issues/2476) と [未完了の native 認定 #2496](https://github.com/duck8823/traceary/issues/2496) は別です。実装の merge を native binding・状態・復旧の合格にせず、未認定機能は fail-closed/unknown のままです。
+
 **状態：通常 native の文脈・増分 capture・metadata を実測。実 owner は回収済みですが、復旧は未認定です。** [#2476](https://github.com/duck8823/traceary/issues/2476) を追跡します。
 親の host 対応を完了扱いにせず、native 現在状態や復旧を有効にしません。
 [本文を含まない source 証拠](evidence/antigravity-1.5.0.json) で実測 metadata と未実施 gate を区別します。

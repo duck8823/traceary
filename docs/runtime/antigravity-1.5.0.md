@@ -2,6 +2,8 @@
 
 [日本語](antigravity-1.5.0.ja.md)
 
+**Approved delivery split (2026-11-05):** Safe [implementation/evidence #2476](https://github.com/duck8823/traceary/issues/2476) may integrate separately from [unfinished native qualification #2496](https://github.com/duck8823/traceary/issues/2496). Implementation merge is not native binding/state/recovery certification; unqualified functionality stays fail-closed/unknown.
+
 **Status: ordinary native context/capture and metadata measured; recovery remains unqualified.** This tracks [#2476](https://github.com/duck8823/traceary/issues/2476). It does not complete the host parent, enable native-current state or certify recovery. [Body-free source evidence](evidence/antigravity-1.5.0.json) separates measured metadata from unrun gates.
 
 ## Measured installed source

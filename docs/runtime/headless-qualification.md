@@ -2,7 +2,7 @@
 
 [日本語](headless-qualification.ja.md)
 
-**INCOMPLETE.** This tracks [the headless qualification issue](https://github.com/duck8823/traceary/issues/2470), not a release or installed-AI certification. UI/framework decisions are separate. The physical sleep/wake test remains explicitly user-deferred, not passed. Muse native work remains deferred.
+**Implementation checkpoint; native certification incomplete.** [Implementation QA](https://github.com/duck8823/traceary/issues/2470) is separate from [installed-AI qualification](https://github.com/duck8823/traceary/issues/2498), not release or native certification. UI/framework decisions are separate. The physical sleep/wake test remains explicitly user-deferred, not passed. Muse native work remains deferred.
 
 ## Integrated synthetic process fixture
 
@@ -16,12 +16,12 @@ The separate `replay-oracle` case intentionally sends the same five bytes with a
 
 This is real process/CLI integration using a synthetic executable. It does **not** prove installed-AI hooks, bound native observation, native currentness, final model/provider, interrupted-session recovery, sleep/wake or system resource thresholds.
 
-## Remaining final integrated-head gates
+## Remaining native/full qualification gates (separately tracked)
 
 - Installed native launch/output/manual input/detach/reconnect, qualified bound observation and expiry, actual stop; explicit unsupported/unknown hosts.
 - Foreign/stale run, PID reuse, daemon absence/crash, partial input, slow consumer, overflow/cursor gap, maintenance, shutdown cancellation and update deferral fault matrix.
 - Physical sleep/wake: user-deferred NOT_RUN; do not infer success from timers.
-- Pre-fixed native workload/device/thresholds and measured total CPU/RSS/process tree plus bounded metadata/output.
+- Native workload/device/process-tree and bounded metadata/output evidence. CPU/RSS measurement is explicitly deferred, not PASS; preregister the workload/machine/limits when that study resumes.
 - Existing CLI/hooks/redaction/spool/history/memory compatibility without a daemon.
 - Exact native interruption/resume at the original target, new generation and no pending-input/tool/approval replay; old-owner live/unknown, concurrent resume, changed target, missing history and recovery crash refusal.
 - Required independent High review, final-head build/full CI/lint/security and approved wave E2E on the same integrated SHA.
@@ -34,9 +34,9 @@ Every control-bearing scenario additionally submits an explicit five-byte synthe
 
 ## Lifecycle-dependent integrated source
 
-The QA branch now includes the pinned lifecycle dependency98536b18c53130fd80604b04cc99c50fe9dd2747, with its production source unchanged. One shared process fixture preserves all nine scenarios: output, controls, observe, integrated, replay-oracle, shutdown, crash, update and autostart. In the integrated live run, after reconnect and before manual input, one update attempt must defer with a notice; one exact single-run/zero-pending shutdown preview is canceled without confirmation. The same child/generation must remain live for the subsequent exact input/no-replay/resize/Stop checks. This is metadata deferral/preview cancellation, not update installation, irreversible shutdown rollback or native-state authority.
+The original lifecycle slice98536b18c53130fd80604b04cc99c50fe9dd2747 is combined with reviewed Codex/AGY implementation and the unsupported-platform guard. QA adds no runtime authority; the host-dispatch and post-actual-Wait cleanup union was separately reviewed and tested. One shared process fixture preserves all nine scenarios: output, controls, observe, integrated, replay-oracle, shutdown, crash, update and autostart. In the integrated live run, after reconnect and before manual input, one update attempt must defer with a notice; one exact single-run/zero-pending shutdown preview is canceled without confirmation. The same child/generation must remain live for the subsequent exact input/no-replay/resize/Stop checks. This is metadata deferral/preview cancellation, not update installation, irreversible shutdown rollback or native-state authority.
 
-For review isolation, the Draft QA PR targets the lifecycle feature branch; only its tests and paired QA notes belong to the diff. **Do not merge QA into that feature branch.** The lifecycle parent must satisfy its own gates and merge first, then QA must be explicitly retargeted to main and validated on the actual final integrated head. Parent changes require matching integration evidence again. Both PRs remain Draft while required physical/native/final gates are incomplete. No narrower final acceptance is substituted for the original headless scope.
+The QA PR originally targeted the lifecycle feature branch for review isolation. Lifecycle implementation has since merged and QA was explicitly retargeted to main. **Never merge QA into the feature parent.** On2026-11-05 the maintainer approved separate implementation integration and unfinished physical/native certification. Implementation closure still requires source identity, independent High/security review, fresh full CI/lint and an implementation-only wave at the fixed integrated input. Native/physical requirements remain unfinished in the follow-ups; failed/unknown/NOT_RUN never becomes PASS, no unqualified authority is enabled, and the original whole-daemon goal remains incomplete.
 
 ## Concurrent same-target synthetic children
 
@@ -61,3 +61,17 @@ Attaching at32768 must replay the retained2MiB without a gap; reconnecting at212
 ## Maintainer decision: CPU/RSS qualification deferred (2026-11-05)
 
 The maintainer explicitly deferred CPU/RSS measurement and will assess responsiveness experientially later. CPU/RSS measurement is therefore not a blocking gate for the current headless delivery. This is a deferral, not a measured resource-budget PASS: the Stage A calibration remains synthetic-only and native process-family CPU/RSS coverage remains unproved. No sampling method or numerical budget was newly accepted. Exact byte/ack checks, bounded metadata/output, process ownership and actual exit evidence remain required. Other native, sleep/wake, security, review and wave gates are unchanged.
+
+## Implementation fault evidence layers
+
+| Fault | Evidence, not native certification |
+| --- | --- |
+| Foreign/stale selectors, concurrent runs, duplicate input receipts | Public CLI with directly owned synthetic children; exact zero-effect/no-replay assertions |
+| Absent/crashed daemon, cancel/update deferral, cursor eviction | Real daemon/CLI processes; exact bytes/cursors/receipts and actual Wait; finite synthetic producer |
+| Partial input and closed-handle reuse | Injected syscall/write boundary and unrelated real pipe; not OS PID reuse or native input interruption |
+| Slow subscriber, output overflow, PID reuse | Application/fake-child models; explicit unknown gaps, independent healthy reader and epoch rejection |
+| Queue pressure and causal loss | Actual metadata lock/socket queue plus injected worker revocation; no stale stamp restamping |
+| Maintenance and committed history | Actual isolated SQLite transaction/lease; Busy while exclusive, readable after release |
+| Physical sleep and native callback/currentness/recovery | NOT_RUN/unqualified or retained measured scope only, never inferred from the rows above |
+
+The implementation-only wave runs synthetic real-process tests and isolated synthetic daemon-free record/search/refine/memory. Host-record SKIPs remain explicit. It does not install plugins, answer trust, start installed AIs or replace native compatibility/wave certification. CPU/RSS remains deferred; no UI, distribution, host settings, auth/model/provider or automatic replay is authorized.

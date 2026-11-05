@@ -2,6 +2,8 @@
 
 [English](codex-0.166.0.md)
 
+**承認済みの delivery 分離（2026-11-05）:** 安全な [実装・証跡 #2474](https://github.com/duck8823/traceary/issues/2474) と [未完了の native 認定 #2495](https://github.com/duck8823/traceary/issues/2495) は別です。実装の merge を native binding・状態・復旧の合格にせず、未認定機能は fail-closed/unknown のままです。
+
 **状態：実装途中。隔離した native API の文脈再開は成功したが、command-hook／managed-PTY 認定は未完了。decoder、schema、合成 test を native 成功と扱わない。** このページは native 認定 #2468 の子 [#2474](https://github.com/duck8823/traceary/issues/2474) を追跡する。安全な runtime 復旧は #2478 が担当する。
 
 ## 実装済みの任意相関

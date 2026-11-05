@@ -2,7 +2,7 @@
 
 [English](headless-qualification.md)
 
-**未完了です。** [headless 認定 Issue](https://github.com/duck8823/traceary/issues/2470) を追跡します。release や導入済み AI の認定ではありません。
+**実装 checkpoint と native 認定を分離しています。** [実装 QA](https://github.com/duck8823/traceary/issues/2470) と [未完了の installed-AI 認定](https://github.com/duck8823/traceary/issues/2498) は別です。release や native 認定ではありません。
 UI/framework の採否は別です。
 実機 sleep/wake はユーザーが後回しにした未実施項目であり、成功ではありません。
 Muse native 作業も保留のままです。
@@ -39,12 +39,12 @@ gap を成功として許容しません。
 これは合成実行ファイルを使う実 process/CLI 統合検証です。
 導入済み AI の hook、bound native observation、native 現在状態、最終 model/provider、中断後の復旧、sleep/wake、system resource 閾値の認定ではありません。
 
-## 最終統合 head で残る gate
+## 別途追跡する native/全体認定の残り gate
 
 - 実 native の起動・出力・手動入力・detach/reconnect、認定済み bound observation と失効、実終了。未対応 host は unsupported/unknown を明示します。
 - foreign/stale run、PID 再利用、daemon 不在/crash、partial input、slow consumer、overflow/cursor gap、maintenance、shutdown cancel、update defer の fault matrix。
 - 実機 sleep/wake はユーザーが後回しにした NOT_RUN。timer から成功を推定しません。
-- native workload・機材・閾値の事前固定と、総 CPU/RSS/process tree、metadata/output の有界性の実測。
+- native workload・機材・process tree と metadata/output の有界性の証拠。CPU/RSS は明示延期で、実測合格ではありません。再開時に workload・機材・閾値を事前固定します。
 - daemon なしでの既存 CLI/hooks/redaction/spool/history/memory 互換性。
 - 元の target、新 generation、未確認 input/tool/approval の再送なしを満たす実 native 中断・再開。旧 owner の生存/不明、同時再開、target 変更、履歴消失、復旧中 crash の拒否。
 - 独立 High review と、同じ統合 SHA に対する final-head build/full CI/lint/security、承認された wave E2E。
@@ -66,17 +66,19 @@ runtime の振る舞い・上限は変更しません。
 
 ## lifecycle 依存を含む統合 source
 
-QA branch は lifecycle 依存98536b18c53130fd80604b04cc99c50fe9dd2747を含み、親の production source は変更しません。
+元の lifecycle slice98536b18c53130fd80604b04cc99c50fe9dd2747に、レビュー済みの Codex/AGY 実装と unsupported-platform guard を統合しています。QA 自体は runtime 権限を追加しません。host dispatch と actual Wait 後 cleanup の union は別途レビュー・検証しました。
 単一の process fixture で、output・controls・observe・integrated・replay-oracle・shutdown・crash・update・autostart の9 scenario を保持します。
 integrated の live run では、reconnect 後・手動入力前に、update attempt 1回の延期と notice、正確な単一 run・pending0の shutdown preview 1回の cancel を確認します。
 shutdown の confirm は行わず、続く正確な入力・再送防止・resize・Stop まで同じ child/generation が live であることを確認します。
 metadata の延期・preview 取消であり、更新の install、不可逆 shutdown の巻戻し、native 状態の権限ではありません。
 
-review diff を QA の test と英日文書に限定するため、Draft QA PR の base は lifecycle feature branch にします。
-**QA をこの feature branch に merge してはいけません。**
-lifecycle 親が固有の gate を満たして先に main へ merge した後、QA の base を明示的に main へ戻し、実際の最終統合 head で検証します。
-親が変更された場合は、対応する統合証拠も再検証します。
-必要な実機・native・最終 gate が未完了の間は双方を Draft に保ち、元の headless scope を狭い完了条件で置き換えません。
+当初は review を隔離するため QA PR を lifecycle feature branch に向けていましたが、lifecycle 実装は main に merge 済みで、QA の base も明示的に main へ戻しました。
+**QA を feature 親へ merge してはいけません。**
+2026-11-05、保守者は安全な実装と未完了の実機/native認定の分離を明示承認しました。
+実装完了にも source 同一性、独立 High/security review、fresh full CI/lint、固定した統合入力での実装限定 wave が必要です。
+物理/native 条件は後続認定で未完了を保持し、failed/unknown/NOT_RUN を合格にせず、未認定権限を有効化しません。
+元の Daemon 全体 goal は後続認定を満たすまで未完了です。
+
 ## 同一targetで同時稼働する合成child
 
 追加した `concurrent` scenario では、同じ canonical worktree・core-store target・profile で、2件の合成childを同時にliveにします。
@@ -122,3 +124,20 @@ history evictionをslow-live-consumer、unknown tail、実AI、resource性能の
 ## 保守者決定: CPU/RSS認定を延期（2026-11-05）
 
 保守者はCPU/RSS計測を明示的に延期し、応答性は後で体感確認する方針とした。このためCPU/RSS計測は今回のheadless deliveryの停止条件にしない。これは延期であり、リソース予算の実測合格ではない。Stage Aは合成校正のみで、native process familyのCPU/RSS網羅性も未証明のまま。sampling方式や数値予算を新たに採用したものではない。正確なbyte/ack、metadata/outputの上限、process所有と実終了の証拠は維持する。他のnative、sleep/wake、security、review、wave gateは変更しない。
+
+## 実装 fault 証拠の layer
+
+| Fault | 証拠。native 認定ではない |
+| --- | --- |
+| foreign/stale selector、同時 run、重複 input receipt | 直接所有する合成 child と公開 CLI。厳密な zero-effect/no-replay |
+| daemon 不在/crash、cancel/update defer、cursor eviction | 実 daemon/CLI、正確な byte/cursor/receipt/actual Wait。有限の合成 producer |
+| partial input、closed-handle 再利用 | 注入 syscall/write 境界と無関係の実 pipe。OS PID 再利用や native input 中断ではない |
+| slow subscriber、output overflow、PID 再利用 | application/fake-child model。明示 unknown gap、独立正常 reader、epoch 拒否 |
+| queue pressure、causal loss | 実 metadata lock/socket queue と注入 worker の失効。stale stamp を付け直さない |
+| maintenance、committed history | 隔離した実 SQLite transaction/lease。排他中 Busy、解放後読取 |
+| 実機 sleep、native callback/currentness/recovery | NOT_RUN/未認定、または保持済みの実測範囲のみ。上の行から推定しない |
+
+実装限定 wave は実際の合成 process test と、隔離した合成 daemon-free record/search/refine/memory を使います。
+host-record SKIP は明示したままです。
+plugin install、trust 回答、導入済み AI 起動や native 互換性/wave 認定の代替は行いません。
+CPU/RSS は延期のままで、UI・配布・host 設定・auth/model/provider・自動再送を許可しません。

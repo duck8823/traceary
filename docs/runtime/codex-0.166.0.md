@@ -2,6 +2,8 @@
 
 [日本語](codex-0.166.0.ja.md)
 
+**Approved delivery split (2026-11-05):** Safe [implementation/evidence #2474](https://github.com/duck8823/traceary/issues/2474) may integrate separately from [unfinished native qualification #2495](https://github.com/duck8823/traceary/issues/2495). Implementation merge is not native binding/state/recovery certification; unqualified functionality stays fail-closed/unknown.
+
 **Status: optional decoder implemented; ordinary native TUI completed-context resume passed. Command-hook / managed-PTY recovery qualification remains incomplete.** This page tracks [#2474](https://github.com/duck8823/traceary/issues/2474), a child of native qualification #2468. Safe runtime recovery remains #2478.
 
 ## Implemented optional correlation

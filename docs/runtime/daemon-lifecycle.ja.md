@@ -2,7 +2,7 @@
 
 [English](./daemon-lifecycle.md)
 
-この文書は lifecycle 作業で実装した shutdown SDK/CLI、更新 handoff、ローカル opt-in descriptor、継続性 fence を説明します。実機検証と最終 delivery gate が残っているため、作業全体はまだ Draft です。native host binding と安全な同一 session 再開は別作業で、まだ認定済みではありません。リリース済み・実 AI の復旧認定済みとは扱わないでください。
+この文書は実装済みの shutdown SDK/CLI、更新 handoff、default-off opt-in descriptor、継続性 fence を説明します。保守者は2026-11-05に安全な実装と物理/native認定の分離を明示承認しました。実機 lifecycle 認定は [#2494](https://github.com/duck8823/traceary/issues/2494)、最終 installed-AI 統合認定は [#2498](https://github.com/duck8823/traceary/issues/2498) に未完了として保持します。実装の統合をリリース・実 AI 全般の復旧認定と扱いません。
 
 ## detach と shutdown の違い
 
@@ -69,7 +69,7 @@ macOS では固定の kernel timestamp `kern.sleeptime`/`kern.waketime` だけ�
 
 owner API は child の停止や通常の launch/control の凍結を行わず、継続的な更新延期を記録します。status は process 件数だけでなく、pending run/control/reconciliation/lifecycle/uncertainty の全阻害条件を含みます。target 変更と epoch 初期化を跨いで元の UTC 起算時刻と通知公開履歴を保持します。status 参照では通知を消費せず、対応済みの明示 attempt は busy・永続化失敗時にも attempt notice を返します。idle attempt の成功が返すのは正確な空 shutdown preview だけで、installer の競合実行許可ではありません。
 
-別の foreground scheduler が 24 時間後の private metadata notice を永続公開し、native power polling を遅延させません。`notified_24h` は公開の重複抑止であり、**人間への表示や OS 通知の配送証明ではありません**。応答喪失後も overdue status を参照できます。lifecycle metadata coordinator は実際の owner join に含め、以前の shutdown preview を失効させます。不確定な commit では新規 effect と clean marker を拒否します。binary updater は実行しません。ローカル opt-in descriptor は後述し、この Draft では実機検証と最終 delivery gate が残っています。
+別の foreground scheduler が 24 時間後の private metadata notice を永続公開し、native power polling を遅延させません。`notified_24h` は公開の重複抑止であり、**人間への表示や OS 通知の配送証明ではありません**。応答喪失後も overdue status を参照できます。lifecycle metadata coordinator は実際の owner join に含め、以前の shutdown preview を失効させます。不確定な commit では新規 effect と clean marker を拒否します。binary updater は実行しません。ローカル opt-in descriptor は後述し、実機/native 検証は別の認定 Issue に未完了として残します。
 
 owner 側の update handoff は shutdown coordinator を再利用しますが、正確な**空** digest/roster、pending counter がゼロ、対象 target の一致、明示的な daemon exit の確認を構造的に要求します。新規 work で preview は stale になり、生存 PTY を閉じることはできません。既存の private envelope 内で元 shutdown intent の確定と対応する延期情報の退役を原子的に行い、その後に coordinator を join します。失敗時は software 更新成功と扱わず不確定性を保持します。同 ticket の join は元の purpose と target の両方の一致が必要です。closed terminal がゼロの `draining` receipt でも、OS 終了・更新の適用・旧 session 排他の証明ではありません。通常の confirmed shutdown は登録済みの最後の応答書き込みを有界に待ち、accept/attach loop は待ちません。通信喪失は引き続き unknown であり、再送許可ではありません。
 
@@ -87,7 +87,7 @@ status は通知を消費しません。attempt は notice と現在 owner の m
 
 ## 残る検証
 
-実 CLI の shutdown/cancel/history、有限 agent fixture による crash/restart、read-only native power API 参照、合成した causal queue/wake test は実装検証であり、実 AI/native-session や物理 macOS sleep/wake の認定ではありません。readiness 到達済み daemon は正確な private endpoint receipt から再起動できますが、認識できない・未記録の socket は変更しません。許可済み環境での物理 macOS sleep/wake、host 固有 binding/reduction、更新延期・通知、正確な opt-in host descriptor、最終独立 review/native/full CI/wave gate は引き続き必須です。これらの command は host の login settings、launchd job、workstation sleep、配布を変更しません。
+実 CLI の shutdown/cancel/history、有限 agent fixture による crash/restart、read-only native power API 参照、合成した causal queue/wake test は実装検証であり、実 AI/native-session や物理 macOS sleep/wake の認定ではありません。readiness 到達済み daemon は正確な private endpoint receipt から再起動できますが、認識できない・未記録の socket は変更しません。許可済み環境での物理 macOS sleep/wake、host 固有 binding/reduction、更新延期・通知、正確な opt-in host descriptor、認定用の最終独立 review/native/full CI/wave gate は後続認定で引き続き必須です。実装統合にも独立 review・fresh CI/security・実装限定 wave を要求します。これらの command は host の login settings、launchd job、workstation sleep、配布を変更しません。
 
 ## ログイン時自動起動のローカル設定（インストールなし）
 
