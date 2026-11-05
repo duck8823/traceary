@@ -77,3 +77,19 @@ review diff を QA の test と英日文書に限定するため、Draft QA PR �
 lifecycle 親が固有の gate を満たして先に main へ merge した後、QA の base を明示的に main へ戻し、実際の最終統合 head で検証します。
 親が変更された場合は、対応する統合証拠も再検証します。
 必要な実機・native・最終 gate が未完了の間は双方を Draft に保ち、元の headless scope を狭い完了条件で置き換えません。
+## 同一targetで同時稼働する合成child
+
+追加した `concurrent` scenario では、同じ canonical worktree・core-store target・profile で、2件の合成childを同時にliveにします。
+run と generation のidentityは別でなければなりません。
+一方の実runと他方の実generationを組み合わせた入力は、zero-writtenで拒否し、両childの入力artifactを作らず、両方の実journalでtyped not-foundになることを確認します。
+
+各childには、**同じ**request IDで、それぞれ異なる5byteを送ります。
+完全一致の重複は各自のreceiptを読むだけで再送せず、literal markerと異なるresize geometryによって入力の混線・重複を検出します。
+run別artifactで元のcanonical cwd/storeとrun identityも照合します。
+一方へのACK付きStop後、実終了をreconcileする間、他方は同じidentityでliveを維持し、別の明示Stopでのみ終了します。
+両方の終了はsignalによるもので、有限fixtureの期限切れではないことを確認します。
+両終了のreconcile後にdaemonの実Waitを取得し、core bytes不変とbootstrapしない条件も維持します。
+
+合成scenarioは計10件です。
+これは実AIの同時稼働、native会話IDの再利用、native generation binding、中断復旧、resource閾値の認定ではありません。
+既存の最終gateとparent先行のdelivery順序は維持します。

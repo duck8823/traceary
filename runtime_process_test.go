@@ -24,12 +24,12 @@ import (
 )
 
 func TestRuntimeCLIEndToEndRegistrationLaunchAndListWithoutHomeOrCoreBootstrap(t *testing.T) {
-	for _, mode := range []string{"output", "controls", "observe", "integrated", "replay-oracle", "shutdown", "crash", "update", "autostart"} {
+	for _, mode := range []string{"output", "controls", "observe", "integrated", "replay-oracle", "shutdown", "crash", "update", "autostart", "concurrent"} {
 		t.Run(mode, func(t *testing.T) { runtimeCLIProcessFixture(t, mode) })
 	}
 }
 func runtimeCLIProcessFixture(t *testing.T, mode string) {
-	control := mode == "controls" || mode == "integrated" || mode == "replay-oracle"
+	control := mode == "controls" || mode == "integrated" || mode == "replay-oracle" || mode == "concurrent"
 	t.Helper()
 	lifecycle := mode == "shutdown" || mode == "crash"
 
@@ -71,6 +71,7 @@ func main(){
  if len(os.Args)!=1{os.Exit(93)}
  cwd,_:=os.Getwd();data,_:=json.Marshal(map[string]string{"cwd":cwd,"store":os.Getenv("TRACEARY_DB_PATH"),"run":os.Getenv("TRACEARY_RUNTIME_RUN_ID")})
  result:=os.Getenv("TRACEARY_TEST_RUNTIME_RESULT")
+ if os.Getenv("TRACEARY_TEST_RUNTIME_CONCURRENT")=="1" {result+="."+os.Getenv("TRACEARY_RUNTIME_RUN_ID")}
  if os.WriteFile(result,data,0600)!=nil{os.Exit(90)}
  lifecycle:=os.Getenv("TRACEARY_TEST_RUNTIME_SHUTDOWN")=="1"
  if lifecycle {signal.Ignore(syscall.SIGHUP);os.WriteFile(result+".ready",[]byte("ready"),0600)}
@@ -128,6 +129,9 @@ func main(){
 		}
 		if control {
 			cmd.Env = append(cmd.Env, "TRACEARY_TEST_RUNTIME_CONTROL=1")
+		}
+		if mode == "concurrent" {
+			cmd.Env = append(cmd.Env, "TRACEARY_TEST_RUNTIME_CONCURRENT=1")
 		}
 		if mode == "integrated" {
 			cmd.Env = append(cmd.Env, "TRACEARY_TEST_RUNTIME_INTEGRATED=1")
@@ -297,6 +301,29 @@ func main(){
 	launched := jsonCommand("runtime", "launch", "--runtime-dir", metadata, "--epoch", status.Epoch, "--worktree", w["id"].(string), "--profile", "codex-fixture", "--request-id", "explicit-fixture-request")
 	if launched["request_id"] != "explicit-fixture-request" {
 		t.Fatal("launch receipt lost request")
+	}
+	if mode == "concurrent" {
+		fixture := concurrentCLIRuns{root: metadata, epoch: status.Epoch, worktree: w["id"].(string), project: project, store: store, resultBase: resultFile, command: command, jsonCommand: jsonCommand, client: client}
+		fixture.verify(ctx, t, launched)
+		actual, e := os.ReadFile(store)
+		if e != nil || !bytes.Equal(actual, original) {
+			t.Fatal("concurrent children changed core store")
+		}
+		if _, e = os.Stat(filepath.Dir(poisonCore)); !os.IsNotExist(e) {
+			t.Fatal("concurrent children initialized poison core path")
+		}
+		if e = server.Process.Signal(syscall.SIGTERM); e != nil {
+			t.Fatal(e)
+		}
+		select {
+		case e = <-done:
+			if e != nil {
+				t.Fatalf("concurrent owner actual Wait: %v %.1000s", e, serverErrors.String())
+			}
+		case <-ctx.Done():
+			t.Fatal("concurrent owner did not exit after both child exits")
+		}
+		return
 	}
 	if lifecycle {
 		ready := time.Now().Add(4 * time.Second)
