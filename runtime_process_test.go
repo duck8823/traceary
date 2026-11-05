@@ -24,7 +24,7 @@ import (
 )
 
 func TestRuntimeCLIEndToEndRegistrationLaunchAndListWithoutHomeOrCoreBootstrap(t *testing.T) {
-	for _, mode := range []string{"output", "controls", "observe", "integrated", "replay-oracle", "shutdown", "crash", "update", "autostart", "concurrent"} {
+	for _, mode := range []string{"output", "controls", "observe", "integrated", "replay-oracle", "shutdown", "crash", "update", "autostart", "concurrent", "cursor-gap"} {
 		t.Run(mode, func(t *testing.T) { runtimeCLIProcessFixture(t, mode) })
 	}
 }
@@ -32,6 +32,9 @@ func runtimeCLIProcessFixture(t *testing.T, mode string) {
 	control := mode == "controls" || mode == "integrated" || mode == "replay-oracle" || mode == "concurrent"
 	t.Helper()
 	lifecycle := mode == "shutdown" || mode == "crash"
+	if mode == "cursor-gap" && (domain.MaxOutputBytes != 2*1024*1024 || domain.MaxOutputChunk != 32*1024) {
+		t.Fatal("review the fixed eviction workload before changing resource bounds")
+	}
 
 	base := os.TempDir()
 	if runtime.GOOS == "darwin" {
@@ -88,7 +91,7 @@ func main(){
     time.Sleep(5*time.Millisecond)
    }
   }
- } else {os.Stdout.Write(bytes.Repeat([]byte("x"),2*1024*1024))}
+ } else {size:=2*1024*1024;if os.Getenv("TRACEARY_TEST_RUNTIME_CURSOR_GAP")=="1"{size+=32*1024};os.Stdout.Write(bytes.Repeat([]byte("x"),size))}
  if os.Getenv("TRACEARY_TEST_RUNTIME_OBSERVE")=="1" {
   deadline:=time.Now().Add(15*time.Second)
   for {if _,e:=os.Stat(result+".observe-release");e==nil{break};if time.Now().After(deadline){os.Exit(92)};time.Sleep(5*time.Millisecond)}
@@ -138,6 +141,9 @@ func main(){
 		}
 		if mode == "observe" {
 			cmd.Env = append(cmd.Env, "TRACEARY_TEST_RUNTIME_OBSERVE=1")
+		}
+		if mode == "cursor-gap" {
+			cmd.Env = append(cmd.Env, "TRACEARY_TEST_RUNTIME_CURSOR_GAP=1")
 		}
 
 		return cmd
@@ -715,12 +721,21 @@ func main(){
 		}
 		return count, last
 	}
-	count, last := attach("0")
-	if count != 2*1024*1024 || last != "2097152" {
-		t.Fatal("actual CLI lost native output")
-	}
-	if count, _ = attach(last); count != 0 {
-		t.Fatal("actual CLI replayed already consumed bytes")
+	if mode == "cursor-gap" {
+		selection := map[string]string{"epoch": status.Epoch, "run": runView["run"].(string), "generation": runView["generation"].(string), "worktree": w["id"].(string), "profile": "codex-fixture"}
+		base, head := uint64(32768), uint64(2129920)
+		for _, cursor := range []uint64{0, base, head} {
+			stream := startIntegratedCLIOutput(t, command(append(attachArgs, "--cursor", strconv.FormatUint(cursor, 10))...), selection)
+			stream.replayAfterEviction(t, cursor, base, head)
+		}
+	} else {
+		count, last := attach("0")
+		if count != 2*1024*1024 || last != "2097152" {
+			t.Fatal("actual CLI lost native output")
+		}
+		if count, _ = attach(last); count != 0 {
+			t.Fatal("actual CLI replayed already consumed bytes")
+		}
 	}
 	actual, err := os.ReadFile(store)
 	if err != nil || !bytes.Equal(actual, original) {

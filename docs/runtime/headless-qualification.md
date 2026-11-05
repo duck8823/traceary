@@ -44,10 +44,16 @@ The additional `concurrent` scenario launches two simultaneously live synthetic 
 
 Each child then receives its own distinct five-byte payload under the **same** request ID. Exact duplicates inspect their own receipt without replay; literal-marker and distinct resize geometries detect crossed or repeated input. Per-run artifacts must confirm the original canonical cwd/store and run identity. Acknowledged Stop of the first child must reconcile actual exit while the second remains live; only its separate explicit Stop may end the second. Both exits must be signal exits, not the finite fixture's expiry. The daemon's actual Wait follows both reconciled exits; core bytes and no-bootstrap constraints remain unchanged.
 
-This makes ten synthetic scenarios. It does not qualify concurrent installed AIs, reused native conversation IDs, native generation binding, native interruption/resume or resource thresholds. Existing final gates and parent-first delivery order remain required.
+Together with the retained-cursor scenario below, the fixture now has eleven modes. This does not qualify concurrent installed AIs, reused native conversation IDs, native generation binding, native interruption/resume or resource thresholds. Existing final gates and parent-first delivery order remain required.
 
 ## Refusal after actual daemon exit
 
 After the integrated child and its original daemon have actually exited, the fixture submits valid retired-selection attach/input/resize/Stop requests once each. They must fail without echoing the synthetic input, changing bounded runtime metadata, restarting the original child or initializing the core store. The owner socket must already be absent after actual daemon Wait; unchanged file modes/content hashes also detect implicit owner creation.
 
 Optional observation keeps its existing best-effort CLI contract: exit0 with exactly `unavailable`, `unbound` and `admission_only`, not a queued/current-state claim. It must likewise leave runtime/core/native artifacts unchanged. The initial test incorrectly required observation to return nonzero; that oracle failure is retained and corrected against the existing documented implementation, not presented as a product fix. No native/global exclusion or failure-window qualification is inferred.
+
+## Exact retained-history eviction through the public CLI
+
+Only `cursor-gap` emits a fixed2MiB+32KiB of `x`; all previous modes retain their original workloads. The default2MiB retention and32KiB chunk bounds are checked before launch, not silently adjusted. After actual child exit7, attaching at cursor0 must report ended capture, base32768/head2129920, then exactly one known `evicted` gap[0,32768) with delivery_unknown=false. Every retained byte must follow contiguous canonical cursors through the exact head, with unchanged selection on every frame, an end marker, exact helper trailer and actual read-only-client Wait0.
+
+Attaching at32768 must replay the retained2MiB without a gap; reconnecting at2129920 must replay no data. Original core/target/no-bootstrap and actual daemon-Wait checks remain. The initial inherited2MiB producer failed the new eviction oracle; increasing only the new synthetic workload supplied the missing pressure. That RED is retained as a fixture deficiency, not a runtime defect. History eviction is not a slow-live-consumer, unknown-tail, native-AI or resource-performance qualification.

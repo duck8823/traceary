@@ -34,14 +34,17 @@ type integratedCLIFrame struct {
 	Info struct {
 		Selection map[string]string `json:"selection"`
 		Ended     bool              `json:"ended"`
+		Base      string            `json:"base"`
+		Head      string            `json:"head"`
 	} `json:"info"`
 	Start string `json:"start"`
 	End   string `json:"end"`
 	Data  []byte `json:"data"`
 	Gap   struct {
-		Reason string `json:"reason"`
-		From   string `json:"from"`
-		To     string `json:"to"`
+		Reason          string `json:"reason"`
+		From            string `json:"from"`
+		To              string `json:"to"`
+		DeliveryUnknown *bool  `json:"delivery_unknown"`
 	} `json:"gap"`
 }
 
@@ -139,6 +142,31 @@ func (s *integratedCLIOutput) ended(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reconnected CLI did not actually exit normally: %v", err)
 	}
+}
+
+func (s *integratedCLIOutput) replayAfterEviction(t *testing.T, cursor, base, head uint64) {
+	t.Helper()
+	f := s.next(t)
+	if f.Kind != "snapshot" || !f.Info.Ended || f.Info.Base != strconv.FormatUint(base, 10) || f.Info.Head != strconv.FormatUint(head, 10) {
+		t.Fatal("retained-output snapshot lost exact eviction bounds or actual capture end")
+	}
+	s.cursor = cursor
+	if cursor < base {
+		f = s.next(t)
+		if f.Kind != "gap" || f.Gap.Reason != "evicted" || f.Gap.From != strconv.FormatUint(cursor, 10) || f.Gap.To != strconv.FormatUint(base, 10) || f.Gap.DeliveryUnknown == nil || *f.Gap.DeliveryUnknown {
+			t.Fatal("known history eviction was hidden or confused with unknown live delivery")
+		}
+		s.cursor = base
+	}
+	for s.cursor < head {
+		f = s.next(t)
+		end := s.cursor + uint64(len(f.Data))
+		if f.Kind != "data" || len(f.Data) == 0 || end > head || f.Start != strconv.FormatUint(s.cursor, 10) || f.End != strconv.FormatUint(end, 10) || !bytes.Equal(f.Data, bytes.Repeat([]byte("x"), len(f.Data))) {
+			t.Fatal("retained output replay had a gap, duplicate, changed bytes or noncanonical cursor")
+		}
+		s.cursor = end
+	}
+	s.ended(t)
 }
 
 // The finite Go subprocess helper appends PASS or its cancellation diagnostic.

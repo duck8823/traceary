@@ -90,7 +90,7 @@ run別artifactで元のcanonical cwd/storeとrun identityも照合します。
 両方の終了はsignalによるもので、有限fixtureの期限切れではないことを確認します。
 両終了のreconcile後にdaemonの実Waitを取得し、core bytes不変とbootstrapしない条件も維持します。
 
-合成scenarioは計10件です。
+後述のretained-cursor scenarioを含め、合成fixtureは計11modeです。
 これは実AIの同時稼働、native会話IDの再利用、native generation binding、中断復旧、resource閾値の認定ではありません。
 既存の最終gateとparent先行のdelivery順序は維持します。
 
@@ -105,3 +105,16 @@ queuedや現在状態の証明ではありません。
 この場合もruntime/core/native artifactを変更しません。
 最初のテストはobservationにもnonzeroを要求して失敗したため、そのoracle失敗を保持し、既存の文書化された実装契約に合わせて修正しました。
 製品の修正とは扱わず、native・global排他・障害途中の認定にも読み替えません。
+
+## Public CLIでのretained historyの正確なeviction
+
+`cursor-gap`だけが固定2MiB+32KiBの`x`を出力し、既存modeのworkloadは維持します。
+既定の保持2MiB・chunk32KiBは起動前に照合し、黙って変更しません。
+childの実exit7後、cursor0のattachでcapture終了・base32768/head2129920を確認し、delivery_unknown=falseの既知`evicted` gap[0,32768)が正確に1件続くことを要求します。
+各frameのselectionを維持し、保持された全byteをcanonicalかつ連続したcursorで正確なheadまで読み、end marker・helper trailer・読み取り専用clientの実Wait0を確認します。
+
+32768からのattachはgapなしで保持2MiBを再読し、2129920からの再接続はdataを再送しません。
+元core/target不変・bootstrapしない条件・Daemonの実Waitも維持します。
+最初は既存2MiB producerでeviction oracleが失敗し、新しい合成workloadだけを増やして必要な圧力を加えました。
+このREDはfixtureの不足として保持し、runtimeの欠陥とは扱いません。
+history evictionをslow-live-consumer、unknown tail、実AI、resource性能の認定には読み替えません。
