@@ -26,8 +26,11 @@
 
 - [Native 観測配送](./runtime/native-observation-delivery.ja.md)：実装済みの定量上限付き CLI／hook metadata 配送。native 認定は別途必要
 - [Runtime 観測の投影](./runtime/observation-projection.ja.md)：因果 reducer、有効期限、最新 snapshot。製品の metadata は未束縛のまま
+- [Codex 0.166.0 の native 認定作業](./runtime/codex-0.166.0.ja.md)：任意 claim decoder は実装済み。native binding と復旧は未認定
 - [Claude Code native 認定](./runtime/claude-2.1.318.ja.md): 正確な版の実測、duplicate handler 合成の却下、残る native gate
 - [管理対象AIの明示的な native 復旧](./runtime/managed-recovery.ja.md)：明示 resume の契約、不確定性、現在の対応制限
+
+- [Antigravity native 認定](./runtime/antigravity-1.5.0.ja.md)：1.5.0 source 調査と未完了の native gate
 
 ## 連携まわり
 
