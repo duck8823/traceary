@@ -138,6 +138,20 @@ jobs:
       - name: Run remaining tests
         run: go list ./... | grep -v -e '^github.com/duck8823/traceary/infrastructure/sqlite$' -e '^github.com/duck8823/traceary/presentation/' | xargs go test -count=1
 
+      # Explicit files exercise the unsupported source contract on this host;
+      # the Windows test binary below is compiled only, never executed here.
+      - name: Verify unsupported metadata adapter contract
+        run: go test infrastructure/runtime/native_antigravity_metadata_other.go infrastructure/runtime/native_antigravity_metadata_other_test.go -count=1
+
+      - name: Cross-build Windows metadata adapters
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: '0'
+        run: |
+          go build ./...
+          go test -c ./infrastructure/runtime -o "${RUNNER_TEMP}/traceary-runtime-windows.test.exe"
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
