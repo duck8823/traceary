@@ -75,5 +75,37 @@
       "sources": false
     },
     "discovered_mcp_section_counts": []
+  },
+  "local_context_diagnostic": {
+    "result": "FAIL",
+    "reason": "local_context_command_completion_unconfirmed_no_enter_sent",
+    "model_prompt_requested": false,
+    "enter_sent": false,
+    "raw_terminal_account_or_context_saved": false,
+    "normal_SIGTERM_actual_exit_observed": false,
+    "human_authorized_exact_child_SIGKILL_sent": true,
+    "human_waiver": "current argv and cwd only for this diagnostic child",
+    "actual_original_wait": "PENDING",
+    "same_actual_controller_handle_retained": true,
+    "new_native_attempt_allowed": false,
+    "product_ownership_contract_changed": false,
+    "harness_cleanup_control_path_defect_identified": true,
+    "PTY_drain_stall_causation": "UNPROVEN",
+    "proof_sha256": {
+      "traceary-2477-context-diagnostic.py": "6c5554615ba9c1df528f06efbbd4af6b7b588dc878c0ed3152aa60d408b8b5bb",
+      "traceary-2477-context-libproc-child-metadata.json": "9cc4f7550bb446c7f401dd793b065f625a52d30b71c708fbe7899d86e6e18cde",
+      "traceary-2477-context-authorized-cleanup.json": "625cd5fb519f7521b28db8b0f6122413d14052a36ea8bdecd2bc92924dd19c47",
+      "traceary-2477-context-owner-diagnosis.json": "1024cceced16b8d956fb6811290a7309dfcd3ea3668cce5e49cdacdaf324a3a2",
+      "traceary-2477-context-diagnostic-prewait-snapshot.json": "c41311b50c309dda7cd863853877d8d3fd795bc4f2672d8df24f70cfed58d1b7"
+    }
+  },
+  "official_source_lookup": {
+    "reported_prefix_commit_lookup_http": 422,
+    "first_100_tags_matching_1_0_62": 0,
+    "current_SOURCE_REV_matches_prefix": false,
+    "current_SOURCE_REV_latest_listed_date": "2026-09-29",
+    "release_1_0_62_documented_date": "2026-10-16",
+    "exact_installed_source_correspondence_qualified": false,
+    "matching_source_impossible_claimed": false
   }
 }

@@ -46,3 +46,34 @@ option の受け付けだけで memory 除外、実 model/provider、callback �
 続いて影響・逆依存テスト、最終独立 review、fresh CI/security、同 SHA wave を実施します。
 UI、配布、wrapper/broker、本番操作は含めません。
 Muse と実機 sleep/wake は別途、保留を維持します。
+
+## 追加の local 専用診断：認定ではない
+
+実際の controlling PTY、同じ固定 executable・制限 flag、新しい空の packet 専用 cwd で診断しました。
+文書化された local `/context` を入力しましたが、固有の command completion を確認できなかったため、**Enter は送信せず**、model prompt も要求していません。
+結果は FAIL であり、effective memory/tool/backend の証明ではありません。
+terminal・account・context 本文は保存していません。
+
+通常の SIGTERM cleanup 後、観測 window 内に実 Wait が得られませんでした。
+元 controller は保持し、再起動も終了扱いもしていません。
+対象限定の `pgrep` では child が省かれましたが、Apple の exact-parent `proc_listchildpids` で唯一の直接 Grok child と、一致する UID・process group を確認しました。
+現在の argv/session metadata と cwd は取得できませんでした。
+maintainer は **今回の診断 child 一件だけ** この2つの現在照合を免除し、固定 driver/native source と現在の直接親子関係・UID・group・Grok 名を再確認して SIGKILL を1回送りました。
+**signal の送信は実終了ではなく、元の Wait は未完了です。**
+group、他の AI、process adoption、製品の所有・終了契約は変更していません。
+この owner を照合できるまでは、次の native 試行を開始しません。
+
+診断 harness にも制御経路の欠陥があります。
+観測失敗後に PTY の読取りを止め、Popen handle を保持する一方、cleanup command を渡す経路がありません。
+製品 daemon の drain/control/Wait は別実装であり、同じ欠陥があるという証拠ではありません。
+次回前に、cleanup 中も PTY drain を維持し、実所有 handle への明示制御と Wait の即時保存を用意します。
+広域走査や自動 force escalation は行いません。
+読取り停止が今回の原因かどうかは未証明です。
+
+## 公式 source との対応は未検証
+
+[公式 CLI reference](https://docs.x.ai/build/cli/reference) は session 限定の制限を説明し、[release notes](https://x.ai/changelog/build) は2026-10-16に1.0.62を掲載しています。
+[公式公開 source](https://github.com/xai-org/grok-build) を、そのまま導入済み source と扱ってはいけません。
+報告された1474f9cbdd91 prefix の照会は HTTP422で、最初の100 tags に1.0.62一致はなく、現在 SOURCE_REV は異なり、列挙された最新変更日は2026-09-29でした。
+この範囲の照会だけで、一致 source が存在しないとは断定しません。
+公開 snapshot を導入済み binary と認定せず、binary/source の置換や model/privacy/backend guard の緩和も行いません。
