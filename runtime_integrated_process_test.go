@@ -4,10 +4,13 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
@@ -190,4 +193,98 @@ func integratedPreviewCancelArgs(t *testing.T, root string, selection map[string
 		args = append(args, "--"+strings.ReplaceAll(k, "_", "-"), strconv.Itoa(want))
 	}
 	return args
+}
+
+// The daemon's original exec.Cmd has already been Waited. Retired selection
+// metadata cannot authorize starting a new owner or silently accepting effects.
+func assertAbsentDaemonCLIRefusals(t *testing.T, command func(...string) *exec.Cmd, root string, selectionArgs []string) {
+	t.Helper()
+	snapshot := func() map[string]string {
+		t.Helper()
+		files := make(map[string]string)
+		err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+			if err != nil {
+				return fmt.Errorf("walk absent-daemon fixture: %w", err)
+			}
+			if len(files) >= 64 {
+				t.Fatal("oversized absent-daemon metadata fixture")
+			}
+			info, err := entry.Info()
+			if err != nil {
+				return fmt.Errorf("inspect absent-daemon fixture: %w", err)
+			}
+			if info.IsDir() {
+				files[path] = info.Mode().String()
+				return nil
+			}
+			if !info.Mode().IsRegular() || info.Size() > 1024*1024 {
+				t.Fatal("unsafe/unbounded absent-daemon metadata fixture")
+			}
+			file, err := os.Open(path)
+			if err != nil {
+				return fmt.Errorf("open absent-daemon fixture: %w", err)
+			}
+			data, err := io.ReadAll(io.LimitReader(file, 1024*1024+1))
+			_ = file.Close()
+			if err != nil {
+				return fmt.Errorf("read absent-daemon fixture: %w", err)
+			}
+			if len(data) > 1024*1024 {
+				t.Fatal("absent-daemon metadata grew beyond fixture bound")
+			}
+			hash := sha256.Sum256(data)
+			files[path] = info.Mode().String() + string(hash[:])
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return files
+	}
+	if _, err := os.Lstat(filepath.Join(root, "daemon.sock")); !os.IsNotExist(err) {
+		t.Fatal("fixture owner endpoint remained after actual daemon Wait")
+	}
+	before := snapshot()
+	for _, test := range []struct {
+		kind  string
+		extra []string
+	}{
+		{"attach", []string{"--cursor", "0"}},
+		{"input", []string{"--request-id", "absent-input", "--manual-terminal"}},
+		{"resize", []string{"--request-id", "absent-resize", "--sequence", "2", "--rows", "32", "--cols", "102"}},
+		{"stop", []string{"--request-id", "absent-stop", "--acknowledge-work-loss"}},
+		{"observe", []string{"--host", "codex", "--host-version", "fixture-runtime 1", "--event-id", "spool:absent-owner", "--kind", "prompt_boundary"}},
+	} {
+		args := append([]string{"runtime", test.kind}, selectionArgs...)
+		cmd := command(append(args, test.extra...)...)
+		payload := []byte("bad!!")
+		if test.kind == "input" {
+			cmd.Stdin = bytes.NewReader(payload)
+		}
+		out, err := cmd.CombinedOutput()
+		if bytes.Contains(out, payload) {
+			t.Fatalf("absent daemon %s accepted a request or echoed input", test.kind)
+		}
+		if test.kind == "observe" {
+			// Optional hook delivery deliberately succeeds without an owner, but
+			// may report only unavailable/unbound admission, never queued state.
+			var outcome map[string]any
+			for _, line := range bytes.Split(out, []byte("\n")) {
+				if len(line) > 0 && line[0] == '{' {
+					if decodeErr := json.Unmarshal(line, &outcome); decodeErr != nil {
+						t.Fatal(decodeErr)
+					}
+					break
+				}
+			}
+			if err != nil || len(outcome) != 4 || outcome["schema_version"] != float64(1) || outcome["outcome"] != "unavailable" || outcome["binding"] != "unbound" || outcome["authority"] != "admission_only" {
+				t.Fatal("absent observation invented delivery or broke best-effort compatibility")
+			}
+		} else if err == nil {
+			t.Fatalf("absent daemon %s accepted a request", test.kind)
+		}
+		if !reflect.DeepEqual(snapshot(), before) {
+			t.Fatalf("absent daemon %s mutated runtime metadata or started an owner", test.kind)
+		}
+	}
 }

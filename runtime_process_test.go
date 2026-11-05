@@ -751,4 +751,16 @@ func main(){
 	case <-ctx.Done():
 		t.Fatal("daemon did not exit after owned reconciliation")
 	}
+	if mode == "integrated" {
+		assertAbsentDaemonCLIRefusals(t, command, metadata, attachArgs[2:])
+		if after, e := os.ReadFile(store); e != nil || !bytes.Equal(after, original) {
+			t.Fatal("absent-daemon requests changed core store")
+		}
+		if after, e := os.ReadFile(resultFile); e != nil || !bytes.Equal(after, actual) {
+			t.Fatal("absent-daemon requests restarted or changed the original child")
+		}
+		if _, e := os.Stat(filepath.Dir(poisonCore)); !os.IsNotExist(e) {
+			t.Fatal("absent-daemon requests initialized poison core path")
+		}
+	}
 }

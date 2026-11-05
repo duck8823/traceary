@@ -93,3 +93,15 @@ run別artifactで元のcanonical cwd/storeとrun identityも照合します。
 合成scenarioは計10件です。
 これは実AIの同時稼働、native会話IDの再利用、native generation binding、中断復旧、resource閾値の認定ではありません。
 既存の最終gateとparent先行のdelivery順序は維持します。
+
+## Daemonの実終了後の拒否
+
+integrated childと元Daemonの実終了後、有効な旧selectionでattach・input・resize・Stopを各1回要求します。
+合成入力をechoせず、bounded runtime metadataを変更せず、元childを再起動せず、core storeを初期化せずに失敗することを確認します。
+Daemonの実Wait後にはowner socketが既に存在せず、file modeと内容hashが変わらないことでも暗黙owner作成を検出します。
+
+任意のobservationは既存のbest-effort CLI契約を維持し、exit0で正確に`unavailable`・`unbound`・`admission_only`を返します。
+queuedや現在状態の証明ではありません。
+この場合もruntime/core/native artifactを変更しません。
+最初のテストはobservationにもnonzeroを要求して失敗したため、そのoracle失敗を保持し、既存の文書化された実装契約に合わせて修正しました。
+製品の修正とは扱わず、native・global排他・障害途中の認定にも読み替えません。
