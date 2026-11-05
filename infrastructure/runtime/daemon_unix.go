@@ -56,6 +56,7 @@ type daemonSocket struct {
 	slots      chan struct{}
 }
 type pendingObservation struct {
+	selected *app.ObservationReceipt
 	metadata app.ObservationMetadata
 	bytes    int
 	stamp    app.ObservationStamp
@@ -469,7 +470,7 @@ func (s *daemonServer) handle(conn *net.UnixConn, endpoint *daemonSocket) {
 			return
 		}
 		if hello {
-			if request.Operation != "hello" || request.Lifecycle != nil || request.Role != endpoint.role || request.Observation != nil || request.Launch != nil || request.Page != nil || request.Attach != nil || request.Control != nil || request.Receipt != nil {
+			if request.Operation != "hello" || request.Role != endpoint.role || request != (runtimeRequest{Version: request.Version, ID: request.ID, Operation: request.Operation, Role: request.Role}) {
 				reply.Code = "invalid"
 				_ = writeRuntimeFrame(conn, reply)
 				return
@@ -479,6 +480,8 @@ func (s *daemonServer) handle(conn *net.UnixConn, endpoint *daemonSocket) {
 			hello = false
 		} else if request.Role != "" {
 			reply.Code = "invalid"
+		} else if request.SelectedObservation != nil || request.Operation == selectedObservationOperation {
+			s.selectedObservationReply(&reply, request, endpoint, len(data))
 		} else if request.History != nil {
 			if endpoint.role != "management" {
 				reply.Code = "unsupported"
@@ -505,6 +508,14 @@ func (s *daemonServer) handle(conn *net.UnixConn, endpoint *daemonSocket) {
 				}
 			} else {
 				reply.Code = "unsupported"
+			}
+		} else if request.Resume != nil || request.Operation == "resume" {
+			if endpoint.role != "management" {
+				reply.Code = "unsupported"
+			} else if request.Resume == nil {
+				reply.Code = "invalid"
+			} else {
+				s.resumeReply(&reply, request.Resume)
 			}
 		} else if request.Control != nil || request.Receipt != nil {
 			clear(data)
@@ -541,14 +552,25 @@ func (s *daemonServer) handle(conn *net.UnixConn, endpoint *daemonSocket) {
 				}
 				state := "listening"
 				if s.runtime != nil {
+					disabled := s.runtime.Disabled()
+					if !disabled {
+						capabilities = append(capabilities, selectedObservationOperation)
+						delivery = "configured"
+						if s.degraded.Load() {
+							delivery = "degraded"
+						}
+					}
 					capabilities = append(capabilities, "list_runs", "attach", "stop", "receipt", "shutdown_plan")
 					if !s.runtime.ShutdownInProgress() {
 						capabilities = append(capabilities, "input", "resize")
 					}
-					if s.runtime.Disabled() {
+					if disabled {
 						state = "draining"
 					} else {
 						capabilities = append(capabilities, "launch")
+						if s.runtime.SupportsResume() {
+							capabilities = append(capabilities, "resume")
+						}
 					}
 				}
 				reply.Code = "ok"
@@ -596,6 +618,10 @@ func (s *daemonServer) enqueue(metadata app.ObservationMetadata, size int) bool 
 			return false
 		}
 	}
+	return s.enqueueItem(pendingObservation{metadata: metadata, bytes: size, stamp: stamp})
+}
+func (s *daemonServer) enqueueItem(item pendingObservation) bool {
+	size := item.bytes
 	s.queueMu.Lock()
 	if s.ctx.Err() != nil || len(s.queue) >= s.daemon.options.ObservationFrames || size > s.daemon.options.ObservationBytes-s.queueBytes {
 		s.queueMu.Unlock()
@@ -605,7 +631,7 @@ func (s *daemonServer) enqueue(metadata app.ObservationMetadata, size int) bool 
 		}
 		return false
 	}
-	s.queue = append(s.queue, pendingObservation{metadata: metadata, bytes: size, stamp: stamp})
+	s.queue = append(s.queue, item)
 	s.queueBytes += size
 	s.queueMu.Unlock()
 	select {
@@ -638,7 +664,18 @@ func (s *daemonServer) consume() {
 			if s.ctx.Err() != nil {
 				return
 			}
-			if s.daemon.options.CausalReceiver != nil {
+			if item.selected != nil {
+				if s.runtime == nil {
+					s.degraded.Store(true)
+					continue
+				}
+				ctx, cancel := context.WithTimeout(s.ctx, ManagementRuntimeBudget)
+				err := s.runtime.ConsumeObservation(ctx, *item.selected)
+				cancel()
+				if err != nil {
+					s.degraded.Store(true)
+				}
+			} else if s.daemon.options.CausalReceiver != nil {
 				if item.stamp.Context().Err() != nil {
 					s.degraded.Store(true)
 					continue // Old queued evidence cannot acquire a new intake stamp.
@@ -701,7 +738,7 @@ func (d *LocalDaemon) Status(ctx context.Context, root string) (app.DaemonStatus
 	if err != nil {
 		return app.DaemonStatus{}, err
 	}
-	if reply.Lifecycle != nil || reply.History != nil || reply.HistoryHint != nil || reply.Control != nil || reply.Output != nil || reply.Code != "ok" || reply.Status == nil || reply.Role != "" || reply.Run != nil || reply.Page != nil {
+	if reply.Lifecycle != nil || reply.Resume != nil || reply.History != nil || reply.HistoryHint != nil || reply.Control != nil || reply.Output != nil || reply.Code != "ok" || reply.Status == nil || reply.Role != "" || reply.Run != nil || reply.Page != nil {
 		return app.DaemonStatus{}, app.ErrRuntimeProtocol
 	}
 	return decodeRuntimeStatus(reply)
@@ -718,7 +755,7 @@ func (d *LocalDaemon) Observe(ctx context.Context, root string, metadata app.Obs
 	if err != nil {
 		return err
 	}
-	if reply.Lifecycle != nil || reply.History != nil || reply.HistoryHint != nil || reply.Control != nil || reply.Output != nil || reply.Code != "queued" || reply.Status != nil || reply.Role != "" || reply.Run != nil || reply.Page != nil {
+	if reply.Code != "queued" || !reply.acknowledgmentOnly() {
 		return app.ErrRuntimeProtocol
 	}
 	return nil
@@ -766,7 +803,7 @@ func (d *LocalDaemon) openRuntime(ctx context.Context, root, operation string) (
 		return nil, "", app.ErrUnsafeRuntime
 	}
 	name, role := "daemon.sock", "management"
-	if operation == "observe" || operation == "history_hint" {
+	if operation == "observe" || operation == "history_hint" || operation == selectedObservationOperation {
 		name, role = "observations.sock", "observations"
 	}
 	var before unix.Stat_t
@@ -817,7 +854,7 @@ func (d *LocalDaemon) openRuntime(ctx context.Context, root, operation string) (
 	if err != nil {
 		return nil, "", err
 	}
-	if hello.Lifecycle != nil || hello.History != nil || hello.HistoryHint != nil || hello.Control != nil || hello.Output != nil || hello.Code != "ok" || hello.Role != role || hello.Status != nil || hello.Run != nil || hello.Page != nil {
+	if hello.Lifecycle != nil || hello.Resume != nil || hello.History != nil || hello.HistoryHint != nil || hello.Control != nil || hello.Output != nil || hello.Code != "ok" || hello.Role != role || hello.Status != nil || hello.Run != nil || hello.Page != nil {
 		return nil, "", app.ErrRuntimeProtocol
 	}
 	success = true

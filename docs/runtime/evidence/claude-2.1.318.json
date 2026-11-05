@@ -1,0 +1,618 @@
+{
+  "schema_version": 1,
+  "issue": 2475,
+  "status": "exact_version_session_correlation_and_managed_recovery_only",
+  "source": {
+    "cli_version": "2.1.318 (Claude Code)",
+    "native_sha256": "677a2ea7bf576cedd20e191d973914ed8a41796f53a63b1923381ddc4d5b5e7d",
+    "normal_entry_sha256": "079234054a9e035839f50118b618c1568c8ae1e20950f9b668a60bf27722e3cc",
+    "upstream_revision_proven": false,
+    "compatible_range_inferred": false,
+    "normal_entry_import_sha256": {
+      "claude_router.py": "c9af398d4f3dc015572786e0ccb5e8944ab758d618f44b6fe792100cfb602b18",
+      "verify_wif.py": "32be0b7e7f9c076898fbbca3c926d0269e0effb8aa807087debffb83192c875f"
+    }
+  },
+  "auth_class": "claude.ai / firstParty cached subscription; CLI-owned, no print/SDK path or API-key forwarding",
+  "completed_context_resume": {
+    "result": "PASS_NATIVE_FOREGROUND_COMPLETED_CONTEXT_RESUME_ONLY",
+    "same_native_uuid": true,
+    "original_target_store_model_preserved": true,
+    "model": "claude-opus-5-5",
+    "original_model_turn_completed": true,
+    "original_owner_cleanup_exit": 143,
+    "original_cleanup_reason": "list-only observer missed actual user content string; marker/native turn completion/tool0 verified before fresh actual-owner cleanup",
+    "resumed_owner_exit": 0,
+    "new_conversation_fallback": false,
+    "original_or_pending_input_replayed": false
+  },
+  "identical_primary_handler_composition": {
+    "result": "FAIL",
+    "original_native_stop_handler_count": 3,
+    "additional_per_run_same_command_handler_count": 4,
+    "native_hook_errors": 0,
+    "core_transcripts_before": 2,
+    "core_transcripts_after": 4,
+    "adoption": "REJECTED: do not append a second primary Traceary handler or infer non-destructive replacement"
+  },
+  "metadata_only_test_observer": {
+    "result": "PASS_NATIVE_HOOK_METADATA_AND_PRIMARY_CAPTURE_ONLY",
+    "role": "test-only additive metadata collector, not product integration or agent wrapper",
+    "collector_sha256": "2fd980c0b7b5e24215bebbfb8d5088701e72574a0964e4b9048d054ca687fbce",
+    "collector_tests": "PASS empty-output/valid/invalid/scalar/oversize",
+    "event_counts": {
+      "SessionEnd": 1,
+      "UserPromptSubmit": 1,
+      "Stop": 1,
+      "SessionStart": 1
+    },
+    "root_field_types_by_event": {
+      "SessionEnd": {
+        "session_id": "string",
+        "transcript_path": "string",
+        "cwd": "string",
+        "scratchpad_dir": "string",
+        "prompt_id": "string",
+        "hook_event_name": "string",
+        "reason": "string"
+      },
+      "UserPromptSubmit": {
+        "session_id": "string",
+        "transcript_path": "string",
+        "cwd": "string",
+        "scratchpad_dir": "string",
+        "prompt_id": "string",
+        "permission_mode": "string",
+        "hook_event_name": "string",
+        "prompt": "string"
+      },
+      "Stop": {
+        "session_id": "string",
+        "transcript_path": "string",
+        "cwd": "string",
+        "scratchpad_dir": "string",
+        "prompt_id": "string",
+        "permission_mode": "string",
+        "effort": "object",
+        "hook_event_name": "string",
+        "stop_hook_active": "bool",
+        "last_assistant_message": "string",
+        "background_tasks": "array",
+        "session_crons": "array"
+      },
+      "SessionStart": {
+        "session_id": "string",
+        "transcript_path": "string",
+        "cwd": "string",
+        "scratchpad_dir": "string",
+        "hook_event_name": "string",
+        "source": "string",
+        "seconds_since_last_response": "number",
+        "context_tokens": "number",
+        "prompt_cache_likely_expired": "bool",
+        "estimated_cache_write_usd": "number"
+      }
+    },
+    "turn_id_present_by_event": {
+      "SessionEnd": false,
+      "UserPromptSubmit": false,
+      "Stop": false,
+      "SessionStart": false
+    },
+    "permission_mode_by_event": {
+      "SessionEnd": "absent_or_unknown",
+      "UserPromptSubmit": "plan",
+      "Stop": "plan",
+      "SessionStart": "absent_or_unknown"
+    },
+    "native_generation_fields_by_event": {
+      "SessionEnd": [],
+      "UserPromptSubmit": [],
+      "Stop": [],
+      "SessionStart": []
+    },
+    "runtime_hint_names_present_by_event": {
+      "SessionEnd": [],
+      "UserPromptSubmit": [],
+      "Stop": [],
+      "SessionStart": []
+    },
+    "core_transcripts_before": 4,
+    "core_transcripts_after": 5,
+    "actual_owner_exit": 0,
+    "runtime_hint_names_checked": [
+      "TRACEARY_RUNTIME_RUN",
+      "TRACEARY_RUNTIME_GENERATION",
+      "TRACEARY_RUNTIME_EPOCH"
+    ],
+    "runtime_hint_probe_limitation": "RUN_ID is the actual product run hint; this collector checked RUN, not RUN_ID. The orchestrator supplied no runtime hints, but the sample does not prove absence of every inherited hint or nested witness. No binding capability is enabled."
+  },
+  "unqualified": [
+    "independent native live-turn/generation witness and current working/waiting/approval capability",
+    "live descriptor enrichment of existing primary capture; private recovery callback is separate"
+  ],
+  "controls": {
+    "native_hooks_guardian_disabled": false,
+    "agent_wrapper_added": false,
+    "raw_prompt_transcript_account_credential_shared": false,
+    "physical_sleep_wake": "user-deferred NOT_RUN",
+    "persistent_global_project_auth_permission_settings_changed": false,
+    "temporary_project_settings_scope": "Only the preapproved synthetic native fixture used plan mode and deny-only PreToolUse. Exact owned content hash checked before removal; original absence restored, no global/auth changes.",
+    "temporary_synthetic_project_settings_changed": true
+  },
+  "runs": [
+    {
+      "command": "rtk proxy python3 /private/tmp/traceary-2475-native-context.py",
+      "driver_sha256": "18e1f31be52bd2c7255ad5da583e4f73502e24b78dade8797848152318463cfb",
+      "result": "FAIL",
+      "input_sha256": "b218d1d47aeb2211edb9e39715c5e00bbafd1d08d52f17b9b2641e7b22a319a7",
+      "local_evidence_path": "/private/tmp/traceary-2475-native-context-result.json",
+      "local_evidence_sha256": "66de51c5388eed0171651522e93251e27edb798ff121341aaef48c001664585b",
+      "native_model_turns_requested": 1,
+      "actual_exit_code": 143,
+      "raw_native_ids_or_prompt_shared": false
+    },
+    {
+      "command": "rtk proxy python3 /private/tmp/traceary-2475-native-explicit-resume.py",
+      "driver_sha256": "937644f632e6a65cf579a89ee55b57c93c9afe8fb1de5fd6083a160dfd72e9a8",
+      "result": "PASS_NATIVE_FOREGROUND_COMPLETED_CONTEXT_RESUME_ONLY",
+      "input_sha256": "8f4907673a6c1d30877df7f3679eedf9c879453d2d5db88861e58991c40efc30",
+      "local_evidence_path": "/private/tmp/traceary-2475-native-explicit-resume-result.json",
+      "local_evidence_sha256": "28112986b31306336e930f156378f8f0700e5ef5e5a7ae0dad989f06b25d5b8d",
+      "native_model_turns_requested": 1,
+      "actual_exit_code": 0,
+      "raw_native_ids_or_prompt_shared": false
+    },
+    {
+      "command": "rtk proxy python3 /private/tmp/traceary-2475-native-composition.py",
+      "driver_sha256": "303b476cb1edd97d84f94d9a3ee9ff6db8dcb5b1f72446205a945b423f062cef",
+      "result": "FAIL",
+      "input_sha256": "c2f721b8659c3d59bcc2c6838bd0cc3ad1e622a3db8994893b7e87c4064ac072",
+      "local_evidence_path": "/private/tmp/traceary-2475-native-composition-result.json",
+      "local_evidence_sha256": "fe946291ecf01175bec07a414257134ee00e74464f2622840dd3ef0ebcae0487",
+      "native_model_turns_requested": 1,
+      "actual_exit_code": 0,
+      "raw_native_ids_or_prompt_shared": false
+    },
+    {
+      "command": "rtk proxy python3 /private/tmp/traceary-2475-native-payload.py",
+      "driver_sha256": "32e84f4cccfb21ec60a37859ba1912761f33957a76e0109c0ba23c36fecad0ff",
+      "result": "PASS_NATIVE_HOOK_METADATA_AND_PRIMARY_CAPTURE_ONLY",
+      "input_sha256": "af912b684da5a36532d94a914f0c580f7b4d5b254521cc935a8d2b95f102127c",
+      "local_evidence_path": "/private/tmp/traceary-2475-native-payload-result.json",
+      "local_evidence_sha256": "7b60d814edac2f663d585185a3cd9fa8b8bdfcdaab5219b5d47eb13fec02e066",
+      "native_model_turns_requested": 1,
+      "actual_exit_code": 0,
+      "raw_native_ids_or_prompt_shared": false
+    },
+    {
+      "command": "rtk proxy python3 /private/tmp/traceary-2475-native-active-id.py",
+      "driver_sha256": "ad03085d0a3f9674cb12667aee8dd74601d380b86193a381e5a75ba4bddc8d73",
+      "result": "OBSERVED_TWO_LIVE_FOREGROUND_STARTS_SAME_UUID_NOT_NATIVE_EXCLUSION",
+      "input_sha256": null,
+      "local_evidence_path": "/private/tmp/traceary-2475-native-active-id-result.json",
+      "local_evidence_sha256": "d7c1a529c50ecb4c6c478db09c6ee4c1d1267e1ca648436c57faf179707ffca8",
+      "native_model_turns_requested": 0,
+      "actual_cleanup_exit_codes": [
+        143,
+        143
+      ],
+      "raw_native_ids_or_prompt_shared": false
+    },
+    {
+      "command": "rtk proxy python3 /private/tmp/traceary-2475-native-interrupted.py",
+      "driver_sha256": "0a35c84a265c666ca93ecad2d8099517606471d929870a04a71e828e2079219a",
+      "result": "FAIL",
+      "local_evidence_path": "/private/tmp/traceary-2475-native-interrupted-result.json",
+      "local_evidence_sha256": "4648617752a30ecfad160f8dbaad4114e223dfe16ab2cc61ba3ad33c553edb74",
+      "raw_native_ids_or_prompt_shared": false,
+      "classification": "FAIL_RAW_PTY_INPUT_NOT_SUBMITTED"
+    },
+    {
+      "command": "rtk proxy python3 /private/tmp/traceary-2475-native-interrupted-pty-input.py",
+      "driver_sha256": "772fe9c2265bea5f8f798f01767d32090227e6412a707a3c5f97c48727e8803c",
+      "result": "FAIL",
+      "local_evidence_path": "/private/tmp/traceary-2475-native-interrupted-pty-input-result.json",
+      "local_evidence_sha256": "a7d6019516b2170db1e7bf72494f3b7fff493b57b048181d985c44b8ad8a36ab",
+      "raw_native_ids_or_prompt_shared": false,
+      "classification": "FAIL_LOCAL_EXIT_ROW_COUNT_ORACLE"
+    },
+    {
+      "command": "rtk proxy python3 /private/tmp/traceary-2475-native-interrupted-verify.py",
+      "driver_sha256": "46642d629c8ba7ec4e0a626f22f34079674070685f0e7169c5658b73964fd81a",
+      "result": "PASS_VERIFIED_NATIVE_INTERRUPTION_CONTEXT_RESUME_NO_PENDING_INPUT_REPLAY",
+      "local_evidence_path": "/private/tmp/traceary-2475-native-interrupted-verified-result.json",
+      "local_evidence_sha256": "a859b65dc302af38d6cab7fd74cfa4aa5be915c61d9fe30244e2bbdf01bdb091",
+      "raw_native_ids_or_prompt_shared": false
+    },
+    {
+      "command": "rtk proxy python3 /private/tmp/traceary-2475-native-pending-tool.py",
+      "driver_sha256": "1e3f0743a3cfbdea044e318e9d4b3a9b4c3aeb54b1dc5f1e2acbf505c58177b5",
+      "result": "FAIL",
+      "classification": "canonical transcript lag assumption failed; actual old native Wait143",
+      "local_evidence_path": "/private/tmp/traceary-2475-native-pending-tool-result.json",
+      "local_evidence_sha256": "3d3fa7eb05a045d14f4acb6de0697b97202fb4348438339cc6c544d89af7459c",
+      "raw_native_ids_or_prompt_shared": false
+    },
+    {
+      "command": "rtk proxy python3 /private/tmp/traceary-2475-native-pending-tool-flush.py",
+      "driver_sha256": "c049e4541f340b7043c1199c5af36db85da6e236f5f7357865dc5d2f86532b02",
+      "result": "PASS_NATIVE_PENDING_TOOL_INTERRUPTION_NO_REPLAY_SAME_CONTEXT",
+      "classification": "actual pending callback/no replay; transcript tool block not yet persisted",
+      "local_evidence_path": "/private/tmp/traceary-2475-native-pending-tool-flush-result.json",
+      "local_evidence_sha256": "f70f19be62ed703ce4ef6f49067e3dfc67c67e08281f14254c1e841884d0e8a9",
+      "raw_native_ids_or_prompt_shared": false
+    }
+  ],
+  "optional_correlation_constraint": "Observed prompt_id is prompt correlation, not native turn_id. The current generic Claude path must not be certified as having native turn identity; versioned adapter changes require before-product-code review.",
+  "concurrent_foreground_opening": {
+    "result": "OBSERVED_TWO_LIVE_FOREGROUND_STARTS_SAME_UUID_NOT_NATIVE_EXCLUSION",
+    "first_native_owner_live": true,
+    "first_session_identity_confirmed": true,
+    "first_owner_still_live": true,
+    "second_owner_exit_before_cleanup": null,
+    "second_callback_counts": {
+      "SessionStart": 1
+    },
+    "second_same_session_start": true,
+    "second_foreign_session_start": false,
+    "user_record_delta": 0,
+    "api_request_record_delta": 0,
+    "actual_owner_cleanup_exit_codes": [
+      143,
+      143
+    ],
+    "cleanup_kind": "SIGTERM actual Popen handles of finite no-prompt fixture, not proof of normal exit",
+    "collector_sha256": "a2aa7fe03cdf54a98cabdda3f9e3d7cb4bf8859fc539a6bbd7c8efb491a650c3",
+    "stable_native_exclusion_contract_qualified": false,
+    "interpretation": "Two actual same-UUID foreground processes live after native SessionStart; not a concurrent-model-turn or descendant-quiescence test. Native startup alone is not a single-process lease."
+  },
+  "maintainer_scope_decision": {
+    "date": "2026-11-04",
+    "issue": 2478,
+    "decision": "Old Traceary-managed AI only; explicit normal CLI resume, one managed request per conversation, no replay. External CLI coordination/all-descendant inactivity outside guarantee; no extra server/broker/app-server mode adopted. Unknown managed exit still refuses."
+  },
+  "interrupted_context_resume": {
+    "result": "PASS_VERIFIED_NATIVE_INTERRUPTION_CONTEXT_RESUME_NO_PENDING_INPUT_REPLAY",
+    "actual_profile_version": "2.1.318 (Claude Code)",
+    "native_model": "claude-opus-5-5",
+    "auth_class": "cached_claude.ai_firstParty",
+    "normal_cli_only": true,
+    "actual_original_owned_wait_exit_code": 143,
+    "actual_resumed_owned_wait_exit_code": 0,
+    "same_native_conversation_verified": true,
+    "same_target_and_capture_store": true,
+    "fresh_run_and_generation_verified": true,
+    "original_context_marker_verified": true,
+    "original_pending_input_count": 1,
+    "new_explicit_input_count": 1,
+    "tool_calls_in_this_fixture": 0,
+    "native_lifecycle_event_counts": {
+      "SessionStart": 1,
+      "Stop": 1,
+      "SessionEnd": 1,
+      "UserPromptSubmit": 1
+    },
+    "no_input_startup_observation_seconds": 8,
+    "no_automatic_user_or_assistant_turn_observed": true,
+    "local_exit_user_records": 3,
+    "local_exit_triplet_unit_tests": "PASS; arbitrary continuations/duplicate pending input reject",
+    "terminal_input_method": "clear draft, bracketed paste, then separately explicit Return",
+    "production_runtime_resume_qualified": false,
+    "qualified_current_waiting": false,
+    "pending_tool_or_permission_fixture": "NOT_RUN",
+    "source_urls": [
+      "https://code.claude.com/docs/en/env-vars",
+      "https://code.claude.com/docs/en/headless"
+    ],
+    "superseded_by": "managed_permission_and_persisted_tool_interruption for later permission/persisted-tool coverage; original case NOT_RUN retained"
+  },
+  "pending_tool_callback_interruption": {
+    "result": "PASS_NATIVE_PENDING_TOOL_INTERRUPTION_NO_REPLAY_SAME_CONTEXT",
+    "old_owned_wait_exit_code": 143,
+    "resumed_owned_wait_exit_code": 0,
+    "actual_pending_pretooluse_observed": true,
+    "pending_tool_persisted_in_native_transcript": false,
+    "pending_tool_proof_source": "actual owned native PreToolUse; transcript presence measured separately",
+    "no_pending_tool_replay_observed": true,
+    "no_native_model_request_before_input": true,
+    "same_native_conversation_verified": true,
+    "fresh_run_and_generation_verified": true,
+    "original_context_verified": true,
+    "model_preserved": true,
+    "permission_answers_sent": 0,
+    "tool_permission_allowlist_added": false,
+    "actual_resumed_tool_callbacks": 0,
+    "native_lifecycle_event_counts": {
+      "SessionEnd": 1,
+      "Stop": 1,
+      "UserPromptSubmit": 1,
+      "SessionStart": 1
+    },
+    "pending_permission_fixture": "NOT_RUN",
+    "normal_cli_only": true,
+    "actual_profile_version": "2.1.318 (Claude Code)",
+    "actual_model": "claude-opus-5-5",
+    "production_runtime_resume_qualified": false,
+    "qualified_current_waiting": false,
+    "guard": "test-only synchronous PreToolUse: hold exact read-only command, then deny; unexpected commands deny immediately; never allow",
+    "superseded_by": "managed_permission_and_persisted_tool_interruption for later permission/persisted-tool coverage; original case NOT_RUN retained"
+  },
+  "managed_daemon_composition": {
+    "runtime_issue": 2478,
+    "runtime_implementation_head": "d35b0e51e23d345af60aaadcdbdb0e10c0c7ad36",
+    "qualification_status": "core recovery merged PR2490; optional observation remains unbound; own host-leaf delivery tracked separately",
+    "source_input_fingerprint_verified": true,
+    "completed_context": "PASS_REAL_DAEMON_NORMAL_CLI",
+    "managed_pending_input_interruption": "PASS_REAL_DAEMON_NORMAL_CLI",
+    "old_managed_ai_exit": "actual owned Wait and durable exact execution/recovery receipt",
+    "resume_identity_model_provider_target": "PASS exact recorded original values",
+    "new_run_generation": "PASS",
+    "pending_input_or_model_request_replay": "none during entire resume call and eight-second no-input interval",
+    "new_explicit_question_context": "PASS",
+    "same_request_reinspection": "PASS no new native start",
+    "native_current_waiting_qualified": false,
+    "tool_requests_in_fixtures": 0,
+    "permission_dialog": "PASS separate real managed permission fixture",
+    "persisted_cutoff_tool": "PASS canonical pending tool correlated to PreToolUse, no execution/replay",
+    "external_actor_exclusion_guaranteed": false,
+    "all_descendant_inactivity_proven": false,
+    "evidence_sha256": "2583986009c0ac98dcc22af86e95dd0357d386c7c0fc4d267f0c93f70022094c",
+    "raw_native_data_in_repository": false,
+    "primary_capture_counts": {
+      "completed": {
+        "prompt": 2,
+        "transcript": 2,
+        "session_started": 1,
+        "session_ended": 2
+      },
+      "interrupted": {
+        "prompt": 3,
+        "transcript": 2,
+        "session_started": 1,
+        "session_ended": 2
+      }
+    },
+    "primary_capture_semantics": "Two completed answers yield two transcript events. Original and resumed native starts share one idempotent core Session start; two native process ends yield two lifecycle end events. Metadata-only handler adds no primary capture."
+  },
+  "managed_permission_and_persisted_tool_interruption": {
+    "runtime_source_production_head": "96c21f9c134a608b90950e10009223cd099cd880",
+    "result": "PASS_REAL_DAEMON_ORDINARY_CLI",
+    "actual_permission_request": true,
+    "actual_visible_permission_prompt_and_yes_no_choices": true,
+    "native_permission_prompt_notification": true,
+    "canonical_pending_tool_id_matches_pretool_metadata": true,
+    "command": "rtk proxy pwd",
+    "command_risk": "read-only; never executed",
+    "actual_old_owned_wait_exit_code": 143,
+    "resumed_owned_wait_exit_code": 143,
+    "durable_old_execution_and_native_exit_before_resume": true,
+    "same_conversation_target_profile_model_provider_confirmed": true,
+    "pretool_permission_posttool_counts_total": {
+      "PreToolUse": 1,
+      "PermissionRequest": 1,
+      "PostToolUse": 0
+    },
+    "new_tool_or_permission_request_during_resume": false,
+    "new_model_request_or_user_text_during_entire_resume_and_eight_second_idle": false,
+    "approval_answer_sent": false,
+    "post_resume_stdin_sent": false,
+    "new_context_response_in_this_fixture": "NOT_REQUESTED; separate completed/interrupted-input fixtures cover fresh context response",
+    "interaction_current_state_qualified": false,
+    "temporary_synthetic_project_ask_deny_guard": "original absence restored after exact content hash check",
+    "all_owned_processes_exited_before_daemon_reaped": true,
+    "raw_history_terminal_account_credentials_shared": false,
+    "primary_capture_counts": {
+      "note": 1,
+      "prompt": 2,
+      "session_ended": 2,
+      "session_started": 1,
+      "transcript": 1
+    },
+    "verified_evidence_sha256": "e3699d91f7c47ad22194f8c6885952ac1cef719aa465eecc75b0961799eb21f3",
+    "driver_sha256": "ed4c9ea6e156befed81790a3b3843934595dbf788ad56e6a07da62a9a4d9864c",
+    "oracle_correction": "No new native attempt: ANSI/whitespace-normalized own UI matched actual permission choices; exact-space observer initially failed"
+  },
+  "optional_session_claim_decoder": {
+    "status": "implemented_session_only_no_native_current_authority",
+    "literal_version": "2.1.318 (Claude Code)",
+    "output_fields": [
+      "SessionID",
+      "Available"
+    ],
+    "turn_generation_authority": false,
+    "prompt_id_is_not_turn_id": true,
+    "primary_capture_bytes_and_receipt_preserved": true,
+    "fallback_on_unknown_version": "no_optional_claims",
+    "before_code_review_sha256": "aeb7e1f4646b1197704590f1a96800d7a00bef7bc1267e4e5c3d32aaea8297c0",
+    "tests": [
+      "TestClaudeObservationClaimsPreserveOnlyUntrustedSession",
+      "TestClaudeObservationClaimsFailClosedWithoutBodyInErrors",
+      "TestClaudeObservationClaimsUnknownVersionAndCancellation",
+      "TestClaudeOptionalClaimsPreservePrimaryBytesReceiptAndNoTurnAuthority",
+      "TestClaudeClaimDeliveryMatchesEveryBoundaryWithoutChangingPrimary",
+      "TestClaudePackagedHookRoutesHaveExplicitClaimSupport"
+    ],
+    "native_certification": false,
+    "packaged_native_delivery": "dormant: packaged hooks do not supply --observe-*; no live descriptor enrichment or native-current authority",
+    "post_tool_use_failure": "unmeasured fields; optional session correlation deliberately unavailable; primary capture unchanged"
+  },
+  "successful_readonly_tool_telemetry": {
+    "result": "PASS_NATIVE_READ_TOOL_METADATA_AND_SINGLE_PRIMARY_CAPTURE",
+    "actual_owner_exit_code": 0,
+    "actual_model": "claude-opus-5-5",
+    "native_event_counts": {
+      "SessionStart": 1,
+      "Stop": 1,
+      "PostToolUse": 1,
+      "SessionEnd": 1,
+      "PreToolUse": 1,
+      "UserPromptSubmit": 1
+    },
+    "primary_capture_counts": {
+      "command_executed": 1,
+      "prompt": 1,
+      "session_ended": 1,
+      "session_started": 1,
+      "transcript": 1
+    },
+    "root_field_types_by_event": {
+      "SessionStart": {
+        "session_id": "string",
+        "transcript_path": "string",
+        "cwd": "string",
+        "scratchpad_dir": "string",
+        "hook_event_name": "string",
+        "source": "string",
+        "model": "string"
+      },
+      "Stop": {
+        "session_id": "string",
+        "transcript_path": "string",
+        "cwd": "string",
+        "scratchpad_dir": "string",
+        "prompt_id": "string",
+        "permission_mode": "string",
+        "effort": "object",
+        "hook_event_name": "string",
+        "stop_hook_active": "bool",
+        "last_assistant_message": "string",
+        "background_tasks": "array",
+        "session_crons": "array"
+      },
+      "PostToolUse": {
+        "session_id": "string",
+        "transcript_path": "string",
+        "cwd": "string",
+        "scratchpad_dir": "string",
+        "prompt_id": "string",
+        "permission_mode": "string",
+        "effort": "object",
+        "hook_event_name": "string",
+        "tool_name": "string",
+        "tool_input": "object",
+        "tool_response": "object",
+        "tool_use_id": "string",
+        "duration_ms": "number"
+      },
+      "SessionEnd": {
+        "session_id": "string",
+        "transcript_path": "string",
+        "cwd": "string",
+        "scratchpad_dir": "string",
+        "prompt_id": "string",
+        "hook_event_name": "string",
+        "reason": "string"
+      },
+      "PreToolUse": {
+        "session_id": "string",
+        "transcript_path": "string",
+        "cwd": "string",
+        "scratchpad_dir": "string",
+        "prompt_id": "string",
+        "permission_mode": "string",
+        "effort": "object",
+        "hook_event_name": "string",
+        "tool_name": "string",
+        "tool_input": "object",
+        "tool_use_id": "string"
+      },
+      "UserPromptSubmit": {
+        "session_id": "string",
+        "transcript_path": "string",
+        "cwd": "string",
+        "scratchpad_dir": "string",
+        "prompt_id": "string",
+        "permission_mode": "string",
+        "hook_event_name": "string",
+        "prompt": "string"
+      }
+    },
+    "native_generation_fields_by_event": {
+      "SessionStart": [],
+      "Stop": [],
+      "PostToolUse": [],
+      "SessionEnd": [],
+      "PreToolUse": [],
+      "UserPromptSubmit": []
+    },
+    "turn_id_present_by_event": {
+      "SessionStart": false,
+      "Stop": false,
+      "PostToolUse": false,
+      "SessionEnd": false,
+      "PreToolUse": false,
+      "UserPromptSubmit": false
+    },
+    "runtime_hint_names_present_by_event": {
+      "SessionStart": [],
+      "Stop": [],
+      "PostToolUse": [],
+      "SessionEnd": [],
+      "PreToolUse": [],
+      "UserPromptSubmit": []
+    },
+    "tool_side_effects": "only existing public go.mod read; no writes",
+    "permission_policy": "deny unexpected tools/paths only; no allow decision or approval answer",
+    "collector_sha256": "eb7d6a1a427cc6adda30e92493e26c93c62db6511e7b148d1c9e4f7568488f4d",
+    "guard_sha256": "2f5c3421b2cf38e3d5092bfc580a41ef45f828669b6d20a87a58af03ea77f4c1",
+    "settings_sha256": "86f6792b95ccf4ebd91811fca957ccad93919e5c464f742a797a3914ab577fc2",
+    "input_sha256": "cc5a82a0c0b4847762273d339a103dd52fc89c92b1f6f61ca9f1f0eb7e7bf0d0",
+    "driver_sha256": "e4082e2792aeaff6423d74d4a5c7fca17e12b10beb6b9a1bb3f83f9d6b6e4831",
+    "evidence_sha256": "f449de45e92c92af024f59086b07f29fad3cedc7a1583eb4469a0d13006c32d8",
+    "command": "rtk proxy python3 /private/tmp/traceary-2475-native-read-tool.py",
+    "source_pinned_before_after": true,
+    "global_configuration_changed": false,
+    "raw_payload_shared": false,
+    "native_current_qualified": false
+  },
+  "verified_unknown_live_states": {
+    "states": [
+      "working",
+      "waiting_input",
+      "waiting_approval"
+    ],
+    "reason": "Exact measured SessionStart/UserPromptSubmit/PreToolUse/PostToolUse/Stop/SessionEnd inputs contain no independent native turn or managed generation witness. Optional decoder supplies session correlation only. Runtime ObserveUnbound cannot promote these claims; permission UI evidence is QA, not runtime authority.",
+    "native_events_observed": [
+      "SessionStart",
+      "Stop",
+      "PostToolUse",
+      "SessionEnd",
+      "PreToolUse",
+      "UserPromptSubmit"
+    ],
+    "scope": "ordinary pinned Claude 2.1.318 command hooks, not all possible future native APIs",
+    "live_current_capability_enabled": false
+  },
+  "synthetic_delivery_matrix": {
+    "status": "PASS_synthetic_admission_and_public_Cobra_not_native_witness",
+    "cases": [
+      "same-cwd distinct managed runs with reused native session ID",
+      "duplicate and reordered boundary receipts",
+      "native timestamps/duplicate/reordered receipts carry no authority; ObserveUnbound keeps interaction unknown",
+      "foreign/missing generation and epoch refused",
+      "late callback after actual synthetic owned Wait refused",
+      "environment-only hints never create selection in public Cobra",
+      "absent daemon preserves primary output/receipt"
+    ],
+    "native_evidence_substitution": false,
+    "tests": [
+      "TestClaudeDecodedClaimsNeverPromoteReusedSessionToCurrentInteraction",
+      "TestClaudeClaimDecoderRealCobraKeepsPrimaryAndNeverInfersSelectionFromEnvironment"
+    ]
+  },
+  "core_recovery_adoption": {
+    "PR": 2490,
+    "state": "MERGED",
+    "merge_head": "bfcf05e42b7aaec5393bc801178e5c924d05a827",
+    "live_state_still_unqualified": true,
+    "core_evidence_alone_does_not_prove_leaf_delivery": true
+  },
+  "qualification_scope": {
+    "exact_version_only": true,
+    "native_recovery_contract": "qualified by actual ordinary managed completed/interrupted-input/persisted-tool permission cases in merged #2478",
+    "ordinary_hook_live_states": "verified unsupported/unknown: no independently attested turn/generation witness supplied by this decoder",
+    "negative_delivery_scope": "actual native same-ID concurrent opening and missing native hint inventory; synthetic real decoder/Runtime/public-Cobra fault/replay tests; NOT native current-state causal attestation",
+    "final_delivery_gates": "tracked in PR2489; never imply release/all-host completion"
+  }
+}

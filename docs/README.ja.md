@@ -24,6 +24,11 @@
 - [ローカルDaemon IPC](./runtime/daemon-ipc.ja.md)：明示foreground transport、private Unix endpoint、protocolと失敗境界
 - [履歴再照合と maintenance](./runtime/history-reconciliation.ja.md)：maintenance に譲る読取 capability と残っている再照合契約
 
+- [Native 観測配送](./runtime/native-observation-delivery.ja.md)：実装済みの定量上限付き CLI／hook metadata 配送。native 認定は別途必要
+- [Runtime 観測の投影](./runtime/observation-projection.ja.md)：因果 reducer、有効期限、最新 snapshot。製品の metadata は未束縛のまま
+- [Claude Code native 認定](./runtime/claude-2.1.318.ja.md): 正確な版の実測、duplicate handler 合成の却下、残る native gate
+- [管理対象AIの明示的な native 復旧](./runtime/managed-recovery.ja.md)：明示 resume の契約、不確定性、現在の対応制限
+
 ## 連携まわり
 
 - [ネイティブ連携ガイド](./integrations/README.ja.md): Claude / Codex / Gemini（レガシー）向けパッケージ、導入手順、smoke test

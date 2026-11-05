@@ -14,7 +14,7 @@ const (
 	MaxRuntimeConnections   = 32
 	MaxObservationFrames    = 256
 	MaxObservationBytes     = 8 * 1024 * 1024
-	OptionalRuntimeBudget   = 250 * time.Millisecond
+	OptionalRuntimeBudget   = app.ObservationDeliveryBudget
 	MaxRuntimeIOTimeout     = time.Second
 	ManagementRuntimeBudget = 8 * time.Second
 )

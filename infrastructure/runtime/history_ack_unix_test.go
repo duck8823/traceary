@@ -16,7 +16,7 @@ import (
 	domain "github.com/duck8823/traceary/domain/runtime"
 )
 
-func historyAckPeer(t *testing.T, endpoint string, reply func(runtimeRequest) runtimeResponse) (string, <-chan error) {
+func historyAckPeer(t *testing.T, endpoint string, reply func(runtimeRequest) runtimeResponse, beforeHello ...func()) (string, <-chan error) {
 	t.Helper()
 	base := os.TempDir()
 	if goruntime.GOOS == "darwin" {
@@ -60,6 +60,9 @@ func historyAckPeer(t *testing.T, endpoint string, reply func(runtimeRequest) ru
 		if e != nil {
 			done <- e
 			return
+		}
+		for _, pause := range beforeHello {
+			pause()
 		}
 		if e = writeRuntimeFrame(conn, runtimeResponse{Version: 1, ID: hello.ID, Code: "ok", Role: hello.Role}); e != nil {
 			done <- e

@@ -207,15 +207,22 @@ recordは相関情報であり認可ではない。
 復旧とlive interactionは別に認定する。
 session identityと排他的所有を独立に検証できるなら、waiting状態がunknownというだけでresumeを禁止しない。
 
-operatorが中断runを選び、復旧targetを確認する。
-native session単位の排他的reservation内で、native sessionの存在、元canonical worktree/store/profileの不変性と利用可能性、正確なhost/versionのresume contract、旧実行が確実に非稼働であることを検証する。
-保存PID、親processの消失、経過時間、orphan表示だけでは、descendantや外部host processが同じnative sessionを所有していない証明にならない。
-所有process identityと利用可能なhost-native排他証拠で検証し、証明できなければblocked/unknownとする。
-推測、既存processのadoption、killで代替しない。
-同時・重複resumeで同じnative sessionのownerを2つ起動しない。
+2026-11-04、ユーザーは保証範囲を「Tracearyが管理する旧AI process」に限定すると明示決定した。
+この決定は、すべてのdescendantと外部native ownerの非稼働まで証明する旧要件を置き換える。
+通常CLIのnative resumeを使い、迂回のためのbroker、app-server実行mode、wrapper、model APIを追加しない。
+Traceary外で起動されたnative CLIの調停や、すべてのtool／子孫processが終了した保証は対象外とし、その境界を表示する。
+globalなnative session排他を保証したことにしない。
+
+operatorが中断runを選び、元の復旧targetを確認する。
+Tracearyから同じ会話を再開する操作は、同時に1件までとする。
+native sessionの存在、元canonical worktree/store/profileの同一性と利用可能性、正確なhost/versionのresume対応、管理対象の旧AI process終了を確認する。
+実際の所有handleのWait結果、またはPID再利用を区別するbirth identityを含む記録済みprocess identityのfreshな確認を用いる。
+保存PID、親process消失、経過時間、orphan表示だけでは判断しない。
+その管理processが生存中、またはidentity／終了を確認できない場合はblocked/unknownとし、推測・adoption・killで再開可能にしない。
+Tracearyの同時・重複resumeから2つ目のownerを起動しない。
 
 version付きtyped resume adapterを通じて設定済み実CLIを直接起動し、host認証/approvalと固定targetを維持する。
-新run/generation/epochを発行し、中断元への関連を残してbindingを再検証する。
+現在のdaemon epochで新run/generationを発行し、中断元への関連を残してbindingを再検証する。
 旧callback/input receipt/controlはstaleのままとする。
 成功報告前に有界かつdurableな復旧intent/resultを記録する。
 復旧自体のcrashや配送不明は所有とnative identityを再照合し、自動で再launchしない。

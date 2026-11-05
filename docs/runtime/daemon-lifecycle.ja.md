@@ -103,3 +103,21 @@ traceary daemon autostart opt-in --runtime-dir /absolute/private/runtime --enabl
 `opt-in` は false の場合も `--enabled` の明示が必要です。選択された所有者専用の runtime metadata root だけを作成できます。`status` と `descriptor` は既存 root が必要で、存在しない root は作成しません。status は `opt_in`、`installation_state: "unknown"`、`host_inspection: "not_performed"`、`starts_agents: false` を返します。無効化はローカル設定だけを変更し、別途インストールされたホストジョブを削除しません。
 
 macOS の `descriptor` は事前の opt-in も必要で、エスケープ済み plist を標準出力へ出します。root は正規形の絶対パス・印字可能な UTF-8・所有者専用・物理同一性が不変で、runtime socket のパス長制限内でなければなりません。実行ファイルは現在実行中の実ファイルを正規化し、信頼できる所有者、安全なパーミッション、同一性・内容の安定性を検証します。descriptor は root 由来の固定 label、厳密に `[currentExecutable, daemon, serve, --runtime-dir, canonicalRoot]` の引数、`RunAtLoad=true` だけを持ち、環境変数・シェル・エージェント・再開・更新コマンドを含みません。他のプラットフォームでは descriptor 生成を明示的に拒否します。生成はインストールでも、その許可でもありません。返却前に実行ファイルと root を再検証しますが、その後のファイルシステム変更までは保証しません。ホストへのインストール・設定・配布は別途許可が必要で、これらのコマンドでは行いません。
+
+## observation・native recovery との統合
+
+lifecycle branch に現在の main の observation/recovery 実装を統合し、置き換えません。
+launch/resume ticket が1件でもあれば、完了済み・明確に拒否済みの receipt を含めて、後から lifecycle に登録できません。
+実行受付後に新しい startup marker を発行しません。
+通常 launch と明示 native resume は lifecycle admission fence を共有します。
+shutdown 準備中・確定後、lifecycle 起動中は新しい実行を拒否しますが、完了済み receipt は再送せず確認できます。
+実 handle を保持した resume は durable な結果の確定まで、shutdown/update の正確な publication pending 件数に残します。
+handle が移譲されていない曖昧な resume は既存の pending reservation を保持し、clean marker を生成しません。
+busy/unknown は終了の証明ではありません。
+lifecycle/recovery response は、known-refusal error の場合も互いの data family を拒否します。
+
+単一の observation drainer は、main の owner-private unbound intake receipt と、任意 causal receiver の queue 前の元 continuity stamp を、それぞれの経路で保持します。
+local receipt や healthy sample から native-current authority を作りません。
+新しい ObserveBound 経路は有効化せず、将来認定される native-current の commit/read も同じ元 stamp を必要とします。
+PTY lifecycle close は継続 reader と private Claude recovery metadata を維持し、その snapshot/cleanup は実 Wait 後に行います。
+実機 sleep/wake はユーザーが後回しにした NOT_RUN のままで、合成統合検証を実機・native 認定や完了と扱いません。

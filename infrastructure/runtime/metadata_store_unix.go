@@ -39,6 +39,8 @@ func OpenMetadataStore(root string, budget int64) (*MetadataStore, error) {
 }
 
 type metadataAuditState struct {
+	recovery       recoveryEnvelope
+	recoveryStamp  *unix.Stat_t
 	export         app.MetadataExport
 	execution      executionEnvelope
 	executionStamp *unix.Stat_t
@@ -98,6 +100,10 @@ func (s *MetadataStore) readAudit(ctx context.Context, fd int) (metadataAuditSta
 	if err != nil {
 		return metadataAuditState{}, err
 	}
+	recovery, recoveryStamp, err := s.execution.readRecovery(fd, execution)
+	if err != nil {
+		return metadataAuditState{}, err
+	}
 	controls, controlStamp, _, err := s.execution.readControls(fd)
 	if err != nil {
 		return metadataAuditState{}, err
@@ -118,6 +124,7 @@ func (s *MetadataStore) readAudit(ctx context.Context, fd int) (metadataAuditSta
 		stamp *unix.Stat_t
 	}{
 		{"registry.json", m.budget, registryStamp}, {"execution.json", min(maxExecutionBytes, m.budget), executionStamp}, {"receipts.json", min(maxControlMetadataBytes, m.budget), controlStamp},
+		{"recovery.json", min(int64(maxRecoveryMetadataBytes), m.budget), recoveryStamp},
 		{"lifecycle.json", min(maxMetadataLifecycleBytes, m.budget), lifecycleStamp}, {"endpoints.json", min(maxMetadataEndpointBytes, m.budget), endpointStamp},
 	} {
 		if err = ctx.Err(); err != nil {
@@ -137,6 +144,9 @@ func (s *MetadataStore) readAudit(ctx context.Context, fd int) (metadataAuditSta
 		}
 	}
 	view := app.MetadataExport{Version: 1, Authority: "persisted_metadata_not_liveness", RootWitness: m.witness, Digest: hex.EncodeToString(hash.Sum(nil)), RegistryRevision: strconv.FormatUint(registry.Snapshot().Revision, 10), ExecutionRevision: strconv.FormatUint(*execution.Revision, 10), ReceiptRevision: strconv.FormatUint(*controls.Revision, 10), Profiles: make([]app.MetadataProfileSummary, 0, len(execution.Profiles)), Runs: make([]app.MetadataRunSummary, 0, len(execution.Launches))}
+	view.RecoveryRevision = strconv.FormatUint(*recovery.Revision, 10)
+	view.RecoveryRecords = len(recovery.Records)
+	view.ResumeAttempts = len(recovery.Attempts)
 	view.LifecycleRevision = strconv.FormatUint(*lifecycle.Revision, 10)
 	if endpointStamp != nil {
 		view.EndpointRevision = strconv.FormatUint(*endpoints.Revision, 10)
@@ -185,7 +195,7 @@ func (s *MetadataStore) readAudit(ctx context.Context, fd int) (metadataAuditSta
 	if err = m.verifyRoot(fd); err != nil {
 		return metadataAuditState{}, err
 	}
-	return metadataAuditState{export: view, execution: execution, executionStamp: executionStamp, controls: controls, controlStamp: controlStamp, lifecycle: lifecycle, lifecycleStamp: lifecycleStamp}, nil
+	return metadataAuditState{recovery: recovery, recoveryStamp: recoveryStamp, export: view, execution: execution, executionStamp: executionStamp, controls: controls, controlStamp: controlStamp, lifecycle: lifecycle, lifecycleStamp: lifecycleStamp}, nil
 }
 
 func auditMetadataInventory(fd int) error {
@@ -205,7 +215,7 @@ func auditMetadataInventory(fd int) error {
 	for _, entry := range entries {
 		name := entry.Name()
 		switch name {
-		case "registry.json", "execution.json", "receipts.json", "lifecycle.json", "endpoints.json", "daemon.lock", "registry.lock", "daemon.sock", "observations.sock":
+		case "recovery.json", "registry.json", "execution.json", "receipts.json", "lifecycle.json", "endpoints.json", "daemon.lock", "registry.lock", "daemon.sock", "observations.sock":
 		default:
 			// Unknown recovery formats require their actual codecs
 			// and erasure/retention contract. Never silently omit or unlink them.
@@ -286,13 +296,13 @@ type metadataReplacement struct {
 }
 
 // forgetWrites owns the cross-envelope integrity rule: all increments are
-// reserved before any effect; receipts, then interruptions, disappear before launches;
+// reserved before any effect; receipts, interruptions and recovery disappear before launches;
 // profiles survive, and alreadyempty envelopes are never rewritten.
 func (state metadataAuditState) forgetWrites() ([]metadataReplacement, error) {
-	if len(state.controls.Runs) > 0 && *state.controls.Revision == math.MaxUint64 || len(state.execution.Launches) > 0 && *state.execution.Revision == math.MaxUint64 || len(state.lifecycle.Interrupted) > 0 && *state.lifecycle.Revision == math.MaxUint64 {
+	if (len(state.recovery.Records) > 0 || len(state.recovery.Attempts) > 0) && *state.recovery.Revision == math.MaxUint64 || len(state.controls.Runs) > 0 && *state.controls.Revision == math.MaxUint64 || len(state.execution.Launches) > 0 && *state.execution.Revision == math.MaxUint64 || len(state.lifecycle.Interrupted) > 0 && *state.lifecycle.Revision == math.MaxUint64 {
 		return nil, domain.ErrLimit
 	}
-	writes := make([]metadataReplacement, 0, 3)
+	writes := make([]metadataReplacement, 0, 4)
 	if len(state.controls.Runs) > 0 {
 		revision := *state.controls.Revision + 1
 		doc := controlEnvelope{Version: state.controls.Version, Revision: &revision, Runs: []controlRunRecord{}}
@@ -313,6 +323,15 @@ func (state metadataAuditState) forgetWrites() ([]metadataReplacement, error) {
 		}
 		writes = append(writes, metadataReplacement{"lifecycle.json", data, state.lifecycleStamp})
 	}
+	if len(state.recovery.Records) > 0 || len(state.recovery.Attempts) > 0 {
+		revision := *state.recovery.Revision + 1
+		doc := recoveryEnvelope{Version: 1, Revision: &revision, Records: []recoveryRecord{}, Attempts: []resumeAttemptRecord{}}
+		data, err := encodeRecovery(doc, state.execution)
+		if err != nil {
+			return nil, err
+		}
+		writes = append(writes, metadataReplacement{"recovery.json", data, state.recoveryStamp})
+	}
 	if len(state.execution.Launches) > 0 {
 		revision := *state.execution.Revision + 1
 		doc := state.execution
@@ -331,6 +350,8 @@ func (state metadataAuditState) forgetWrites() ([]metadataReplacement, error) {
 			limit = maxControlMetadataBytes
 		case "lifecycle.json":
 			limit = maxMetadataLifecycleBytes
+		case "recovery.json":
+			limit = maxRecoveryMetadataBytes
 		}
 		if int64(len(write.data)) > limit {
 			return nil, domain.ErrLimit

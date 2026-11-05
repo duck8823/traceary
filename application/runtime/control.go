@@ -26,7 +26,8 @@ type controlTicket struct {
 	done        chan struct{}
 }
 
-func (s *Runtime) controlRunLocked(selection OutputSelection) (*ownedRun, error) {
+// selectedRunLocked matches an existing immutable selection; it grants no operation authority.
+func (s *Runtime) selectedRunLocked(selection OutputSelection) (*ownedRun, error) {
 	run := s.runs[selection.Identity.Run]
 	if run == nil {
 		return nil, domain.ErrNotFound
@@ -87,7 +88,7 @@ func (s *Runtime) Control(ctx context.Context, request ControlRequest) (ControlR
 		return ControlResult{}, err
 	}
 	s.mu.Lock()
-	run, err := s.controlRunLocked(request.Selection)
+	run, err := s.selectedRunLocked(request.Selection)
 	if err != nil {
 		s.mu.Unlock()
 		return ControlResult{}, err
@@ -128,6 +129,13 @@ func (s *Runtime) Control(ctx context.Context, request ControlRequest) (ControlR
 	if run.descriptor.Snapshot().State != domain.RunLive {
 		s.mu.Unlock()
 		return ControlResult{}, domain.ErrChanged
+	}
+	// A resumed owner is published only after native confirmation and durable
+	// result publication. Reuse that gate for new input; cached receipts above
+	// remain inspectable and explicit human stop/resize remain available.
+	if request.Intent.Snapshot().Kind == domain.ControlInput && !run.published {
+		s.mu.Unlock()
+		return ControlResult{}, ErrRuntimeRejected
 	}
 	if s.controlsPending >= domain.MaxControlCoordinators || run.controls != nil && run.controls.busy {
 		s.mu.Unlock()
@@ -177,7 +185,7 @@ func (s *Runtime) Receipt(selection OutputSelection, id string) (ControlResult, 
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	run, err := s.controlRunLocked(selection)
+	run, err := s.selectedRunLocked(selection)
 	if err != nil {
 		return ControlResult{}, err
 	}

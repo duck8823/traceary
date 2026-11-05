@@ -12,19 +12,21 @@ import (
 )
 
 type runtimeRequest struct {
-	History     *historyRequestRecord        `json:"history,omitempty"`
-	HistoryHint *struct{}                    `json:"history_hint,omitempty"`
-	Lifecycle   *lifecycleRequestRecord      `json:"lifecycle,omitempty"`
-	Control     *controlRequestRecord        `json:"control,omitempty"`
-	Receipt     *controlReceiptRequestRecord `json:"receipt,omitempty"`
-	Attach      *outputAttachRecord          `json:"attach,omitempty"`
-	Version     int                          `json:"protocol_version"`
-	ID          string                       `json:"request_id"`
-	Operation   string                       `json:"operation"`
-	Role        string                       `json:"role,omitempty"`
-	Observation *observationRecord           `json:"observation,omitempty"`
-	Launch      *launchRequestRecord         `json:"launch,omitempty"`
-	Page        *runPageRequestRecord        `json:"page,omitempty"`
+	History             *historyRequestRecord        `json:"history,omitempty"`
+	HistoryHint         *struct{}                    `json:"history_hint,omitempty"`
+	Lifecycle           *lifecycleRequestRecord      `json:"lifecycle,omitempty"`
+	Control             *controlRequestRecord        `json:"control,omitempty"`
+	Receipt             *controlReceiptRequestRecord `json:"receipt,omitempty"`
+	Attach              *outputAttachRecord          `json:"attach,omitempty"`
+	Version             int                          `json:"protocol_version"`
+	ID                  string                       `json:"request_id"`
+	Operation           string                       `json:"operation"`
+	Role                string                       `json:"role,omitempty"`
+	Observation         *observationRecord           `json:"observation,omitempty"`
+	Launch              *launchRequestRecord         `json:"launch,omitempty"`
+	Page                *runPageRequestRecord        `json:"page,omitempty"`
+	Resume              *resumeRequestRecord         `json:"resume,omitempty"`
+	SelectedObservation *selectedObservationRecord   `json:"selected_observation,omitempty"`
 }
 type observationRecord struct {
 	Host            string `json:"host"`
@@ -51,6 +53,7 @@ type runtimeResponse struct {
 	Run         *launchRecord            `json:"run,omitempty"`
 	Page        *runPageRecord           `json:"page,omitempty"`
 	Lifecycle   *lifecycleResponseRecord `json:"lifecycle,omitempty"`
+	Resume      *resumeResultRecord      `json:"resume,omitempty"`
 }
 type launchRequestRecord struct {
 	Epoch     string `json:"epoch"`

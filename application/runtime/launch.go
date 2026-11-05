@@ -66,11 +66,17 @@ type launchTicket struct {
 	err                                    error
 }
 type ownedRun struct {
-	controls   *runControls
-	descriptor domain.LaunchDescriptor
-	child      OwnedChild
-	done       chan struct{}
-	waitErr    error
+	// Volatile publication/telemetry belongs only to this actual child owner.
+	published        bool
+	recoveryExpected domain.RecoveryBinding
+	observation      domain.DerivedObservation
+	hasObservation   bool
+	projection       *domain.ObservationProjection
+	controls         *runControls
+	descriptor       domain.LaunchDescriptor
+	child            OwnedChild
+	done             chan struct{}
+	waitErr          error
 }
 
 // Runtime owns bounded launch reservations, immutable outcomes and live child handles.
@@ -92,6 +98,8 @@ type Runtime struct {
 	profiles                             ProfileCatalog
 	launcher                             ProcessLauncher
 	journal                              LaunchJournal
+	observationOrigin                    time.Time
+	resumes                              map[string]*resumeTicket
 	epoch                                string
 	mu                                   sync.Mutex
 	tickets                              map[string]*launchTicket
@@ -107,7 +115,7 @@ func NewRuntime(registry TargetRegistry, profiles ProfileCatalog, launcher Proce
 	if registry == nil || profiles == nil || launcher == nil || journal == nil || !(domain.LaunchIdentity{Run: epoch, Generation: epoch, Epoch: epoch}).Valid() {
 		return nil, domain.ErrInvalid
 	}
-	return &Runtime{registry: registry, profiles: profiles, launcher: launcher, journal: journal, epoch: epoch, clock: runtimeWallClock{}, tickets: make(map[string]*launchTicket), runs: make(map[string]*ownedRun), changed: make(chan struct{})}, nil
+	return &Runtime{registry: registry, profiles: profiles, launcher: launcher, journal: journal, epoch: epoch, observationOrigin: time.Now(), resumes: make(map[string]*resumeTicket), clock: runtimeWallClock{}, tickets: make(map[string]*launchTicket), runs: make(map[string]*ownedRun), changed: make(chan struct{})}, nil
 }
 func validLaunchRequest(r LaunchRequest) bool {
 	if len(r.RequestID) == 0 || len(r.RequestID) > 128 {
@@ -146,11 +154,11 @@ func (s *Runtime) Launch(ctx context.Context, request LaunchRequest) (domain.Run
 				s.mu.Unlock()
 				return domain.RunSnapshot{}, domain.ErrLimit
 			}
-			if s.disabled || s.shutdownPreparing || s.shutdownCommitted || s.lifecycleStarting {
+			if s.executionAdmissionClosedLocked() {
 				s.mu.Unlock()
 				return domain.RunSnapshot{}, ErrRuntimeBusy
 			}
-			if s.pending+s.active >= domain.MaxActiveRuns || len(s.tickets) >= domain.MaxLaunchRequests {
+			if s.pending+s.active >= domain.MaxActiveRuns || len(s.tickets)+len(s.resumes) >= domain.MaxLaunchRequests {
 				s.mu.Unlock()
 				return domain.RunSnapshot{}, domain.ErrLimit
 			}
@@ -271,8 +279,10 @@ func (s *Runtime) launch(t *launchTicket) {
 	cancel()
 	s.mu.Lock()
 	if err != nil || journalErr != nil {
-		_ = run.descriptor.MarkUncertain()
+		run.markUncertain()
 		t.err = ErrLaunchUnknown
+	} else {
+		run.published = true
 	}
 	t.result = run.descriptor.Snapshot()
 	t.complete = true
@@ -315,23 +325,28 @@ func (s *Runtime) fail(t *launchTicket, err error) {
 func (s *Runtime) reconcile(run *ownedRun) {
 	code, err := run.child.Wait()
 	s.mu.Lock()
+	run.clearObservation()
 	if err == nil {
 		err = run.descriptor.Exit(code)
 	}
 	if err != nil {
-		_ = run.descriptor.MarkUncertain()
+		run.markUncertain()
 		run.waitErr = ErrLaunchUnknown
 	}
 	snapshot := run.descriptor.Snapshot()
+	published := run.published
 	exitKnown := err == nil
 	s.changedLocked()
 	s.mu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	journalErr := s.journal.SaveLaunch(ctx, snapshot)
 	cancel()
+	if exitKnown && journalErr == nil {
+		s.persistOwnedRecovery(run.child, snapshot, run.recoveryExpected, published)
+	}
 	s.mu.Lock()
 	if journalErr != nil {
-		_ = run.descriptor.MarkUncertain()
+		run.markUncertain()
 	}
 	if exitKnown {
 		s.active--
@@ -365,6 +380,16 @@ func (s *Runtime) listLocked() []domain.RunSnapshot {
 			}
 		}
 	}
+	for _, ticket := range s.resumes {
+		if ticket.attached || !ticket.possibleChild && (!ticket.starting || ticket.complete) {
+			continue
+		}
+		snapshot := ticket.descriptor.Snapshot()
+		if snapshot.Identity.Valid() {
+			snapshot.PublicationUncertain = true
+			result = append(result, snapshot)
+		}
+	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Identity.Run < result[j].Identity.Run })
 	return result
 }
@@ -377,6 +402,9 @@ func (s *Runtime) DisableLaunches() {
 	s.mu.Lock()
 	if !s.disabled {
 		s.disabled = true
+		for _, run := range s.runs {
+			run.clearObservation()
+		}
 		s.changedLocked()
 	}
 	s.mu.Unlock()
@@ -386,7 +414,7 @@ func (s *Runtime) DisableLaunches() {
 func (s *Runtime) Disabled() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.disabled || s.shutdownPreparing || s.shutdownCommitted || s.lifecycleStarting
+	return s.executionAdmissionClosedLocked()
 }
 func (s *Runtime) changedLocked() {
 	if s.revision == math.MaxUint64 {
@@ -476,6 +504,28 @@ func (s *Runtime) AwaitExit(ctx context.Context, id domain.LaunchIdentity) (doma
 			}
 		}
 		if pending == nil {
+			var resume *resumeTicket
+			for _, ticket := range s.resumes {
+				if ticket.starting && ticket.descriptor.Identity() == id {
+					resume = ticket
+					break
+				}
+			}
+			if resume != nil {
+				if resume.complete {
+					snapshot := resume.descriptor.Snapshot()
+					s.mu.Unlock()
+					return snapshot, ErrLaunchUnknown
+				}
+				done := resume.done
+				s.mu.Unlock()
+				select {
+				case <-done:
+					continue
+				case <-ctx.Done():
+					return domain.RunSnapshot{}, xerrors.Errorf("wait for managed resume: %w", ctx.Err())
+				}
+			}
 			s.mu.Unlock()
 			return domain.RunSnapshot{}, domain.ErrChanged
 		}
@@ -502,4 +552,10 @@ func newLaunchIdentity(epoch string) (domain.LaunchIdentity, error) {
 		return domain.LaunchIdentity{}, domain.ErrUnsafe
 	}
 	return domain.LaunchIdentity{Run: hex.EncodeToString(random[:16]), Generation: hex.EncodeToString(random[16:]), Epoch: epoch}, nil
+}
+
+// executionAdmissionClosedLocked fences NEW launch/resume effects only. Existing
+// receipts and explicit Stop retain their separate read/control contracts.
+func (s *Runtime) executionAdmissionClosedLocked() bool {
+	return s.disabled || s.shutdownPreparing || s.shutdownCommitted || s.lifecycleStarting
 }

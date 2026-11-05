@@ -68,6 +68,7 @@ func (c *RootCLI) newHookCommand() *cobra.Command {
 			maybeGCHookStateResidues()
 		},
 	}
+	c.registerHookObservationFlags(hookCmd)
 	hookCmd.AddCommand(c.newHookSessionCommand())
 	hookCmd.AddCommand(c.newHookPassiveCommand())
 	hookCmd.AddCommand(c.newHookAuditCommand())

@@ -76,7 +76,20 @@ func NewManagedRuntime(ctx context.Context, root, epoch string) (*app.Runtime, e
 	if err != nil {
 		return nil, err
 	}
-	owner, err := app.NewRuntime(services.Registry, execution, launcher, execution, epoch)
+	// Capabilities are fixed for this daemon epoch. Merely implementing PTY
+	// launch must not advertise recovery for unrelated/unqualified hosts.
+	var processes app.ProcessLauncher = launcher
+	profiles, err := execution.ListProfiles(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, profile := range profiles {
+		if _, err := inspectClaudeRecoverySource(ctx, profile, launcher.environment); err == nil {
+			processes = &claudeNativeLauncher{PTYLauncher: launcher}
+			break
+		}
+	}
+	owner, err := app.NewRuntime(services.Registry, execution, processes, execution, epoch)
 	if err != nil {
 		return nil, xerrors.Errorf("compose managed runtime: %w", err)
 	}

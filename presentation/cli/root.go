@@ -15,9 +15,12 @@ import (
 
 // RootCLI provides the Traceary root command.
 type RootCLI struct {
+	claudeObservationClaims     application.ClaudeObservationClaimDecoder
+	hookObservation             hookObservationConfig
 	runtimeDaemon               appruntime.Daemon
 	runtimeClient               appruntime.Client
 	runtimeOperators            appruntime.OperatorFactory
+	nativeSessionMetadata       appruntime.NativeSessionMetadataSink
 	event                       usecase.EventUsecase
 	eventMetadata               usecase.EventMetadataUsecase
 	twoTierSearch               queryservice.TwoTierSearch
@@ -78,6 +81,12 @@ type RootCLI struct {
 // RootCLIOption configures a RootCLI during construction. Options are
 // applied in order, so later options override earlier ones.
 type RootCLIOption func(*RootCLI)
+
+// WithClaudeObservationClaims injects optional untrusted session correlation.
+// Nil means unavailable and never changes primary hook capture.
+func WithClaudeObservationClaims(decoder application.ClaudeObservationClaimDecoder) RootCLIOption {
+	return func(c *RootCLI) { c.claudeObservationClaims = decoder }
+}
 
 // WithEvent injects the EventUsecase used by event-producing commands.
 func WithEvent(event usecase.EventUsecase) RootCLIOption {

@@ -98,3 +98,8 @@ func (d *LocalDaemon) AttemptUpdate(context.Context, string, app.UpdateAttemptRe
 func (d *LocalDaemon) HandoffUpdate(context.Context, string, app.UpdateHandoffRequest) (app.ShutdownResult, error) {
 	return app.ShutdownResult{}, app.ErrRuntimeUnsupported
 }
+
+// ObserveSelected never uses an uncertified platform, TCP, legacy or unchecked peer fallback.
+func (d *LocalDaemon) ObserveSelected(context.Context, string, app.SelectedObservation) error {
+	return app.ErrRuntimeUnsupported
+}

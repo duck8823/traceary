@@ -94,6 +94,15 @@ func (s *Runtime) shutdownBindingLocked(id string) domain.ShutdownBindingState {
 			}
 		}
 	}
+	// Resume transfers pending -> active before durable publication, just like
+	// ordinary launch. Keep that interval in the exact shutdown/update roster.
+	for _, ticket := range s.resumes {
+		if ticket.starting && !ticket.complete && ticket.attached {
+			if _, exists := s.runs[ticket.descriptor.Snapshot().Identity.Run]; exists {
+				publishing++
+			}
+		}
+	}
 	for _, run := range s.runs {
 		if run.descriptor.Snapshot().State == domain.RunExited {
 			select {
@@ -489,7 +498,7 @@ func (s *Runtime) PublishCleanShutdown(ctx context.Context) error {
 // A failed/ambiguous startup permanently refuses new launch admission.
 func (s *Runtime) InitializeLifecycle(ctx context.Context) (LifecycleSnapshot, error) {
 	s.mu.Lock()
-	if s.lifecycleStarting || s.lifecycleBound || s.disabled || len(s.tickets) != 0 || s.shutdownPreparing || s.shutdownCommitted {
+	if s.lifecycleStarting || s.lifecycleBound || s.disabled || len(s.tickets) != 0 || len(s.resumes) != 0 || s.shutdownPreparing || s.shutdownCommitted {
 		s.mu.Unlock()
 		return LifecycleSnapshot{}, ErrRuntimeBusy
 	}

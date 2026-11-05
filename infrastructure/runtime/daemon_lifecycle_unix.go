@@ -102,7 +102,7 @@ func (s *daemonServer) shutdownPreviewReply(reply *runtimeResponse, preview app.
 	}
 }
 func lifecycleOnlyReply(r runtimeResponse) bool {
-	return r.History == nil && r.HistoryHint == nil && r.Control == nil && r.Output == nil && r.Status == nil && r.Run == nil && r.Page == nil && r.Role == "" && (r.Lifecycle == nil || r.Lifecycle.singleArm())
+	return r.Resume == nil && r.History == nil && r.HistoryHint == nil && r.Control == nil && r.Output == nil && r.Status == nil && r.Run == nil && r.Page == nil && r.Role == "" && (r.Lifecycle == nil || r.Lifecycle.singleArm())
 }
 func lifecycleBindingValid(s domain.ShutdownBindingState) bool {
 	_, err := domain.ShutdownBindingFrom(s)

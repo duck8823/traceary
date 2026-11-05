@@ -21,6 +21,11 @@ func WithRuntimeClient(client app.Client) RootCLIOption {
 func WithRuntimeOperators(factory app.OperatorFactory) RootCLIOption {
 	return func(c *RootCLI) { c.runtimeOperators = factory }
 }
+
+// WithNativeSessionMetadata injects the optional metadata-only native hook sink.
+func WithNativeSessionMetadata(sink app.NativeSessionMetadataSink) RootCLIOption {
+	return func(c *RootCLI) { c.nativeSessionMetadata = sink }
+}
 func writeRuntimeJSON(cmd *cobra.Command, value any) error {
 	if err := json.NewEncoder(cmd.OutOrStdout()).Encode(value); err != nil {
 		return xerrors.Errorf("write runtime metadata: %w", err)
@@ -54,6 +59,7 @@ func requireRuntimeFlags(cmd *cobra.Command, names ...string) {
 func (c *RootCLI) newRuntimeCommand() *cobra.Command {
 	var root string
 	group := &cobra.Command{Use: "runtime", Short: "Manage explicit local runtime targets and owned launch receipts"}
+	group.AddCommand(c.newNativeSessionMarkerCommand())
 	group.PersistentFlags().StringVar(&root, "runtime-dir", "", "Absolute private runtime directory (same root as daemon serve)")
 	// Operator commands run with a bounded context and never initialize the core DB.
 	operator := func(cmd *cobra.Command, create bool) (app.OperatorServices, context.Context, context.CancelFunc, error) {
@@ -228,7 +234,7 @@ func (c *RootCLI) newRuntimeCommand() *cobra.Command {
 	list.Flags().StringVar(&cursor, "cursor", "", "Previous page next cursor")
 	list.Flags().Uint64Var(&revision, "revision", 0, "Previous page revision (required with cursor)")
 	requireRuntimeFlags(list, "epoch")
-	group.AddCommand(project, worktree, registry, profile, launch, list, c.newRuntimeAttachCommand(&root), c.newRuntimeHistoryCommand(&root), c.newRuntimeMetadataCommand(&root))
+	group.AddCommand(project, worktree, registry, profile, launch, list, c.newRuntimeResumeCommand(&root), c.newRuntimeAttachCommand(&root), c.newRuntimeHistoryCommand(&root), c.newRuntimeMetadataCommand(&root), c.newRuntimeObserveCommand(&root))
 	for _, kind := range []string{"input", "resize", "stop", "receipt"} {
 		group.AddCommand(c.newRuntimeControlCommand(&root, kind))
 	}

@@ -69,7 +69,7 @@ func (d *LocalDaemon) Control(ctx context.Context, root string, request app.Cont
 	if sent && (errors.Is(err, app.ErrDaemonUnavailable) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || reply.ID == "" && (errors.Is(err, app.ErrRuntimeProtocol) || errors.Is(err, app.ErrRuntimeUnsupported))) {
 		return unknownControlResult(request), app.ErrControlUnknown
 	}
-	if reply.Lifecycle != nil || reply.History != nil || reply.HistoryHint != nil || reply.Run != nil || reply.Page != nil || reply.Output != nil || reply.Status != nil || reply.Role != "" {
+	if reply.Lifecycle != nil || reply.Resume != nil || reply.History != nil || reply.HistoryHint != nil || reply.Run != nil || reply.Page != nil || reply.Output != nil || reply.Status != nil || reply.Role != "" {
 		return unknownControlResult(request), errors.Join(app.ErrControlUnknown, app.ErrRuntimeProtocol)
 	}
 	if reply.ID != "" {
@@ -108,7 +108,7 @@ func (d *LocalDaemon) Receipt(ctx context.Context, root string, selection app.Ou
 	if err != nil {
 		return app.ControlResult{}, err
 	}
-	if reply.Lifecycle != nil || reply.History != nil || reply.HistoryHint != nil || reply.Code != "ok" || reply.Control == nil || reply.Run != nil || reply.Page != nil || reply.Output != nil || reply.Status != nil || reply.Role != "" {
+	if reply.Lifecycle != nil || reply.Resume != nil || reply.History != nil || reply.HistoryHint != nil || reply.Code != "ok" || reply.Control == nil || reply.Run != nil || reply.Page != nil || reply.Output != nil || reply.Status != nil || reply.Role != "" {
 		return app.ControlResult{}, app.ErrRuntimeProtocol
 	}
 	result, err := reply.Control.result()
