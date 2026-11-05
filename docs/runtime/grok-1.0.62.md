@@ -2,6 +2,8 @@
 
 [日本語](grok-1.0.62.ja.md)
 
+**Approved delivery split (2026-11-05):** Safe [implementation/evidence #2477](https://github.com/duck8823/traceary/issues/2477) may integrate separately from [unfinished native qualification #2497](https://github.com/duck8823/traceary/issues/2497). Implementation merge is not native binding/state/recovery certification; unqualified functionality stays fail-closed/unknown.
+
 **Status: discovery only. No native AI turn, callback or safe recovery is qualified.** This tracks [#2477](https://github.com/duck8823/traceary/issues/2477), not parent completion. [Body-free metadata](evidence/grok-1.0.62.json) separates actual observations from unrun gates.
 
 ## Measured source

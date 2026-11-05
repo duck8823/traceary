@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,14 +24,17 @@ import (
 )
 
 func TestRuntimeCLIEndToEndRegistrationLaunchAndListWithoutHomeOrCoreBootstrap(t *testing.T) {
-	for _, mode := range []string{"output", "controls", "observe", "shutdown", "crash", "update", "autostart"} {
+	for _, mode := range []string{"output", "controls", "observe", "integrated", "replay-oracle", "shutdown", "crash", "update", "autostart", "concurrent", "cursor-gap"} {
 		t.Run(mode, func(t *testing.T) { runtimeCLIProcessFixture(t, mode) })
 	}
 }
 func runtimeCLIProcessFixture(t *testing.T, mode string) {
+	control := mode == "controls" || mode == "integrated" || mode == "replay-oracle" || mode == "concurrent"
 	t.Helper()
-	control := mode == "controls"
 	lifecycle := mode == "shutdown" || mode == "crash"
+	if mode == "cursor-gap" && (domain.MaxOutputBytes != 2*1024*1024 || domain.MaxOutputChunk != 32*1024) {
+		t.Fatal("review the fixed eviction workload before changing resource bounds")
+	}
 
 	base := os.TempDir()
 	if runtime.GOOS == "darwin" {
@@ -64,18 +68,30 @@ func runtimeCLIProcessFixture(t *testing.T, mode string) {
 	agentSource := filepath.Join(root, "fixture-agent.go")
 	agentBinary := filepath.Join(root, "fixture-agent")
 	program := `package main
-import("os";"encoding/json";"bytes";"io";"time";"os/signal";"syscall";"golang.org/x/term";"golang.org/x/sys/unix")
+import("os";"encoding/json";"bytes";"io";"time";"os/signal";"syscall";"strconv";"golang.org/x/term";"golang.org/x/sys/unix")
 func main(){
  if len(os.Args)==2&&os.Args[1]=="--version"{os.Stdout.WriteString("fixture-runtime 1\n");return}
  if len(os.Args)!=1{os.Exit(93)}
  cwd,_:=os.Getwd();data,_:=json.Marshal(map[string]string{"cwd":cwd,"store":os.Getenv("TRACEARY_DB_PATH"),"run":os.Getenv("TRACEARY_RUNTIME_RUN_ID")})
  result:=os.Getenv("TRACEARY_TEST_RUNTIME_RESULT")
+ if os.Getenv("TRACEARY_TEST_RUNTIME_CONCURRENT")=="1" {result+="."+os.Getenv("TRACEARY_RUNTIME_RUN_ID")}
  if os.WriteFile(result,data,0600)!=nil{os.Exit(90)}
  lifecycle:=os.Getenv("TRACEARY_TEST_RUNTIME_SHUTDOWN")=="1"
  if lifecycle {signal.Ignore(syscall.SIGHUP);os.WriteFile(result+".ready",[]byte("ready"),0600)}
  control:=os.Getenv("TRACEARY_TEST_RUNTIME_CONTROL")=="1"
  if control {if _,e:=term.MakeRaw(0);e!=nil{os.Exit(94)};os.WriteFile(result+".ready",[]byte("ready"),0600)}
- os.Stdout.Write(bytes.Repeat([]byte("x"),2*1024*1024))
+ if os.Getenv("TRACEARY_TEST_RUNTIME_INTEGRATED")=="1" {
+  deadline:=time.Now().Add(15*time.Second)
+  for end:=65536;end<=2*1024*1024;end+=65536 {
+   if _,e:=os.Stdout.Write(bytes.Repeat([]byte("x"),65536));e!=nil{os.Exit(98)}
+   for {
+    data,e:=os.ReadFile(result+".output-consumed");n,parse:=strconv.Atoi(string(data))
+    if e==nil&&parse==nil&&n==end {break}
+    if time.Now().After(deadline){os.Exit(98)}
+    time.Sleep(5*time.Millisecond)
+   }
+  }
+ } else {size:=2*1024*1024;if os.Getenv("TRACEARY_TEST_RUNTIME_CURSOR_GAP")=="1"{size+=32*1024};os.Stdout.Write(bytes.Repeat([]byte("x"),size))}
  if os.Getenv("TRACEARY_TEST_RUNTIME_OBSERVE")=="1" {
   deadline:=time.Now().Add(15*time.Second)
   for {if _,e:=os.Stat(result+".observe-release");e==nil{break};if time.Now().After(deadline){os.Exit(92)};time.Sleep(5*time.Millisecond)}
@@ -83,7 +99,7 @@ func main(){
 
  if control {
   raw:=make([]byte,5);if _,e:=io.ReadFull(os.Stdin,raw);e!=nil{os.Exit(95)};os.WriteFile(result+".input",raw,0600)
-  marker:=make([]byte,1);if _,e:=io.ReadFull(os.Stdin,marker);e!=nil{os.Exit(95)}
+  marker:=make([]byte,1);if _,e:=io.ReadFull(os.Stdin,marker);e!=nil{os.Exit(95)};if marker[0]!='r'{os.Exit(97)}
   size,e:=unix.IoctlGetWinsize(0,unix.TIOCGWINSZ);if e!=nil{os.Exit(96)};geometry,_:=json.Marshal([]uint16{size.Row,size.Col});os.WriteFile(result+".geometry",geometry,0600)
   time.Sleep(15*time.Second);os.Exit(92)
  }
@@ -117,8 +133,17 @@ func main(){
 		if control {
 			cmd.Env = append(cmd.Env, "TRACEARY_TEST_RUNTIME_CONTROL=1")
 		}
+		if mode == "concurrent" {
+			cmd.Env = append(cmd.Env, "TRACEARY_TEST_RUNTIME_CONCURRENT=1")
+		}
+		if mode == "integrated" {
+			cmd.Env = append(cmd.Env, "TRACEARY_TEST_RUNTIME_INTEGRATED=1")
+		}
 		if mode == "observe" {
 			cmd.Env = append(cmd.Env, "TRACEARY_TEST_RUNTIME_OBSERVE=1")
+		}
+		if mode == "cursor-gap" {
+			cmd.Env = append(cmd.Env, "TRACEARY_TEST_RUNTIME_CURSOR_GAP=1")
 		}
 
 		return cmd
@@ -195,8 +220,8 @@ func main(){
 		t.Fatal("profile registration lost policy")
 	}
 	server := command("daemon", "serve", "--runtime-dir", metadata)
-	var errors bytes.Buffer
-	server.Stderr = &errors
+	var serverErrors bytes.Buffer
+	server.Stderr = &serverErrors
 	if err = server.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +254,7 @@ func main(){
 		}
 		select {
 		case e := <-done:
-			t.Fatalf("daemon exited: %v %.2000s", e, errors.String())
+			t.Fatalf("daemon exited: %v %.2000s", e, serverErrors.String())
 		default:
 		}
 		if time.Now().After(deadline) {
@@ -283,6 +308,29 @@ func main(){
 	if launched["request_id"] != "explicit-fixture-request" {
 		t.Fatal("launch receipt lost request")
 	}
+	if mode == "concurrent" {
+		fixture := concurrentCLIRuns{root: metadata, epoch: status.Epoch, worktree: w["id"].(string), project: project, store: store, resultBase: resultFile, command: command, jsonCommand: jsonCommand, client: client}
+		fixture.verify(ctx, t, launched)
+		actual, e := os.ReadFile(store)
+		if e != nil || !bytes.Equal(actual, original) {
+			t.Fatal("concurrent children changed core store")
+		}
+		if _, e = os.Stat(filepath.Dir(poisonCore)); !os.IsNotExist(e) {
+			t.Fatal("concurrent children initialized poison core path")
+		}
+		if e = server.Process.Signal(syscall.SIGTERM); e != nil {
+			t.Fatal(e)
+		}
+		select {
+		case e = <-done:
+			if e != nil {
+				t.Fatalf("concurrent owner actual Wait: %v %.1000s", e, serverErrors.String())
+			}
+		case <-ctx.Done():
+			t.Fatal("concurrent owner did not exit after both child exits")
+		}
+		return
+	}
 	if lifecycle {
 		ready := time.Now().Add(4 * time.Second)
 		for {
@@ -333,7 +381,7 @@ func main(){
 			select {
 			case e = <-done:
 				if e != nil {
-					t.Fatalf("confirmed daemon exit: %v %.1000s", e, errors.String())
+					t.Fatalf("confirmed daemon exit: %v %.1000s", e, serverErrors.String())
 				}
 			case <-ctx.Done():
 				t.Fatal("confirmed daemon failed to exit")
@@ -437,7 +485,8 @@ func main(){
 		return
 	}
 
-	if mode == "observe" {
+	if mode == "observe" || mode == "integrated" {
+
 		target := launched["run"].(map[string]any)
 		args := []string{"runtime", "observe", "--runtime-dir", metadata, "--epoch", status.Epoch, "--run", target["run"].(string), "--generation", target["generation"].(string), "--worktree", w["id"].(string), "--profile", "codex-fixture", "--host", "codex", "--host-version", "fixture-runtime 1", "--event-id", "spool:actual-cli", "--kind", "prompt_boundary"}
 		observed := jsonCommand(args...)
@@ -447,6 +496,45 @@ func main(){
 		if err = os.WriteFile(resultFile+".observe-release", []byte("release finite owned fixture"), 0600); err != nil {
 			t.Fatal(err)
 		}
+	}
+	var reconnected *integratedCLIOutput
+	if mode == "integrated" {
+		target := launched["run"].(map[string]any)
+		selection := map[string]string{"epoch": status.Epoch, "run": target["run"].(string), "generation": target["generation"].(string), "worktree": w["id"].(string), "profile": "codex-fixture"}
+		flags := []string{"runtime", "attach", "--runtime-dir", metadata, "--epoch", selection["epoch"], "--run", selection["run"], "--generation", selection["generation"], "--worktree", selection["worktree"], "--profile", selection["profile"]}
+		first := startIntegratedCLIOutput(t, command(append(flags, "--cursor", "0")...), selection)
+		first.snapshot(t)
+		cursor := first.consume(t, 2*1024*1024, resultFile+".output-consumed")
+		first.detach(t)
+		assertLive := func() {
+			t.Helper()
+			page := jsonCommand("runtime", "list", "--runtime-dir", metadata, "--epoch", status.Epoch)
+			runs := page["runs"].([]any)
+			if len(runs) != 1 || runs[0].(map[string]any)["process_state"] != "live" || runs[0].(map[string]any)["generation"] != selection["generation"] {
+				t.Fatal("detach changed or lost the original live synthetic child")
+			}
+		}
+		assertLive()
+		foreign := append([]string{}, flags...)
+		for i := range foreign {
+			if foreign[i] == "--generation" {
+				foreign[i+1] = strings.Repeat("f", 32)
+			}
+		}
+		if err := command(foreign...).Run(); err == nil {
+			t.Fatal("foreign generation attached to integrated run")
+		}
+		assertLive()
+		reconnected = startIntegratedCLIOutput(t, command(append(flags, "--cursor", cursor)...), selection)
+		reconnected.snapshot(t)
+		assertLive() // Reconnection is positively established BEFORE manual input.
+		deferred := jsonCommand("daemon", "update", "attempt", "--runtime-dir", metadata, "--epoch", status.Epoch, "--target-version", "fixture-v2", "--target-protocol", "2")
+		if deferred["notice"] != true || deferred["outcome"] != "deferred" {
+			t.Fatal("integrated live run was not preserved during update deferral")
+		}
+		preview := jsonCommand("daemon", "shutdown", "preview", "--runtime-dir", metadata, "--epoch", status.Epoch)
+		_ = jsonCommand(integratedPreviewCancelArgs(t, metadata, selection, preview)...)
+		assertLive() // Canceling a preview cannot close/relaunch the child or replay input.
 	}
 	expectedExit := 7
 	if control {
@@ -473,6 +561,56 @@ func main(){
 			}
 		}
 		_ = artifact(resultFile + ".ready")
+		for _, field := range []string{"epoch", "run", "generation", "worktree", "profile"} {
+			requestID := "wrong-" + field
+			foreign := args("input", requestID, "--manual-terminal")
+			for i := range foreign {
+				if foreign[i] == "--"+field {
+					value := strings.Repeat("f", 32)
+					if field == "worktree" {
+						value = "w_" + strings.Repeat("f", 64)
+					}
+					if field == "profile" {
+						value = "foreign-fixture"
+					}
+					if foreign[i+1] == value {
+						value = strings.ReplaceAll(value, "f", "e")
+					}
+					foreign[i+1] = value
+					break
+				}
+			}
+			bad := command(foreign...)
+			badPayload := []byte("bad!!")
+			bad.Stdin = bytes.NewReader(badPayload)
+			out, rejectErr := bad.CombinedOutput()
+			if rejectErr == nil || bytes.Contains(out, badPayload) {
+				t.Fatalf("foreign %s input succeeded or echoed bytes", field)
+			}
+			var rejected map[string]any
+			for _, line := range bytes.Split(out, []byte("\n")) {
+				if len(line) > 0 && line[0] == '{' {
+					if err := json.Unmarshal(line, &rejected); err != nil {
+						t.Fatal(err)
+					}
+					break
+				}
+			}
+			receipt, ok := rejected["receipt"].(map[string]any)
+			if !ok || receipt["outcome"] != "rejected" || receipt["written_bytes"] != "0" || receipt["request_id"] != requestID || receipt["input_bytes"] != "5" {
+				t.Fatalf("foreign %s input did not report explicit zero-effect rejection", field)
+			}
+			if _, err := command(args("receipt", requestID)...).CombinedOutput(); err == nil {
+				t.Fatalf("foreign %s input poisoned the valid selection receipt journal", field)
+			}
+			validSelection := app.OutputSelection{Identity: domain.LaunchIdentity{Epoch: status.Epoch, Run: target["run"].(string), Generation: target["generation"].(string)}, Worktree: domain.WorktreeID(w["id"].(string)), Profile: "codex-fixture"}
+			if _, err := client.Receipt(ctx, metadata, validSelection, requestID); !errors.Is(err, domain.ErrNotFound) {
+				t.Fatalf("foreign %s receipt absence was not positively classified as not-found: %v", field, err)
+			}
+		}
+		if _, err := os.Stat(resultFile + ".input"); !os.IsNotExist(err) {
+			t.Fatal("foreign/stale input reached the owned child before explicit valid input")
+		}
 		raw := []byte{0xe6, 0x97, 0xa5, 0x1b, 0xff}
 		input := command(args("input", "cli-input", "--manual-terminal")...)
 		input.Stdin = bytes.NewReader(raw)
@@ -488,16 +626,27 @@ func main(){
 		if _, e = duplicate.CombinedOutput(); e != nil {
 			t.Fatal("actual CLI duplicate receipt inspection failed")
 		}
-		_ = jsonCommand(args("resize", "cli-resize", "--sequence", "1", "--rows", "31", "--cols", "101")...)
-		marker := command(args("input", "cli-marker", "--manual-terminal")...)
-		marker.Stdin = strings.NewReader("r")
-		if _, e = marker.CombinedOutput(); e != nil {
-			t.Fatal("actual CLI marker failed")
+		if mode == "replay-oracle" {
+			// Intentionally inject a distinct manual request, not a product retry.
+			// Its leading 0xe6 must fail the child's literal-r marker oracle.
+			replayed := command(args("input", "injected-new-replay", "--manual-terminal")...)
+			replayed.Stdin = bytes.NewReader(raw)
+			if _, e = replayed.CombinedOutput(); e != nil {
+				t.Fatal("could not deliver intentional synthetic replay fault")
+			}
+			expectedExit = 97
+		} else {
+			_ = jsonCommand(args("resize", "cli-resize", "--sequence", "1", "--rows", "31", "--cols", "101")...)
+			marker := command(args("input", "cli-marker", "--manual-terminal")...)
+			marker.Stdin = strings.NewReader("r")
+			if _, e = marker.CombinedOutput(); e != nil {
+				t.Fatal("actual CLI marker failed")
+			}
+			if string(artifact(resultFile+".geometry")) != "[31,101]" {
+				t.Fatal("actual CLI resize or no-replay contract failed")
+			}
+			_ = jsonCommand(args("stop", "cli-stop", "--acknowledge-work-loss")...)
 		}
-		if string(artifact(resultFile+".geometry")) != "[31,101]" {
-			t.Fatal("actual CLI resize or no-replay contract failed")
-		}
-		_ = jsonCommand(args("stop", "cli-stop", "--acknowledge-work-loss")...)
 		receipt := jsonCommand(args("receipt", "cli-input")...)
 		if receipt["receipt"].(map[string]any)["written_bytes"] != "5" {
 			t.Fatal("actual CLI lost input receipt after stop")
@@ -516,6 +665,14 @@ func main(){
 			t.Fatalf("owned synthetic exit not reconciled: %v", e)
 		}
 		time.Sleep(5 * time.Millisecond)
+	}
+	if mode == "replay-oracle" {
+		if _, err := os.Stat(resultFile + ".geometry"); !os.IsNotExist(err) {
+			t.Fatal("intentional replay passed the literal-r oracle")
+		}
+	}
+	if reconnected != nil {
+		reconnected.ended(t)
 	}
 	page := jsonCommand("runtime", "list", "--runtime-dir", metadata, "--epoch", status.Epoch)
 	if len(page["runs"].([]any)) != 1 {
@@ -564,12 +721,21 @@ func main(){
 		}
 		return count, last
 	}
-	count, last := attach("0")
-	if count != 2*1024*1024 || last != "2097152" {
-		t.Fatal("actual CLI lost native output")
-	}
-	if count, _ = attach(last); count != 0 {
-		t.Fatal("actual CLI replayed already consumed bytes")
+	if mode == "cursor-gap" {
+		selection := map[string]string{"epoch": status.Epoch, "run": runView["run"].(string), "generation": runView["generation"].(string), "worktree": w["id"].(string), "profile": "codex-fixture"}
+		base, head := uint64(32768), uint64(2129920)
+		for _, cursor := range []uint64{0, base, head} {
+			stream := startIntegratedCLIOutput(t, command(append(attachArgs, "--cursor", strconv.FormatUint(cursor, 10))...), selection)
+			stream.replayAfterEviction(t, cursor, base, head)
+		}
+	} else {
+		count, last := attach("0")
+		if count != 2*1024*1024 || last != "2097152" {
+			t.Fatal("actual CLI lost native output")
+		}
+		if count, _ = attach(last); count != 0 {
+			t.Fatal("actual CLI replayed already consumed bytes")
+		}
 	}
 	actual, err := os.ReadFile(store)
 	if err != nil || !bytes.Equal(actual, original) {
@@ -595,9 +761,21 @@ func main(){
 	select {
 	case err = <-done:
 		if err != nil {
-			t.Fatalf("graceful owner exit: %v %.2000s", err, errors.String())
+			t.Fatalf("graceful owner exit: %v %.2000s", err, serverErrors.String())
 		}
 	case <-ctx.Done():
 		t.Fatal("daemon did not exit after owned reconciliation")
+	}
+	if mode == "integrated" {
+		assertAbsentDaemonCLIRefusals(t, command, metadata, attachArgs[2:])
+		if after, e := os.ReadFile(store); e != nil || !bytes.Equal(after, original) {
+			t.Fatal("absent-daemon requests changed core store")
+		}
+		if after, e := os.ReadFile(resultFile); e != nil || !bytes.Equal(after, actual) {
+			t.Fatal("absent-daemon requests restarted or changed the original child")
+		}
+		if _, e := os.Stat(filepath.Dir(poisonCore)); !os.IsNotExist(e) {
+			t.Fatal("absent-daemon requests initialized poison core path")
+		}
 	}
 }
