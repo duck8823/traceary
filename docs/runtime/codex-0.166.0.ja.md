@@ -97,3 +97,9 @@ user config の非 secret な selector だけを確認したところ、元 work
 effective project trust や hook 非表示の原因を証明したわけではありません。
 この会話で、専用フォルダの project 信頼確認が表示された場合だけ、ユーザーに手動確認を依頼しました。
 project/global 設定・native trust・認証の変更は行わず、raw 診断・設定データを他の AI へ渡していません。
+
+## project layerの信頼確認後もhook discoveryは未解決
+
+2026-11-05、保守者はこの検証フォルダが信頼済みで、通常起動時にも信頼確認は出ないことを確認した。固定したnative CLIで新たにmetadata専用診断を行い、initialize、includeLayers付きconfig/read、hooks/list、configRequirements/readだけを実行した。thread/turnやmodel requestは作成していない。対象project layerは存在し無効化されておらず、実効hooks featureはtrueだった。それでも一時sourceのhookは0件、その他14件、報告error/warningは0件のままだった。診断の実Waitは0、対象の一時3ファイルはhash不変だった。
+
+user configのprojects tableに対象の完全一致entryがないことは、実効的な未信頼の証明ではなかった。この問題についてproject信頼操作を人間へ追加要求しない。残る問題はversion固有のhook discoveryで、原因は未証明。hook信頼の迂回、global設定変更、実行broker採用やnative hook/binding認定は行わない。保持したのはlayer種別、対象一致・無効化boolean、hook件数・enumだけで、設定本文・hook command・credential・account値は保存していない。

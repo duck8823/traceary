@@ -121,5 +121,21 @@
       "traceary-2474-hook-list-diagnostic-result.json": "e4ca0637b3f9eb58c1c11df25411073e4f5b71b7a835cfe9d79f8e41832f69d2",
       "traceary-2474-own-trust-policy-metadata.json": "8958076cd6d158a6fd07692f20c0521678dda65cf78154bbf46fa8c4cd4b79e2"
     }
+  },
+  "trusted_project_layer_discovery_recheck": {
+    "maintainer_confirms_trusted": true,
+    "exact_project_layer_present_and_enabled": true,
+    "effective_hooks_feature": true,
+    "temporary_source_hooks_count": 0,
+    "other_hooks_count": 14,
+    "errors_count": 0,
+    "warnings_count": 0,
+    "actual_diagnostic_wait_exit": 0,
+    "temporary_files_unchanged": true,
+    "thread_turn_model_requested": false,
+    "global_settings_or_trust_changed": false,
+    "diagnostic_sha256": "d11f6d069ad6daea07fd0bf29be90f8b1f4cd81831b8dd9362492f26fde3709e",
+    "cause": "NOT_PROVEN; not an unresolved human project-trust action",
+    "native_qualification_pass": false
   }
 }
