@@ -77,3 +77,16 @@ group、他の AI、process adoption、製品の所有・終了契約は変更�
 報告された1474f9cbdd91 prefix の照会は HTTP422で、最初の100 tags に1.0.62一致はなく、現在 SOURCE_REV は異なり、列挙された最新変更日は2026-09-29でした。
 この範囲の照会だけで、一致 source が存在しないとは断定しません。
 公開 snapshot を導入済み binary と認定せず、binary/source の置換や model/privacy/backend guard の緩和も行いません。
+
+## 公式release artifactとのbyte一致
+
+別のread-only検証で、[公式installer](https://x.ai/cli/install.sh) のURL・platform・圧縮形式の規則を読みました。
+installer自体は実行していません。
+固定した [1.0.62 macOS ARM64 gzip artifact](https://x.ai/cli/grok-1.0.62-macos-aarch64.gz) を、認証なし・download上限80MiBで取得しました。
+圧縮71036654 byteのSHA256は `7a8ada02efca32c4fb065592db5739e497bf87937310f54297845d63e27773cb` です。
+上限256MiBのstream展開で175577200 byteを得て、SHA256 `ec434e831afdcfce87780f2815fd732b1df8a4a8de96a491716ad75d13605a4e` が、改めてread-onlyで計算した導入済みexecutableと完全一致しました。
+
+これは公式release artifactとのbyte一致であり、**公開sourceの完全なrevision対応、hook/model/provider/tool/backendや安全な復旧の認定ではありません。**
+installer・取得binary・導入済みbinaryを実行せず、install・置換・実行権限の付与、credentialの読み取り、既存processへのsignal送信は行っていません。
+元の診断Waitは未完了であり、次のnative試行は開始しません。
+先行するsource照会とnative検証の失敗も保持します。
